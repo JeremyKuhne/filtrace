@@ -6,11 +6,10 @@ traces - the productized successor to `touki.mcp`. Built on the
 (`.nettrace` / `.speedscope.json`) and ETW (`.etl`) captures from both .NET and
 .NET Framework runs.
 
-> **Incubation status.** This is the M0 scaffold of a self-contained subtree
-> inside the `touki` repository. It is promoted to its own repository at the
-> M3.5 gate. The full plan, surface area, and milestones live in
-> [docs/filtrace-implementation-plan.md](../docs/filtrace-implementation-plan.md)
-> (in the parent repo during incubation).
+> **Status.** filtrace was extracted from the
+> [`touki`](https://github.com/JeremyKuhne/touki) repository, where it incubated,
+> into this standalone repository with its history preserved. It is pre-1.0; the
+> surface may still shift.
 
 ## Using filtrace
 
@@ -128,11 +127,10 @@ Run `filtrace <verb> --help` for the full option set of any verb.
 
 ## Self-containment
 
-The subtree carries its own `Directory.Build.props`, `Directory.Build.targets`,
+filtrace carries its own `Directory.Build.props`, `Directory.Build.targets`,
 `Directory.Packages.props`, `global.json`, and `.editorconfig` (`root = true`),
-none of which inherit from the parent `touki` repo. Nothing outside `filtrace/`
-references in, and nothing inside references a `touki` project. Promotion is a
-plain file copy.
+so the build is fully self-contained. Its only external dependency is the
+published `KlutzyNinja.Touki` NuGet package; it references no other project.
 
 ## Build and test (standalone)
 

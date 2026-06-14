@@ -1,0 +1,69 @@
+# Build and test filtrace on Windows and Linux.
+#
+# filtrace runs on .NET 10 only and reads traces produced by both modern .NET
+# and .NET Framework. The capability matrix is cross-platform: most analysis
+# works everywhere, while the Windows-only ETW (.etl) thread-time path is gated
+# inside the tests, so the same suite runs on both OSes and skips what an OS
+# cannot do.
+#
+# Two contract checks run after the suite: the CLI help lint (every verb appears
+# in help and stays within budget) and the MCP server check (stdout is pure
+# JSON-RPC, the tool-list schema stays within the token budget, and a real
+# tools/call round-trips).
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: "build (${{ matrix.os }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: ${{ runner.os }}-filtrace-nuget-${{ hashFiles('**/*.csproj', 'Directory.Packages.props', 'Directory.Build.props', 'Directory.Build.targets', 'global.json') }}
+          restore-keys: |
+            ${{ runner.os }}-filtrace-nuget-
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore filtrace.slnx
+
+      - name: Build
+        run: dotnet build filtrace.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test filtrace.slnx --configuration Release --no-build
+
+      - name: Help lint
+        shell: pwsh
+        run: ./tools/Test-CliHelp.ps1 -Configuration Release
+
+      - name: MCP server check
+        shell: pwsh
+        run: ./tools/Test-McpServer.ps1 -Configuration Release
