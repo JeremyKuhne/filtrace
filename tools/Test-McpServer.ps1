@@ -5,10 +5,10 @@
 
 <#
 .SYNOPSIS
-  Validates the traceq MCP server's wire-protocol contracts as build artifacts.
+  Validates the filtrace MCP server's wire-protocol contracts as build artifacts.
 
 .DESCRIPTION
-  Enforces the two checks born with the MCP facade (docs/traceq-implementation-plan.md,
+  Enforces the two checks born with the MCP facade (docs/filtrace-implementation-plan.md,
   milestone M3), plus a scripted client round-trip:
 
     1. stdout purity - stdout carries only JSON-RPC. The server is run with a
@@ -24,8 +24,8 @@
        exercising the whole client -> server -> service -> client path.
 
   Drives the server over stdio exactly as a client would: initialize, initialized,
-  tools/list, then tools/call. Run from the traceq subtree root (the directory
-  holding traceq.slnx).
+  tools/list, then tools/call. Run from the filtrace subtree root (the directory
+  holding filtrace.slnx).
 
 .PARAMETER Configuration
   The build configuration whose MCP binary to exercise. Defaults to Release.
@@ -48,10 +48,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$mcpDll = Join-Path $root "src/TraceQ.Mcp/bin/$Configuration/net10.0/TraceQ.Mcp.dll"
+$mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
 
 if (-not (Test-Path $mcpDll)) {
-    throw "MCP binary not found at '$mcpDll'. Build the solution first (dotnet build traceq.slnx -c $Configuration)."
+    throw "MCP binary not found at '$mcpDll'. Build the solution first (dotnet build filtrace.slnx -c $Configuration)."
 }
 
 $failures = [System.Collections.Generic.List[string]]::new()
@@ -108,7 +108,7 @@ $p.StandardInput.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list","param
 # Round-trip a real tool call (id 3): invoke trace_info against a committed fixture
 # so the harness exercises the full client -> server -> service -> client path, not
 # just tools/list. ConvertTo-Json handles escaping the (possibly back-slashed) path.
-$fixture = Join-Path $root 'tests/TraceQ.Core.Tests/Fixtures/folding.speedscope.json'
+$fixture = Join-Path $root 'tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json'
 if (-not (Test-Path $fixture)) {
     throw "Round-trip fixture not found at '$fixture'."
 }

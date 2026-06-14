@@ -2,8 +2,8 @@
 <!--
   Present solely to stop MSBuild from walking up and importing Touki's root
   Directory.Build.targets (which pulls in MinVer and a restore workaround that
-  would re-couple traceq to Touki). Intentionally empty during incubation;
-  traceq wires its own versioning at promotion.
+  would re-couple filtrace to Touki). Intentionally empty during incubation;
+  filtrace wires its own versioning at promotion.
 -->
 <Project>
 </Project>

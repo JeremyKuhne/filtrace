@@ -5,10 +5,10 @@
 
 <#
 .SYNOPSIS
-  Lints the traceq CLI help surface as a build artifact.
+  Lints the filtrace CLI help surface as a build artifact.
 
 .DESCRIPTION
-  Enforces the M2 help contract (docs/traceq-implementation-plan.md, milestone M2):
+  Enforces the M2 help contract (docs/filtrace-implementation-plan.md, milestone M2):
 
     1. Every [Command] verb in the CLI is listed in the top-level help.
     2. Each verb's `--help` succeeds, shows a Usage line, and stays within the
@@ -17,7 +17,7 @@
        canonical workflow - examples live in the README because ConsoleAppFramework
        generates the per-verb `--help` from XML docs and has no examples section.
 
-  Run from the traceq subtree root (the directory holding traceq.slnx).
+  Run from the filtrace subtree root (the directory holding filtrace.slnx).
 
 .PARAMETER Configuration
   The build configuration whose CLI binary to lint. Defaults to Release.
@@ -33,15 +33,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$commandsFile = Join-Path $root 'src/TraceQ/Cli/TraceCommands.cs'
+$commandsFile = Join-Path $root 'src/Filtrace/Cli/TraceCommands.cs'
 $readmeFile = Join-Path $root 'README.md'
-$cliDll = Join-Path $root "src/TraceQ/bin/$Configuration/net10.0/traceq.dll"
+$cliDll = Join-Path $root "src/Filtrace/bin/$Configuration/net10.0/filtrace.dll"
 
 $failures = [System.Collections.Generic.List[string]]::new()
 function Add-Failure([string]$message) { $failures.Add($message) }
 
 if (-not (Test-Path $cliDll)) {
-    throw "CLI binary not found at '$cliDll'. Build the solution first (dotnet build traceq.slnx -c $Configuration)."
+    throw "CLI binary not found at '$cliDll'. Build the solution first (dotnet build filtrace.slnx -c $Configuration)."
 }
 
 # The verb set is the source of truth: every [Command("name")] in TraceCommands.
@@ -56,7 +56,7 @@ Write-Host "Linting help for $($verbs.Count) verbs: $($verbs -join ', ')"
 # focused message rather than letting every verb check cascade into noise.
 $topHelp = (& dotnet $cliDll 2>&1 | Out-String)
 if ($LASTEXITCODE -ne 0) {
-    throw "Top-level help ('dotnet traceq.dll') exited with code $LASTEXITCODE.`n$topHelp"
+    throw "Top-level help ('dotnet filtrace.dll') exited with code $LASTEXITCODE.`n$topHelp"
 }
 foreach ($verb in $verbs) {
     if ($topHelp -notmatch "(?m)^\s+$([regex]::Escape($verb))\s") {
@@ -87,9 +87,9 @@ if ($readme -notmatch '(?im)workflow') {
     Add-Failure "README has no 'Workflow' section."
 }
 foreach ($verb in $verbs) {
-    # A documented example is a `traceq <verb> ...` invocation somewhere in the README.
-    if ($readme -notmatch "traceq $([regex]::Escape($verb))(\s|``)") {
-        Add-Failure "README has no 'traceq $verb' example."
+    # A documented example is a `filtrace <verb> ...` invocation somewhere in the README.
+    if ($readme -notmatch "filtrace $([regex]::Escape($verb))(\s|``)") {
+        Add-Failure "README has no 'filtrace $verb' example."
     }
 }
 

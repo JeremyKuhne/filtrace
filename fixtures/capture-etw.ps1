@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Captures the net481 ETW (.etl) half of the traceq fixture corpus.
+    Captures the net481 ETW (.etl) half of the filtrace fixture corpus.
 
 .DESCRIPTION
     Runs the HotLoopBench `EtwLoop` benchmark under BenchmarkDotNet's ETW
@@ -25,7 +25,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $fixturesRoot = $PSScriptRoot
 $benchProject = Join-Path $fixturesRoot 'HotLoopBench'
-$coreFixtures = Join-Path $fixturesRoot '../tests/TraceQ.Core.Tests/Fixtures'
+$coreFixtures = Join-Path $fixturesRoot '../tests/Filtrace.Core.Tests/Fixtures'
 $artifacts = Join-Path $benchProject 'BenchmarkDotNet.Artifacts'
 
 # ETW kernel tracing requires administrator rights; fail fast with a clear

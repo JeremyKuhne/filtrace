@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Regenerates the traceq EventPipe fixture corpus and its frozen parity oracle.
+    Regenerates the filtrace EventPipe fixture corpus and its frozen parity oracle.
 
 .DESCRIPTION
     Captures a net10 EventPipe CPU profile of the HotLoopBench benchmark, copies
@@ -27,8 +27,8 @@ $ErrorActionPreference = 'Stop'
 $fixturesRoot = $PSScriptRoot
 $benchProject = Join-Path $fixturesRoot 'HotLoopBench'
 $oracle = Join-Path $fixturesRoot 'oracles/Get-TraceHotspots.ps1'
-$parityFixtures = Join-Path $fixturesRoot '../tests/TraceQ.Parity.Tests/Fixtures'
-$coreFixtures = Join-Path $fixturesRoot '../tests/TraceQ.Core.Tests/Fixtures'
+$parityFixtures = Join-Path $fixturesRoot '../tests/Filtrace.Parity.Tests/Fixtures'
+$coreFixtures = Join-Path $fixturesRoot '../tests/Filtrace.Core.Tests/Fixtures'
 $artifacts = Join-Path $benchProject 'BenchmarkDotNet.Artifacts'
 
 Write-Host 'Capturing the EventPipe CPU profile (BenchmarkDotNet)...'
@@ -112,7 +112,7 @@ finally
 }
 
 $golden = [ordered]@{
-    source    = 'tools/Get-TraceHotspots.ps1 (frozen; see traceq/fixtures/oracles)'
+    source    = 'tools/Get-TraceHotspots.ps1 (frozen; see filtrace/fixtures/oracles)'
     selfTime  = Get-OracleRows -Lines $oracleOutput -SectionMarker 'TOP SELF-TIME'
     inclusive = Get-OracleRows -Lines $oracleOutput -SectionMarker 'TOP INCLUSIVE-TIME'
 }

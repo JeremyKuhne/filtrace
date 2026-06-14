@@ -2,8 +2,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Fixture-generation benchmark (see traceq/fixtures/README.md). Deliberately
-    excluded from traceq.slnx so the subtree CI and the extraction rehearsal stay
+    Fixture-generation benchmark (see filtrace/fixtures/README.md). Deliberately
+    excluded from filtrace.slnx so the subtree CI and the extraction rehearsal stay
     light: it is a manual regeneration tool run by make-fixtures.ps1, not part of
     the build/test loop.
   -->
@@ -16,7 +16,7 @@
       net10.0 for the EventPipe (.nettrace) profiles, and net481 for the ETW
       (.etl) profile the net481 gap needs. The subtree's Directory.Build.props
       pins a single net10.0 TargetFramework, so blank it before setting the
-      multi-target list. Still excluded from traceq.slnx - a manual tool.
+      multi-target list. Still excluded from filtrace.slnx - a manual tool.
     -->
     <TargetFramework></TargetFramework>
     <TargetFrameworks>net10.0;net481</TargetFrameworks>

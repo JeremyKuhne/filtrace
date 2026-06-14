@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Filtrace.Core/Filtrace.Core.csproj" />
+    <Project Path="src/Filtrace/Filtrace.csproj" />
+    <Project Path="src/Filtrace.Mcp/Filtrace.Mcp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Filtrace.Core.Tests/Filtrace.Core.Tests.csproj" />
+    <Project Path="tests/Filtrace.Cli.Tests/Filtrace.Cli.Tests.csproj" />
+    <Project Path="tests/Filtrace.Mcp.Tests/Filtrace.Mcp.Tests.csproj" />
+    <Project Path="tests/Filtrace.Parity.Tests/Filtrace.Parity.Tests.csproj" />
+  </Folder>
+</Solution>

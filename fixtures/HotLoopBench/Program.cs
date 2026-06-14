@@ -21,7 +21,7 @@ namespace TraceQ.Fixtures.HotLoopBench;
 
 /// <summary>
 ///  A deliberately hot, stable string-building loop whose EventPipe CPU profile
-///  is the seed of the traceq fixture corpus. The call tree is intentionally
+///  is the seed of the filtrace fixture corpus. The call tree is intentionally
 ///  shallow and named so its self / inclusive / callers rankings are easy to
 ///  reason about and to compare against the frozen oracle.
 /// </summary>
@@ -409,7 +409,7 @@ internal static class Program
     // lossless path is to scope by process tree at analysis time over the full trace
     // (see the EtlReader). The full state of this investigation, and why physical
     // trimming is still wanted (avoiding repeated filtering, transporting a smaller
-    // trace), is captured in docs/traceq-etl-trimming.md.
+    // trace), is captured in docs/filtrace-etl-trimming.md.
     private static int Trim(string inEtlPath, string outEtlPath, string processNameSubstring, bool includeChildren)
     {
         if (!File.Exists(inEtlPath))

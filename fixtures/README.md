@@ -1,11 +1,11 @@
-# traceq fixtures
+# filtrace fixtures
 
 The trace corpus the tests read, and the tooling that regenerates it.
 
 ## Layout
 
 - `HotLoopBench/` - a small, dedicated BenchmarkDotNet project that seeds the
-  corpus. It is **not** part of `traceq.slnx`, so the subtree CI and the
+  corpus. It is **not** part of `filtrace.slnx`, so the subtree CI and the
   extraction rehearsal stay light; it is a manual regeneration tool. It carries
   two benchmarks and an `inspect` verb:
   - `HotLoop` - a hot string-building loop captured under `[EventPipeProfiler]`
@@ -27,12 +27,12 @@ The trace corpus the tests read, and the tooling that regenerates it.
 On a Windows machine with the .NET 10 SDK:
 
 ```powershell
-pwsh traceq/fixtures/make-fixtures.ps1
+pwsh filtrace/fixtures/make-fixtures.ps1
 ```
 
-This refreshes `tests/TraceQ.Parity.Tests/Fixtures/hotloop.speedscope.json` and
+This refreshes `tests/Filtrace.Parity.Tests/Fixtures/hotloop.speedscope.json` and
 `hotloop.oracle.json` **together**, as a matched pair (each capture produces
-different absolute timings; the parity test compares traceq against the oracle on
+different absolute timings; the parity test compares filtrace against the oracle on
 the same committed file, so the pair stays consistent). Run it when the benchmark,
 TraceEvent, or BenchmarkDotNet version moves.
 
