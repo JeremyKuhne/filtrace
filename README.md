@@ -25,7 +25,7 @@ filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source line
 filtrace diff before.nettrace after.nettrace   # 4. what changed between runs
 ```
 
-Install the CLI as a .NET global tool (needs the .NET 10 runtime):
+Install the CLI as a .NET global tool (`dotnet tool` ships with the .NET 10 SDK):
 
 ```pwsh
 dotnet tool install --global KlutzyNinja.Filtrace

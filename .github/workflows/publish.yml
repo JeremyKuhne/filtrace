@@ -33,6 +33,10 @@ concurrency:
 jobs:
   publish:
     name: pack and push
+    # Only ever publish from a v* tag. workflow_dispatch can be aimed at a branch ref,
+    # which would produce a MinVer 0.0.0-alpha.0.* version and push it to nuget.org;
+    # this guard keeps the job tag-only (a manual dispatch must select a v* tag).
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: read
