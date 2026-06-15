@@ -40,6 +40,9 @@
     <PackageVersion Include="AwesomeAssertions" Version="9.4.0" />
     <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.7.0" />
     <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.2.3" />
+
+    <!-- Versioning: stamps the package and assembly versions from git tags at pack time. -->
+    <PackageVersion Include="MinVer" Version="7.0.0" />
   </ItemGroup>
 
 </Project>

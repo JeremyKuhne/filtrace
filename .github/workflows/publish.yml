@@ -1,0 +1,76 @@
+# Pack and publish filtrace to NuGet.org on a version tag.
+#
+# Two packages ship from one tag:
+#   - KlutzyNinja.Filtrace      (the `filtrace` CLI, a .NET global tool)
+#   - KlutzyNinja.Filtrace.Mcp  (the stdio MCP server, an `McpServer` tool package)
+#
+# Versioning is tag-driven via MinVer: the tag (e.g. `v0.1.0`, `v1.2.3-beta.1`)
+# minus the `v` prefix becomes the package version. Push a tag to publish.
+#
+# Authentication uses NuGet Trusted Publishing (GitHub OIDC -> short-lived API
+# key), so there is no long-lived NUGET_API_KEY secret. One-time setup on
+# nuget.org (Account -> Trusted Publishing) - create a policy with:
+#   Repository owner: JeremyKuhne
+#   Repository:       filtrace
+#   Workflow file:    publish.yml      (filename only, no path)
+# and add a repository secret NUGET_USER set to the nuget.org account/profile
+# name that owns the KlutzyNinja.* package prefix. The package IDs must be
+# registered/reservable under that owner before the first push.
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: pack and push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # required for the OIDC token exchange with nuget.org
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # MinVer needs full history and tags to compute the version
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore filtrace.slnx
+
+      - name: Build
+        run: dotnet build filtrace.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test filtrace.slnx --configuration Release --no-build
+
+      - name: Pack
+        run: dotnet pack filtrace.slnx --configuration Release --no-build
+
+      # Request the short-lived key immediately before pushing (it is valid ~1 hour).
+      - name: NuGet login (OIDC -> short-lived API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push
+        run: >
+          dotnet nuget push "artifacts/packages/*.nupkg"
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate

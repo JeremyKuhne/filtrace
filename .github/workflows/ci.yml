@@ -37,6 +37,8 @@ jobs:
       NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # MinVer derives the build version from git history and tags
 
       - name: Cache NuGet packages
         uses: actions/cache@v4

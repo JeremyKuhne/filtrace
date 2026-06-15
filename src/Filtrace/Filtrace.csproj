@@ -8,18 +8,18 @@
     <AssemblyName>filtrace</AssemblyName>
 
     <!--
-      Package as a .NET global/local tool so `dotnet pack` + `dotnet tool install` round-trips
-      (an M2 exit criterion). This overrides the subtree's IsPackable=false default for this
-      project only - it makes a LOCAL install work; publishing to a feed stays deferred to
-      M3.5/M4 (no feed source is configured here, and the package is not pushed anywhere).
+      Package as a .NET global tool so `dotnet pack` + `dotnet tool install` round-trips.
+      This opts back into packing (the subtree default is IsPackable=false) - the published
+      package is `KlutzyNinja.Filtrace`, installed as the `filtrace` command. The version is
+      stamped by MinVer (see Directory.Build.targets); shared metadata, license, README, and
+      the package output path come from Directory.Build.props.
     -->
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>filtrace</ToolCommandName>
-    <PackageId>Filtrace.Tool</PackageId>
-    <Version>0.0.0-dev</Version>
+    <PackageId>KlutzyNinja.Filtrace</PackageId>
     <Description>Agent-shaped CLI for analyzing .NET CPU, allocation, thread-time, GC, JIT, and event traces.</Description>
-    <PackageOutputPath>$(MSBuildThisFileDirectory)..\..\artifacts\packages</PackageOutputPath>
+    <PackageTags>trace;profiling;diagnostics;performance;cpu;allocation;gc;nettrace;etl;speedscope;dotnet-tool;cli</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
