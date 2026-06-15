@@ -60,7 +60,7 @@ function Get-DocBlock {
 }
 
 # Replace the inner text of a marked block in a file, preserving the file's
-# dominant newline style.
+# newline style (CRLF if the file contains any CRLF, otherwise LF).
 function Set-DocBlock {
     param([string]$Path, [string]$Id, [string]$Content)
     $raw = Get-Content -LiteralPath $Path -Raw
