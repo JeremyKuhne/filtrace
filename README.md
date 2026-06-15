@@ -166,7 +166,7 @@ against a baseline to see what changed.
 | `tests/Filtrace.Parity.Tests/` | Numeric parity against the frozen legacy oracles. |
 | `eval/` | Headless-agent eval harness, tasks, baselines (M5). |
 | `docs/` | Single-source workflow text for the skill / README / help (M4). |
-| `skills/filtrace/` | The shipped agent skill. |
+| `.agents/skills/filtrace/` | The shipped agent skill. |
 
 ## Self-containment
 

@@ -20,7 +20,7 @@ Layout:
 - `tests/Filtrace.*.Tests/` - unit and parity tests (Microsoft.Testing.Platform runner)
 - `fixtures/` - HotLoopBench and the committed binary captures the tests read
 - `tools/` - CI contract scripts (CLI help lint, MCP server check)
-- `docs/`, `eval/`, `skills/` - single-source workflow text, eval harness, shipped skill
+- `docs/`, `eval/`, `.agents/skills/` - single-source workflow text, eval harness, shipped skill
 
 ## Build and test
 

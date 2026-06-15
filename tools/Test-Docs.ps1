@@ -41,8 +41,8 @@ function Add-Failure([string]$message) { $failures.Add($message) }
 # The block sync map: each marked block has one source-of-truth page in docs/ and
 # the consumer surfaces that embed a verbatim copy.
 $blocks = @(
-    @{ Id = 'verbs'; Source = 'docs/workflow.md'; Consumers = @('skills/filtrace/SKILL.md') }
-    @{ Id = 'traps'; Source = 'docs/traps.md'; Consumers = @('skills/filtrace/SKILL.md') }
+    @{ Id = 'verbs'; Source = 'docs/workflow.md'; Consumers = @('.agents/skills/filtrace/SKILL.md') }
+    @{ Id = 'traps'; Source = 'docs/traps.md'; Consumers = @('.agents/skills/filtrace/SKILL.md') }
     @{ Id = 'agents-snippet'; Source = 'docs/workflow.md'; Consumers = @('README.md') }
 )
 
@@ -100,20 +100,20 @@ foreach ($block in $blocks) {
 }
 
 # 2. Skill frontmatter: name matches the directory, description present.
-$skillPath = Join-Path $root 'skills/filtrace/SKILL.md'
+$skillPath = Join-Path $root '.agents/skills/filtrace/SKILL.md'
 if (-not (Test-Path $skillPath)) {
-    Add-Failure 'Shipped skill skills/filtrace/SKILL.md is missing.'
+    Add-Failure 'Shipped skill .agents/skills/filtrace/SKILL.md is missing.'
 }
 else {
     $skillRaw = Get-Content -LiteralPath $skillPath -Raw
     if ($skillRaw -notmatch "(?s)^---\r?\n(.*?)\r?\n---") {
-        Add-Failure 'skills/filtrace/SKILL.md has no YAML frontmatter block.'
+        Add-Failure '.agents/skills/filtrace/SKILL.md has no YAML frontmatter block.'
     }
     else {
         $frontmatter = $Matches[1]
         $skillName = if ($frontmatter -match '(?m)^name:\s*(\S+)\s*$') { $Matches[1] } else { $null }
         if ($skillName -ne 'filtrace') {
-            Add-Failure "Skill 'name' is '$skillName'; it must be 'filtrace' to match the skills/filtrace/ directory."
+            Add-Failure "Skill 'name' is '$skillName'; it must be 'filtrace' to match the .agents/skills/filtrace/ directory."
         }
         if ($frontmatter -notmatch '(?m)^description:\s*\S') {
             Add-Failure 'Skill frontmatter has no non-empty description.'
