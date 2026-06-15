@@ -1,9 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Present solely to stop MSBuild from walking up and importing Touki's root
-  Directory.Build.targets (which pulls in MinVer and a restore workaround that
-  would re-couple filtrace to Touki). Intentionally empty during incubation;
-  filtrace wires its own versioning at promotion.
+  filtrace's own versioning and packaging tail. Stands in for Touki's root
+  Directory.Build.targets (the nearest file wins) so the subtree stays
+  self-contained: a standalone filtrace repo needs no edits here.
 -->
 <Project>
+
+  <!--
+    MinVer derives the package/assembly version from the nearest 'v*' git tag
+    plus commit height. Applied to every project (PrivateAssets="all" keeps it
+    build-only and out of the dependency graph); only the packable heads emit a
+    package, but a consistent version on every assembly is harmless and useful.
+    Versioning the publish requires a tag - until one exists MinVer produces a
+    height-based 0.0.0-alpha.0.* pre-release, which is correct for CI.
+  -->
+  <ItemGroup>
+    <PackageReference Include="MinVer" PrivateAssets="all" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+  </PropertyGroup>
+
+  <!--
+    The README shown on each package's NuGet.org page. Lives at the repo root and
+    is shared by both packable heads; gated on IsPackable so it is not attached
+    to the test and fixture projects. PackageReadmeFile (set in
+    Directory.Build.props) names it.
+  -->
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
 </Project>

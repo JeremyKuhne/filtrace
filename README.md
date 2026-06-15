@@ -25,11 +25,36 @@ filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source line
 filtrace diff before.nettrace after.nettrace   # 4. what changed between runs
 ```
 
-Install it as a local .NET tool from a `dotnet pack` output:
+Install the CLI as a .NET global tool (`dotnet tool` ships with the .NET 10 SDK):
+
+```pwsh
+dotnet tool install --global KlutzyNinja.Filtrace
+filtrace cpu app.nettrace
+```
+
+Or build and install it from source:
 
 ```pwsh
 dotnet pack src/Filtrace/Filtrace.csproj -c Release
-dotnet tool install --global --add-source ./artifacts/packages Filtrace.Tool
+dotnet tool install --global --add-source ./artifacts/packages KlutzyNinja.Filtrace
+```
+
+### MCP server
+
+The same analysis is exposed as a stdio MCP server for agent clients. With the
+.NET 10 SDK installed (it provides `dnx`), point your client's MCP config at the
+package - it is fetched and launched on demand:
+
+```json
+{
+  "servers": {
+    "filtrace": {
+      "type": "stdio",
+      "command": "dnx",
+      "args": ["KlutzyNinja.Filtrace.Mcp", "--yes"]
+    }
+  }
+}
 ```
 
 ### Verbs

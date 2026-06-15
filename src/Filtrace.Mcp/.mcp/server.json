@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "description": "CLI and MCP .NET trace analyzer: ranks, drills into, diffs, and exports CPU, allocation, exception, and thread-time profiles from .nettrace, .etl, and speedscope captures.",
+  "name": "io.github.JeremyKuhne/filtrace",
+  "version": "0.0.0-local",
+  "packages": [
+    {
+      "registryType": "nuget",
+      "registryBaseUrl": "https://api.nuget.org/v3/index.json",
+      "identifier": "KlutzyNinja.Filtrace.Mcp",
+      "version": "0.0.0-local",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [],
+      "environmentVariables": []
+    }
+  ],
+  "repository": {
+    "url": "https://github.com/JeremyKuhne/filtrace",
+    "source": "github"
+  }
+}
