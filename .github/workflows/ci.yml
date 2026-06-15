@@ -69,3 +69,7 @@ jobs:
       - name: MCP server check
         shell: pwsh
         run: ./tools/Test-McpServer.ps1 -Configuration Release
+
+      - name: Docs drift check
+        shell: pwsh
+        run: ./tools/Test-Docs.ps1
