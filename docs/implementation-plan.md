@@ -8,13 +8,26 @@
 >
 > **Done (shipped in this repo):** M0-M3 - the extraction under the new identity,
 > the analysis surface (§1A), the output contract, the full CLI verb set, and the
-> curated MCP facade - plus the §3 parity harness and the §7 dogfooding
-> hardening. The standalone repo, its CI, and the packaging wiring are complete.
+> curated MCP facade - plus the §3 parity harness, the §7 dogfooding hardening,
+> and the §7.6 native-symbol work (`--native-symbols`, the `classify` verb, and
+> the `trace_classify` tool). **M3½ promotion, M4 (the knowledge layer - docs
+> single-source + drift check generating `SKILL.md`, plus `server.json` - and
+> distribution) are complete, and the first packages are published:**
+> `KlutzyNinja.Filtrace` (CLI) and `KlutzyNinja.Filtrace.Mcp` (MCP server) shipped
+> to **public NuGet.org at 0.1.0** on 2026-06-15 via Trusted Publishing (GitHub
+> OIDC). The standalone repo, its CI, and the packaging/publish wiring are done.
 >
-> **Remaining:** M4 (knowledge layer + distribution - the docs single-source +
-> drift check that generates `SKILL.md`, the `server.json`, and the first
-> packages), M5 (the §10 eval harness), M6 (v1.0 - public NuGet + MCP registry),
-> and the post-1.0 backlog (the Addendum A gaps).
+> **Remaining:** M5 (the §10 eval harness - the token estimator landed; the
+> headless-agent runners, the ten tasks, baselines, and the CI smoke subset have
+> not), M6 (v1.0 - the stable-cadence flip, the Touki migration, the MCP registry
+> entry, and README install badges), the AOT / self-contained publish profiles
+> (still framework-dependent; blocked by TraceEvent), and the post-1.0 backlog
+> (the Addendum A gaps, plus the parked `trim` verb, time-window scoping, and the
+> permanent O1 cross-machine CI guard).
+>
+> **Cadence note (2026-06-15):** the Q2 decision below ("private GitHub Packages
+> feed until v1.0") was **superseded** - the first publish went straight to public
+> NuGet.org via Trusted Publishing at 0.1.0, with no private-feed phase.
 >
 > **Reading incubation-era names and paths:** the narrative below is the original
 > record and is intentionally not rewritten. Translate as you read - `traceq` ->
@@ -26,7 +39,9 @@
 > `TraceQ.Fixtures.HotLoopBench` namespace are deliberately unchanged (the latter
 > is baked into the committed binary fixtures).
 
-**Status:** Active — Q1–Q3 resolved (§6)
+**Status:** Active - M0-M4 and §7.6 shipped; 0.1.0 published to NuGet.org
+(2026-06-15); M5 (eval harness) and M6 (v1.0) remain. Q1-Q3 resolved (§6), with
+the Q2 cadence superseded (public NuGet from the first publish - see the header).
 **Dogfooding hardening (2026-06-10):** A real net481 ETW profiling session folded
 its findings back into the tool - see [§7](#7-dogfooding-hardening-2026-06-10-etw-capture-process-scoping-and-the-runtime-symbol-plan).
 Shipped: process scoping on the line-level verbs and the MCP tools (A1), a
@@ -313,6 +328,12 @@ Two CI checks born here and kept forever: the **stdout-purity test** (run the se
 
 ### M3½ — Promotion
 
+**Status: complete (2026-06-14/15).** The `filtrace` repo stands alone with its
+own CI; the four steps below were executed (history preserved on extraction). The
+GitHub Packages private feed in step 3 was **not** used - distribution went
+straight to public NuGet via Trusted Publishing (see M4 and the header cadence
+note).
+
 With the facade demonstrably standing alone, execute the rehearsed extraction:
 
 1. **Name finalized** (§6, D-N) — **decided: `filtrace`** (2026-06-14; rationale and availability evidence in [§6, D-N](#d-n--naming--decided-filtrace-2026-06-14)). The repo, tool command, and packages (`KlutzyNinja.Filtrace`, `Filtrace.Core`, `Filtrace.Mcp`) take this name; the `traceq` subtree identifier is renamed **as part of the extraction** (below), not in-place beforehand.
@@ -324,17 +345,41 @@ With the facade demonstrably standing alone, execute the rehearsed extraction:
 
 ### M4 — Knowledge layer and distribution
 
+**Status: complete (2026-06-15), with the distribution path changed.** The
+knowledge layer shipped: `docs/workflow.md` + `docs/traps.md` single-source the
+shipped skill (`.agents/skills/filtrace/SKILL.md`) and the README's agent snippet,
+guarded by `tools/Test-Docs.ps1` in CI; the `.mcp/server.json` manifest ships in
+the MCP package (MinVer-stamped at pack time). **Distribution superseded the
+private-feed plan below:** rather than a GitHub Packages feed private until v1.0,
+the first packages published directly to **public NuGet.org at 0.1.0** via Trusted
+Publishing (GitHub OIDC, no stored key) - so the feed-auth deliverables (PAT
+`nuget.config`, the cloud-agent secret snippet) are moot. Still open from this
+milestone: the self-contained / AOT publish profiles (framework-dependent today,
+blocked by TraceEvent), and the MCP registry entry + README install badges (M6).
+
 Write the SKILL.md, trap catalog, and AGENTS.md snippet from `docs/` single-sourcing with the drift check (§6 of the design); generate `server.json`; self-contained publish profiles (interim non-AOT - full Native AOT is the goal, but TraceEvent blocks it today; this reverses D13, see the AOT-goal note in section 6); **first packages (Core, tool, Mcp shim) land on the promoted repo's GitHub Packages feed — private until v1.0.** Feed-auth realities are an M4 deliverable because they bite every consumer: CI uses `GITHUB_TOKEN`; local installs need a PAT-backed `nuget.config` source; the Copilot cloud agent needs the credential supplied through `copilot-setup-steps.yml` env/secrets — ship that snippet alongside the §8.2 one. The NuGet MCP package-type metadata rides along now so nothing changes shape at 1.0; install badges and the MCP registry entry wait for the public publish (M6).
 
 **Exit:** cold-discovery (eval task 8) passes from a fresh clone carrying only the AGENTS.md pointer; `dotnet tool install --add-source <feed>` and `dnx <Pkg>@<ver>` against the feed both work on clean, feed-authenticated Windows and Linux machines.
 
 ### M5 — Eval harness and tuning
 
+**Status: not started (one building block landed).** The deterministic, offline
+token estimator the schema/output budgets need is built and shared
+(`tools/Get-TokenEstimate.ps1` + `OutputBudget.EstimateTokens`, byte-for-byte
+mirrored). The harness itself - the headless-agent runners, the arms, the ten
+tasks, the metrics capture, the baselines, and the CI smoke subset - is not.
+
 Build the §10 harness: headless Claude Code + Copilot CLI runners, the four arms, N = 10, metrics capture (success / tokens / calls / wall time), the ten tasks, and the mcp-builder-style QA file for the MCP arm. Record baselines, then run the tuning loop on descriptions, help, and the skill — agent-drafted revisions, harness-scored, human-reviewed. Wire the smoke subset (tasks 1, 4, 9) into CI with the regression budget (any success drop fails; > 15% token growth on a task fails).
 
 **Exit:** baselines committed; design goals G1 (≤ 6 calls) and G2 (token budgets) met or variances documented with rationale; smoke subset gating CI.
 
 ### M6 — Touki migration and v1.0
+
+**Status: not started.** filtrace is published at 0.1.0, so the "first public
+publish" mechanics are already proven; what remains for this milestone is the
+stable-cadence flip to **v1.0**, the cross-repo Touki migration, the MCP registry
+entry, and README install badges. (The cadence note in the header records that
+the public publish happened at 0.1.0 rather than waiting for v1.0.)
 
 `touki.mcp` retires. Touki adds the feed source and references `TraceQ.Core` — fold-list additions and BDN conventions survive as a thin config + skill layer (design D-table); the performance-testing skill and `docs/performance-investigation*.md` are rewritten to route through `traceq`, now covering the wall-clock, allocation, and retention families and the `trim` / `export` workflows rather than CPU alone; `.vscode/mcp.json` gains the server; the `touki.mcp` project is deleted. Decide and record whether `Get-TraceHotspots.ps1` stays as a no-dependency fallback or goes too. Resolve any O1 residue. Then the cadence flip: **v1.0 is the first public NuGet publish** — the same IDs the private feed proved out — with install badges and the MCP registry entry, after which Touki's private-feed source becomes unnecessary.
 

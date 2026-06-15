@@ -1,0 +1,14 @@
+{
+  "id": "cpu-hotspot",
+  "title": "Rank CPU self-time, then drill into the hottest frame's callers.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json",
+  "os": "any",
+  "steps": [
+    { "args": ["cpu", "{fixture}", "--top", "5"] },
+    { "args": ["callers", "{fixture}", "MyApp.Inner"] }
+  ],
+  "assert": [
+    { "step": 0, "topFrame": "MyApp.Inner" },
+    { "step": 1, "hintContains": "MyApp.Work" }
+  ]
+}

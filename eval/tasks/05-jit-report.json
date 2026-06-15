@@ -1,0 +1,12 @@
+{
+  "id": "jit-report",
+  "title": "Report JIT compilation cost (method count and compile time).",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/jit.nettrace",
+  "os": "any",
+  "steps": [
+    { "args": ["jitstats", "{fixture}"] }
+  ],
+  "assert": [
+    { "field": "result.methodCount", "equals": 840 }
+  ]
+}

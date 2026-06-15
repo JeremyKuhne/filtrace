@@ -1,0 +1,12 @@
+{
+  "id": "etl-processes",
+  "title": "List the processes in a machine-wide ETW capture before scoping.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
+  "os": "windows",
+  "steps": [
+    { "args": ["processes", "{fixture}"] }
+  ],
+  "assert": [
+    { "jsonContains": "HotLoopBench" }
+  ]
+}

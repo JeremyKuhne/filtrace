@@ -1,0 +1,12 @@
+{
+  "id": "alloc-hotspot",
+  "title": "Find the allocation site responsible for the most bytes.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/alloc.nettrace",
+  "os": "any",
+  "steps": [
+    { "args": ["alloc", "{fixture}", "--top", "5"] }
+  ],
+  "assert": [
+    { "topFrame": "TraceQ.Fixtures.HotLoopBench.AllocLoop.AllocateBuffers" }
+  ]
+}

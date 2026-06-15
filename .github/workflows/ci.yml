@@ -74,6 +74,10 @@ jobs:
         shell: pwsh
         run: ./tools/Test-Docs.ps1
 
+      - name: Eval gate
+        shell: pwsh
+        run: ./eval/Invoke-Eval.ps1 -Configuration Release
+
   # Single stable gate over the OS matrix. The `main` ruleset requires the `ci`
   # check; this job provides it, so adding or removing a matrix leg never needs a
   # ruleset edit. `if: always()` plus the explicit result test makes it fail (not
