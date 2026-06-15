@@ -1,20 +1,23 @@
 # filtrace workflow (single source)
 
-This page is the **single source of truth** for filtrace's workflow text. The
-shipped skill ([../skills/filtrace/SKILL.md](../skills/filtrace/SKILL.md)) and the
-[README](../README.md) embed the marked blocks below verbatim, and
-[tools/Test-Docs.ps1](../tools/Test-Docs.ps1) fails CI if a copy drifts from this
-source. Edit the blocks here, then run `tools/Test-Docs.ps1 -Fix` to refresh the
-copies.
+This page is the **single source of truth** for filtrace's workflow text. Some of
+its marked blocks are embedded verbatim into other surfaces and guarded by
+[tools/Test-Docs.ps1](../tools/Test-Docs.ps1), which fails CI if a copy drifts:
+the `verbs` block into the shipped skill
+([../skills/filtrace/SKILL.md](../skills/filtrace/SKILL.md)) and the
+`agents-snippet` block into the [README](../README.md). The `tools` block is
+reference-only - it is not embedded anywhere, but the drift check asserts every
+MCP tool appears in it. Edit a block here, then run `tools/Test-Docs.ps1 -Fix` to
+refresh the embedded copies.
 
 filtrace is a command-line and MCP trace analyzer. It reads EventPipe
 (`.nettrace`, `.speedscope.json`) and ETW (`.etl`) captures from both modern .NET
 and .NET Framework, ranks where a metric goes, drills into one frame, and diffs
 two runs. There is no GUI; output is dense text by default, or compact JSON.
 
-## The canonical investigation: rank -> drill -> compare
+## The canonical investigation: orient -> rank -> drill -> compare
 
-Almost every investigation is the same three moves, and the verbs and MCP tools
+Almost every investigation is the same four moves, and the verbs and MCP tools
 are named for them:
 
 1. **Orient.** Read the trace's format, sample count, and symbol-resolution rate

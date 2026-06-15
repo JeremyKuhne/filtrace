@@ -10,11 +10,12 @@
 .DESCRIPTION
   Enforces the M4 knowledge-layer contract (docs/implementation-plan.md, milestone M4):
 
-    1. docs/ is the single source of truth. Each marked block
-       (`<!-- filtrace:begin <id> -->` ... `<!-- filtrace:end <id> -->`) defined in a
-       docs/ page is embedded verbatim into one or more consumer surfaces (the
-       shipped skill, the README). This check fails if any copy drifts from its
-       source (line endings are normalized, so it is OS-agnostic).
+    1. docs/ is the single source of truth. The marked blocks
+       (`<!-- filtrace:begin <id> -->` ... `<!-- filtrace:end <id> -->`) listed in the
+       sync map below are embedded verbatim into their consumer surfaces (the
+       shipped skill, the README); this check fails if any copy drifts from its
+       source (line endings are normalized, so it is OS-agnostic). Blocks not in
+       the map (e.g. `tools`) are reference-only and need no consumer copy.
     2. The shipped skill's YAML frontmatter is valid: `name` matches the skill
        directory, and `description` is present.
     3. Every CLI verb appears in the verb catalog, and every MCP tool appears in

@@ -1,17 +1,21 @@
 # filtrace docs (single source)
 
-This directory is the single source of truth for filtrace's workflow text. The
-marked blocks in these pages are embedded verbatim into the shipped skill, the
-README, and (by contract) the CLI/MCP help;
-[tools/Test-Docs.ps1](../tools/Test-Docs.ps1) fails CI when a copy drifts.
+This directory is the single source of truth for filtrace's workflow text.
+Specific marked blocks in these pages are embedded verbatim into the shipped
+skill and the README; [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) fails CI when
+an embedded copy drifts. (The CLI/MCP help is a separate contract, validated by
+[tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) and
+[tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1), not embedded from here.)
 
-| Page | Single source for | Embedded into |
+| Page | Marked blocks | Embedded into |
 |---|---|---|
-| [workflow.md](workflow.md) | the verb catalog, the MCP tool catalog, the agent snippet | the skill, the README |
-| [traps.md](traps.md) | the trap catalog | the skill |
-| [publishing.md](publishing.md) | how filtrace is packaged and published | - |
-| [implementation-plan.md](implementation-plan.md) | the living roadmap (M0-M6) | - |
+| [workflow.md](workflow.md) | `verbs`, `tools`, `agents-snippet` | `verbs` -> the skill; `agents-snippet` -> the README; `tools` is reference-only |
+| [traps.md](traps.md) | `traps` | the skill |
+| [publishing.md](publishing.md) | (prose, no embedded blocks) | - |
+| [implementation-plan.md](implementation-plan.md) | (prose, no embedded blocks) | - |
 
-Edit a marked block here, then run `tools/Test-Docs.ps1 -Fix` to refresh every
-embedded copy. See [implementation-plan.md](implementation-plan.md), milestone
-**M4**, for the knowledge-layer plan.
+Only the blocks with a consumer above are drift-checked; the rest of each page
+(and the README outside its embedded blocks) is ordinary prose. Edit a marked
+block here, then run `tools/Test-Docs.ps1 -Fix` to refresh every embedded copy.
+See [implementation-plan.md](implementation-plan.md), milestone **M4**, for the
+knowledge-layer plan.
