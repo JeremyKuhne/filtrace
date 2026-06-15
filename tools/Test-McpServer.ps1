@@ -31,13 +31,15 @@
   The build configuration whose MCP binary to exercise. Defaults to Release.
 
 .PARAMETER MaxSchemaTokens
-  The tool-list token budget. Defaults to 8000. Tokens are estimated at four
-  characters each; the check prints the measured characters and estimate so a
-  regression is legible. The budget covers each tool's name, description, input
+  The tool-list token budget. Defaults to 8000. Tokens are estimated by
+  tools/Get-TokenEstimate.ps1 (a deterministic, offline pre-tokenizer estimate -
+  far more accurate on JSON than the old four-characters-per-token rule, and
+  slightly conservative); the check prints the measured characters and estimate so
+  a regression is legible. The budget covers each tool's name, description, input
   schema, and (because the tools advertise structured content) its output schema -
   everything the client puts in front of the model from tools/list. The ceiling is
   a bloat guard, not a cap on legitimate surface: the 13 analysis tools measure
-  ~6,700 tokens (~520 each), so 8000 leaves modest headroom while still tripping on
+  ~6,900 tokens (~530 each), so 8000 leaves modest headroom while still tripping on
   a doubled description or a few unplanned tools.
 #>
 [CmdletBinding()]
@@ -49,6 +51,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
+
+# The deterministic, offline token estimator shared with the C# OutputBudget.
+. (Join-Path $PSScriptRoot 'Get-TokenEstimate.ps1')
 
 if (-not (Test-Path $mcpDll)) {
     throw "MCP binary not found at '$mcpDll'. Build the solution first (dotnet build filtrace.slnx -c $Configuration)."
@@ -210,7 +215,7 @@ if ($null -ne $toolsLine) {
 
     $serialized = $tools.GetRawText()
     $chars = $serialized.Length
-    $estimatedTokens = [math]::Ceiling($chars / 4)
+    $estimatedTokens = Get-TokenEstimate -Text $serialized
     Write-Host "Tool list: $($toolNames.Count) tools ($($toolNames -join ', '))"
     Write-Host "Schema size: $chars chars, ~$estimatedTokens tokens (budget $MaxSchemaTokens)"
     if ($estimatedTokens -gt $MaxSchemaTokens) {

@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using System.Diagnostics.CodeAnalysis;
+using System.Text.RegularExpressions;
 
 namespace Filtrace.Output;
 
@@ -13,11 +14,22 @@ namespace Filtrace.Output;
 /// </summary>
 /// <remarks>
 ///  <para>
-///   Token counts are model-specific, so the estimate uses the widely-cited
-///   heuristic of roughly four characters per token - deliberately rough but
-///   stable and dependency-free. It is a guardrail, not exact accounting: the
-///   ceiling sits well below a typical context window, so the approximation's
-///   error is harmless.
+///   Token counts are model-specific, so the estimate is deliberately offline and
+///   dependency-free: it reproduces the GPT (cl100k_base) pre-tokenizer - the regex
+///   that splits text into words, numbers, punctuation runs, and whitespace - then
+///   models each piece as one or more sub-word tokens. Byte-pair encoding never
+///   merges across those piece boundaries, so the piece count is a lower bound on
+///   the real token count; this tracks punctuation-dense JSON (what the result
+///   envelopes are) far better than a flat characters-per-token divisor, which can
+///   under-count such text by a third. The estimate runs slightly conservative
+///   (it over-counts a little), which is the safe direction for a ceiling.
+///  </para>
+///  <para>
+///   The algorithm is mirrored byte-for-byte by tools/Get-TokenEstimate.ps1, which
+///   the MCP server's schema-budget check uses; keep the pattern and the per-piece
+///   math in sync across the two. It is a guardrail, not exact accounting: the
+///   ceiling sits well below a typical context window, and no model's tokenizer is
+///   reproduced exactly (Claude ships no public vocab), so small error is harmless.
 ///  </para>
 ///  <para>
 ///   This type only measures and warns. Actually truncating an over-budget
@@ -26,7 +38,7 @@ namespace Filtrace.Output;
 ///   block it consumes, mirroring how <c>SymbolGate</c> exposes its predicate.
 ///  </para>
 /// </remarks>
-public static class OutputBudget
+public static partial class OutputBudget
 {
     /// <summary>
     ///  The default ceiling, in estimated tokens, above which a result is considered
@@ -35,8 +47,29 @@ public static class OutputBudget
     public const int DefaultCeilingTokens = 25_000;
 
     /// <summary>
-    ///  Estimates the token cost of <paramref name="text"/> using the rough
-    ///  four-characters-per-token heuristic, rounded up.
+    ///  The per-piece sub-word divisor: a pre-tokenizer piece of <c>L</c> characters
+    ///  is modeled as <c>ceil(L / CharsPerSubToken)</c> tokens (at least one).
+    ///  Calibrated to 6 against tiktoken cl100k_base over filtrace's JSON, markdown,
+    ///  and prose. Must match the value in tools/Get-TokenEstimate.ps1.
+    /// </summary>
+    private const double CharsPerSubToken = 6.0;
+
+    /// <summary>
+    ///  The GPT (cl100k_base) pre-tokenizer, adapted for .NET (greedy quantifiers in
+    ///  place of the original's possessive ones, which produce the same piece
+    ///  boundaries for counting). Ordered alternation: contractions, an optional
+    ///  leading non-letter plus a word, a run of 1-3 digits, an optional leading
+    ///  space plus a punctuation run, then whitespace / newline runs. Must match the
+    ///  pattern and options in tools/Get-TokenEstimate.ps1.
+    /// </summary>
+    [GeneratedRegex(
+        @"'(?:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex PreTokenizerRegex();
+
+    /// <summary>
+    ///  Estimates the token cost of <paramref name="text"/> with the offline
+    ///  pre-tokenizer model (see the type remarks).
     /// </summary>
     /// <param name="text">The serialized output to estimate.</param>
     /// <returns>The estimated token count.</returns>
@@ -44,8 +77,27 @@ public static class OutputBudget
     {
         ArgumentNullException.ThrowIfNull(text);
 
-        // Round up: ceil(length / 4).
-        return (text.Length + 3) / 4;
+        if (text.Length == 0)
+        {
+            return 0;
+        }
+
+        int tokens = 0;
+        foreach (ValueMatch piece in PreTokenizerRegex().EnumerateMatches(text))
+        {
+            int length = piece.Length;
+            if (length <= 0)
+            {
+                continue;
+            }
+
+            // Each piece is at least one token; long pieces split into sub-word
+            // tokens. BPE never merges across piece boundaries, so this is a lower
+            // bound nudged up by the sub-word term.
+            tokens += Math.Max(1, (int)Math.Ceiling(length / CharsPerSubToken));
+        }
+
+        return tokens;
     }
 
     /// <summary>
