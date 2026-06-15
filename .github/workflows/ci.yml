@@ -73,3 +73,23 @@ jobs:
       - name: Docs drift check
         shell: pwsh
         run: ./tools/Test-Docs.ps1
+
+  # Single stable gate over the OS matrix. The `main` ruleset requires the `ci`
+  # check; this job provides it, so adding or removing a matrix leg never needs a
+  # ruleset edit. `if: always()` plus the explicit result test makes it fail (not
+  # skip) when any build-test leg fails or is cancelled - a skipped required check
+  # would otherwise leave a PR mergeable on a red matrix.
+  ci:
+    name: ci
+    needs: build-test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify the build matrix succeeded
+        run: |
+          if [ "${{ needs.build-test.result }}" != "success" ]; then
+            echo "build-test result: ${{ needs.build-test.result }}"
+            exit 1
+          fi
+          echo "All build-test legs succeeded."
+

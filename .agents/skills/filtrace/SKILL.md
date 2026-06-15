@@ -1,6 +1,9 @@
 ---
 name: filtrace
 description: Analyze .NET CPU, allocation, exception, GC, JIT, and wall-clock (thread-time) traces - .nettrace, .etl, and speedscope captures - with the filtrace CLI or MCP server. Use when a user asks where time or memory goes in a trace or benchmark, which method or source line is hot, why a run regressed against a baseline, what a captured .nettrace / .etl contains, or to rank / drill / diff / export a profile - including profiling .NET Framework (net481) via ETW, where an EventPipe ranking would mislead.
+compatibility: Pairs with the filtrace MCP server (the KlutzyNinja.Filtrace.Mcp package, run via `dnx`) for in-agent tool calls; otherwise shells out to the filtrace CLI (the KlutzyNinja.Filtrace global tool). Either head provides the same analysis, so the skill degrades gracefully to whichever is installed.
+metadata:
+  portability: repo-specific
 ---
 
 # Analyzing .NET traces with filtrace
@@ -12,7 +15,7 @@ an MCP server - there is no GUI. Output is dense text by default, or compact JSO
 (`--format json`). It runs on .NET 10 but reads traces from any runtime.
 
 This skill is the *how*; the full reference is single-sourced in
-[docs/workflow.md](../../docs/workflow.md) and [docs/traps.md](../../docs/traps.md).
+[docs/workflow.md](../../../docs/workflow.md) and [docs/traps.md](../../../docs/traps.md).
 
 ## The workflow: orient -> rank -> drill -> compare
 
@@ -177,6 +180,6 @@ The two heads expose the same analysis:
   Each returns one envelope: a `schemaVersion`, a `warnings` list, next-step
   `hints`, and the typed result.
 
-See [docs/workflow.md](../../docs/workflow.md) for the full verb/tool reference
-and the MCP config snippet, and [docs/traps.md](../../docs/traps.md) for the trap
+See [docs/workflow.md](../../../docs/workflow.md) for the full verb/tool reference
+and the MCP config snippet, and [docs/traps.md](../../../docs/traps.md) for the trap
 catalog.

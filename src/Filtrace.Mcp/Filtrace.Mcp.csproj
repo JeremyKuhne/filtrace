@@ -54,4 +54,16 @@
     <None Include="$(McpServerManifestGenerated)" Pack="true" PackagePath="\.mcp\server.json" Visible="false" />
   </ItemGroup>
 
+  <!--
+    Ship the agent skill inside the package so a consumer who pulls the MCP server gets the
+    same workflow knowledge an agent working in the repo sees. It travels as package content
+    under skills/ (it is not a tool input - the server reads nothing from it at runtime); the
+    canonical copy lives at the vendor-neutral .agents/skills/filtrace/ location, and the MCP
+    server's in-band `instructions` field carries the compressed workflow for clients that do
+    not surface packaged skills.
+  -->
+  <ItemGroup>
+    <None Include="..\..\.agents\skills\filtrace\SKILL.md" Pack="true" PackagePath="\skills\filtrace\SKILL.md" Visible="false" />
+  </ItemGroup>
+
 </Project>
