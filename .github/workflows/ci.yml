@@ -41,7 +41,7 @@ jobs:
           fetch-depth: 0   # MinVer derives the build version from git history and tags
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.NUGET_PACKAGES }}
           key: ${{ runner.os }}-filtrace-nuget-${{ hashFiles('**/*.csproj', 'Directory.Packages.props', 'Directory.Build.props', 'Directory.Build.targets', 'global.json') }}
