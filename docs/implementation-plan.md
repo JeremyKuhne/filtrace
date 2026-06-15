@@ -180,7 +180,7 @@ traceq/
   tests/TraceQ.Parity.Tests/ # numeric parity vs. legacy oracles (§3 below)
   eval/                      # harness, tasks, baselines (M5)
   docs/                      # single-source for skill/README/help workflow text (§6 design)
-  skills/traceq/             # shipped skill (moves to .github/skills/ at promotion)
+  skills/traceq/             # shipped skill (moves to .agents/skills/ at promotion)
 ```
 
 `traceq/Directory.Build.props` declares independence on day one: net10-only (none of Touki's multi-targeting machinery), `IsPackable=false` until promotion, Touki's style analyzers *kept* so promotion never triggers a reformat. It must **not** re-import Touki's root props via `GetPathOfFileAbove` (that would re-couple it); a sibling `Directory.Packages.props` holds its own central-package versions (TraceEvent pinned here, *not* inherited from Touki's list), a `root = true` `.editorconfig` severs style inheritance, and an own `global.json` pins the SDK. **Self-containment rules:** nothing outside `traceq/` references into it, and nothing inside references a Touki project — the parity tests treat `touki.mcp analyze` and `Get-TraceHotspots.ps1` as *processes whose output is compared*, not as project references, which keeps the coupling graph empty by construction.
