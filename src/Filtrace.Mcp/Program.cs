@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -28,7 +29,7 @@ builder.Services
         options.ServerInfo = new Implementation
         {
             Name = "filtrace",
-            Version = typeof(TraceTools).Assembly.GetName().Version?.ToString() ?? "0.0.0"
+            Version = GetServerVersion()
         };
 
         // The workflow summary the client surfaces to the model at initialize time.
@@ -43,3 +44,26 @@ builder.Services
 
 await builder.Build().RunAsync().ConfigureAwait(false);
 return 0;
+
+// Reports the server version a client sees in serverInfo at initialize time. MinVer
+// stamps the informational version (e.g. "0.1.0+<sha>") but leaves AssemblyVersion at
+// 0.0.0.0, so read the informational version and drop the "+<build metadata>" suffix
+// for a clean semantic version. Falls back to the file version, then to "0.0.0".
+static string GetServerVersion()
+{
+    Assembly assembly = typeof(TraceTools).Assembly;
+
+    string? informational = assembly
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+        ?.InformationalVersion;
+
+    if (!string.IsNullOrEmpty(informational))
+    {
+        // Strip the "+<commit>" build-metadata suffix MinVer appends.
+        int plus = informational.IndexOf('+');
+        return plus >= 0 ? informational[..plus] : informational;
+    }
+
+    return assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version ?? "0.0.0";
+}
+
