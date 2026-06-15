@@ -1,0 +1,16 @@
+# Normalize line endings: store text files with LF in the repository and let git
+# auto-detect binary files. The working-tree charset and final newline are
+# governed by .editorconfig; this governs what is committed.
+* text=auto
+
+# Keep committed fixture and golden payloads byte-stable (never EOL-normalized)
+# so they cannot drift from the parity oracles that compare against them. Text
+# goldens (JSON) stay diffable.
+tests/**/Fixtures/** -text
+tests/**/Goldens/** -text
+
+# Trace captures are always binary: no line-ending normalization, no diff. Listed
+# after the fixture rule so binary wins for captures stored under tests/Fixtures.
+*.nettrace binary
+*.etl binary
+*.etlx binary
