@@ -41,21 +41,9 @@ dotnet tool install --global --add-source ./artifacts/packages KlutzyNinja.Filtr
 
 ### MCP server
 
-The same analysis is exposed as a stdio MCP server for agent clients. With the
-.NET 10 SDK installed (it provides `dnx`), point your client's MCP config at the
-package - it is fetched and launched on demand:
-
-```json
-{
-  "servers": {
-    "filtrace": {
-      "type": "stdio",
-      "command": "dnx",
-      "args": ["KlutzyNinja.Filtrace.Mcp", "--yes"]
-    }
-  }
-}
-```
+The same analysis is also exposed as a stdio MCP server (thirteen `trace_*`
+tools). See [Using filtrace from an AI agent](#using-filtrace-from-an-ai-agent)
+below for the client config and the tool workflow.
 
 ### Verbs
 
@@ -136,6 +124,36 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 | `clean` | Remove the ETLX cache to force a rebuild | `filtrace clean app.nettrace` |
 
 Run `filtrace <verb> --help` for the full option set of any verb.
+
+<!-- filtrace:begin agents-snippet -->
+## Using filtrace from an AI agent
+
+filtrace is built for an agent mid-investigation. Two ways to wire it in:
+
+- **MCP server** - add the stdio server so the agent calls the `trace_*` tools
+  directly:
+
+  ```json
+  {
+    "servers": {
+      "filtrace": {
+        "type": "stdio",
+        "command": "dnx",
+        "args": ["KlutzyNinja.Filtrace.Mcp", "--yes"]
+      }
+    }
+  }
+  ```
+
+- **CLI** - install the global tool (`dotnet tool install -g KlutzyNinja.Filtrace`)
+  and let the agent shell out to `filtrace <verb>`.
+
+Either way, the canonical loop is **orient -> rank -> drill -> compare**: read
+`trace_info` first and trust the rankings only when the symbol-resolution rate is
+at or above 0.8; rank by the metric that matches the question (cpu, alloc,
+exceptions, threadtime); drill the hot frame with callers / lines / tree; diff
+against a baseline to see what changed.
+<!-- filtrace:end agents-snippet -->
 
 ## Layout
 
