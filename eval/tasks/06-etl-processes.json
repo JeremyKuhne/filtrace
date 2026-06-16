@@ -1,6 +1,7 @@
 {
   "id": "etl-processes",
   "title": "List the processes in a machine-wide ETW capture before scoping.",
+  "prompt": "List the processes in this machine-wide ETW capture. Which benchmark workload process is present?",
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
   "os": "windows",
   "steps": [
@@ -8,5 +9,6 @@
   ],
   "assert": [
     { "jsonContains": "HotLoopBench" }
-  ]
+  ],
+  "expect": ["HotLoopBench"]
 }

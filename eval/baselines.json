@@ -24,6 +24,22 @@
     "etl-processes": {
       "calls": 1,
       "tokens": 183
+    },
+    "cpu-tree": {
+      "calls": 1,
+      "tokens": 116
+    },
+    "alloc-events": {
+      "calls": 1,
+      "tokens": 5238
+    },
+    "cpu-inclusive": {
+      "calls": 1,
+      "tokens": 98
+    },
+    "threadtime-hotpath": {
+      "calls": 1,
+      "tokens": 527
     }
   }
 }

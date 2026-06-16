@@ -18,10 +18,12 @@
 > OIDC). The standalone repo, its CI, and the packaging/publish wiring are done.
 >
 > **Remaining:** M5 (the §10 eval harness - its **deterministic, no-LLM regression
-> gate is shipped**: `eval/Invoke-Eval.ps1` over six fixture-backed tasks with
+> gate is shipped**: `eval/Invoke-Eval.ps1` over ten fixture-backed tasks with
 > committed baselines, wired into CI as the "Eval gate" step, plus the shared
-> offline token estimator; the **live headless-agent arms** - the runners scoring
-> real agent reasoning over the full task set - are the remaining slice), M6 (v1.0
+> offline token estimator; a **live agent arm** is also shipped
+> (`eval/Invoke-AgentEval.ps1`, host `ollama`) - the `copilot` / `claude` host
+> adapters, a live MCP-client arm, and the tuning loop are the remaining slice),
+> M6 (v1.0
 > - the stable-cadence flip, the Touki migration, the MCP registry entry, and
 > README install badges), the AOT / self-contained publish profiles (still
 > framework-dependent; blocked by TraceEvent), and the post-1.0 backlog (the
@@ -366,17 +368,23 @@ Write the SKILL.md, trap catalog, and AGENTS.md snippet from `docs/` single-sour
 
 ### M5 — Eval harness and tuning
 
-**Status: in progress - the deterministic gate is shipped; the live agent arms
-are not.** The free, no-LLM regression gate is built and gating CI:
-`eval/Invoke-Eval.ps1` runs six fixture-backed tasks (`eval/tasks/*.json`) through
-the canonical CLI tool sequence and checks success, the call budget (G1), and the
-token budget (G2) against committed baselines (`eval/baselines.json`), using the
-shared offline token estimator (`tools/Get-TokenEstimate.ps1` +
-`OutputBudget.EstimateTokens`, byte-for-byte mirrored). It is wired into `ci.yml`
-as the "Eval gate" step. **Still to build:** the live headless-agent arms (the
-runners that score an actual agent's reasoning over the full task set, run locally
-against the Copilot CLI and local models), the remaining tasks toward the design's
-ten, and the tuning loop on descriptions / help / the skill.
+**Status: in progress - the deterministic gate and a live agent arm are shipped;
+the remaining hosts and the tuning loop are not.** The free, no-LLM regression
+gate runs in CI: `eval/Invoke-Eval.ps1` runs ten fixture-backed tasks
+(`eval/tasks/*.json`) through the canonical CLI tool sequence and checks success,
+the call budget (G1), and the token budget (G2) against committed baselines
+(`eval/baselines.json`), using the shared offline token estimator
+(`tools/Get-TokenEstimate.ps1` + `OutputBudget.EstimateTokens`, byte-for-byte
+mirrored). It is wired into `ci.yml` as the "Eval gate" step. The **live agent
+arm** is also built: `eval/Invoke-AgentEval.ps1` drives a real model through a
+ReAct loop over each task's `prompt`, scoring success / calls / tokens / wall-time
+(host `ollama` implemented and exercised against a local model; `copilot` /
+`claude` adapters stubbed). Each task now carries `prompt` + `expect` for that
+arm, and `eval/mcp-qa.jsonl` is the mcp-builder-style QA file for the MCP arm.
+**Still to build:** the `copilot` / `claude` host adapters, a live MCP-client arm
+(the QA file is its seed), and the N-run tuning loop on descriptions / help / the
+skill. It runs locally / occasionally, never in CI - the deterministic gate stays
+the regression net.
 
 Build the §10 harness: headless Claude Code + Copilot CLI runners, the four arms, N = 10, metrics capture (success / tokens / calls / wall time), the ten tasks, and the mcp-builder-style QA file for the MCP arm. Record baselines, then run the tuning loop on descriptions, help, and the skill — agent-drafted revisions, harness-scored, human-reviewed. Wire the smoke subset (tasks 1, 4, 9) into CI with the regression budget (any success drop fails; > 15% token growth on a task fails).
 

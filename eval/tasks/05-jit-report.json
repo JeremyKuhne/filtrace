@@ -1,6 +1,7 @@
 {
   "id": "jit-report",
   "title": "Report JIT compilation cost (method count and compile time).",
+  "prompt": "How many methods did the JIT compile in this trace?",
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/jit.nettrace",
   "os": "any",
   "steps": [
@@ -8,5 +9,6 @@
   ],
   "assert": [
     { "field": "result.methodCount", "equals": 840 }
-  ]
+  ],
+  "expect": ["840"]
 }

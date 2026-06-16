@@ -1,0 +1,14 @@
+{
+  "id": "cpu-tree",
+  "title": "Show the top-down call tree from the root.",
+  "prompt": "Show the top-down call tree for this CPU trace. What is the deepest hot frame on the main call path?",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json",
+  "os": "any",
+  "steps": [
+    { "args": ["tree", "{fixture}"] }
+  ],
+  "assert": [
+    { "jsonContains": "MyApp.Inner" }
+  ],
+  "expect": ["MyApp.Inner"]
+}

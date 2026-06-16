@@ -1,0 +1,14 @@
+{
+  "id": "threadtime-hotpath",
+  "title": "Read a wall-clock (thread-time) capture and see where the time goes.",
+  "prompt": "In this wall-clock (thread-time) capture, is the time mostly spent on-CPU or blocked? Name the dominant category.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
+  "os": "windows",
+  "steps": [
+    { "args": ["threadtime", "{fixture}"] }
+  ],
+  "assert": [
+    { "topFrame": "BLOCKED_TIME" }
+  ],
+  "expect": ["BLOCKED_TIME"]
+}

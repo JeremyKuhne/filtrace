@@ -1,0 +1,14 @@
+{
+  "id": "cpu-inclusive",
+  "title": "Rank CPU by inclusive time to find the entry point of the hot work.",
+  "prompt": "By inclusive CPU time, which single frame accounts for the most total time (the entry point of the hot work)?",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json",
+  "os": "any",
+  "steps": [
+    { "args": ["cpu", "{fixture}", "--measure", "inclusive"] }
+  ],
+  "assert": [
+    { "topFrame": "Program.Main" }
+  ],
+  "expect": ["Program.Main"]
+}
