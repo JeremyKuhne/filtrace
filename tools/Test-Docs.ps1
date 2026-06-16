@@ -151,8 +151,9 @@ foreach ($tool in $tools) {
 # resolve to a path inside the skill directory. A link that escapes the directory
 # (e.g. ../../../docs/workflow.md) dangles once the skill is packed into the NuGet
 # package or vendored via `gh skill install`, both of which carry only the skill
-# directory (issue #10). External links (http/https/mailto), protocol-relative
-# links, and pure anchors are exempt.
+# directory (issue #10). External links (scheme://, mailto:), protocol-relative
+# links, and pure anchors are exempt; a scheme must be at least two characters so a
+# Windows drive letter (e.g. C:\path) is treated as a path, not a URL scheme.
 $skillDir = Join-Path $root '.agents/skills/filtrace'
 $skillDirFull = [System.IO.Path]::GetFullPath($skillDir)
 $linkCount = 0
@@ -163,14 +164,23 @@ if (Test-Path $skillDir) {
         $content = Get-Content -LiteralPath $file.FullName -Raw
         foreach ($match in [regex]::Matches($content, $linkPattern)) {
             $target = $match.Groups[1].Value
-            # Exempt URLs (scheme:), protocol-relative (//host), and pure anchors (#frag).
-            if ($target -match '^(?:[a-z][a-z0-9+.-]*:|//|#)') { continue }
+            # Exempt URLs (scheme: with a 2+ char scheme), protocol-relative (//host),
+            # and pure anchors (#frag).
+            if ($target -match '^(?:[a-z][a-z0-9+.-]+:|//|#)') { continue }
             $linkCount++
             $relative = ($target -split '#', 2)[0]
             if ([string]::IsNullOrEmpty($relative)) { continue }
+            # A rooted target (drive-letter or leading separator, e.g. C:\x or /x) is not
+            # an in-directory relative link and will not travel with the skill.
+            if ([System.IO.Path]::IsPathRooted($relative)) {
+                Add-Failure "Skill file '$name' links to '$target', which is an absolute path that will not resolve when the skill is packaged or vendored (issue #10). Use an absolute https URL or a path inside the skill directory."
+                continue
+            }
             $resolved = [System.IO.Path]::GetFullPath((Join-Path $file.DirectoryName $relative))
             $fromSkill = [System.IO.Path]::GetRelativePath($skillDirFull, $resolved)
-            if ($fromSkill.StartsWith('..')) {
+            # `..` escapes only as a whole path segment (.. or ..<sep>), not as a leading
+            # substring of a real name such as `..hidden`.
+            if ($fromSkill -match '^\.\.([\\/]|$)') {
                 Add-Failure "Skill file '$name' links to '$target', which escapes the skill directory and will dangle when the skill is packaged or vendored (issue #10). Use an absolute https URL or a path inside the skill directory."
             }
             elseif (-not (Test-Path -LiteralPath $resolved)) {
