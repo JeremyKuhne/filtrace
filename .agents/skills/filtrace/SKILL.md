@@ -15,7 +15,8 @@ an MCP server - there is no GUI. Output is dense text by default, or compact JSO
 (`--format json`). It runs on .NET 10 but reads traces from any runtime.
 
 This skill is the *how*; the full reference is single-sourced in
-[docs/workflow.md](../../../docs/workflow.md) and [docs/traps.md](../../../docs/traps.md).
+[docs/workflow.md](https://github.com/JeremyKuhne/filtrace/blob/main/docs/workflow.md)
+and [docs/traps.md](https://github.com/JeremyKuhne/filtrace/blob/main/docs/traps.md).
 
 ## The workflow: orient -> rank -> drill -> compare
 
@@ -180,6 +181,7 @@ The two heads expose the same analysis:
   Each returns one envelope: a `schemaVersion`, a `warnings` list, next-step
   `hints`, and the typed result.
 
-See [docs/workflow.md](../../../docs/workflow.md) for the full verb/tool reference
-and the MCP config snippet, and [docs/traps.md](../../../docs/traps.md) for the trap
-catalog.
+See [docs/workflow.md](https://github.com/JeremyKuhne/filtrace/blob/main/docs/workflow.md)
+for the full verb/tool reference and the MCP config snippet, and
+[docs/traps.md](https://github.com/JeremyKuhne/filtrace/blob/main/docs/traps.md) for
+the trap catalog.
