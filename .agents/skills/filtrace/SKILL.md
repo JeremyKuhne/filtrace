@@ -77,7 +77,7 @@ filtrace diff before.nettrace after.nettrace # 4. what changed
 | Verb | Does |
 |---|---|
 | `diff <before> <after>` | what got slower/faster between two traces |
-| `export --format <speedscope\|chromium>` | write a flame graph for a viewer |
+| `export --format <fmt>` | write a flame graph for a viewer - `speedscope` or `chromium` |
 
 **Structured reports** (EventPipe `.nettrace`):
 
