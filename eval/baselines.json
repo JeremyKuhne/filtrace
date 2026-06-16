@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "tasks": {
+    "cpu-hotspot": {
+      "calls": 2,
+      "tokens": 146
+    },
+    "alloc-hotspot": {
+      "calls": 1,
+      "tokens": 181
+    },
+    "exception-sites": {
+      "calls": 1,
+      "tokens": 62
+    },
+    "gc-report": {
+      "calls": 1,
+      "tokens": 368
+    },
+    "jit-report": {
+      "calls": 1,
+      "tokens": 2251
+    },
+    "etl-processes": {
+      "calls": 1,
+      "tokens": 183
+    }
+  }
+}

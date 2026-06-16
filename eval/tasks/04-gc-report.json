@@ -1,0 +1,12 @@
+{
+  "id": "gc-report",
+  "title": "Summarize garbage-collection behavior (counts and pauses).",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/alloc.nettrace",
+  "os": "any",
+  "steps": [
+    { "args": ["gcstats", "{fixture}"] }
+  ],
+  "assert": [
+    { "field": "result.gcCount", "equals": 7 }
+  ]
+}
