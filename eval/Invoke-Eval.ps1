@@ -133,6 +133,12 @@ foreach ($file in $taskFiles) {
     # OS-guarded tasks (e.g. reading an .etl needs the Windows-only ETW conversion).
     $os = if ($task.os) { $task.os } else { 'any' }
     if ($os -eq 'windows' -and -not $onWindows) {
+        # Preserve the task's existing baseline so regenerating on this OS does not
+        # drop an entry the other OS leg still needs (e.g. -Update on Linux must keep
+        # the Windows-only task's baseline, or the Windows CI leg fails 'no baseline').
+        if ($Update -and $baseline -and $baseline.tasks.$id) {
+            $newBaseline[$id] = [ordered]@{ calls = $baseline.tasks.$id.calls; tokens = $baseline.tasks.$id.tokens }
+        }
         $rows.Add([pscustomobject]@{ Task = $id; Status = 'skip'; Calls = '-'; Tokens = '-'; Note = 'windows-only' })
         continue
     }
@@ -216,7 +222,11 @@ $rows | Format-Table -AutoSize Task, Status, Calls, Tokens, Note | Out-String | 
 
 if ($Update) {
     $out = [ordered]@{ schemaVersion = 1; tasks = $newBaseline }
-    ($out | ConvertTo-Json -Depth 5) | Set-Content -Path $baselinePath
+    # UTF-8 (no BOM) so the committed baseline is stable across Windows PowerShell 5.1
+    # (whose Set-Content default is UTF-16) and PowerShell 7+, matching the repo's
+    # other PowerShell-written JSON artifacts.
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($baselinePath, (($out | ConvertTo-Json -Depth 5) + "`n"), $utf8)
     Write-Host "Wrote baselines for $($newBaseline.Count) task(s) to eval/baselines.json." -ForegroundColor Green
     exit 0
 }
