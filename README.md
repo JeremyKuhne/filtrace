@@ -1,5 +1,10 @@
 # filtrace
 
+[![CI](https://github.com/JeremyKuhne/filtrace/actions/workflows/ci.yml/badge.svg)](https://github.com/JeremyKuhne/filtrace/actions/workflows/ci.yml)
+[![KlutzyNinja.Filtrace](https://img.shields.io/nuget/v/KlutzyNinja.Filtrace?logo=nuget&label=KlutzyNinja.Filtrace)](https://www.nuget.org/packages/KlutzyNinja.Filtrace)
+[![KlutzyNinja.Filtrace.Mcp](https://img.shields.io/nuget/v/KlutzyNinja.Filtrace.Mcp?logo=nuget&label=KlutzyNinja.Filtrace.Mcp)](https://www.nuget.org/packages/KlutzyNinja.Filtrace.Mcp)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A small, agent-shaped CLI and MCP server for analyzing .NET CPU/memory/wall-clock
 traces - the productized successor to `touki.mcp`. Built on the
 `Microsoft.Diagnostics.Tracing.TraceEvent` library; reads EventPipe
@@ -10,6 +15,42 @@ traces - the productized successor to `touki.mcp`. Built on the
 > [`touki`](https://github.com/JeremyKuhne/touki) repository, where it incubated,
 > into this standalone repository with its history preserved. It is pre-1.0; the
 > surface may still shift.
+
+## Install
+
+filtrace targets **.NET 10**. Both heads are published on NuGet.org:
+[`KlutzyNinja.Filtrace`](https://www.nuget.org/packages/KlutzyNinja.Filtrace)
+(the `filtrace` CLI) and
+[`KlutzyNinja.Filtrace.Mcp`](https://www.nuget.org/packages/KlutzyNinja.Filtrace.Mcp)
+(the MCP server).
+
+### CLI (global tool)
+
+Installing the CLI as a .NET global tool needs the .NET 10 SDK (`dotnet tool`
+ships with it):
+
+```pwsh
+dotnet tool install --global KlutzyNinja.Filtrace
+filtrace cpu app.nettrace
+```
+
+Update or remove it later with `dotnet tool update --global KlutzyNinja.Filtrace`
+or `dotnet tool uninstall --global KlutzyNinja.Filtrace`.
+
+### MCP server
+
+The MCP server runs on demand - there is no install step. Add the stdio server to
+your agent's MCP config and `dnx` (bundled with the .NET 10 SDK) fetches
+`KlutzyNinja.Filtrace.Mcp` and launches it. See
+[Using filtrace from an AI agent](#using-filtrace-from-an-ai-agent) for the exact
+config block and the tool workflow.
+
+### From source
+
+```pwsh
+dotnet pack src/Filtrace/Filtrace.csproj -c Release
+dotnet tool install --global --add-source ./artifacts/packages KlutzyNinja.Filtrace
+```
 
 ## Using filtrace
 
@@ -25,25 +66,9 @@ filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source line
 filtrace diff before.nettrace after.nettrace   # 4. what changed between runs
 ```
 
-Install the CLI as a .NET global tool (`dotnet tool` ships with the .NET 10 SDK):
-
-```pwsh
-dotnet tool install --global KlutzyNinja.Filtrace
-filtrace cpu app.nettrace
-```
-
-Or build and install it from source:
-
-```pwsh
-dotnet pack src/Filtrace/Filtrace.csproj -c Release
-dotnet tool install --global --add-source ./artifacts/packages KlutzyNinja.Filtrace
-```
-
-### MCP server
-
-The same analysis is also exposed as a stdio MCP server (thirteen `trace_*`
-tools). See [Using filtrace from an AI agent](#using-filtrace-from-an-ai-agent)
-below for the client config and the tool workflow.
+The same analysis is exposed as a stdio MCP server (thirteen `trace_*` tools);
+see [Using filtrace from an AI agent](#using-filtrace-from-an-ai-agent) for the
+client config and tool workflow.
 
 ### Verbs
 
