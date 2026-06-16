@@ -1,0 +1,14 @@
+{
+  "id": "alloc-events",
+  "title": "Count the raw allocation-tick events in a trace.",
+  "prompt": "How many GC/AllocationTick events were recorded in this trace?",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/alloc.nettrace",
+  "os": "any",
+  "steps": [
+    { "args": ["events", "{fixture}", "--name", "GC/AllocationTick"] }
+  ],
+  "assert": [
+    { "field": "result.totalMatched", "equals": 254 }
+  ],
+  "expect": ["254"]
+}

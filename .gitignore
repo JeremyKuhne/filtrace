@@ -24,3 +24,7 @@ artifacts/
 
 # BenchmarkDotNet capture output (fixture regeneration; see fixtures/README.md).
 BenchmarkDotNet.Artifacts/
+
+# Live agent-eval run output (Invoke-AgentEval.ps1): non-deterministic and
+# machine/model-specific, so results are inspected locally, never committed.
+eval/results/

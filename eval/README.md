@@ -1,7 +1,8 @@
 # filtrace eval harness
 
 The eval harness measures filtrace's fitness for an agent mid-investigation. It
-has two arms; this directory currently ships the first.
+has two arms, both shipped here: a deterministic, no-LLM gate that runs in CI, and
+a live agent arm that scores a real model locally.
 
 ## Deterministic gate (shipped, runs in CI)
 
@@ -33,6 +34,7 @@ A task is one JSON file in [tasks/](tasks/):
 {
   "id": "cpu-hotspot",
   "title": "Rank CPU self-time, then drill into the hottest frame's callers.",
+  "prompt": "This is a .NET CPU profile. Which method is the hottest by self-time, and which method calls it?",
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json",
   "os": "any",
   "steps": [
@@ -42,7 +44,8 @@ A task is one JSON file in [tasks/](tasks/):
   "assert": [
     { "step": 0, "topFrame": "MyApp.Inner" },
     { "step": 1, "hintContains": "MyApp.Work" }
-  ]
+  ],
+  "expect": ["MyApp.Inner", "MyApp.Work"]
 }
 ```
 
@@ -50,15 +53,66 @@ A task is one JSON file in [tasks/](tasks/):
   `--format json` to every step (the form an agent consumes).
 - `os: "windows"` guards tasks that read an `.etl` (the ETW conversion is
   Windows-only); they skip cleanly on the Linux CI leg.
+- `steps` + `assert` drive the deterministic gate; `prompt` + `expect` drive the
+  live agent arm (below). The gate ignores `prompt`/`expect`; the arm ignores
+  `steps`/`assert`.
 - `assert` checks run against a step's parsed JSON (default: the last step).
   Supported: `topFrame` (result.rows[0].frame), `field` + `equals` (a dotted path
   like `result.gcCount`), `hintContains`, and `jsonContains`.
 
-## Live agent arms (later M5 slice, not yet built)
+## Live agent arm (shipped, run locally)
 
-The headless-agent runners that score an actual agent's reasoning - the design's
-four arms over the ten tasks, with success / tokens / calls / wall-time capture -
-are the second arm. They are run locally / occasionally against the Copilot CLI
-and local models (no metered API needed); the deterministic gate above is the
-cheap regression net under them. See
+[Invoke-AgentEval.ps1](Invoke-AgentEval.ps1) is the **LLM arm**: it gives a real
+agent only a task's natural-language `prompt` and lets the model choose which
+filtrace commands to run, then scores whether it reached the right answer and at
+what cost. That is what catches a description, help text, or skill that reads well
+to a human but steers a model wrong - the surfaces the deterministic gate cannot
+see. It is non-deterministic and needs a model host, so it runs locally /
+occasionally, never in CI; the deterministic gate stays the regression net.
+
+**Arm: cli.** The harness mediates a ReAct loop - the model emits one action per
+turn (`RUN: <args>` or `ANSWER: <text>`), the harness runs `filtrace <args>` on
+its behalf (only the allowlisted verbs, never a shell) and feeds back the JSON
+(including any error text, so the model can self-correct), until the model answers
+or hits the call budget. The trace path is masked as `<TRACE>` and substituted at
+run time.
+
+**Host: ollama** (local, no metered API). `copilot` and `claude` are recognized
+but not yet wired - the runner reports that and exits cleanly.
+
+```pwsh
+# A quick two-task sample against a local model.
+./eval/Invoke-AgentEval.ps1 -Model gpt-oss:20b -Tasks cpu-hotspot,gc-report -N 1
+
+# A fuller measurement (medians get meaningful around N = 5-10).
+./eval/Invoke-AgentEval.ps1 -Model deepseek-r1:8b -N 10
+```
+
+Each (task, iteration) records **success** (the answer contains every `expect`
+substring), **calls** (filtrace invocations), **tokens** (the offline estimate of
+the tool output the agent consumed - the same accounting the gate uses), and
+**wall-time**, plus a per-command transcript. Results land under `eval/results/`
+(git-ignored) as JSON with a median summary.
+
+**MCP arm.** [mcp-qa.jsonl](mcp-qa.jsonl) is the mcp-builder-style QA file: per
+task, the question, the `trace_*` tool an ideal MCP-arm run should call, and the
+expected answer. Driving a model through a live MCP client is a heavier runner
+left as future work; the file is the tool-selection reference and the seed for it.
+
+### Example local run
+
+A sample on this repo's fixtures (host `ollama`, model `deepseek-r1:8b`, N = 1,
+cli arm) - `gpt-oss:20b` would not load in that environment, so a smaller local
+model stood in:
+
+| Task | Success | Calls | Tokens |
+|---|---|---|---|
+| cpu-hotspot | 100% | 4 | 146 |
+| alloc-hotspot | 100% | 4 | 403 |
+| gc-report | 100% | 1 | 368 |
+| jit-report | 100% | 1 | 2251 |
+
+The model self-corrected a wrong flag from the CLI's error text, which is why the
+two-step tasks took more than the canonical call count - exactly the agent
+overhead this arm is meant to measure. See
 [docs/implementation-plan.md](../docs/implementation-plan.md), milestone **M5**.

@@ -1,6 +1,7 @@
 {
   "id": "exception-sites",
   "title": "Identify the most frequent exception throw site.",
+  "prompt": "What is the most frequent exception throw site in this trace?",
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/exceptions.nettrace",
   "os": "any",
   "steps": [
@@ -8,5 +9,6 @@
   ],
   "assert": [
     { "topFrame": "System.Runtime.EH.DispatchEx" }
-  ]
+  ],
+  "expect": ["DispatchEx"]
 }

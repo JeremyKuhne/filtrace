@@ -1,6 +1,7 @@
 {
   "id": "cpu-hotspot",
   "title": "Rank CPU self-time, then drill into the hottest frame's callers.",
+  "prompt": "This is a .NET CPU profile. Which method is the hottest by self-time, and which method calls it?",
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json",
   "os": "any",
   "steps": [
@@ -10,5 +11,6 @@
   "assert": [
     { "step": 0, "topFrame": "MyApp.Inner" },
     { "step": 1, "hintContains": "MyApp.Work" }
-  ]
+  ],
+  "expect": ["MyApp.Inner", "MyApp.Work"]
 }
