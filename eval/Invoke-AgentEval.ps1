@@ -103,11 +103,17 @@ if ($Tasks) {
     $Tasks = @($Tasks | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 }
 
-# The verb allowlist is the source of truth in the CLI: every [Command("name")].
-# The agent may only ever invoke one of these as the first token, so a model
-# response can never reach a shell - the harness execs the filtrace dll directly.
+# The verb allowlist: the single-trace, JSON-envelope analysis verbs the agent may
+# invoke. Derived from the CLI's [Command("name")] set, then filtered to the verbs
+# that take one <TRACE> and render the JSON envelope. Excluded: the file-op verbs
+# (convert, clean), the two-trace diff, and export (whose --format selects a
+# flamegraph writer, not the JSON envelope) - the harness forces --format json,
+# which those verbs would reject or misread. A model can only ever invoke one of
+# these as the first token, so a response can never reach a shell.
+$nonAnalysisVerbs = @('convert', 'clean', 'diff', 'export')
 $verbs = @(Select-String -Path $commandsFile -Pattern '\[Command\("([^"]+)"\)\]' -AllMatches |
-        ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+        ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } |
+        Where-Object { $nonAnalysisVerbs -notcontains $_ } | Sort-Object -Unique)
 if ($verbs.Count -eq 0) { throw "No [Command(...)] verbs found in $commandsFile." }
 
 # Split a model-supplied argument string into tokens, honoring double quotes.
@@ -127,7 +133,8 @@ function Split-ArgString {
 
 # Run one filtrace command on the agent's behalf. Returns (ok, output) where ok
 # is $false for a rejected verb or a non-zero exit. The trace placeholder
-# <TRACE> is substituted with the real fixture path; --format json is forced.
+# <TRACE> is substituted with the real fixture path; --format json is forced; and
+# the real path is masked back to <TRACE> in the returned output.
 function Invoke-FiltraceForAgent {
     param([string]$ArgString, [string]$FixtureAbs)
     # Models often wrap the command in backticks and prefix the launcher
@@ -151,11 +158,15 @@ function Invoke-FiltraceForAgent {
         if ($tokens[$k] -eq '--json') { continue }
         $kept.Add($tokens[$k])
     }
-    $resolved = @($kept | ForEach-Object { $_ -replace '<TRACE>', $FixtureAbs }) + @('--format', 'json')
+    $resolved = @($kept | ForEach-Object { $_.Replace('<TRACE>', $FixtureAbs) }) + @('--format', 'json')
     # Merge stderr so a usage error (bad flag, unknown option) flows back to the
     # model as text it can read and correct - the same signal a real agent sees.
     $out = & dotnet $cliDll @resolved 2>&1
     $raw = (($out | Out-String)).Trim()
+    # Re-mask the absolute fixture path back to <TRACE> before it reaches the model
+    # or the transcript - error text echoes the real path, and the placeholder
+    # contract must stay symmetric (it matters once remote hosts are wired).
+    $raw = $raw.Replace($FixtureAbs, '<TRACE>')
     if ($LASTEXITCODE -ne 0) { return @($false, "filtrace exited $LASTEXITCODE`n$raw") }
     return @($true, $raw)
 }
@@ -270,12 +281,14 @@ foreach ($task in $selected) {
                 $calls++
                 $res = Invoke-FiltraceForAgent -ArgString $action[1] -FixtureAbs $fixtureAbs
                 $output = [string]$res[1]
-                if ($res[0]) { $tokens += [int](Get-TokenEstimate -Text $output) }
+                $clip = if ($output.Length -gt 4000) { $output.Substring(0, 4000) + ' ...[truncated]' } else { $output }
+                # Count what the model actually consumes: the exact clipped text fed
+                # back, for every call (a failed call's error text costs tokens too).
+                $tokens += [int](Get-TokenEstimate -Text $clip)
                 $transcript.Add([pscustomobject]@{
                         cmd = [string]$action[1]; ok = [bool]$res[0]
                         info = if (-not $res[0]) { $output.Substring(0, [math]::Min(160, $output.Length)) } else { '' }
                     })
-                $clip = if ($output.Length -gt 4000) { $output.Substring(0, 4000) + ' ...[truncated]' } else { $output }
                 $messages += @{ role = 'user'; content = "OUTPUT:`n$clip" }
             }
             else {
