@@ -70,22 +70,34 @@ to a human but steers a model wrong - the surfaces the deterministic gate cannot
 see. It is non-deterministic and needs a model host, so it runs locally /
 occasionally, never in CI; the deterministic gate stays the regression net.
 
-**Arm: cli.** The harness mediates a ReAct loop - the model emits one action per
-turn (`RUN: <args>` or `ANSWER: <text>`), the harness runs `filtrace <args>` on
-its behalf (only the allowlisted verbs, never a shell) and feeds back the JSON
-(including any error text, so the model can self-correct), until the model answers
-or hits the call budget. The trace path is masked as `<TRACE>` and substituted at
-run time.
+**Two host/arm combinations are wired:**
 
-**Host: ollama** (local, no metered API). `copilot` and `claude` are recognized
-but not yet wired - the runner reports that and exits cleanly.
+- **`ollama` -> cli arm** (local, no metered API). The harness mediates a ReAct
+  loop: the model emits one action per turn (`RUN: <args>` or `ANSWER: <text>`),
+  the harness runs `filtrace <args>` on its behalf (only the allowlisted analysis
+  verbs, never a shell) and feeds back the JSON (including error text, so the
+  model can self-correct). This exercises the CLI help and verbs.
+- **`copilot` -> mcp arm** (the GitHub Copilot CLI - the production target;
+  metered, needs `copilot login`). The runner hands Copilot the task and the
+  locally built filtrace MCP server (via `--additional-mcp-config`) and lets the
+  agent drive the `trace_*` tools itself, then parses its JSONL transcript. This
+  exercises the **MCP tool descriptions** the cli arm never touches, on the real
+  production agent. By default it uses Copilot's own model (the result records the
+  actual model, e.g. `claude-opus-4.6`); pass `-Model` to pin one.
+
+`claude` is recognized but not yet wired. The trace path is masked back to
+`<TRACE>` in transcripts and answers so it does not leak.
 
 ```pwsh
-# A quick two-task sample against a local model.
-./eval/Invoke-AgentEval.ps1 -Model gpt-oss:20b -Tasks cpu-hotspot,gc-report -N 1
+# Local model (cli arm), a quick two-task sample.
+./eval/Invoke-AgentEval.ps1 -AgentHost ollama -Model deepseek-r1:8b -Tasks cpu-hotspot,gc-report -N 1
+
+# Copilot CLI (mcp arm) - drives the trace_* tools on the production agent.
+# Build the MCP server first: dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c Release
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Tasks cpu-hotspot,gc-report -N 1
 
 # A fuller measurement (medians get meaningful around N = 5-10).
-./eval/Invoke-AgentEval.ps1 -Model deepseek-r1:8b -N 10
+./eval/Invoke-AgentEval.ps1 -AgentHost ollama -Model deepseek-r1:8b -N 10
 ```
 
 Each (task, iteration) records **success** (the answer contains every `expect`
@@ -94,10 +106,10 @@ the tool output the agent consumed - the same accounting the gate uses), and
 **wall-time**, plus a per-command transcript. Results land under `eval/results/`
 (git-ignored) as JSON with a median summary.
 
-**MCP arm.** [mcp-qa.jsonl](mcp-qa.jsonl) is the mcp-builder-style QA file: per
-task, the question, the `trace_*` tool an ideal MCP-arm run should call, and the
-expected answer. Driving a model through a live MCP client is a heavier runner
-left as future work; the file is the tool-selection reference and the seed for it.
+**MCP QA file.** [mcp-qa.jsonl](mcp-qa.jsonl) maps each task to the `trace_*` tool
+an ideal MCP run should call and the expected answer (mcp-builder style). The
+`copilot` arm above already drives the tools live; this file is the tool-selection
+reference and the seed for a future host-less MCP-client runner.
 
 ### Example local run
 
@@ -114,5 +126,14 @@ model stood in:
 
 The model self-corrected a wrong flag from the CLI's error text, which is why the
 two-step tasks took more than the canonical call count - exactly the agent
-overhead this arm is meant to measure. See
-[docs/implementation-plan.md](../docs/implementation-plan.md), milestone **M5**.
+overhead this arm is meant to measure.
+
+A `copilot` mcp-arm sample (model `claude-opus-4.6`, the CLI default) on the same
+`gc-report` task answered correctly in **1** `trace_gc` call - the agent selects
+the right tool straight from the MCP descriptions:
+
+| Task | Host / arm | Success | Calls | Tokens |
+|---|---|---|---|---|
+| gc-report | copilot / mcp | 100% | 1 | 1501 |
+
+See [docs/implementation-plan.md](../docs/implementation-plan.md), milestone **M5**.
