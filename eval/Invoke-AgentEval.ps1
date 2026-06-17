@@ -376,12 +376,12 @@ if ($selected.Count -eq 0) { throw "No matching tasks (filter: $($Tasks -join ',
 # Per-host preflight (once). Copilot is agentic (it drives the trace_* tools itself
 # over the MCP arm); ollama is the mediated cli ReAct loop.
 $arm = if ($AgentHost -eq 'ollama') { 'cli' } else { 'mcp' }
-$mcpConfigPath = $null
+$script:mcpConfigPath = $null
 if ($AgentHost -eq 'copilot') {
     if (-not (Get-Command copilot -ErrorAction SilentlyContinue)) {
         throw "The 'copilot' CLI was not found on PATH. Install GitHub Copilot CLI and run 'copilot login'."
     }
-    $mcpConfigPath = New-FiltraceMcpConfig
+    $script:mcpConfigPath = New-FiltraceMcpConfig
 }
 
 # The model list. -Models runs the matrix across several models in one invocation
@@ -391,6 +391,7 @@ $modelList =
 if ($PSBoundParameters.ContainsKey('Models')) { @($Models | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 elseif ($AgentHost -eq 'copilot' -and -not $PSBoundParameters.ContainsKey('Model')) { @($null) }
 else { @($Model) }
+if (@($modelList).Count -eq 0) { throw '-Models expanded to an empty list. Pass at least one model, e.g. -Models claude-opus-4.6.' }
 
 # Median over a small int list.
 function Get-Median([System.Collections.Generic.List[int]]$v) {
@@ -423,7 +424,7 @@ function Invoke-EvalRun {
         for ($i = 1; $i -le $N; $i++) {
             $r = switch ($AgentHost) {
                 'ollama' { Invoke-OllamaIteration -Task $task -FixtureAbs $fixtureAbs }
-                'copilot' { Invoke-CopilotIteration -Task $task -FixtureAbs $fixtureAbs -McpConfig $mcpConfigPath }
+                'copilot' { Invoke-CopilotIteration -Task $task -FixtureAbs $fixtureAbs -McpConfig $script:mcpConfigPath }
                 default { throw "Host '$AgentHost' is recognized but not yet wired." }
             }
             $answer = $r.answer; $calls = [int]$r.calls; $tokens = [int]$r.tokens
@@ -487,4 +488,4 @@ function Invoke-EvalRun {
 foreach ($m in $modelList) { Invoke-EvalRun -RunModel $m -RunLabel $Label | Out-Null }
 
 # Clean up the temporary Copilot MCP config, if one was written.
-if ($mcpConfigPath -and (Test-Path $mcpConfigPath)) { Remove-Item $mcpConfigPath -ErrorAction SilentlyContinue }
+if ($script:mcpConfigPath -and (Test-Path $script:mcpConfigPath)) { Remove-Item $script:mcpConfigPath -Force -ErrorAction SilentlyContinue }

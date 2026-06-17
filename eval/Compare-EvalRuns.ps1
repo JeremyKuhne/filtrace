@@ -18,17 +18,20 @@
     ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models claude-opus-4.6,gpt-5.2 -N 5 -Label candidate
     ./eval/Compare-EvalRuns.ps1 -Baseline baseline -Candidate candidate
 
-  Runs are paired per model (the latest run for each label/model), so the report
-  shows whether a change that helps one model regresses another - the overfitting
-  signal a second host would otherwise provide. The verdict is the design's
-  regression budget, which also serves as the noise threshold:
+  Runs are paired by full identity (host/arm/model), so the report shows whether a
+  change that helps one model regresses another - the overfitting signal a second
+  host would otherwise provide - and runs from different hosts/arms (whose token
+  and call counts are not comparable) never pair silently. The verdict is the
+  design's regression budget, which also serves as the noise threshold:
 
-    - a success drop on any task/model         -> REGRESSION
-    - token growth over the tolerance (15%)     -> REGRESSION
-    - otherwise fewer calls/tokens or higher
-      success                                   -> improved; else neutral
+    - a success drop on any task/run            -> REGRESSION
+    - token growth over the tolerance (15%)      -> REGRESSION
+    - a run present on only one side             -> REJECT (cannot verify)
+    - otherwise: higher success, fewer calls, or
+      a token drop beyond noise (> 5%)           -> improved; smaller deltas neutral
 
-  Exit code is 1 if any regression is found (so it can gate a tuning round), else 0.
+  Exit code is 1 if any regression or unpaired run is found (so it can gate a
+  tuning round), else 0.
 
 .PARAMETER Baseline
   The label of the baseline runs (as passed to Invoke-AgentEval.ps1 -Label).
@@ -55,23 +58,28 @@ $ErrorActionPreference = 'Stop'
 if (-not $ResultsDir) { $ResultsDir = Join-Path $PSScriptRoot 'results' }
 if (-not (Test-Path $ResultsDir)) { throw "No results directory at '$ResultsDir'. Run Invoke-AgentEval.ps1 -Label first." }
 
-# Load every labeled result payload (model, label, timestamp, summary).
+# Load every labeled result payload (host/arm/model, label, timestamp, summary).
 $all = Get-ChildItem -Path $ResultsDir -Filter '*.json' | ForEach-Object {
     try { $p = Get-Content $_.FullName -Raw | ConvertFrom-Json } catch { return }
     if ($p.label) {
-        [pscustomobject]@{ model = [string]$p.model; label = [string]$p.label; timestamp = $p.timestamp; summary = $p.summary }
+        [pscustomobject]@{
+            key       = ('{0}/{1}/{2}' -f $p.host, $p.arm, $p.model)
+            label     = [string]$p.label
+            timestamp = $p.timestamp
+            summary   = $p.summary
+        }
     }
 }
 
-# The latest payload per (label, model).
-function Get-LatestByModel([string]$Label) {
-    @($all | Where-Object { $_.label -eq $Label }) | Group-Object model | ForEach-Object {
+# The latest payload per (label, run) where run = host/arm/model.
+function Get-LatestRun([string]$Label) {
+    @($all | Where-Object { $_.label -eq $Label }) | Group-Object key | ForEach-Object {
         $_.Group | Sort-Object { [datetime]$_.timestamp } | Select-Object -Last 1
     }
 }
 
-$base = @(Get-LatestByModel $Baseline)
-$cand = @(Get-LatestByModel $Candidate)
+$base = @(Get-LatestRun $Baseline)
+$cand = @(Get-LatestRun $Candidate)
 if ($base.Count -eq 0) { throw "No runs labeled '$Baseline' in $ResultsDir." }
 if ($cand.Count -eq 0) { throw "No runs labeled '$Candidate' in $ResultsDir." }
 
@@ -85,20 +93,24 @@ function Get-TaskMap($Payload) {
 $rows = [System.Collections.Generic.List[object]]::new()
 $regressions = 0
 $improvements = 0
+$unpaired = 0
 
-$models = @(@($base.model) + @($cand.model) | Sort-Object -Unique)
-foreach ($model in $models) {
-    $b = $base | Where-Object { $_.model -eq $model } | Select-Object -First 1
-    $c = $cand | Where-Object { $_.model -eq $model } | Select-Object -First 1
-    if (-not $b) { $rows.Add([pscustomobject]@{ Model = $model; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no baseline' }); continue }
-    if (-not $c) { $rows.Add([pscustomobject]@{ Model = $model; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no candidate' }); continue }
+# Pair on the full run identity (host/arm/model) so runs from different hosts or
+# arms - whose token/call counts are not comparable - never pair silently.
+$runs = @(@($base.key) + @($cand.key) | Sort-Object -Unique)
+foreach ($run in $runs) {
+    $b = $base | Where-Object { $_.key -eq $run } | Select-Object -First 1
+    $c = $cand | Where-Object { $_.key -eq $run } | Select-Object -First 1
+    if (-not $b) { $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no baseline' }); $unpaired++; continue }
+    if (-not $c) { $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no candidate' }); $unpaired++; continue }
 
     $bm = Get-TaskMap $b
     $cm = Get-TaskMap $c
     foreach ($t in @(@($bm.Keys) + @($cm.Keys) | Sort-Object -Unique)) {
         $br = $bm[$t]; $cr = $cm[$t]
         if (-not $br -or -not $cr) {
-            $rows.Add([pscustomobject]@{ Model = $model; Task = $t; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'missing task' })
+            $rows.Add([pscustomobject]@{ Run = $run; Task = $t; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'missing task' })
+            $unpaired++
             continue
         }
         $ds = [int]$cr.'Success%' - [int]$br.'Success%'
@@ -113,7 +125,7 @@ foreach ($model in $models) {
 
         $sign = if ($dtFrac -ge 0) { '+' } else { '' }
         $rows.Add([pscustomobject]@{
-                Model   = $model
+                Run     = $run
                 Task    = $t
                 Success = ('{0}->{1}' -f $br.'Success%', $cr.'Success%')
                 Calls   = ('{0}->{1}' -f $br.MedCalls, $cr.MedCalls)
@@ -124,11 +136,11 @@ foreach ($model in $models) {
 }
 
 Write-Host ''
-Write-Host "Baseline '$Baseline' vs candidate '$Candidate' ($($models.Count) model(s)):"
+Write-Host "Baseline '$Baseline' vs candidate '$Candidate' ($($runs.Count) run(s)):"
 $rows | Format-Table -AutoSize | Out-String | Write-Host
 
-if ($regressions -gt 0) {
-    Write-Host "Verdict: REJECT - $regressions regression(s), $improvements improvement(s)." -ForegroundColor Red
+if ($regressions -gt 0 -or $unpaired -gt 0) {
+    Write-Host "Verdict: REJECT - $regressions regression(s), $unpaired unpaired run/task(s), $improvements improvement(s)." -ForegroundColor Red
     exit 1
 }
 Write-Host "Verdict: ACCEPT - 0 regressions, $improvements improvement(s)." -ForegroundColor Green
