@@ -20,16 +20,17 @@
   non-deterministic), never in CI. The design's regression net stays the
   deterministic gate.
 
-  ARM: cli. The harness mediates a ReAct loop - the model emits one action per
-  turn (`RUN: <args>` or `ANSWER: <text>`), the harness runs `filtrace <args>`
-  on its behalf and feeds back the JSON, until the model answers or hits the
-  call budget. The MCP arm is captured statically in eval/mcp-qa.jsonl (the
-  expected tool per task); driving a model through a live MCP client is a
-  separate, heavier runner left as future work.
+  ARMS: the ollama host runs the cli arm (the harness mediates a ReAct loop - the
+  model emits one action per turn, `RUN: <args>` or `ANSWER: <text>`, the harness
+  runs `filtrace <args>` on its behalf and feeds back the JSON). The copilot host
+  runs the mcp arm (the agent drives the filtrace MCP server's trace_* tools
+  itself, exercising the tool descriptions the cli arm never touches). Driving a
+  model through a live MCP client without an agent host is a separate runner left
+  as future work; eval/mcp-qa.jsonl is its seed.
 
-  HOST: ollama (implemented, local, no metered API). copilot / claude are
-  recognized but not yet wired - the runner reports that and exits cleanly so
-  the surface is ready when those CLIs are present.
+  HOSTS: ollama (local, no metered API) and copilot (the GitHub Copilot CLI - the
+  production target; metered, needs `copilot login`). claude is recognized but not
+  yet wired - the runner reports that and exits cleanly.
 
   METRICS per (task, iteration): success (the final answer contains every
   `expect` substring, case-insensitive), calls (filtrace invocations), tokens
@@ -39,11 +40,12 @@
   as medians with a success rate.
 
 .PARAMETER AgentHost
-  The agent host. 'ollama' (default) is implemented; 'copilot' and 'claude' are
-  recognized but not yet wired.
+  The agent host. 'ollama' (the cli arm) and 'copilot' (the mcp arm) are
+  implemented; 'claude' is recognized but not yet wired.
 
 .PARAMETER Model
-  The model name passed to the host. Defaults to 'gpt-oss:20b' for ollama.
+  The model name passed to the host. Defaults to 'gpt-oss:20b' for ollama; for
+  copilot, omit it to use the CLI's default model (pass one to pin it).
 
 .PARAMETER Tasks
   Task ids to run (default: every task whose os matches this machine). Accepts
@@ -229,6 +231,113 @@ returns an error, read it and try a corrected command. Keep going until you can
 answer.
 "@
 
+# Run one iteration on the ollama host: the mediated ReAct loop (the harness runs
+# filtrace on the model's behalf). Returns the uniform iteration record below.
+function Invoke-OllamaIteration {
+    param([object]$Task, [string]$FixtureAbs)
+    $messages = @(
+        @{ role = 'system'; content = $systemPrompt },
+        @{ role = 'user'; content = "Question: $($Task.prompt)" }
+    )
+    $calls = 0; $tokens = 0; $answer = $null; $note = ''
+    $transcript = [System.Collections.Generic.List[object]]::new()
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    # +2 turns of slack so a final ANSWER after MaxSteps RUNs is still read.
+    for ($turn = 0; $turn -lt ($MaxSteps + 2); $turn++) {
+        $reply = Send-AgentMessages -Messages $messages
+        $action = Get-AgentAction -Reply $reply
+        $messages += @{ role = 'assistant'; content = $reply }
+        if ($action[0] -eq 'answer') { $answer = $action[1]; break }
+        elseif ($action[0] -eq 'run') {
+            if ($calls -ge $MaxSteps) { $note = "exceeded $MaxSteps-call budget (G1)"; break }
+            $calls++
+            $res = Invoke-FiltraceForAgent -ArgString $action[1] -FixtureAbs $FixtureAbs
+            $output = [string]$res[1]
+            $clip = if ($output.Length -gt 4000) { $output.Substring(0, 4000) + ' ...[truncated]' } else { $output }
+            $tokens += [int](Get-TokenEstimate -Text $clip)
+            $transcript.Add([pscustomobject]@{
+                    cmd = [string]$action[1]; ok = [bool]$res[0]
+                    info = if (-not $res[0]) { $output.Substring(0, [math]::Min(160, $output.Length)) } else { '' }
+                })
+            $messages += @{ role = 'user'; content = "OUTPUT:`n$clip" }
+        }
+        else {
+            $messages += @{ role = 'user'; content = 'Respond with exactly one line starting with RUN: or ANSWER:.' }
+        }
+    }
+    $sw.Stop()
+    return [pscustomobject]@{
+        answer = $answer; calls = $calls; tokens = $tokens
+        wallMs = [int]$sw.ElapsedMilliseconds; note = $note; transcript = $transcript
+    }
+}
+
+# Write a temporary Copilot MCP-server config pointing at the locally built
+# Filtrace.Mcp server, and return its path. This is what lets the Copilot arm call
+# the trace_* tools directly - exercising the MCP tool descriptions the cli arm
+# never touches.
+function New-FiltraceMcpConfig {
+    $dll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
+    if (-not (Test-Path $dll)) {
+        throw "Filtrace.Mcp server not found at '$dll'. Build it: dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c $Configuration."
+    }
+    $cfg = @{ mcpServers = @{ filtrace = @{ type = 'local'; command = 'dotnet'; args = @((Resolve-Path $dll).Path); tools = @('*') } } }
+    $path = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace-mcp-$PID.json"
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($path, ($cfg | ConvertTo-Json -Depth 6), $utf8)
+    return $path
+}
+
+# Run one iteration on the Copilot CLI host: hand the agent the task prompt and the
+# filtrace MCP server, let it drive the trace_* tools autonomously (headless,
+# --allow-all), and parse its JSONL transcript. The metrics map as: calls = the
+# filtrace tool invocations, tokens = the offline estimate of those tools' output
+# (matching the cli arm's accounting), wall-time from the session. Returns the
+# uniform iteration record.
+function Invoke-CopilotIteration {
+    param([object]$Task, [string]$FixtureAbs, [string]$McpConfig)
+    $prompt = "Using the filtrace MCP tools, analyze the .NET trace at $FixtureAbs and answer the question. Base your answer only on tool output; do not guess. Question: $($Task.prompt)"
+    $cmdArgs = @(
+        '-p', $prompt, '--output-format', 'json', '--allow-all',
+        '--no-custom-instructions', '--disable-builtin-mcps',
+        '--additional-mcp-config', "@$McpConfig"
+    )
+    if ($script:CopilotModel) { $cmdArgs += @('--model', $script:CopilotModel) }
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $out = & copilot @cmdArgs 2>&1
+    $sw.Stop()
+    $events = @($out | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} } | Where-Object { $_ })
+    # Mask the fixture path back to <TRACE> in both raw and JSON-escaped (\\) forms,
+    # since arguments are serialized with ConvertTo-Json (which doubles backslashes).
+    $jsonPath = $FixtureAbs.Replace('\', '\\')
+    $mask = { param($t) ([string]$t).Replace($jsonPath, '<TRACE>').Replace($FixtureAbs, '<TRACE>') }
+    $answer = & $mask ([string](($events | Where-Object { $_.type -eq 'assistant.message' } | Select-Object -Last 1).data.content))
+    $starts = @($events | Where-Object { $_.type -eq 'tool.execution_start' -and $_.data.mcpServerName -eq 'filtrace' })
+    $completes = @($events | Where-Object { $_.type -eq 'tool.execution_complete' })
+    $tokens = 0
+    $transcript = [System.Collections.Generic.List[object]]::new()
+    foreach ($s in $starts) {
+        $c = $completes | Where-Object { $_.data.toolCallId -eq $s.data.toolCallId } | Select-Object -First 1
+        $resultText = if ($c) { ($c.data.result | Out-String).Trim() } else { '' }
+        $tokens += [int](Get-TokenEstimate -Text $resultText)
+        $transcript.Add([pscustomobject]@{
+                cmd  = & $mask ("$($s.data.mcpToolName) $($s.data.arguments | ConvertTo-Json -Compress)")
+                ok   = [bool]($c -and $c.data.success); info = ''
+            })
+    }
+    $result = $events | Where-Object { $_.type -eq 'result' } | Select-Object -First 1
+    $note = ''
+    if ($result -and $result.exitCode -ne 0) { $note = "copilot exitCode $($result.exitCode)" }
+    elseif ($starts.Count -eq 0) { $note = 'no filtrace tool call' }
+    $m = ($events | Where-Object { $_.type -eq 'session.tools_updated' } | Select-Object -First 1).data.model
+    if ($m) { $script:CopilotActualModel = $m }
+    $wallMs = if ($result.usage.sessionDurationMs) { [int]$result.usage.sessionDurationMs } else { [int]$sw.ElapsedMilliseconds }
+    return [pscustomobject]@{
+        answer = $answer; calls = $starts.Count; tokens = $tokens
+        wallMs = $wallMs; note = $note; transcript = $transcript
+    }
+}
+
 # --- Task selection -----------------------------------------------------------
 
 $allTaskFiles = Get-ChildItem -Path $tasksDir -Filter '*.json' | Sort-Object Name
@@ -242,9 +351,24 @@ foreach ($file in $allTaskFiles) {
 }
 if ($selected.Count -eq 0) { throw "No matching tasks (filter: $($Tasks -join ', '))." }
 
-Write-Host "Live agent eval: host=$AgentHost model=$Model arm=cli tasks=$($selected.Count) N=$N" -ForegroundColor Cyan
+# Per-host setup. Copilot is agentic (it drives the trace_* tools itself over the
+# MCP arm); ollama is the mediated cli ReAct loop. -Model defaults to an ollama
+# model, so for Copilot only pass --model when the caller set one explicitly.
+$arm = if ($AgentHost -eq 'ollama') { 'cli' } else { 'mcp' }
+$script:CopilotModel = if ($AgentHost -eq 'copilot' -and $PSBoundParameters.ContainsKey('Model')) { $Model } else { $null }
+$script:CopilotActualModel = $null
+$mcpConfigPath = $null
+if ($AgentHost -eq 'copilot') {
+    if (-not (Get-Command copilot -ErrorAction SilentlyContinue)) {
+        throw "The 'copilot' CLI was not found on PATH. Install GitHub Copilot CLI and run 'copilot login'."
+    }
+    $mcpConfigPath = New-FiltraceMcpConfig
+}
+$modelLabel = if ($AgentHost -eq 'copilot') { if ($script:CopilotModel) { $script:CopilotModel } else { 'copilot-default' } } else { $Model }
 
-# --- The ReAct loop -----------------------------------------------------------
+Write-Host "Live agent eval: host=$AgentHost model=$modelLabel arm=$arm tasks=$($selected.Count) N=$N" -ForegroundColor Cyan
+
+# --- The iteration loop -------------------------------------------------------
 
 $iterRecords = [System.Collections.Generic.List[object]]::new()
 $rows = [System.Collections.Generic.List[object]]::new()
@@ -258,44 +382,13 @@ foreach ($task in $selected) {
     $msList = [System.Collections.Generic.List[int]]::new()
 
     for ($i = 1; $i -le $N; $i++) {
-        $messages = @(
-            @{ role = 'system'; content = $systemPrompt },
-            @{ role = 'user'; content = "Question: $($task.prompt)" }
-        )
-        $calls = 0
-        $tokens = 0
-        $answer = $null
-        $note = ''
-        $transcript = [System.Collections.Generic.List[object]]::new()
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-
-        # +2 turns of slack so a final ANSWER after MaxSteps RUNs is still read.
-        for ($turn = 0; $turn -lt ($MaxSteps + 2); $turn++) {
-            $reply = Send-AgentMessages -Messages $messages
-            $action = Get-AgentAction -Reply $reply
-            $messages += @{ role = 'assistant'; content = $reply }
-
-            if ($action[0] -eq 'answer') { $answer = $action[1]; break }
-            elseif ($action[0] -eq 'run') {
-                if ($calls -ge $MaxSteps) { $note = "exceeded $MaxSteps-call budget (G1)"; break }
-                $calls++
-                $res = Invoke-FiltraceForAgent -ArgString $action[1] -FixtureAbs $fixtureAbs
-                $output = [string]$res[1]
-                $clip = if ($output.Length -gt 4000) { $output.Substring(0, 4000) + ' ...[truncated]' } else { $output }
-                # Count what the model actually consumes: the exact clipped text fed
-                # back, for every call (a failed call's error text costs tokens too).
-                $tokens += [int](Get-TokenEstimate -Text $clip)
-                $transcript.Add([pscustomobject]@{
-                        cmd = [string]$action[1]; ok = [bool]$res[0]
-                        info = if (-not $res[0]) { $output.Substring(0, [math]::Min(160, $output.Length)) } else { '' }
-                    })
-                $messages += @{ role = 'user'; content = "OUTPUT:`n$clip" }
-            }
-            else {
-                $messages += @{ role = 'user'; content = 'Respond with exactly one line starting with RUN: or ANSWER:.' }
-            }
+        $r = switch ($AgentHost) {
+            'ollama' { Invoke-OllamaIteration -Task $task -FixtureAbs $fixtureAbs }
+            'copilot' { Invoke-CopilotIteration -Task $task -FixtureAbs $fixtureAbs -McpConfig $mcpConfigPath }
+            default { throw "Host '$AgentHost' is recognized but not yet wired." }
         }
-        $sw.Stop()
+        $answer = $r.answer; $calls = [int]$r.calls; $tokens = [int]$r.tokens
+        $wallMs = [int]$r.wallMs; $note = $r.note; $transcript = $r.transcript
 
         $ok = $false
         if ($answer) {
@@ -306,14 +399,14 @@ foreach ($task in $selected) {
         elseif (-not $note) { $note = 'no answer produced' }
 
         if ($ok) { $successes++ }
-        $callsList.Add($calls); $tokensList.Add($tokens); $msList.Add([int]$sw.ElapsedMilliseconds)
+        $callsList.Add($calls); $tokensList.Add($tokens); $msList.Add($wallMs)
         $iterRecords.Add([pscustomobject]@{
                 task = $task.id; iteration = $i; success = $ok; calls = $calls
-                tokens = $tokens; wallMs = [int]$sw.ElapsedMilliseconds
+                tokens = $tokens; wallMs = $wallMs
                 answer = $answer; note = $note; transcript = $transcript
             })
         $tag = if ($ok) { 'ok ' } else { 'MISS' }
-        Write-Host ("  [{0}] {1} iter {2}/{3}: calls={4} tokens={5} {6}ms {7}" -f $tag, $task.id, $i, $N, $calls, $tokens, [int]$sw.ElapsedMilliseconds, $note)
+        Write-Host ("  [{0}] {1} iter {2}/{3}: calls={4} tokens={5} {6}ms {7}" -f $tag, $task.id, $i, $N, $calls, $tokens, $wallMs, $note)
     }
 
     # Median helper over a small int list.
@@ -337,13 +430,16 @@ $rows | Format-Table -AutoSize | Out-String | Write-Host
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-$safeModel = ($Model -replace '[^\w.-]', '_')
+# Report the model Copilot actually used (captured from its JSONL) when the caller
+# did not pin one; otherwise the requested model.
+$reportModel = if ($AgentHost -eq 'copilot' -and $script:CopilotActualModel) { $script:CopilotActualModel } else { $modelLabel }
+$safeModel = ($reportModel -replace '[^\w.-]', '_')
 $resultPath = Join-Path $OutDir "$AgentHost-$safeModel-$stamp.json"
 $payload = [ordered]@{
     schemaVersion = 1
     host          = $AgentHost
-    model         = $Model
-    arm           = 'cli'
+    model         = $reportModel
+    arm           = $arm
     n             = $N
     maxSteps      = $MaxSteps
     timestamp     = (Get-Date).ToString('o')
@@ -353,3 +449,6 @@ $payload = [ordered]@{
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($resultPath, (($payload | ConvertTo-Json -Depth 6) + "`n"), $utf8)
 Write-Host "Wrote results for $($selected.Count) task(s) to $resultPath" -ForegroundColor Green
+
+# Clean up the temporary Copilot MCP config, if one was written.
+if ($mcpConfigPath -and (Test-Path $mcpConfigPath)) { Remove-Item $mcpConfigPath -ErrorAction SilentlyContinue }

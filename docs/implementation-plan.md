@@ -21,9 +21,9 @@
 > gate is shipped**: `eval/Invoke-Eval.ps1` over ten fixture-backed tasks with
 > committed baselines, wired into CI as the "Eval gate" step, plus the shared
 > offline token estimator; a **live agent arm** is also shipped
-> (`eval/Invoke-AgentEval.ps1`, host `ollama`) - the `copilot` / `claude` host
-> adapters, a live MCP-client arm, and the tuning loop are the remaining slice),
-> M6 (v1.0
+> (`eval/Invoke-AgentEval.ps1`) with two hosts wired - `ollama` (cli arm) and
+> `copilot` (mcp arm) - leaving the `claude` adapter, a host-less MCP-client
+> runner, and the tuning loop as the remaining slice), M6 (v1.0
 > - the stable-cadence flip, the Touki migration, the MCP registry entry, and
 > README install badges), the AOT / self-contained publish profiles (still
 > framework-dependent; blocked by TraceEvent), and the post-1.0 backlog (the
@@ -376,15 +376,17 @@ the call budget (G1), and the token budget (G2) against committed baselines
 (`eval/baselines.json`), using the shared offline token estimator
 (`tools/Get-TokenEstimate.ps1` + `OutputBudget.EstimateTokens`, byte-for-byte
 mirrored). It is wired into `ci.yml` as the "Eval gate" step. The **live agent
-arm** is also built: `eval/Invoke-AgentEval.ps1` drives a real model through a
-ReAct loop over each task's `prompt`, scoring success / calls / tokens / wall-time
-(host `ollama` implemented and exercised against a local model; `copilot` /
-`claude` adapters stubbed). Each task now carries `prompt` + `expect` for that
-arm, and `eval/mcp-qa.jsonl` is the mcp-builder-style QA file for the MCP arm.
-**Still to build:** the `copilot` / `claude` host adapters, a live MCP-client arm
-(the QA file is its seed), and the N-run tuning loop on descriptions / help / the
-skill. It runs locally / occasionally, never in CI - the deterministic gate stays
-the regression net.
+arm** is also built: `eval/Invoke-AgentEval.ps1` scores a real agent over each
+task's `prompt`, capturing success / calls / tokens / wall-time. Two host/arm
+combinations are wired and exercised: **`ollama` -> cli arm** (a mediated ReAct
+loop over a local model) and **`copilot` -> mcp arm** (the GitHub Copilot CLI
+drives the filtrace MCP server's `trace_*` tools itself - the production agent on
+the surface that matters most, the tool descriptions). Each task carries `prompt`
++ `expect`, and `eval/mcp-qa.jsonl` is the mcp-builder-style QA file. **Still to
+build:** the `claude` host adapter, a host-less live MCP-client runner (the QA
+file is its seed), and the N-run tuning loop on descriptions / help / the skill.
+It runs locally / occasionally, never in CI - the deterministic gate stays the
+regression net.
 
 Build the §10 harness: headless Claude Code + Copilot CLI runners, the four arms, N = 10, metrics capture (success / tokens / calls / wall time), the ten tasks, and the mcp-builder-style QA file for the MCP arm. Record baselines, then run the tuning loop on descriptions, help, and the skill — agent-drafted revisions, harness-scored, human-reviewed. Wire the smoke subset (tasks 1, 4, 9) into CI with the regression budget (any success drop fails; > 15% token growth on a task fails).
 
