@@ -134,6 +134,6 @@ the right tool straight from the MCP descriptions:
 
 | Task | Host / arm | Success | Calls | Tokens |
 |---|---|---|---|---|
-| gc-report | copilot / mcp | 100% | 1 | 43 |
+| gc-report | copilot / mcp | 100% | 1 | 1501 |
 
 See [docs/implementation-plan.md](../docs/implementation-plan.md), milestone **M5**.

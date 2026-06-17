@@ -85,6 +85,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Remove the temporary Copilot MCP config even on a terminating error (the normal
+# path also deletes it at the end). $script: scope so the trap can see it.
+$script:mcpConfigPath = $null
+trap { if ($script:mcpConfigPath -and (Test-Path $script:mcpConfigPath)) { Remove-Item $script:mcpConfigPath -Force -ErrorAction SilentlyContinue }; break }
 $root = Split-Path -Parent $PSScriptRoot
 $cliDll = Join-Path $root "src/Filtrace/bin/$Configuration/net10.0/filtrace.dll"
 $tasksDir = Join-Path $PSScriptRoot 'tasks'
@@ -282,7 +286,7 @@ function New-FiltraceMcpConfig {
         throw "Filtrace.Mcp server not found at '$dll'. Build it: dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c $Configuration."
     }
     $cfg = @{ mcpServers = @{ filtrace = @{ type = 'local'; command = 'dotnet'; args = @((Resolve-Path $dll).Path); tools = @('*') } } }
-    $path = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace-mcp-$PID.json"
+    $path = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace-mcp-$([guid]::NewGuid().ToString('N')).json"
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($path, ($cfg | ConvertTo-Json -Depth 6), $utf8)
     return $path
@@ -318,7 +322,14 @@ function Invoke-CopilotIteration {
     $transcript = [System.Collections.Generic.List[object]]::new()
     foreach ($s in $starts) {
         $c = $completes | Where-Object { $_.data.toolCallId -eq $s.data.toolCallId } | Select-Object -First 1
-        $resultText = if ($c) { ($c.data.result | Out-String).Trim() } else { '' }
+        # Use the raw string result when the tool returned one; otherwise serialize
+        # the structured payload deterministically (Out-String would emit PowerShell
+        # table formatting, which is not what the agent actually consumed).
+        $resultText = if ($c) {
+            $rv = $c.data.result
+            if ($rv -is [string]) { $rv } else { ($rv | ConvertTo-Json -Depth 8 -Compress) }
+        }
+        else { '' }
         $tokens += [int](Get-TokenEstimate -Text $resultText)
         $transcript.Add([pscustomobject]@{
                 cmd  = & $mask ("$($s.data.mcpToolName) $($s.data.arguments | ConvertTo-Json -Compress)")
