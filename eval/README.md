@@ -137,3 +137,41 @@ the right tool straight from the MCP descriptions:
 | gc-report | copilot / mcp | 100% | 1 | 1501 |
 
 See [docs/implementation-plan.md](../docs/implementation-plan.md), milestone **M5**.
+
+## Tuning the surfaces (the loop)
+
+The point of the live arm is to **improve the surfaces an agent reads** - the MCP
+tool descriptions, the CLI help, the skill - and prove a change helped without
+regressing. Those surfaces are compiled in, so a "candidate" is just a rebuilt
+working tree. The loop:
+
+```pwsh
+# 1. Baseline at HEAD, across a couple of models (evaluator diversity).
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models claude-opus-4.6,gpt-5.2 -N 5 -Label baseline
+
+# 2. Edit a surface - e.g. a [Description] on a trace_* tool in TraceTools.cs - and rebuild.
+dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c Release
+
+# 3. Candidate, same models, the other label.
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models claude-opus-4.6,gpt-5.2 -N 5 -Label candidate
+
+# 4. Compare; non-zero exit if any model regressed.
+./eval/Compare-EvalRuns.ps1 -Baseline baseline -Candidate candidate
+```
+
+- **`-Models`** runs the matrix across several models in one invocation; **`-Label`**
+  stamps each result so the comparer can pair them. For copilot, `--model` gives
+  real model diversity - which is why a second host (e.g. Claude Code) is not
+  needed for overfitting detection.
+- **[Compare-EvalRuns.ps1](Compare-EvalRuns.ps1)** pairs the latest run per
+  (label, model) and reports, per task, the success / calls / tokens delta with a
+  verdict. The verdict is the design's regression budget (which also absorbs LLM
+  noise): a **success drop on any model** or **>15% token growth** on any task is a
+  REGRESSION (reject, exit 1); fewer calls/tokens or higher success is an
+  improvement. The per-model rows are the overfitting detector - a change that
+  helps one model but regresses another is rejected.
+- Drafting the revision (the design's "agent-drafted" step) is manual or a separate
+  agent prompt; the machinery above is the deterministic score-and-compare it feeds.
+
+Token counts are not comparable **across** hosts/arms (the cli arm counts CLI JSON
+stdout; the mcp arm counts the MCP result payload) - compare within a host.
