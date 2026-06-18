@@ -87,6 +87,7 @@ param(
     [string]$Model = 'gpt-oss:20b',
     [string[]]$Models,
     [string[]]$Tasks,
+    [ValidateRange(1, [int]::MaxValue)]
     [int]$N = 1,
     [int]$MaxSteps = 6,
     [string]$Configuration = 'Release',

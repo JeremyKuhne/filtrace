@@ -60,7 +60,9 @@ if (-not (Test-Path $ResultsDir)) { throw "No results directory at '$ResultsDir'
 
 # Load every labeled result payload (host/arm/model, label, timestamp, summary).
 $all = Get-ChildItem -Path $ResultsDir -Filter '*.json' | ForEach-Object {
-    try { $p = Get-Content $_.FullName -Raw | ConvertFrom-Json } catch { return }
+    $f = $_.FullName
+    try { $p = Get-Content $f -Raw | ConvertFrom-Json }
+    catch { Write-Warning "Skipping unreadable result '$f': $($_.Exception.Message)"; return }
     if ($p.label) {
         [pscustomobject]@{
             key       = ('{0}/{1}/{2}' -f $p.host, $p.arm, $p.model)
