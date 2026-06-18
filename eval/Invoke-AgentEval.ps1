@@ -47,6 +47,15 @@
   The model name passed to the host. Defaults to 'gpt-oss:20b' for ollama; for
   copilot, omit it to use the CLI's default model (pass one to pin it).
 
+.PARAMETER Models
+  Run the matrix across several models in one invocation (evaluator diversity for
+  the tuning loop), e.g. -Models claude-opus-4.6,gpt-5.2. Overrides -Model; one
+  result file is written per model.
+
+.PARAMETER Label
+  A label stamped into each result file's name and payload (e.g. baseline or
+  candidate) so Compare-EvalRuns.ps1 can pair a candidate run against its baseline.
+
 .PARAMETER Tasks
   Task ids to run (default: every task whose os matches this machine). Accepts
   the smoke subset, e.g. -Tasks cpu-hotspot,gc-report.
@@ -76,12 +85,15 @@ param(
     [ValidateSet('ollama', 'copilot', 'claude')]
     [string]$AgentHost = 'ollama',
     [string]$Model = 'gpt-oss:20b',
+    [string[]]$Models,
     [string[]]$Tasks,
+    [ValidateRange(1, [int]::MaxValue)]
     [int]$N = 1,
     [int]$MaxSteps = 6,
     [string]$Configuration = 'Release',
     [string]$OllamaUrl = 'http://localhost:11434/api/chat',
-    [string]$OutDir
+    [string]$OutDir,
+    [string]$Label
 )
 
 $ErrorActionPreference = 'Stop'
@@ -182,7 +194,7 @@ function Invoke-FiltraceForAgent {
 function Invoke-OllamaChat {
     param([object[]]$Messages)
     $body = @{
-        model    = $Model
+        model    = $script:CurrentModel
         messages = $Messages
         stream   = $false
         options  = @{ temperature = 0 }
@@ -191,7 +203,7 @@ function Invoke-OllamaChat {
         $resp = Invoke-RestMethod -Uri $OllamaUrl -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 300
     }
     catch {
-        throw "Ollama request failed ($OllamaUrl): $($_.Exception.Message). Is 'ollama serve' running and '$Model' pulled?"
+        throw "Ollama request failed ($OllamaUrl): $($_.Exception.Message). Is 'ollama serve' running and '$($script:CurrentModel)' pulled?"
     }
     $content = $resp.message.content
     if ([string]::IsNullOrWhiteSpace($content) -and $resp.message.thinking) { $content = $resp.message.thinking }
@@ -306,7 +318,7 @@ function Invoke-CopilotIteration {
         '--no-custom-instructions', '--disable-builtin-mcps',
         '--additional-mcp-config', "@$McpConfig"
     )
-    if ($script:CopilotModel) { $cmdArgs += @('--model', $script:CopilotModel) }
+    if ($script:CurrentModel) { $cmdArgs += @('--model', $script:CurrentModel) }
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $out = & copilot @cmdArgs 2>&1
     $sw.Stop()
@@ -362,104 +374,119 @@ foreach ($file in $allTaskFiles) {
 }
 if ($selected.Count -eq 0) { throw "No matching tasks (filter: $($Tasks -join ', '))." }
 
-# Per-host setup. Copilot is agentic (it drives the trace_* tools itself over the
-# MCP arm); ollama is the mediated cli ReAct loop. -Model defaults to an ollama
-# model, so for Copilot only pass --model when the caller set one explicitly.
+# Per-host preflight (once). Copilot is agentic (it drives the trace_* tools itself
+# over the MCP arm); ollama is the mediated cli ReAct loop.
 $arm = if ($AgentHost -eq 'ollama') { 'cli' } else { 'mcp' }
-$script:CopilotModel = if ($AgentHost -eq 'copilot' -and $PSBoundParameters.ContainsKey('Model')) { $Model } else { $null }
-$script:CopilotActualModel = $null
-$mcpConfigPath = $null
+$script:mcpConfigPath = $null
 if ($AgentHost -eq 'copilot') {
     if (-not (Get-Command copilot -ErrorAction SilentlyContinue)) {
         throw "The 'copilot' CLI was not found on PATH. Install GitHub Copilot CLI and run 'copilot login'."
     }
-    $mcpConfigPath = New-FiltraceMcpConfig
+    $script:mcpConfigPath = New-FiltraceMcpConfig
 }
-$modelLabel = if ($AgentHost -eq 'copilot') { if ($script:CopilotModel) { $script:CopilotModel } else { 'copilot-default' } } else { $Model }
 
-Write-Host "Live agent eval: host=$AgentHost model=$modelLabel arm=$arm tasks=$($selected.Count) N=$N" -ForegroundColor Cyan
+# The model list. -Models runs the matrix across several models in one invocation
+# (evaluator diversity for the tuning loop). For copilot a $null entry means the
+# CLI's default model. Default: -Model (ollama) or the copilot default.
+$modelList =
+if ($PSBoundParameters.ContainsKey('Models')) { @($Models | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+elseif ($AgentHost -eq 'copilot' -and -not $PSBoundParameters.ContainsKey('Model')) { @($null) }
+else { @($Model) }
+if (@($modelList).Count -eq 0) { throw '-Models expanded to an empty list. Pass at least one model, e.g. -Models claude-opus-4.6.' }
 
-# --- The iteration loop -------------------------------------------------------
+# Median over a small int list.
+function Get-Median([System.Collections.Generic.List[int]]$v) {
+    $s = @($v | Sort-Object); $n = $s.Count
+    if ($n -eq 0) { return 0 }
+    if ($n % 2) { return $s[[int][math]::Floor($n / 2)] }
+    return [int][math]::Round(($s[$n / 2 - 1] + $s[$n / 2]) / 2.0)
+}
 
-$iterRecords = [System.Collections.Generic.List[object]]::new()
-$rows = [System.Collections.Generic.List[object]]::new()
+# Run one model configuration (tasks x N), print the table, persist a result file,
+# and return its path. $script:CurrentModel drives both host adapters.
+function Invoke-EvalRun {
+    param($RunModel, [string]$RunLabel)
+    $script:CurrentModel = $RunModel
+    $script:CopilotActualModel = $null
+    $modelLabel = if ($AgentHost -eq 'copilot') { if ($RunModel) { $RunModel } else { 'copilot-default' } } else { $RunModel }
+    $labelTag = if ($RunLabel) { " label=$RunLabel" } else { '' }
+    Write-Host "Live agent eval: host=$AgentHost model=$modelLabel arm=$arm tasks=$($selected.Count) N=$N$labelTag" -ForegroundColor Cyan
 
-foreach ($task in $selected) {
-    $fixtureAbs = (Resolve-Path (Join-Path $root $task.fixture)).Path
-    $expect = @($task.expect)
-    $successes = 0
-    $callsList = [System.Collections.Generic.List[int]]::new()
-    $tokensList = [System.Collections.Generic.List[int]]::new()
-    $msList = [System.Collections.Generic.List[int]]::new()
+    $iterRecords = [System.Collections.Generic.List[object]]::new()
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($task in $selected) {
+        $fixtureAbs = (Resolve-Path (Join-Path $root $task.fixture)).Path
+        $expect = @($task.expect)
+        $successes = 0
+        $callsList = [System.Collections.Generic.List[int]]::new()
+        $tokensList = [System.Collections.Generic.List[int]]::new()
+        $msList = [System.Collections.Generic.List[int]]::new()
 
-    for ($i = 1; $i -le $N; $i++) {
-        $r = switch ($AgentHost) {
-            'ollama' { Invoke-OllamaIteration -Task $task -FixtureAbs $fixtureAbs }
-            'copilot' { Invoke-CopilotIteration -Task $task -FixtureAbs $fixtureAbs -McpConfig $mcpConfigPath }
-            default { throw "Host '$AgentHost' is recognized but not yet wired." }
+        for ($i = 1; $i -le $N; $i++) {
+            $r = switch ($AgentHost) {
+                'ollama' { Invoke-OllamaIteration -Task $task -FixtureAbs $fixtureAbs }
+                'copilot' { Invoke-CopilotIteration -Task $task -FixtureAbs $fixtureAbs -McpConfig $script:mcpConfigPath }
+                default { throw "Host '$AgentHost' is recognized but not yet wired." }
+            }
+            $answer = $r.answer; $calls = [int]$r.calls; $tokens = [int]$r.tokens
+            $wallMs = [int]$r.wallMs; $note = $r.note; $transcript = $r.transcript
+
+            $ok = $false
+            if ($answer) {
+                $ok = $true
+                foreach ($e in $expect) { if ($answer -notmatch [regex]::Escape($e)) { $ok = $false } }
+                if (-not $ok -and -not $note) { $note = 'answer missing expected content' }
+            }
+            elseif (-not $note) { $note = 'no answer produced' }
+
+            if ($ok) { $successes++ }
+            $callsList.Add($calls); $tokensList.Add($tokens); $msList.Add($wallMs)
+            $iterRecords.Add([pscustomobject]@{
+                    task = $task.id; iteration = $i; success = $ok; calls = $calls
+                    tokens = $tokens; wallMs = $wallMs
+                    answer = $answer; note = $note; transcript = $transcript
+                })
+            $tag = if ($ok) { 'ok ' } else { 'MISS' }
+            Write-Host ("  [{0}] {1} iter {2}/{3}: calls={4} tokens={5} {6}ms {7}" -f $tag, $task.id, $i, $N, $calls, $tokens, $wallMs, $note)
         }
-        $answer = $r.answer; $calls = [int]$r.calls; $tokens = [int]$r.tokens
-        $wallMs = [int]$r.wallMs; $note = $r.note; $transcript = $r.transcript
 
-        $ok = $false
-        if ($answer) {
-            $ok = $true
-            foreach ($e in $expect) { if ($answer -notmatch [regex]::Escape($e)) { $ok = $false } }
-            if (-not $ok -and -not $note) { $note = 'answer missing expected content' }
-        }
-        elseif (-not $note) { $note = 'no answer produced' }
-
-        if ($ok) { $successes++ }
-        $callsList.Add($calls); $tokensList.Add($tokens); $msList.Add($wallMs)
-        $iterRecords.Add([pscustomobject]@{
-                task = $task.id; iteration = $i; success = $ok; calls = $calls
-                tokens = $tokens; wallMs = $wallMs
-                answer = $answer; note = $note; transcript = $transcript
+        $rows.Add([pscustomobject]@{
+                Task = $task.id; 'Success%' = [int]([math]::Round(100.0 * $successes / $N))
+                MedCalls = (Get-Median $callsList); MedTokens = (Get-Median $tokensList); MedMs = (Get-Median $msList)
             })
-        $tag = if ($ok) { 'ok ' } else { 'MISS' }
-        Write-Host ("  [{0}] {1} iter {2}/{3}: calls={4} tokens={5} {6}ms {7}" -f $tag, $task.id, $i, $N, $calls, $tokens, $wallMs, $note)
     }
 
-    # Median helper over a small int list.
-    function Get-Median([System.Collections.Generic.List[int]]$v) {
-        $s = @($v | Sort-Object); $n = $s.Count
-        if ($n -eq 0) { return 0 }
-        if ($n % 2) { return $s[[int][math]::Floor($n / 2)] }
-        return [int][math]::Round(($s[$n / 2 - 1] + $s[$n / 2]) / 2.0)
+    Write-Host ''
+    $rows | Format-Table -AutoSize | Out-String | Write-Host
+
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+    $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
+    # Report the model Copilot actually used (from its JSONL) when none was pinned.
+    $reportModel = if ($AgentHost -eq 'copilot' -and $script:CopilotActualModel) { $script:CopilotActualModel } else { $modelLabel }
+    $safeModel = ($reportModel -replace '[^\w.-]', '_')
+    $labelPart = if ($RunLabel) { "$($RunLabel -replace '[^\w.-]', '_')-" } else { '' }
+    $resultPath = Join-Path $OutDir "$AgentHost-$safeModel-$labelPart$stamp.json"
+    $payload = [ordered]@{
+        schemaVersion = 1
+        host          = $AgentHost
+        model         = $reportModel
+        arm           = $arm
+        label         = $RunLabel
+        n             = $N
+        maxSteps      = $MaxSteps
+        timestamp     = (Get-Date).ToString('o')
+        summary       = $rows
+        iterations    = $iterRecords
     }
-
-    $rows.Add([pscustomobject]@{
-            Task = $task.id; 'Success%' = [int]([math]::Round(100.0 * $successes / $N))
-            MedCalls = (Get-Median $callsList); MedTokens = (Get-Median $tokensList); MedMs = (Get-Median $msList)
-        })
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($resultPath, (($payload | ConvertTo-Json -Depth 6) + "`n"), $utf8)
+    Write-Host "Wrote results ($modelLabel$labelTag) to $resultPath" -ForegroundColor Green
+    return $resultPath
 }
 
-Write-Host ''
-$rows | Format-Table -AutoSize | Out-String | Write-Host
+# --- Run each model in the list -----------------------------------------------
 
-# --- Persist results ----------------------------------------------------------
-
-New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-$stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-# Report the model Copilot actually used (captured from its JSONL) when the caller
-# did not pin one; otherwise the requested model.
-$reportModel = if ($AgentHost -eq 'copilot' -and $script:CopilotActualModel) { $script:CopilotActualModel } else { $modelLabel }
-$safeModel = ($reportModel -replace '[^\w.-]', '_')
-$resultPath = Join-Path $OutDir "$AgentHost-$safeModel-$stamp.json"
-$payload = [ordered]@{
-    schemaVersion = 1
-    host          = $AgentHost
-    model         = $reportModel
-    arm           = $arm
-    n             = $N
-    maxSteps      = $MaxSteps
-    timestamp     = (Get-Date).ToString('o')
-    summary       = $rows
-    iterations    = $iterRecords
-}
-$utf8 = New-Object System.Text.UTF8Encoding($false)
-[System.IO.File]::WriteAllText($resultPath, (($payload | ConvertTo-Json -Depth 6) + "`n"), $utf8)
-Write-Host "Wrote results for $($selected.Count) task(s) to $resultPath" -ForegroundColor Green
+foreach ($m in $modelList) { Invoke-EvalRun -RunModel $m -RunLabel $Label | Out-Null }
 
 # Clean up the temporary Copilot MCP config, if one was written.
-if ($mcpConfigPath -and (Test-Path $mcpConfigPath)) { Remove-Item $mcpConfigPath -ErrorAction SilentlyContinue }
+if ($script:mcpConfigPath -and (Test-Path $script:mcpConfigPath)) { Remove-Item $script:mcpConfigPath -Force -ErrorAction SilentlyContinue }

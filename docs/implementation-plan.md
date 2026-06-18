@@ -22,8 +22,9 @@
 > committed baselines, wired into CI as the "Eval gate" step, plus the shared
 > offline token estimator; a **live agent arm** is also shipped
 > (`eval/Invoke-AgentEval.ps1`) with two hosts wired - `ollama` (cli arm) and
-> `copilot` (mcp arm) - leaving the `claude` adapter, a host-less MCP-client
-> runner, and the tuning loop as the remaining slice), M6 (v1.0
+> `copilot` (mcp arm) - and the **tuning-loop machinery** (`-Models` / `-Label` +
+> `eval/Compare-EvalRuns.ps1`), leaving only the running of tuning rounds; the
+> `claude` adapter is deferred since multi-model Copilot covers the diversity), M6 (v1.0
 > - the stable-cadence flip, the Touki migration, the MCP registry entry, and
 > README install badges), the AOT / self-contained publish profiles (still
 > framework-dependent; blocked by TraceEvent), and the post-1.0 backlog (the
@@ -382,11 +383,18 @@ combinations are wired and exercised: **`ollama` -> cli arm** (a mediated ReAct
 loop over a local model) and **`copilot` -> mcp arm** (the GitHub Copilot CLI
 drives the filtrace MCP server's `trace_*` tools itself - the production agent on
 the surface that matters most, the tool descriptions). Each task carries `prompt`
-+ `expect`, and `eval/mcp-qa.jsonl` is the mcp-builder-style QA file. **Still to
-build:** the `claude` host adapter, a host-less live MCP-client runner (the QA
-file is its seed), and the N-run tuning loop on descriptions / help / the skill.
-It runs locally / occasionally, never in CI - the deterministic gate stays the
-regression net.
++ `expect`, and `eval/mcp-qa.jsonl` is the mcp-builder-style QA file. The
+**tuning-loop machinery** is also built: `-Models` runs the matrix across several
+models in one invocation and `-Label` stamps each run, so
+`eval/Compare-EvalRuns.ps1` can pair a candidate surface against its baseline and
+report the per-task, per-model success / calls / tokens delta with a regression
+verdict (a success drop on any model or >15% token growth = reject, exit 1). The
+per-model rows are the overfitting detector, so multi-model Copilot supersedes a
+second host - the `claude` adapter is **deferred** (no marginal value until it is a
+consumer to certify). **Still to do:** actually run tuning rounds on the
+descriptions / help / skill (human-reviewed), and optionally a host-less
+MCP-client runner (the QA file is its seed). It all runs locally / occasionally,
+never in CI - the deterministic gate stays the regression net.
 
 Build the §10 harness: headless Claude Code + Copilot CLI runners, the four arms, N = 10, metrics capture (success / tokens / calls / wall time), the ten tasks, and the mcp-builder-style QA file for the MCP arm. Record baselines, then run the tuning loop on descriptions, help, and the skill — agent-drafted revisions, harness-scored, human-reviewed. Wire the smoke subset (tasks 1, 4, 9) into CI with the regression budget (any success drop fails; > 15% token growth on a task fails).
 
