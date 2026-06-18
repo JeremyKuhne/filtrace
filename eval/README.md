@@ -164,13 +164,14 @@ dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c Release
   real model diversity - which is why a second host (e.g. Claude Code) is not
   needed for overfitting detection.
 - **[Compare-EvalRuns.ps1](Compare-EvalRuns.ps1)** pairs the latest run per
-  (label, host/arm/model) and reports, per task, the success / calls / tokens delta
-  with a
-  verdict. The verdict is the design's regression budget (which also absorbs LLM
-  noise): a **success drop on any model** or **>15% token growth** on any task is a
-  REGRESSION (reject, exit 1); fewer calls/tokens or higher success is an
-  improvement. The per-model rows are the overfitting detector - a change that
-  helps one model but regresses another is rejected.
+  (label, host/arm/model) and reports, per task, the success / calls / tokens
+  delta with a verdict. The verdict is the design's regression budget (which also
+  absorbs LLM noise): a **success drop on any model**, **>15% token growth** on any
+  task, or a run present on only one side is a **REGRESSION/REJECT** (exit 1);
+  higher success, fewer calls, or a **token drop beyond noise (>5%)** is an
+  improvement, and smaller token deltas stay neutral. The per-model rows are the
+  overfitting detector - a change that helps one model but regresses another is
+  rejected.
 - Drafting the revision (the design's "agent-drafted" step) is manual or a separate
   agent prompt; the machinery above is the deterministic score-and-compare it feeds.
 
