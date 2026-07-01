@@ -127,7 +127,7 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-$testArgs = @('test', $projectPath, '-c', $Configuration, '--no-build')
+$testArgs = @('test', $projectPath, '-c', $Configuration, '--no-build', '--no-restore')
 if ($Filter) { $testArgs += @('--filter', $Filter) }
 
 Write-Host "Running elevated: dotnet $($testArgs -join ' ')" -ForegroundColor Cyan
