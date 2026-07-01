@@ -15,6 +15,43 @@ filtrace is a command-line and MCP trace analyzer. It reads EventPipe
 and .NET Framework, ranks where a metric goes, drills into one frame, and diffs
 two runs. There is no GUI; output is dense text by default, or compact JSON.
 
+## Getting a trace to analyze
+
+filtrace records ETW captures itself - the `collect` verb launches an executable and
+records an `.etl` (Windows, Administrator), no external recorder. For an EventPipe
+`.nettrace` it defers to `dotnet-trace` (cross-platform, first-party); either way it
+analyzes whatever a recorder produces. Record or produce one, then point filtrace (or
+`trace_info`) at the file. Two capture worlds feed it, and the question decides which:
+
+| Capture | Records | Elevation | Scope | Recorded by |
+|---|---|---|---|---|
+| EventPipe (`.nettrace`, `.speedscope.json`) | cpu, alloc, exceptions, gc, jit | none | one process | `dotnet-trace collect`, BenchmarkDotNet `-p EP` |
+| ETW (`.etl`) | cpu, threadtime, native frames | Administrator | machine-wide | `filtrace collect`, BenchmarkDotNet `-p ETW`, PerfView, `wpr` |
+
+Only an ETW `.etl` carries wall-clock (`threadtime`), the native GC / JIT / `memcpy`
+split (`--native-symbols` + `classify`), and multi-process scoping (`processes` +
+`--process`); reach for it when the question is "CPU-bound or blocked?", "GC versus
+my code?", or "which process is this?" - otherwise an EventPipe trace is the
+lighter, no-elevation choice. Reading an `.etl` is itself Windows-only (the
+ETW -> ETLX conversion), though the resulting `.etlx` then analyzes on any OS.
+
+For a BenchmarkDotNet capture, add `--keepFiles` so the kept build output supplies
+the PDBs that resolve source lines, and analyze with `--benchmark` to scope past the
+harness. The bundled
+[scripts/Capture-BenchmarkTrace.ps1](../.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1)
+wraps the whole loop: it runs the benchmark under the chosen profiler
+(self-elevating for ETW, with visible progress), finds the newest trace, and prints
+the next-step filtrace commands already scoped with `--process`.
+
+To profile a whole executable project instead of a micro-benchmark, capture its
+running output with `dotnet-trace` (EventPipe) or `filtrace collect` (ETW). Build first
+and launch the built app directly - `dotnet run` forks your program into a separate
+process, so a single-process EventPipe session would trace the build/run host, not
+your code (see the trap catalog). The bundled
+[scripts/Capture-ProjectTrace.ps1](../.agents/skills/filtrace/scripts/Capture-ProjectTrace.ps1)
+does this: it builds the project, resolves the run target, traces it under the
+chosen profiler, and prints the next-step filtrace commands.
+
 ## The canonical investigation: orient -> rank -> drill -> compare
 
 Almost every investigation is the same four moves, and the verbs and MCP tools
@@ -75,6 +112,12 @@ are named for them:
 | `gcstats` | GC counts, pauses, heap summary |
 | `jitstats` | JIT method count, compile time, sizes |
 | `events --name <n>` | raw events by name, paged |
+
+**Capture** - record a Windows ETW `.etl` yourself (for an EventPipe `.nettrace`, use `dotnet-trace`):
+
+| Verb | Does |
+|---|---|
+| `collect` | launch an executable and record a CPU / thread-time `.etl` (Windows, Administrator) |
 
 **File ops** - manage the ETLX conversion cache TraceEvent keeps beside a trace:
 

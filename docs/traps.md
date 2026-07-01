@@ -54,4 +54,12 @@ embeds the marked block below verbatim and
    `memmove`, write-barriers, and GC-poll helpers into their managed caller -
    right for "which method is hot", wrong for "what kind of work dominates". Use
    `--no-fold` (or `classify`) to let the native leaves rank on their own.
+
+9. **Trace the built app, not `dotnet run`.** `dotnet run` builds and then forks
+   your program into a separate child process, so a single-process EventPipe
+   session launched with `dotnet-trace collect -- dotnet run ...` records the
+   build/run host, not your code, and the hot frames never appear. Build first,
+   then launch the built output directly (`dotnet-trace collect -- <app>.dll`, or
+   the apphost `<app>.exe`); the bundled `Capture-ProjectTrace.ps1` resolves that
+   run target for you.
 <!-- filtrace:end traps -->
