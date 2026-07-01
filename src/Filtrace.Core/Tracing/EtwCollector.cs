@@ -190,12 +190,18 @@ public static class EtwCollector
         }
 
         // ThreadTime = Default | ContextSwitch | Dispatcher; Default already carries the
-        // Profile (CPU sampling), Process, Thread, and ImageLoad keywords. The same set is
-        // passed as the stack-capture mask so both CPU samples and context switches carry
-        // stacks.
+        // Profile (CPU sampling), Process, Thread, and ImageLoad keywords.
         KernelTraceEventParser.Keywords kernelKeywords = request.Metric == CollectMetric.ThreadTime
             ? KernelTraceEventParser.Keywords.ThreadTime
             : KernelTraceEventParser.Keywords.Default;
+
+        // Attach stacks only to the CPU-sample (and, for thread time, context-switch)
+        // events - the ones whose call stacks the rankings and thread-time attribution
+        // read. Stacking every Default event would bloat the trace without helping
+        // analysis. This mirrors the repo's own ETW fixture capture.
+        KernelTraceEventParser.Keywords stackKeywords = request.Metric == CollectMetric.ThreadTime
+            ? KernelTraceEventParser.Keywords.Profile | KernelTraceEventParser.Keywords.ContextSwitch
+            : KernelTraceEventParser.Keywords.Profile;
 
         string processName = Path.GetFileNameWithoutExtension(request.LaunchExecutable);
         string sessionName = $"filtrace-collect-{Environment.ProcessId}";
@@ -210,7 +216,7 @@ public static class EtwCollector
             CpuSampleIntervalMSec = (float)request.CpuSampleMSec,
         })
         {
-            session.EnableKernelProvider(kernelKeywords, kernelKeywords);
+            session.EnableKernelProvider(kernelKeywords, stackKeywords);
             session.EnableProvider(
                 ClrTraceEventParser.ProviderGuid,
                 TraceEventLevel.Verbose,
@@ -226,16 +232,27 @@ public static class EtwCollector
                 ?? throw new InvalidOperationException($"Failed to launch '{request.LaunchExecutable}'.");
             processId = process.Id;
 
-            if (request.DurationSeconds is int seconds and > 0 && !process.WaitForExit(seconds * 1000))
+            bool exited;
+            if (request.DurationSeconds is int seconds and > 0)
             {
-                process.Kill(entireProcessTree: true);
-                process.WaitForExit();
-                exitCode = -1;
+                exited = process.WaitForExit(seconds * 1000);
             }
             else
             {
                 process.WaitForExit();
+                exited = true;
+            }
+
+            if (exited)
+            {
                 exitCode = process.ExitCode;
+            }
+            else
+            {
+                // The duration cap elapsed while the process was still running.
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit();
+                exitCode = -1;
             }
         }
 

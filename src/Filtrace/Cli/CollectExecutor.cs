@@ -59,7 +59,8 @@ internal static class CollectExecutor
             or UnauthorizedAccessException
             or ArgumentException
             or InvalidOperationException
-            or IOException)
+            or IOException
+            or System.ComponentModel.Win32Exception)
         {
             error.WriteLine(ex.Message);
             return ExitCodes.InputError;

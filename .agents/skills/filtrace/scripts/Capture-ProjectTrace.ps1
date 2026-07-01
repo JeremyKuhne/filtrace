@@ -162,8 +162,10 @@ if ($outputType -notin @('Exe', 'WinExe')) {
 # machine-wide, and `--process $assemblyName` is far easier to scope than `dotnet`).
 # Fall back to `dotnet <app>.dll` when no apphost was produced (UseAppHost=false).
 $outputDir = Split-Path -Parent $targetPath
+# Treat an undefined $IsWindows (Windows PowerShell 5.1) as Windows, matching the ETW
+# guard above, so the .exe apphost is still found there.
 $exeSuffix = ''
-if ($IsWindows) { $exeSuffix = '.exe' }
+if ($IsWindows -ne $false) { $exeSuffix = '.exe' }
 $appHost = Join-Path $outputDir ($assemblyName + $exeSuffix)
 if (Test-Path -LiteralPath $appHost) {
     $runExe = $appHost
@@ -218,7 +220,12 @@ else {
     # filtrace records the ETW session itself with TraceEvent - no PerfView or wpr. It
     # launches the built app, captures CPU + context-switch (threadtime) stacks with managed
     # method names, and writes the machine-wide .etl the analysis verbs read.
-    $launchArgs = (@($runPrefixArgs) + $AppArgs) -join ' '
+    # filtrace collect takes a single command-line string; quote any element that has
+    # whitespace (escaping embedded quotes) so argument boundaries survive the join, the
+    # way the EventPipe path preserves them by passing an array.
+    $launchArgs = (@($runPrefixArgs) + $AppArgs | ForEach-Object {
+            if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+        }) -join ' '
     $collectArgs = @('collect', '--launch', $runExe, '--output', $Output, '--metric', 'threadtime')
     if ($launchArgs) { $collectArgs += @('--launch-args', $launchArgs) }
     filtrace @collectArgs | Out-Host

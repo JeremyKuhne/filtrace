@@ -83,6 +83,15 @@ function Test-Elevated {
     return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# Recording an .etl is Windows-only, and Test-Elevated below calls a Windows-only API, so
+# fail fast with a clear message rather than a PlatformNotSupportedException. Compare
+# against $false so Windows PowerShell 5.1 (undefined $IsWindows) is not mistaken for a
+# non-Windows OS.
+if ($Profiler -eq 'ETW' -and $IsWindows -eq $false) {
+    Write-Error 'ETW capture is Windows-only. Use -Profiler EP on this OS.'
+    exit 1
+}
+
 # ETW kernel sessions require Administrator. When not elevated, relaunch this script
 # in an elevated window that shows the capture's live progress, then wait for it.
 if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
