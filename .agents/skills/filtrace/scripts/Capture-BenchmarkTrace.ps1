@@ -66,7 +66,7 @@ $ErrorActionPreference = 'Stop'
 $projItem = Get-Item -LiteralPath $Project
 if ($projItem.PSIsContainer) {
     $projFile = Get-ChildItem -LiteralPath $Project -Filter *.csproj | Select-Object -First 1
-    if ($null -eq $projFile) { Write-Error "No .csproj found under $Project." ; exit 1 }
+    if ($null -eq $projFile) { Write-Error "No .csproj found under $Project." -ErrorAction Continue ; exit 1 }
 }
 else {
     $projFile = $projItem
@@ -88,7 +88,7 @@ function Test-Elevated {
 # against $false so Windows PowerShell 5.1 (undefined $IsWindows) is not mistaken for a
 # non-Windows OS.
 if ($Profiler -eq 'ETW' -and $IsWindows -eq $false) {
-    Write-Error 'ETW capture is Windows-only. Use -Profiler EP on this OS.'
+    Write-Error 'ETW capture is Windows-only. Use -Profiler EP on this OS.' -ErrorAction Continue
     exit 1
 }
 
@@ -101,7 +101,7 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     $argList = @('-NoProfile', '-File', "`"$PSCommandPath`"", '-Project', "`"$($projFile.FullName)`"",
         '-Filter', "`"$Filter`"", '-Profiler', 'ETW', '-Tfm', $Tfm, '-Process', "`"$Process`"", '-Top', $Top)
     $proc = Start-Process pwsh -Verb RunAs -PassThru -Wait -ArgumentList $argList
-    if ($proc.ExitCode -ne 0) { Write-Error "Elevated capture failed (exit $($proc.ExitCode)). See $log." ; exit $proc.ExitCode }
+    if ($proc.ExitCode -ne 0) { Write-Error "Elevated capture failed (exit $($proc.ExitCode)). See $log." -ErrorAction Continue ; exit $proc.ExitCode }
     if (Test-Path $log) { Write-Host "`n--- capture log tail (full log: $log) ---" -ForegroundColor Cyan ; Get-Content $log -Tail 20 }
     exit 0
 }
@@ -111,7 +111,7 @@ New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
 # Without BenchmarkDotNet.Diagnostics.Windows the `-p ETW` profiler silently resolves
 # to UnresolvedDiagnoser and no .etl is written - fail fast with guidance.
 if ($Profiler -eq 'ETW' -and -not (Select-String -Path $projFile.FullName -Pattern 'BenchmarkDotNet.Diagnostics.Windows' -Quiet)) {
-    Write-Error "$($projFile.Name) does not reference BenchmarkDotNet.Diagnostics.Windows; -p ETW will no-op. Add the package first."
+    Write-Error "$($projFile.Name) does not reference BenchmarkDotNet.Diagnostics.Windows; -p ETW will no-op. Add the package first." -ErrorAction Continue
     exit 1
 }
 
@@ -124,14 +124,14 @@ Write-Host "Capturing $Profiler trace: $Filter ($Tfm)..." -ForegroundColor Cyan
 # while the run is also logged for the parent window to surface.
 dotnet run -c Release -f $Tfm --project $projFile.FullName -- --filter $Filter @profArg 2>&1 |
     Tee-Object -FilePath $log
-if ($LASTEXITCODE -ne 0) { Write-Error "Benchmark run failed (exit $LASTEXITCODE). See $log." ; exit $LASTEXITCODE }
+if ($LASTEXITCODE -ne 0) { Write-Error "Benchmark run failed (exit $LASTEXITCODE). See $log." -ErrorAction Continue ; exit $LASTEXITCODE }
 
 # Locate the newest trace of the right kind (BenchmarkDotNet may nest it under a
 # results/ subfolder, so recurse).
 $pattern = if ($Profiler -eq 'ETW') { '*.etl' } else { '*.speedscope.json' }
 $trace = Get-ChildItem -Path $artifacts -Filter $pattern -Recurse -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime | Select-Object -Last 1
-if ($null -eq $trace) { Write-Error "No $pattern found in $artifacts. Did the capture run?" ; exit 1 }
+if ($null -eq $trace) { Write-Error "No $pattern found in $artifacts. Did the capture run?" -ErrorAction Continue ; exit 1 }
 
 # The build output BenchmarkDotNet kept (EventPipe) or --keepFiles preserved (ETW);
 # its embedded PDBs resolve managed frames to source lines for lines/heatmap.

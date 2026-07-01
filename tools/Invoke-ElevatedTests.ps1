@@ -63,7 +63,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 # $false so Windows PowerShell 5.1 (where $IsWindows is undefined) is not mistaken for a
 # non-Windows OS.
 if ($IsWindows -eq $false) {
-    Write-Error 'Elevated ETW tests are Windows-only; nothing to run on this OS.'
+    Write-Error 'Elevated ETW tests are Windows-only; nothing to run on this OS.' -ErrorAction Continue
     exit 1
 }
 
@@ -71,7 +71,7 @@ if ($IsWindows -eq $false) {
 # relaunch regardless of the working directory.
 $projectPath = if ([System.IO.Path]::IsPathRooted($Project)) { $Project } else { Join-Path $repoRoot $Project }
 if (-not (Test-Path -LiteralPath $projectPath)) {
-    Write-Error "Test project not found: $projectPath"
+    Write-Error "Test project not found: $projectPath" -ErrorAction Continue
     exit 1
 }
 $projectPath = (Resolve-Path -LiteralPath $projectPath).Path
@@ -88,7 +88,7 @@ if (-not (Test-Elevated)) {
     if (-not $SkipBuild) {
         Write-Host "Building $projectPath ($Configuration)..." -ForegroundColor Cyan
         dotnet build $projectPath -c $Configuration | Out-Host
-        if ($LASTEXITCODE -ne 0) { Write-Error "Build failed (exit $LASTEXITCODE)." ; exit $LASTEXITCODE }
+        if ($LASTEXITCODE -ne 0) { Write-Error "Build failed (exit $LASTEXITCODE)." -ErrorAction Continue ; exit $LASTEXITCODE }
     }
 
     $log = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace-elevated-tests-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
@@ -110,7 +110,7 @@ if (-not (Test-Elevated)) {
     }
 
     if ($proc.ExitCode -ne 0) {
-        Write-Error "Elevated tests failed (exit $($proc.ExitCode)). See $log."
+        Write-Error "Elevated tests failed (exit $($proc.ExitCode)). See $log." -ErrorAction Continue
         exit $proc.ExitCode
     }
 

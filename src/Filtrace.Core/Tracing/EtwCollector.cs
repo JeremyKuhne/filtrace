@@ -247,10 +247,25 @@ public static class EtwCollector
             {
                 exitCode = process.ExitCode;
             }
+            else if (process.HasExited)
+            {
+                // The process exited on its own in the race between the wait timing out
+                // and the kill below, so report the real exit code it produced.
+                exitCode = process.ExitCode;
+            }
             else
             {
-                // The duration cap elapsed while the process was still running.
-                process.Kill(entireProcessTree: true);
+                // The duration cap elapsed while the process was still running; stop the
+                // tree. Tolerate the process exiting in the moment before the kill lands.
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (InvalidOperationException)
+                {
+                    // The process exited between the HasExited check and the kill.
+                }
+
                 process.WaitForExit();
                 exitCode = -1;
             }

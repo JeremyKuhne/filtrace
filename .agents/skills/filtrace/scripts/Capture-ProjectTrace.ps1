@@ -83,7 +83,7 @@ $ErrorActionPreference = 'Stop'
 $projItem = Get-Item -LiteralPath $Project
 if ($projItem.PSIsContainer) {
     $projFile = Get-ChildItem -LiteralPath $Project -Filter *.csproj | Select-Object -First 1
-    if ($null -eq $projFile) { Write-Error "No .csproj found under $Project." ; exit 1 }
+    if ($null -eq $projFile) { Write-Error "No .csproj found under $Project." -ErrorAction Continue ; exit 1 }
 }
 else {
     $projFile = $projItem
@@ -93,7 +93,7 @@ else {
 # Compare against $false so Windows PowerShell 5.1 (where $IsWindows is undefined) is
 # not mistaken for a non-Windows OS.
 if ($Profiler -eq 'ETW' -and $IsWindows -eq $false) {
-    Write-Error 'ETW capture is Windows-only. Use -Profiler EP on this OS.'
+    Write-Error 'ETW capture is Windows-only. Use -Profiler EP on this OS.' -ErrorAction Continue
     exit 1
 }
 
@@ -112,7 +112,7 @@ if ((Test-Path $toolsDir) -and ($env:PATH -notlike "*$toolsDir*")) {
     $env:PATH = "$toolsDir$([System.IO.Path]::PathSeparator)$env:PATH"
 }
 if ($Profiler -eq 'ETW' -and -not (Get-Command filtrace -ErrorAction SilentlyContinue)) {
-    Write-Error 'filtrace not found. Install it (dotnet tool install -g KlutzyNinja.Filtrace), then re-run.'
+    Write-Error 'filtrace not found. Install it (dotnet tool install -g KlutzyNinja.Filtrace), then re-run.' -ErrorAction Continue
     exit 1
 }
 
@@ -128,20 +128,20 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     if ($Output) { $argList += @('-Output', "`"$Output`"") }
     if ($AppArgs.Count -gt 0) { $argList += @('-AppArgs') + ($AppArgs | ForEach-Object { "`"$_`"" }) }
     $proc = Start-Process pwsh -Verb RunAs -PassThru -Wait -WorkingDirectory (Get-Location).Path -ArgumentList $argList
-    if ($proc.ExitCode -ne 0) { Write-Error "Elevated capture failed (exit $($proc.ExitCode))." ; exit $proc.ExitCode }
+    if ($proc.ExitCode -ne 0) { Write-Error "Elevated capture failed (exit $($proc.ExitCode))." -ErrorAction Continue ; exit $proc.ExitCode }
     exit 0
 }
 
 Write-Host "Building $($projFile.Name) ($Configuration, $Tfm)..." -ForegroundColor Cyan
 dotnet build $projFile.FullName -c $Configuration -f $Tfm | Out-Host
-if ($LASTEXITCODE -ne 0) { Write-Error "Build failed (exit $LASTEXITCODE)." ; exit $LASTEXITCODE }
+if ($LASTEXITCODE -ne 0) { Write-Error "Build failed (exit $LASTEXITCODE)." -ErrorAction Continue ; exit $LASTEXITCODE }
 
 # Resolve the built assembly, its name, and the output kind in one evaluation. With
 # more than one -getProperty the SDK returns JSON, so parse the Properties object.
 $propsJson = dotnet msbuild $projFile.FullName -getProperty:TargetPath -getProperty:AssemblyName `
     -getProperty:OutputType "-p:Configuration=$Configuration" "-p:TargetFramework=$Tfm" 2>$null | Out-String
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($propsJson)) {
-    Write-Error "Could not read build properties from $($projFile.Name) (dotnet msbuild -getProperty failed). Ensure the project restores and builds for $Configuration/$Tfm."
+    Write-Error "Could not read build properties from $($projFile.Name) (dotnet msbuild -getProperty failed). Ensure the project restores and builds for $Configuration/$Tfm." -ErrorAction Continue
     exit 1
 }
 $props = ($propsJson | ConvertFrom-Json).Properties
@@ -150,11 +150,11 @@ $assemblyName = $props.AssemblyName
 $outputType = $props.OutputType
 
 if ([string]::IsNullOrWhiteSpace($targetPath)) {
-    Write-Error "Could not resolve the build output (TargetPath) for $($projFile.Name)."
+    Write-Error "Could not resolve the build output (TargetPath) for $($projFile.Name)." -ErrorAction Continue
     exit 1
 }
 if ($outputType -notin @('Exe', 'WinExe')) {
-    Write-Error "$($projFile.Name) is a '$outputType' project, not an executable. Point at an app project (OutputType Exe)."
+    Write-Error "$($projFile.Name) is a '$outputType' project, not an executable. Point at an app project (OutputType Exe)." -ErrorAction Continue
     exit 1
 }
 
@@ -199,7 +199,7 @@ if ($Profiler -eq 'EP') {
     if (-not (Get-Command dotnet-trace -ErrorAction SilentlyContinue)) {
         Write-Host 'dotnet-trace not found; installing the global tool...' -ForegroundColor Yellow
         dotnet tool install --global dotnet-trace | Out-Host
-        if ($LASTEXITCODE -ne 0) { Write-Error 'Failed to install dotnet-trace. Install it manually: dotnet tool install -g dotnet-trace.' ; exit 1 }
+        if ($LASTEXITCODE -ne 0) { Write-Error 'Failed to install dotnet-trace. Install it manually: dotnet tool install -g dotnet-trace.' -ErrorAction Continue ; exit 1 }
         if ($env:PATH -notlike "*$toolsDir*") { $env:PATH = "$toolsDir$([System.IO.Path]::PathSeparator)$env:PATH" }
     }
 
@@ -213,7 +213,7 @@ if ($Profiler -eq 'EP') {
     $collectArgs += $runPrefixArgs
     $collectArgs += $AppArgs
     dotnet-trace @collectArgs | Out-Host
-    if ($LASTEXITCODE -ne 0) { Write-Error "dotnet-trace failed (exit $LASTEXITCODE)." ; exit $LASTEXITCODE }
+    if ($LASTEXITCODE -ne 0) { Write-Error "dotnet-trace failed (exit $LASTEXITCODE)." -ErrorAction Continue ; exit $LASTEXITCODE }
 }
 else {
     Write-Host "Capturing ETW (CPU + threadtime) trace of $processName via filtrace collect..." -ForegroundColor Cyan
@@ -229,7 +229,7 @@ else {
     $collectArgs = @('collect', '--launch', $runExe, '--output', $Output, '--metric', 'threadtime')
     if ($launchArgs) { $collectArgs += @('--launch-args', $launchArgs) }
     filtrace @collectArgs | Out-Host
-    if ($LASTEXITCODE -ne 0) { Write-Error "filtrace collect failed (exit $LASTEXITCODE)." ; exit $LASTEXITCODE }
+    if ($LASTEXITCODE -ne 0) { Write-Error "filtrace collect failed (exit $LASTEXITCODE)." -ErrorAction Continue ; exit $LASTEXITCODE }
 }
 
 Write-Host "`nCaptured: $Output" -ForegroundColor Green
