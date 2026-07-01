@@ -101,4 +101,32 @@ public sealed class CollectExecutorTests
             }
         }
     }
+
+    [TestMethod]
+    public void Collect_InvalidCpuSampleMSec_ThrowsArgumentOutOfRange()
+    {
+        // Input validation runs before the OS / elevation guard, so this is deterministic
+        // on every OS.
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+            CpuSampleMSec = 0,
+        });
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [TestMethod]
+    public void Collect_NegativeDuration_ThrowsArgumentOutOfRange()
+    {
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+            DurationSeconds = -5,
+        });
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
 }

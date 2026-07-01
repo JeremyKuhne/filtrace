@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
     Capture a .NET CPU trace (EventPipe or ETW) of a BenchmarkDotNet benchmark, then
-    print the filtrace commands to analyze it. filtrace analyzes traces; this helper
-    is the capture step it does not do itself.
+    print the filtrace commands to analyze it. This helper drives the capture step via
+    BenchmarkDotNet's EventPipe or ETW profiler.
 
 .DESCRIPTION
     Wraps the "record a trace, then analyze it" loop for a BenchmarkDotNet perf
@@ -87,8 +87,10 @@ function Test-Elevated {
 # in an elevated window that shows the capture's live progress, then wait for it.
 if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     Write-Host 'ETW capture needs Administrator; relaunching elevated (a UAC prompt will appear).' -ForegroundColor Yellow
-    $argList = @('-NoProfile', '-File', $PSCommandPath, '-Project', $projFile.FullName,
-        '-Filter', $Filter, '-Profiler', 'ETW', '-Tfm', $Tfm, '-Process', $Process, '-Top', $Top)
+    # Quote path/value args so a project path, filter, or process name containing spaces
+    # survives Start-Process joining the array into a single command line.
+    $argList = @('-NoProfile', '-File', "`"$PSCommandPath`"", '-Project', "`"$($projFile.FullName)`"",
+        '-Filter', "`"$Filter`"", '-Profiler', 'ETW', '-Tfm', $Tfm, '-Process', "`"$Process`"", '-Top', $Top)
     $proc = Start-Process pwsh -Verb RunAs -PassThru -Wait -ArgumentList $argList
     if ($proc.ExitCode -ne 0) { Write-Error "Elevated capture failed (exit $($proc.ExitCode)). See $log." ; exit $proc.ExitCode }
     if (Test-Path $log) { Write-Host "`n--- capture log tail (full log: $log) ---" -ForegroundColor Cyan ; Get-Content $log -Tail 20 }

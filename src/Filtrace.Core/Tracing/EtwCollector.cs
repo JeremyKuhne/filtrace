@@ -136,6 +136,7 @@ public static class EtwCollector
     /// <returns>The capture outcome.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">A required field is missing.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A numeric field is out of range.</exception>
     /// <exception cref="PlatformNotSupportedException">Not running on Windows.</exception>
     /// <exception cref="UnauthorizedAccessException">Not elevated.</exception>
     public static EtwCollectResult Collect(EtwCollectRequest request)
@@ -143,6 +144,20 @@ public static class EtwCollector
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrEmpty(request.LaunchExecutable);
         ArgumentException.ThrowIfNullOrEmpty(request.OutputPath);
+
+        if (!double.IsFinite(request.CpuSampleMSec) || request.CpuSampleMSec <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request.CpuSampleMSec), request.CpuSampleMSec,
+                "The CPU sample interval must be a positive, finite number of milliseconds.");
+        }
+
+        if (request.DurationSeconds is int durationSeconds && durationSeconds <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request.DurationSeconds), durationSeconds,
+                "The duration cap must be positive when set; omit it to capture until the process exits.");
+        }
 
         if (!OperatingSystem.IsWindows())
         {

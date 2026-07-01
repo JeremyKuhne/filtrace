@@ -45,13 +45,13 @@ internal static class CollectExecutor
             output.WriteLine();
             output.WriteLine("Next-step filtrace commands:");
             output.WriteLine($"  filtrace processes \"{trace}\"");
-            output.WriteLine($"  filtrace cpu \"{trace}\" --process {result.ProcessName}");
+            output.WriteLine($"  filtrace cpu \"{trace}\" --process \"{result.ProcessName}\"");
             if (request.Metric == CollectMetric.ThreadTime)
             {
-                output.WriteLine($"  filtrace threadtime \"{trace}\" --process {result.ProcessName}");
+                output.WriteLine($"  filtrace threadtime \"{trace}\" --process \"{result.ProcessName}\"");
             }
 
-            output.WriteLine($"  filtrace classify \"{trace}\" --process {result.ProcessName} --native-symbols");
+            output.WriteLine($"  filtrace classify \"{trace}\" --process \"{result.ProcessName}\" --native-symbols");
             return ExitCodes.Success;
         }
         catch (Exception ex) when (

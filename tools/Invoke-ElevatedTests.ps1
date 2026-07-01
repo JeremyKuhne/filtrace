@@ -95,10 +95,12 @@ if (-not (Test-Elevated)) {
     Write-Host 'Elevating to run the tests (a UAC prompt will appear)...' -ForegroundColor Yellow
 
     # The elevated child reuses this build (-SkipBuild) and tees its output to the log so
-    # this console can surface it after the separate elevated window closes.
-    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath,
-        '-Configuration', $Configuration, '-Project', $projectPath, '-SkipBuild', '-LogFile', $log)
-    if ($Filter) { $argList += @('-Filter', $Filter) }
+    # this console can surface it after the separate elevated window closes. Quote the
+    # path/value args so a repo or temp path containing spaces survives Start-Process
+    # joining the array into a single command line.
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"",
+        '-Configuration', "`"$Configuration`"", '-Project', "`"$projectPath`"", '-SkipBuild', '-LogFile', "`"$log`"")
+    if ($Filter) { $argList += @('-Filter', "`"$Filter`"") }
 
     $proc = Start-Process pwsh -Verb RunAs -PassThru -Wait -WorkingDirectory $repoRoot -ArgumentList $argList
 

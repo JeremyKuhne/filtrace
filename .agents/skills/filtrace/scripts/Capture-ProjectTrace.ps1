@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
     Capture a .NET perf trace (EventPipe or ETW) of an executable project running,
-    then print the filtrace commands to analyze it. filtrace analyzes traces; this
-    helper is the capture step it does not do itself.
+    then print the filtrace commands to analyze it. This helper drives the capture step:
+    EventPipe via dotnet-trace, ETW via the filtrace collect verb.
 
 .DESCRIPTION
     Wraps the "build the project, run its output under a profiler, then analyze the
@@ -121,10 +121,12 @@ if ($Profiler -eq 'ETW' -and -not (Get-Command filtrace -ErrorAction SilentlyCon
 # relative -Output) resolving against the caller's directory, not system32.
 if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     Write-Host 'ETW capture needs Administrator; relaunching elevated (a UAC prompt will appear).' -ForegroundColor Yellow
-    $argList = @('-NoProfile', '-File', $PSCommandPath, '-Project', $projFile.FullName,
-        '-Profiler', 'ETW', '-Metric', $Metric, '-Tfm', $Tfm, '-Configuration', $Configuration, '-Top', $Top)
-    if ($Output) { $argList += @('-Output', $Output) }
-    if ($AppArgs.Count -gt 0) { $argList += @('-AppArgs') + $AppArgs }
+    # Quote path/value args so a project path, output path, or app argument containing
+    # spaces survives Start-Process joining the array into a single command line.
+    $argList = @('-NoProfile', '-File', "`"$PSCommandPath`"", '-Project', "`"$($projFile.FullName)`"",
+        '-Profiler', 'ETW', '-Metric', $Metric, '-Tfm', $Tfm, '-Configuration', "`"$Configuration`"", '-Top', $Top)
+    if ($Output) { $argList += @('-Output', "`"$Output`"") }
+    if ($AppArgs.Count -gt 0) { $argList += @('-AppArgs') + ($AppArgs | ForEach-Object { "`"$_`"" }) }
     $proc = Start-Process pwsh -Verb RunAs -PassThru -Wait -WorkingDirectory (Get-Location).Path -ArgumentList $argList
     if ($proc.ExitCode -ne 0) { Write-Error "Elevated capture failed (exit $($proc.ExitCode))." ; exit $proc.ExitCode }
     exit 0
@@ -138,6 +140,10 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Build failed (exit $LASTEXITCODE)." ; ex
 # more than one -getProperty the SDK returns JSON, so parse the Properties object.
 $propsJson = dotnet msbuild $projFile.FullName -getProperty:TargetPath -getProperty:AssemblyName `
     -getProperty:OutputType "-p:Configuration=$Configuration" "-p:TargetFramework=$Tfm" 2>$null | Out-String
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($propsJson)) {
+    Write-Error "Could not read build properties from $($projFile.Name) (dotnet msbuild -getProperty failed). Ensure the project restores and builds for $Configuration/$Tfm."
+    exit 1
+}
 $props = ($propsJson | ConvertFrom-Json).Properties
 $targetPath = $props.TargetPath
 $assemblyName = $props.AssemblyName
