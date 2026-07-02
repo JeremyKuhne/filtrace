@@ -53,6 +53,12 @@
 .PARAMETER Top
     Rows per ranking in the printed commands. Default 25.
 
+.PARAMETER ElevatedTimeoutSeconds
+    How long the non-elevated parent waits for the self-elevated ETW capture to finish
+    before it stops blocking and surfaces the log tail. Default 1200 (20 minutes). Only
+    the ETW self-elevation path uses it - it is the backstop that keeps a never-signaled
+    elevated child from hanging the parent indefinitely.
+
 .EXAMPLE
     ./Capture-BenchmarkTrace.ps1 -Project src/App.Perf -Filter '*GlobMatchBench*'
 
@@ -65,7 +71,8 @@ param(
     [ValidateSet('EP', 'ETW')][string]$Profiler = 'EP',
     [string]$Tfm = 'net10.0',
     [string]$Process,
-    [int]$Top = 25
+    [int]$Top = 25,
+    [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1200
 )
 
 $ErrorActionPreference = 'Stop'
@@ -114,8 +121,32 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     # a caller on Windows PowerShell 5.1 without PowerShell 7 installed would otherwise
     # fail here with pwsh unresolved.
     $hostExe = (Get-Process -Id $PID).Path
-    $proc = Start-Process -FilePath $hostExe -Verb RunAs -PassThru -Wait -WorkingDirectory $repoRoot -ArgumentList $argList
-    if ($proc.ExitCode -ne 0) { Write-Error "Elevated capture failed (exit $($proc.ExitCode)). See $log." -ErrorAction Continue ; exit $proc.ExitCode }
+    # Do NOT pass -Wait here. With -Verb RunAs, Start-Process -Wait can fail to release
+    # after the elevated child self-closes, hanging the parent forever even though the
+    # capture already finished and the .etl is on disk. Take the process object and wait on
+    # it directly with a bounded WaitForExit, so a lost or access-denied handle degrades to
+    # a timeout (the log still surfaces) instead of an indefinite hang.
+    $proc = Start-Process -FilePath $hostExe -Verb RunAs -PassThru -WorkingDirectory $repoRoot -ArgumentList $argList
+    if ($null -eq $proc) {
+        Write-Error 'Elevated relaunch returned no process handle; cannot wait for the capture. Check for a blocked UAC prompt.' -ErrorAction Continue
+        exit 1
+    }
+    # WaitForExit / HasExited / ExitCode can each throw (e.g. Access Denied reading the
+    # elevated, higher-integrity child's handle). Under $ErrorActionPreference='Stop' an
+    # uncaught throw would abort the script and reintroduce the very hang/no-tail failure
+    # this fix avoids, so guard every handle access and treat a throw as a timeout-like miss.
+    # Clamp to Int32.MaxValue so a large timeout cannot overflow the millisecond argument.
+    $waitMs = [int][Math]::Min([long]$ElevatedTimeoutSeconds * 1000, [int]::MaxValue)
+    $exited = $false
+    try { $exited = $proc.WaitForExit($waitMs) } catch { $exited = $false }
+    if (-not $exited) {
+        Write-Warning "Elevated capture did not signal completion within $ElevatedTimeoutSeconds s; not blocking further. See $log for progress."
+    }
+    # ExitCode is only defined once the child has exited, and reading it on a higher-integrity
+    # (elevated) process can throw Access Denied - treat either as 'not observed', non-fatal.
+    $childExit = 0
+    try { if ($proc.HasExited) { $childExit = $proc.ExitCode } } catch { $childExit = 0 }
+    if ($childExit -ne 0) { Write-Error "Elevated capture failed (exit $childExit). See $log." -ErrorAction Continue ; exit $childExit }
     if (Test-Path $log) { Write-Host "`n--- capture log tail (full log: $log) ---" -ForegroundColor Cyan ; Get-Content $log -Tail 20 }
     exit 0
 }
