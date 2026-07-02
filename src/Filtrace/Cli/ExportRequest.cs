@@ -23,6 +23,7 @@ namespace Filtrace.Cli;
 ///  Substring scoping the export to the subtree under a frame, or empty for the
 ///  whole sample source.
 /// </param>
+/// <param name="SymbolOptions">Native-symbol resolution, or <see langword="null"/> for managed-only (the offline default).</param>
 internal sealed record ExportRequest(
     string Path,
     ExportFormat Format,
@@ -30,4 +31,5 @@ internal sealed record ExportRequest(
     string? Symbols,
     string Name,
     ScopeRequest Scope,
-    string Root = "");
+    string Root = "",
+    SymbolOptions? SymbolOptions = null);

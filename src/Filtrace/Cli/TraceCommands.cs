@@ -519,6 +519,8 @@ internal sealed class TraceCommands
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
     /// <param name="root">Substring scoping the export to the subtree under a frame.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
+    /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl captures only.</param>
+    /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
     /// <returns>A process exit code.</returns>
     [Command("export")]
     public int Export(
@@ -530,7 +532,9 @@ internal sealed class TraceCommands
         string process = "",
         bool allProcesses = false,
         string root = "",
-        bool benchmark = false)
+        bool benchmark = false,
+        bool nativeSymbols = false,
+        string symbolCache = "")
     {
         if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
@@ -544,7 +548,8 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        ExportRequest request = new(trace, format, output, symbols, name, scope, resolvedRoot);
+        SymbolOptions symbolOptions = RankRequestFactory.ResolveSymbolOptions(nativeSymbols, symbolCache);
+        ExportRequest request = new(trace, format, output, symbols, name, scope, resolvedRoot, symbolOptions);
         return ExportExecutor.Run(request, Console.Out, Console.Error);
     }
 

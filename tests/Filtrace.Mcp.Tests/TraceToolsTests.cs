@@ -607,6 +607,33 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Export_NativeSymbolsOnSpeedscope_BindsAndIsHarmlessNoOp()
+    {
+        // nativeSymbols binds on the export tool, just as it does on trace_rank;
+        // speedscope carries no native frames, so it is a no-op that reaches no
+        // symbol server (offline-safe) and still writes the flame graph.
+        TraceStore store = new();
+        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+
+        try
+        {
+            AnalysisResult<ExportResult> envelope =
+                TraceTools.Export(store, FixturePath(Speedscope), outputPath, nativeSymbols: true);
+
+            File.Exists(outputPath).Should().BeTrue();
+            AssertEnvelope(envelope);
+            envelope.Result.Format.Should().Be("speedscope");
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [TestMethod]
     public void Export_UnknownFormat_Throws()
     {
         TraceStore store = new();

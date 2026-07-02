@@ -16,12 +16,15 @@ namespace Filtrace.Cli;
 ///  <para>
 ///   Export is a raw conversion of the sample source, so it takes no folding
 ///   options; it does honor process scoping, so a machine-wide <c>.etl</c> can be
-///   narrowed to one process tree (as the ranking verbs do), and root-frame
-///   scoping (<c>--root</c> / <c>--benchmark</c>), which trims each exported
-///   stack to the subtree under a frame the same way the ranking verbs scope a
-///   ranking - see <see cref="RootScope"/>. Any symbol-resolution or scoping
-///   warning is written to the error writer rather than mixed into the
-///   flame-graph output, keeping the written JSON clean for the viewer.
+///   narrowed to one process tree (as the ranking verbs do); root-frame scoping
+///   (<c>--root</c> / <c>--benchmark</c>), which trims each exported stack to the
+///   subtree under a frame the same way the ranking verbs scope a ranking - see
+///   <see cref="RootScope"/>; and opt-in native-symbol resolution
+///   (<c>--native-symbols</c>), which resolves the unmanaged frames (GC, JIT,
+///   <c>memset</c>/<c>memcpy</c>) that would otherwise export as an unresolved
+///   <c>module!?</c> leaf. Any symbol-resolution or scoping warning is written to
+///   the error writer rather than mixed into the flame-graph output, keeping the
+///   written JSON clean for the viewer.
 ///  </para>
 /// </remarks>
 internal static class ExportExecutor
@@ -35,7 +38,8 @@ internal static class ExportExecutor
     /// <returns>A process exit code (see <see cref="ExitCodes"/>).</returns>
     public static int Run(ExportRequest request, TextWriter output, TextWriter error)
     {
-        if (!TraceExecution.TryLoad(request.Path, TraceMetric.Cpu, request.Symbols, error, out LoadedTrace? trace, request.Scope))
+        if (!TraceExecution.TryLoad(
+            request.Path, TraceMetric.Cpu, request.Symbols, error, out LoadedTrace? trace, request.Scope, request.SymbolOptions))
         {
             return ExitCodes.InputError;
         }

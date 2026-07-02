@@ -22,8 +22,9 @@ public sealed class ExportExecutorTests
         string? output = null,
         string name = "filtrace",
         ScopeRequest? scope = null,
-        string root = "") =>
-        new(path, format, output, Symbols: null, name, scope ?? ScopeRequest.Auto, root);
+        string root = "",
+        SymbolOptions? symbolOptions = null) =>
+        new(path, format, output, Symbols: null, name, scope ?? ScopeRequest.Auto, root, symbolOptions);
 
     private static (int Exit, string Out, string Error) Run(ExportRequest request)
     {
@@ -162,5 +163,17 @@ public sealed class ExportExecutorTests
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().NotContain("Program.Main");
+    }
+
+    [TestMethod]
+    public void Run_NativeSymbolsOnSpeedscope_BindsAndIsHarmlessNoOp()
+    {
+        // --native-symbols binds on export, just as it does on the cpu verb; speedscope
+        // carries no native frames, so it is a no-op that reaches no symbol server
+        // (offline-safe) and still writes the flame graph.
+        (int exit, string output, _) = Run(Request(Speedscope, symbolOptions: SymbolOptions.WithCache()));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("speedscope.app/file-format-schema");
     }
 }
