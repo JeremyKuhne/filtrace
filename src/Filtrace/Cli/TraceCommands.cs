@@ -83,7 +83,12 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        SymbolOptions symbolOptions = RankRequestFactory.ResolveSymbolOptions(nativeSymbols, symbolCache);
+        if (!RankRequestFactory.TryResolveSymbolOptions(nativeSymbols, symbolCache, out SymbolOptions symbolOptions, out string? symbolCacheError))
+        {
+            Console.Error.WriteLine(symbolCacheError);
+            return ExitCodes.UsageError;
+        }
+
         RankRequest request = RankRequestFactory.Create(
             trace, resolved, measure, resolvedRoot, top, foldPatterns, symbols, format, strict, scope, symbolOptions);
         return RankingExecutor.Run(request, Console.Out, Console.Error);
@@ -146,7 +151,12 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        SymbolOptions symbolOptions = RankRequestFactory.ResolveSymbolOptions(nativeSymbols, symbolCache);
+        if (!RankRequestFactory.TryResolveSymbolOptions(nativeSymbols, symbolCache, out SymbolOptions symbolOptions, out string? symbolCacheError))
+        {
+            Console.Error.WriteLine(symbolCacheError);
+            return ExitCodes.UsageError;
+        }
+
         RankRequest request = RankRequestFactory.Create(
             trace, TraceMetric.Cpu, measure, resolvedRoot, top, foldPatterns, symbols, format, strict, scope, symbolOptions);
         return RankingExecutor.Run(request, Console.Out, Console.Error);
@@ -444,7 +454,12 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        SymbolOptions symbolOptions = RankRequestFactory.ResolveSymbolOptions(nativeSymbols, symbolCache);
+        if (!RankRequestFactory.TryResolveSymbolOptions(nativeSymbols, symbolCache, out SymbolOptions symbolOptions, out string? symbolCacheError))
+        {
+            Console.Error.WriteLine(symbolCacheError);
+            return ExitCodes.UsageError;
+        }
+
         ClassifyRequest request = new(trace, resolvedRoot, symbols, format, strict, scope, symbolOptions);
         return ClassifyExecutor.Run(request, Console.Out, Console.Error);
     }
@@ -548,7 +563,12 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        SymbolOptions symbolOptions = RankRequestFactory.ResolveSymbolOptions(nativeSymbols, symbolCache);
+        if (!RankRequestFactory.TryResolveSymbolOptions(nativeSymbols, symbolCache, out SymbolOptions symbolOptions, out string? symbolCacheError))
+        {
+            Console.Error.WriteLine(symbolCacheError);
+            return ExitCodes.UsageError;
+        }
+
         ExportRequest request = new(trace, format, output, symbols, name, scope, resolvedRoot, symbolOptions);
         return ExportExecutor.Run(request, Console.Out, Console.Error);
     }

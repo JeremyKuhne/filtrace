@@ -156,30 +156,40 @@ public sealed class RankRequestFactoryTests
     }
 
     [TestMethod]
-    public void ResolveSymbolOptions_Default_IsManagedOnly()
+    public void TryResolveSymbolOptions_Default_IsManagedOnly()
     {
         // No --native-symbols: the offline managed-only default, so the CPU read never
         // reaches a symbol server.
-        SymbolOptions options = RankRequestFactory.ResolveSymbolOptions(nativeSymbols: false, symbolCache: "");
-
+        RankRequestFactory.TryResolveSymbolOptions(nativeSymbols: false, symbolCache: "", out SymbolOptions options, out _)
+            .Should().BeTrue();
         options.Should().BeSameAs(SymbolOptions.None);
     }
 
     [TestMethod]
-    public void ResolveSymbolOptions_NativeSymbols_OptsInToNativeResolution()
+    public void TryResolveSymbolOptions_NativeSymbols_OptsInToNativeResolution()
     {
-        SymbolOptions options = RankRequestFactory.ResolveSymbolOptions(nativeSymbols: true, symbolCache: "");
-
+        RankRequestFactory.TryResolveSymbolOptions(nativeSymbols: true, symbolCache: "", out SymbolOptions options, out _)
+            .Should().BeTrue();
         options.ResolveNativeRuntime.Should().BeTrue();
     }
 
     [TestMethod]
-    public void ResolveSymbolOptions_SymbolCache_IsCarriedThrough()
+    public void TryResolveSymbolOptions_SymbolCache_IsCarriedThrough()
     {
-        SymbolOptions options = RankRequestFactory.ResolveSymbolOptions(nativeSymbols: true, symbolCache: @"C:\sym");
-
+        RankRequestFactory.TryResolveSymbolOptions(nativeSymbols: true, symbolCache: @"C:\sym", out SymbolOptions options, out _)
+            .Should().BeTrue();
         options.ResolveNativeRuntime.Should().BeTrue();
         options.CacheDirectory.Should().Be(@"C:\sym");
+    }
+
+    [TestMethod]
+    public void TryResolveSymbolOptions_InvalidSymbolCache_IsAUsageError()
+    {
+        // A '*' in --symbol-cache would corrupt the SymSrv path syntax; SymbolOptions.WithCache
+        // rejects it, and this must surface as a clean usage error, not an unhandled exception.
+        RankRequestFactory.TryResolveSymbolOptions(nativeSymbols: true, symbolCache: "bad*cache", out _, out string? error)
+            .Should().BeFalse();
+        error.Should().Contain("cannot contain '*'");
     }
 
     [TestMethod]
