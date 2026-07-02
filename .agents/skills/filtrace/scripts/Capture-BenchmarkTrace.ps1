@@ -16,8 +16,8 @@
         preferred when both exist - it is the only one of the two that carries
         allocation events and per-frame source locations, which the printed
         `alloc` / `lines` commands need; a .speedscope.json is CPU-self-time
-        only, and its `filtrace lines` output is always empty (per the filtrace
-        skill, speedscope inputs carry no line data). Falls back to
+        only and carries no per-frame source locations at all, so `filtrace
+        lines` against one always reports nothing. Falls back to
         .speedscope.json - printing only the commands that work against it
         (`cpu`, `export`) - when no .nettrace was produced.
       - ETW (-Profiler ETW): Windows only, self-elevates (one UAC prompt), machine
@@ -144,19 +144,41 @@ if ($LASTEXITCODE -ne 0) { Write-Error "Benchmark run failed (exit $LASTEXITCODE
 # results/ subfolder, so recurse). For EventPipe, prefer the raw .nettrace over any
 # derived .speedscope.json from the same capture - the .nettrace also carries
 # allocation events and per-frame source locations that the alloc/lines commands
-# below need and a speedscope conversion does not; fall back to .speedscope.json
-# only when no .nettrace was produced.
+# below need and a speedscope conversion does not. But only prefer it when it is
+# actually the PAIRED raw file for this capture (same stem, i.e. produced together) -
+# otherwise a stale .nettrace left over from an earlier run would win over a fresh,
+# speedscope-only capture just because it happens to be a .nettrace. When the two
+# are not paired, whichever file is genuinely newest wins.
 if ($Profiler -eq 'ETW') {
     $trace = Get-ChildItem -Path $artifacts -Filter '*.etl' -Recurse -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime | Select-Object -Last 1
     if ($null -eq $trace) { Write-Error "No *.etl found in $artifacts. Did the capture run?" -ErrorAction Continue ; exit 1 }
 }
 else {
-    $trace = Get-ChildItem -Path $artifacts -Filter '*.nettrace' -Recurse -ErrorAction SilentlyContinue |
+    $netTrace = Get-ChildItem -Path $artifacts -Filter '*.nettrace' -Recurse -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime | Select-Object -Last 1
-    if ($null -eq $trace) {
-        $trace = Get-ChildItem -Path $artifacts -Filter '*.speedscope.json' -Recurse -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime | Select-Object -Last 1
+    $speedscope = Get-ChildItem -Path $artifacts -Filter '*.speedscope.json' -Recurse -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime | Select-Object -Last 1
+
+    if ($null -eq $netTrace) {
+        $trace = $speedscope
+    }
+    elseif ($null -eq $speedscope) {
+        $trace = $netTrace
+    }
+    else {
+        # BenchmarkDotNet names both files from the same stem, e.g.
+        # foo-<timestamp>.nettrace / foo-<timestamp>.speedscope.json - strip each
+        # file's own suffix to compare the stems, not just Extension (which for
+        # *.speedscope.json is only ".json").
+        $netStem = $netTrace.BaseName
+        $scopeStem = $speedscope.Name -replace '\.speedscope\.json$', ''
+        if ($netStem -eq $scopeStem -or $netTrace.LastWriteTime -ge $speedscope.LastWriteTime) {
+            $trace = $netTrace
+        }
+        else {
+            $trace = $speedscope
+        }
     }
     if ($null -eq $trace) { Write-Error "No *.nettrace or *.speedscope.json found in $artifacts. Did the capture run?" -ErrorAction Continue ; exit 1 }
 }
