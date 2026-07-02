@@ -79,6 +79,55 @@ public static partial class FrameNames
     private static partial Regex AfterModuleRegex();
 
     /// <summary>
+    ///  Finds the index of the first frame (outermost-first) whose name contains
+    ///  <paramref name="rootFrame"/>, for scoping a sample stack to the subtree
+    ///  under that frame.
+    /// </summary>
+    /// <param name="frames">The stack, ordered outermost-first.</param>
+    /// <param name="rootFrame">
+    ///  Substring identifying the root frame, or empty/<see langword="null"/> for no
+    ///  scoping (the whole stack is in scope, starting at index 0).
+    /// </param>
+    /// <param name="start">
+    ///  The index of the matching frame, or <c>0</c> when <paramref name="rootFrame"/>
+    ///  is empty or was not found on this stack.
+    /// </param>
+    /// <returns>
+    ///  <see langword="true"/> when <paramref name="rootFrame"/> is empty (no scoping
+    ///  requested) or a matching frame was found; <see langword="false"/> when a root
+    ///  frame was requested but this stack never enters it, meaning the caller should
+    ///  drop the sample.
+    /// </returns>
+    /// <remarks>
+    ///  <para>
+    ///   Shared by <see cref="FoldingAggregator"/> (which scopes a ranking to the
+    ///   subtree inline, per query) and <see cref="RootScope"/> (which materializes
+    ///   actual trimmed <see cref="SampleStack"/> instances for a flame-graph export),
+    ///   so both apply the identical root-frame match.
+    ///  </para>
+    /// </remarks>
+    public static bool TryFindRootStart(IReadOnlyList<string> frames, string? rootFrame, out int start)
+    {
+        if (string.IsNullOrEmpty(rootFrame))
+        {
+            start = 0;
+            return true;
+        }
+
+        for (int i = 0; i < frames.Count; i++)
+        {
+            if (frames[i].Contains(rootFrame, StringComparison.Ordinal))
+            {
+                start = i;
+                return true;
+            }
+        }
+
+        start = 0;
+        return false;
+    }
+
+    /// <summary>
     ///  Trims a verbose CLR frame signature to a method identifier for ranking
     ///  and display: keeps the text after the <c>module!</c> prefix and before
     ///  the argument list, and strips <c>value class</c> / <c>class</c> noise.

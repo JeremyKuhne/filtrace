@@ -21,8 +21,10 @@ public sealed class ExportExecutorTests
         ExportFormat format = ExportFormat.Speedscope,
         string? output = null,
         string name = "filtrace",
-        ScopeRequest? scope = null) =>
-        new(path, format, output, Symbols: null, name, scope ?? ScopeRequest.Auto);
+        ScopeRequest? scope = null,
+        string root = "",
+        SymbolOptions? symbolOptions = null) =>
+        new(path, format, output, Symbols: null, name, scope ?? ScopeRequest.Auto, root, symbolOptions);
 
     private static (int Exit, string Out, string Error) Run(ExportRequest request)
     {
@@ -136,5 +138,42 @@ public sealed class ExportExecutorTests
         {
             File.Delete(file);
         }
+    }
+
+    [TestMethod]
+    public void Run_RootScoped_ExportsOnlySubtreeUnderRootFrame()
+    {
+        // The folding fixture's Program.Main -> MyApp.Work -> MyApp.Inner /
+        // MyApp.Other tree: scoping to MyApp.Work must drop the Program.Main root
+        // and the sibling MyApp.Other subtree, keeping only MyApp.Work/MyApp.Inner -
+        // the same subtree `cpu --root MyApp.Work` would rank.
+        (int exit, string output, _) = Run(Request(Speedscope, root: "MyApp.Work"));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("MyApp.Work");
+        output.Should().Contain("MyApp.Inner");
+        output.Should().NotContain("Program.Main");
+        output.Should().NotContain("MyApp.Other");
+    }
+
+    [TestMethod]
+    public void Run_RootFrameNotPresent_ExportsEmptyProfile()
+    {
+        (int exit, string output, _) = Run(Request(Speedscope, root: "NoSuchFrame"));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().NotContain("Program.Main");
+    }
+
+    [TestMethod]
+    public void Run_NativeSymbolsOnSpeedscope_BindsAndIsHarmlessNoOp()
+    {
+        // --native-symbols binds on export, just as it does on the cpu verb; speedscope
+        // carries no native frames, so it is a no-op that reaches no symbol server
+        // (offline-safe) and still writes the flame graph.
+        (int exit, string output, _) = Run(Request(Speedscope, symbolOptions: SymbolOptions.WithCache()));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("speedscope.app/file-format-schema");
     }
 }

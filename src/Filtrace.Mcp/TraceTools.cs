@@ -20,11 +20,12 @@ namespace Filtrace.Mcp;
 ///  work-category breakdown, two-trace diffs, the garbage-collection and JIT reports,
 ///  and a raw event query across speedscope, EventPipe (<c>.nettrace</c>), and ETW
 ///  (<c>.etl</c>) inputs, plus export a flame graph to a file. Every tool but
-///  <c>trace_export</c> is read-only; <c>trace_export</c> writes a file. Two tools -
-///  <c>trace_rank</c> and <c>trace_classify</c> - reach the Microsoft public symbol
-///  server and write a local symbol cache when their opt-in <c>nativeSymbols</c> flag
-///  is set, so both carry the open-world hint; with the flag off (the default) they
-///  stay offline and read-only like the rest.
+///  <c>trace_export</c> is read-only; <c>trace_export</c> writes a file. Three tools -
+///  <c>trace_rank</c>, <c>trace_classify</c>, and <c>trace_export</c> - reach the
+///  Microsoft public symbol server and write a local symbol cache when their opt-in
+///  <c>nativeSymbols</c> flag is set, so all three carry the open-world hint; with
+///  the flag off (the default) they stay offline (and, but for <c>trace_export</c>,
+///  read-only).
 /// </summary>
 /// <remarks>
 ///  <para>
@@ -448,15 +449,23 @@ public sealed class TraceTools
     /// <param name="name">The profile name embedded in the flame graph, shown in the viewer.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process <c>.etl</c> to one process tree.</param>
+    /// <param name="root">Optional substring of a frame name to scope the export to its subtree.</param>
+    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
+    /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); .etl captures only.</param>
     /// <returns>The export-confirmation envelope.</returns>
-    [McpServerTool(Name = "trace_export", ReadOnly = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_export", ReadOnly = false, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description(
         "Export a trace's CPU samples to a flame-graph file for a human to open in a viewer - this is how you hand "
         + "off a visual. format=speedscope (the default) opens at speedscope.app; format=chromium writes the Chrome "
         + "Trace Event Format for chrome://tracing or the Perfetto UI. 'output' is the file path to write (required; "
         + "unlike the query tools this writes a file rather than returning the data, and overwrites an existing file "
-        + "at that path). The whole sample source is exported - no folding or ranking. Pass 'process' to scope a "
+        + "at that path). No folding or ranking is applied. Pass 'process' to scope a "
         + "machine-wide .etl to one process tree (as the ranking tools do); omit it to auto-scope to the busiest. "
+        + "Pass 'root' to scope the exported flame graph to the subtree under a frame, or 'benchmark' to preset it "
+        + "to the BenchmarkDotNet measured-workload frame (mutually exclusive with 'root') so the harness/warmup "
+        + "does not dominate the graph - default to 'benchmark' for any BenchmarkDotNet capture. "
+        + "Pass 'nativeSymbols' to resolve the unmanaged GC/JIT/memset/memcpy frames that would otherwise export "
+        + "as an unresolved module!? leaf - opt-in, it fetches over the network and caches locally. "
         + "The response confirms the path, format, and byte count.")]
     public static AnalysisResult<ExportResult> Export(
         TraceStore store,
@@ -471,7 +480,21 @@ public sealed class TraceTools
         [Description(
             "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
             + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
-        string process = "")
+        string process = "",
+        [Description(
+            "Optional substring of a frame name to scope the exported flame graph to its subtree; for a "
+            + "BenchmarkDotNet capture prefer 'benchmark' instead. Mutually exclusive with 'benchmark'.")]
+        string root = "",
+        [Description(
+            "Scope the exported flame graph to the BenchmarkDotNet measured-workload subtree (a preset root); "
+            + "default to this for any BenchmarkDotNet capture so the harness/warmup does not dominate the "
+            + "graph. Mutually exclusive with 'root'.")]
+        bool benchmark = false,
+        [Description(
+            "Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server. "
+            + "Opt-in - it fetches over the network and caches locally. .etl captures only; managed frames "
+            + "already resolve without it.")]
+        bool nativeSymbols = false)
     {
         bool chromium = ResolveExportFormat(format);
 
@@ -480,12 +503,15 @@ public sealed class TraceTools
             throw new McpException("output is required: the file path to write the flame graph to.");
         }
 
-        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process));
+        string resolvedRoot = ResolveRoot(root, benchmark);
+        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process), symbolOptions: ResolveSymbols(nativeSymbols));
         TraceInfo info = trace.Info;
 
+        StackSampleSource scoped = RootScope.Apply(trace.Source, resolvedRoot);
+
         string exported = chromium
-            ? ChromiumExporter.Export(trace.Source, name)
-            : SpeedscopeExporter.Export(trace.Source, name);
+            ? ChromiumExporter.Export(scoped, name)
+            : SpeedscopeExporter.Export(scoped, name);
 
         string outputPath = WriteExport(output, exported);
         long byteCount = new FileInfo(outputPath).Length;
@@ -914,6 +940,21 @@ public sealed class TraceTools
     // value scopes a multi-process .etl capture to the named process tree.
     private static ScopeRequest? ResolveScope(string process) =>
         string.IsNullOrEmpty(process) ? null : ScopeRequest.ForProcess(process);
+
+    /// <summary>
+    ///  Resolves the root-frame scope from the explicit <c>root</c> argument and the
+    ///  <c>benchmark</c> preset, mirroring the CLI's <c>--root</c>/<c>--benchmark</c>
+    ///  mutual exclusion (<c>RankRequestFactory.TryResolveRoot</c>).
+    /// </summary>
+    private static string ResolveRoot(string root, bool benchmark)
+    {
+        if (benchmark && !string.IsNullOrEmpty(root))
+        {
+            throw new McpException("Specify only one of 'root' and 'benchmark'.");
+        }
+
+        return benchmark ? FrameNames.BenchmarkWorkloadFrame : root;
+    }
 
     // Opt-in native runtime symbol resolution; the default cache directory is used.
     // Off resolves managed frames from the rundown only (offline).

@@ -88,12 +88,47 @@ internal static class RankRequestFactory
     /// </summary>
     /// <param name="nativeSymbols">Whether <c>--native-symbols</c> was set.</param>
     /// <param name="symbolCache">The <c>--symbol-cache</c> directory, or empty for the default.</param>
-    /// <returns>
+    /// <param name="symbolOptions">
     ///  <see cref="SymbolOptions.WithCache"/> when native resolution was requested,
     ///  otherwise <see cref="SymbolOptions.None"/> (the offline managed-only default).
+    /// </param>
+    /// <param name="errorMessage">
+    ///  The usage error when <paramref name="symbolCache"/> is invalid (e.g. it contains
+    ///  <c>*</c>, the symbol-path element separator <see cref="SymbolOptions.WithCache"/>
+    ///  rejects).
+    /// </param>
+    /// <returns>
+    ///  <see langword="true"/> when <paramref name="symbolCache"/> is valid; otherwise
+    ///  <see langword="false"/>, and the caller should report <paramref name="errorMessage"/>
+    ///  as a usage error rather than let the underlying <see cref="ArgumentException"/>
+    ///  escape as an unhandled exception.
     /// </returns>
-    public static SymbolOptions ResolveSymbolOptions(bool nativeSymbols, string symbolCache) =>
-        nativeSymbols ? SymbolOptions.WithCache(symbolCache) : SymbolOptions.None;
+    public static bool TryResolveSymbolOptions(
+        bool nativeSymbols,
+        string symbolCache,
+        out SymbolOptions symbolOptions,
+        [NotNullWhen(false)] out string? errorMessage)
+    {
+        if (!nativeSymbols)
+        {
+            symbolOptions = SymbolOptions.None;
+            errorMessage = null;
+            return true;
+        }
+
+        try
+        {
+            symbolOptions = SymbolOptions.WithCache(symbolCache);
+            errorMessage = null;
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            symbolOptions = SymbolOptions.None;
+            errorMessage = ex.Message;
+            return false;
+        }
+    }
 
     /// <summary>
     ///  Resolves the effective leaf-fold patterns from the explicit <c>--fold</c>

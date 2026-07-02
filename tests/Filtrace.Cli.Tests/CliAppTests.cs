@@ -298,6 +298,30 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_InvalidSymbolCache_ReturnsUsageErrorInsteadOfCrashing()
+    {
+        // A '*' in --symbol-cache would corrupt the SymSrv path syntax; SymbolOptions.WithCache
+        // rejects it with an ArgumentException, which must surface here as a clean usage
+        // error and exit code, not an unhandled exception that crashes the process.
+        (int exit, _, string error) = Run("cpu", Speedscope, "--native-symbols", "--symbol-cache", "bad*cache");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("cannot contain '*'");
+    }
+
+    [TestMethod]
+    public void Run_ExportInvalidSymbolCache_ReturnsUsageErrorInsteadOfCrashing()
+    {
+        // Same invalid --symbol-cache guard, exercised through the export verb - the
+        // one the review comment specifically flagged.
+        (int exit, _, string error) = Run(
+            "export", Speedscope, "--native-symbols", "--symbol-cache", "bad*cache", "-o", "unused.json");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("cannot contain '*'");
+    }
+
+    [TestMethod]
     public void Run_NoFold_BindsAndRenders()
     {
         // --no-fold binds on the cpu verb and folds only the synthetic markers; on the

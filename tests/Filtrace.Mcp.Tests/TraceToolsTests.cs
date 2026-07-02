@@ -574,6 +574,107 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Export_RootScoped_ExportsOnlySubtreeUnderRootFrame()
+    {
+        TraceStore store = new();
+        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+
+        try
+        {
+            // The folding fixture's Program.Main -> MyApp.Work -> MyApp.Inner /
+            // MyApp.Other tree: scoping to MyApp.Work must drop Program.Main and the
+            // sibling MyApp.Other subtree, matching the same subtree `trace_rank`
+            // with root=MyApp.Work would rank.
+            AnalysisResult<ExportResult> envelope =
+                TraceTools.Export(store, FixturePath(Speedscope), outputPath, root: "MyApp.Work");
+
+            File.Exists(outputPath).Should().BeTrue();
+            AssertEnvelope(envelope);
+
+            string written = File.ReadAllText(outputPath);
+            written.Should().Contain("MyApp.Work");
+            written.Should().Contain("MyApp.Inner");
+            written.Should().NotContain("Program.Main");
+            written.Should().NotContain("MyApp.Other");
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Export_BenchmarkPreset_ScopesToWorkloadActionFrame()
+    {
+        // The folding fixture has no WorkloadAction frame, so this proves 'benchmark'
+        // resolves to FrameNames.BenchmarkWorkloadFrame and gets applied (every sample
+        // dropped) rather than that it finds a match - RootScopeTests covers the actual
+        // trimming behavior against a stack that does contain the frame.
+        TraceStore store = new();
+        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+
+        try
+        {
+            AnalysisResult<ExportResult> envelope =
+                TraceTools.Export(store, FixturePath(Speedscope), outputPath, benchmark: true);
+
+            File.Exists(outputPath).Should().BeTrue();
+            AssertEnvelope(envelope);
+
+            string written = File.ReadAllText(outputPath);
+            written.Should().NotContain("Program.Main");
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Export_RootAndBenchmarkBothSet_Throws()
+    {
+        TraceStore store = new();
+
+        Action act = () => TraceTools.Export(
+            store, FixturePath(Speedscope), output: "unused.json", root: "MyApp.Work", benchmark: true);
+
+        act.Should().Throw<McpException>().WithMessage("*only one of 'root' and 'benchmark'*");
+    }
+
+    [TestMethod]
+    public void Export_NativeSymbolsOnSpeedscope_BindsAndIsHarmlessNoOp()
+    {
+        // nativeSymbols binds on the export tool, just as it does on trace_rank;
+        // speedscope carries no native frames, so it is a no-op that reaches no
+        // symbol server (offline-safe) and still writes the flame graph.
+        TraceStore store = new();
+        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+
+        try
+        {
+            AnalysisResult<ExportResult> envelope =
+                TraceTools.Export(store, FixturePath(Speedscope), outputPath, nativeSymbols: true);
+
+            File.Exists(outputPath).Should().BeTrue();
+            AssertEnvelope(envelope);
+            envelope.Result.Format.Should().Be("speedscope");
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [TestMethod]
     public void Export_UnknownFormat_Throws()
     {
         TraceStore store = new();

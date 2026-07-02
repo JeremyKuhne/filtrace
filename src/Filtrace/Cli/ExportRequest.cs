@@ -19,10 +19,22 @@ namespace Filtrace.Cli;
 ///  The process scope: an explicit process tree, every process, or the automatic
 ///  busiest-process default for a machine-wide <c>.etl</c>.
 /// </param>
+/// <param name="Root">
+///  Substring scoping the export to the subtree under a frame, or empty for the
+///  whole sample source.
+/// </param>
+/// <param name="SymbolOptions">
+///  Native-symbol resolution. <see langword="null"/> or <see cref="SymbolOptions.None"/>
+///  resolves managed frames from the rundown only (offline, the default); <see
+///  cref="SymbolOptions.WithCache"/> additionally fetches native runtime PDBs from the
+///  public symbol server.
+/// </param>
 internal sealed record ExportRequest(
     string Path,
     ExportFormat Format,
     string? Output,
     string? Symbols,
     string Name,
-    ScopeRequest Scope);
+    ScopeRequest Scope,
+    string Root = "",
+    SymbolOptions? SymbolOptions = null);

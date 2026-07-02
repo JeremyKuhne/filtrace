@@ -173,10 +173,16 @@ The recurring ways a .NET trace investigation goes wrong:
    that default is usually right - but run `processes` first to see what is in the
    capture, then pass `--process <name>` if the auto-pick is wrong.
 
-4. **BenchmarkDotNet captures include the harness.** A raw ranking of a BDN trace
-   is dominated by the orchestrator and warmup iterations, not your `[Benchmark]`.
+4. **BenchmarkDotNet captures include the harness - scope with `--benchmark` by
+   default, not as an afterthought.** A raw ranking (or export) of a BDN trace is
+   dominated by the orchestrator and warmup iterations, not your `[Benchmark]`.
    Pass `--benchmark` to preset the root to the measured-workload wrapper so only
-   the measured code is ranked.
+   the measured code is analyzed. This applies to **every** verb that takes
+   `--root`, including `export` - a flame graph with the harness left in is not
+   just noisy, its proportions are wrong (the workload's own share of time reads
+   too small). `export` is the easiest verb to forget this on: it writes a file
+   and prints no "scoped to X" summary, so there is no output to notice the
+   omission in - check the command before running it, not the graph after.
 
 5. **Native runtime frames need `--native-symbols`.** Without it, the unmanaged
    ~10% of a trace - GC, JIT, `memset` / `memcpy`, write barriers - shows as an
