@@ -38,6 +38,12 @@
   Where the elevated run tees its output so the calling console can surface it. Set
   automatically by the relaunch; you do not normally pass this.
 
+.PARAMETER ElevatedTimeoutSeconds
+  How long to wait for the elevated test run to finish before giving up. Default 1800
+  (30 minutes). A timeout (or an unreadable child exit code) is treated as a FAILURE, so
+  the bounded wait replaces the hang-prone -Wait without ever turning a stuck run into a
+  false pass.
+
 .EXAMPLE
   ./tools/Invoke-ElevatedTests.ps1
 
@@ -53,7 +59,8 @@ param(
     [string]$Project = 'tests/Filtrace.Cli.Tests/Filtrace.Cli.Tests.csproj',
     [string]$Filter = '',
     [switch]$SkipBuild,
-    [string]$LogFile = ''
+    [string]$LogFile = '',
+    [int]$ElevatedTimeoutSeconds = 1800
 )
 
 $ErrorActionPreference = 'Stop'
@@ -102,16 +109,35 @@ if (-not (Test-Elevated)) {
         '-Configuration', "`"$Configuration`"", '-Project', "`"$projectPath`"", '-SkipBuild', '-LogFile', "`"$log`"")
     if ($Filter) { $argList += @('-Filter', "`"$Filter`"") }
 
-    $proc = Start-Process pwsh -Verb RunAs -PassThru -Wait -WorkingDirectory $repoRoot -ArgumentList $argList
+    # Do NOT pass -Wait: with -Verb RunAs it can fail to release after the elevated child
+    # self-closes, hanging this runner indefinitely. Wait on the process object directly with
+    # a bounded WaitForExit. Unlike the capture scripts, the child's exit code IS the test
+    # result here, so a timeout or an unreadable exit code must fail closed (never a false
+    # pass). Clamp to Int32.MaxValue so a large timeout cannot overflow the millisecond arg.
+    $proc = Start-Process pwsh -Verb RunAs -PassThru -WorkingDirectory $repoRoot -ArgumentList $argList
+    if ($null -eq $proc) {
+        Write-Error 'Elevated relaunch returned no process handle; cannot run the tests. Check for a blocked UAC prompt.' -ErrorAction Continue
+        exit 1
+    }
+    $waitMs = [int][Math]::Min([long]$ElevatedTimeoutSeconds * 1000, [int]::MaxValue)
+    $exited = $false
+    try { $exited = $proc.WaitForExit($waitMs) } catch { $exited = $false }
 
     if (Test-Path $log) {
         Write-Host "`n--- elevated test output ($log) ---" -ForegroundColor Cyan
         Get-Content $log
     }
 
-    if ($proc.ExitCode -ne 0) {
-        Write-Error "Elevated tests failed (exit $($proc.ExitCode)). See $log." -ErrorAction Continue
-        exit $proc.ExitCode
+    if (-not $exited) {
+        Write-Error "Elevated tests did not complete within $ElevatedTimeoutSeconds s (or the child handle was not observable); treating as failure. See $log." -ErrorAction Continue
+        exit 1
+    }
+
+    $testExit = 1
+    try { $testExit = $proc.ExitCode } catch { $testExit = 1 }
+    if ($testExit -ne 0) {
+        Write-Error "Elevated tests failed (exit $testExit). See $log." -ErrorAction Continue
+        exit $testExit
     }
 
     Write-Host "`nElevated tests passed." -ForegroundColor Green

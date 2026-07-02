@@ -106,7 +106,9 @@ try {
 }
 catch [System.Net.HttpListenerException] {
     Write-Error ("Could not bind http://127.0.0.1:$Port/ - $($_.Exception.Message). " +
-        "Port $Port may be in use by a previous run.")
+        "Port $Port may be in use by a previous run, or (HttpListener 'Access is denied') the " +
+        "URL prefix may not be reserved for your account: pick another -Port, or reserve it with " +
+        "'netsh http add urlacl url=http://127.0.0.1:$Port/ user=$env:USERNAME'.")
     exit 1
 }
 
@@ -150,15 +152,18 @@ try {
                 $response.StatusCode = 204
             }
             elseif (($request.HttpMethod -in "GET", "HEAD") -and $requestPath -eq "/$fname") {
-                $bytes = [System.IO.File]::ReadAllBytes($full)
+                # Stream the file to the response instead of buffering the whole profile in
+                # memory - a speedscope export can be tens or hundreds of MB.
+                $fileLength = [System.IO.FileInfo]::new($full).Length
                 $response.ContentType = "application/json"
-                $response.ContentLength64 = $bytes.Length
+                $response.ContentLength64 = $fileLength
                 if ($request.HttpMethod -eq "GET") {
-                    $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                    $fs = [System.IO.File]::OpenRead($full)
+                    try { $fs.CopyTo($response.OutputStream) } finally { $fs.Dispose() }
                 }
 
                 $served++
-                Write-Host ("Served {0} ({1:N0} bytes)" -f $fname, $bytes.Length) -ForegroundColor Green
+                Write-Host ("Served {0} ({1:N0} bytes)" -f $fname, $fileLength) -ForegroundColor Green
             }
             else {
                 $response.StatusCode = 404

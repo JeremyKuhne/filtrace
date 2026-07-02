@@ -134,7 +134,10 @@ try {
 }
 catch [System.Net.HttpListenerException] {
     Write-Error ("Could not bind http://127.0.0.1:$Port/ - $($_.Exception.Message). " +
-        "Port $Port may be in use by a trace_processor server or a previous run.")
+        "Port $Port may be in use by a trace_processor server or a previous run, or " +
+        "(HttpListener 'Access is denied') the URL prefix may not be reserved for your account: " +
+        "pick another -Port, or reserve it with " +
+        "'netsh http add urlacl url=http://127.0.0.1:$Port/ user=$env:USERNAME'.")
     exit 1
 }
 
@@ -178,20 +181,22 @@ try {
                 $response.StatusCode = 204
             }
             elseif (($request.HttpMethod -in "GET", "HEAD") -and $requestPath -eq "/$fname") {
-                $bytes = [System.IO.File]::ReadAllBytes($full)
-
                 # A Chrome-trace export is JSON; a native Perfetto capture (.pftrace,
                 # .perfetto-trace, .pb) is a binary proto. Label the payload accordingly
                 # so the Content-Type matches what is actually served.
                 $isJson = [System.IO.Path]::GetExtension($fname).ToLowerInvariant() -eq ".json"
                 $response.ContentType = if ($isJson) { "application/json" } else { "application/octet-stream" }
-                $response.ContentLength64 = $bytes.Length
+                # Stream the file to the response instead of buffering the whole trace in
+                # memory - a Perfetto capture is often tens or hundreds of MB.
+                $fileLength = [System.IO.FileInfo]::new($full).Length
+                $response.ContentLength64 = $fileLength
                 if ($request.HttpMethod -eq "GET") {
-                    $response.OutputStream.Write($bytes, 0, $bytes.Length)
+                    $fs = [System.IO.File]::OpenRead($full)
+                    try { $fs.CopyTo($response.OutputStream) } finally { $fs.Dispose() }
                 }
 
                 $served++
-                Write-Host ("Served {0} ({1:N0} bytes)" -f $fname, $bytes.Length) -ForegroundColor Green
+                Write-Host ("Served {0} ({1:N0} bytes)" -f $fname, $fileLength) -ForegroundColor Green
             }
             else {
                 $response.StatusCode = 404

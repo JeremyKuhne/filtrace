@@ -131,13 +131,21 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
         Write-Error 'Elevated relaunch returned no process handle; cannot wait for the capture. Check for a blocked UAC prompt.' -ErrorAction Continue
         exit 1
     }
-    if (-not $proc.WaitForExit($ElevatedTimeoutSeconds * 1000)) {
-        Write-Warning "Elevated capture still running after $ElevatedTimeoutSeconds s; not blocking further. See $log for progress."
+    # WaitForExit / HasExited / ExitCode can each throw (e.g. Access Denied reading the
+    # elevated, higher-integrity child's handle). Under $ErrorActionPreference='Stop' an
+    # uncaught throw would abort the script and reintroduce the very hang/no-tail failure
+    # this fix avoids, so guard every handle access and treat a throw as a timeout-like miss.
+    # Clamp to Int32.MaxValue so a large timeout cannot overflow the millisecond argument.
+    $waitMs = [int][Math]::Min([long]$ElevatedTimeoutSeconds * 1000, [int]::MaxValue)
+    $exited = $false
+    try { $exited = $proc.WaitForExit($waitMs) } catch { $exited = $false }
+    if (-not $exited) {
+        Write-Warning "Elevated capture did not signal completion within $ElevatedTimeoutSeconds s; not blocking further. See $log for progress."
     }
     # ExitCode is only defined once the child has exited, and reading it on a higher-integrity
     # (elevated) process can throw Access Denied - treat either as 'not observed', non-fatal.
     $childExit = 0
-    if ($proc.HasExited) { try { $childExit = $proc.ExitCode } catch { $childExit = 0 } }
+    try { if ($proc.HasExited) { $childExit = $proc.ExitCode } } catch { $childExit = 0 }
     if ($childExit -ne 0) { Write-Error "Elevated capture failed (exit $childExit). See $log." -ErrorAction Continue ; exit $childExit }
     if (Test-Path $log) { Write-Host "`n--- capture log tail (full log: $log) ---" -ForegroundColor Cyan ; Get-Content $log -Tail 20 }
     exit 0
