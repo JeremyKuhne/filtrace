@@ -57,6 +57,20 @@ public sealed class RootScopeTests
     }
 
     [TestMethod]
+    public void Apply_RootFrameAtStackRoot_ReusesTheSampleInstanceWithoutCopying()
+    {
+        // No trimming is needed when the root frame is already the stack root (e.g. a
+        // BenchmarkDotNet capture whose WorkloadAction wrapper is the outermost frame),
+        // so Apply must reuse the original SampleStack rather than allocate a copy.
+        SampleStack original = new(["MyApp.Work", "MyApp.Inner"], 5.0, "1");
+        StackSampleSource source = new(MetricInfo.Cpu, [original]);
+
+        StackSampleSource scoped = RootScope.Apply(source, "MyApp.Work");
+
+        scoped.Samples[0].Should().BeSameAs(original);
+    }
+
+    [TestMethod]
     public void Apply_WithFrameLocations_TrimsLocationsInParallel()
     {
         StackSampleSource source = new(

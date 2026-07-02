@@ -39,7 +39,10 @@ public static class RootScope
     ///  <paramref name="rootFrame"/>, each trimmed (together with its parallel
     ///  <see cref="SampleStack.FrameLocations"/>, when present) to start at that
     ///  frame - so the exported flame graph is rooted there instead of at the
-    ///  process/thread root.
+    ///  process/thread root. A sample whose matching frame is already the stack
+    ///  root (<c>start == 0</c>, e.g. a BenchmarkDotNet capture whose
+    ///  <c>WorkloadAction</c> wrapper is the outermost frame) needs no trimming, so
+    ///  it is reused directly rather than copied.
     /// </returns>
     public static StackSampleSource Apply(StackSampleSource source, string? rootFrame)
     {
@@ -59,28 +62,29 @@ public static class RootScope
                 continue;
             }
 
-            scoped.Add(new SampleStack(
-                Trim(frames, start),
-                sample.Weight,
-                sample.Thread,
-                sample.FrameLocations is { } locations ? Trim(locations, start) : null,
-                sample.Process));
+            // No trimming needed when the root frame is already the stack root -
+            // reuse the sample as-is instead of allocating an identical copy.
+            scoped.Add(start == 0
+                ? sample
+                : new SampleStack(
+                    Trim(frames, start),
+                    sample.Weight,
+                    sample.Thread,
+                    sample.FrameLocations is { } locations ? Trim(locations, start) : null,
+                    sample.Process));
         }
 
         return new StackSampleSource(source.Metric, scoped);
     }
 
     /// <summary>
-    ///  Slices a frames or frame-locations list to start at <paramref name="start"/>,
-    ///  avoiding an allocation when the slice is the whole list.
+    ///  Slices a frames or frame-locations list to start at <paramref name="start"/>.
+    ///  Only called for <paramref name="start"/> &gt; 0 - the caller reuses the
+    ///  original list (and its owning <see cref="SampleStack"/>) directly when no
+    ///  trimming is needed.
     /// </summary>
     private static IReadOnlyList<string> Trim(IReadOnlyList<string> values, int start)
     {
-        if (start == 0)
-        {
-            return values;
-        }
-
         string[] trimmed = new string[values.Count - start];
         for (int i = 0; i < trimmed.Length; i++)
         {
