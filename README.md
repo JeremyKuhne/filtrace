@@ -6,15 +6,10 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A small, agent-shaped CLI and MCP server for analyzing .NET CPU/memory/wall-clock
-traces - the productized successor to `touki.mcp`. Built on the
+traces. Built on the
 `Microsoft.Diagnostics.Tracing.TraceEvent` library; reads EventPipe
 (`.nettrace` / `.speedscope.json`) and ETW (`.etl`) captures from both .NET and
 .NET Framework runs.
-
-> **Status.** filtrace was extracted from the
-> [`touki`](https://github.com/JeremyKuhne/touki) repository, where it incubated,
-> into this standalone repository with its history preserved. It is pre-1.0; the
-> surface may still shift.
 
 ## Install
 
