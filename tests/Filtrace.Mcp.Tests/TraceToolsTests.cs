@@ -607,6 +607,47 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Export_BenchmarkPreset_ScopesToWorkloadActionFrame()
+    {
+        // The folding fixture has no WorkloadAction frame, so this proves 'benchmark'
+        // resolves to FrameNames.BenchmarkWorkloadFrame and gets applied (every sample
+        // dropped) rather than that it finds a match - RootScopeTests covers the actual
+        // trimming behavior against a stack that does contain the frame.
+        TraceStore store = new();
+        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+
+        try
+        {
+            AnalysisResult<ExportResult> envelope =
+                TraceTools.Export(store, FixturePath(Speedscope), outputPath, benchmark: true);
+
+            File.Exists(outputPath).Should().BeTrue();
+            AssertEnvelope(envelope);
+
+            string written = File.ReadAllText(outputPath);
+            written.Should().NotContain("Program.Main");
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Export_RootAndBenchmarkBothSet_Throws()
+    {
+        TraceStore store = new();
+
+        Action act = () => TraceTools.Export(
+            store, FixturePath(Speedscope), output: "unused.json", root: "MyApp.Work", benchmark: true);
+
+        act.Should().Throw<McpException>().WithMessage("*only one of 'root' and 'benchmark'*");
+    }
+
+    [TestMethod]
     public void Export_NativeSymbolsOnSpeedscope_BindsAndIsHarmlessNoOp()
     {
         // nativeSymbols binds on the export tool, just as it does on trace_rank;

@@ -41,7 +41,7 @@ public static class RootScope
     ///  frame - so the exported flame graph is rooted there instead of at the
     ///  process/thread root.
     /// </returns>
-    public static StackSampleSource Apply(StackSampleSource source, string rootFrame)
+    public static StackSampleSource Apply(StackSampleSource source, string? rootFrame)
     {
         if (string.IsNullOrEmpty(rootFrame))
         {

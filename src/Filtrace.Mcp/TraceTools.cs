@@ -450,6 +450,7 @@ public sealed class TraceTools
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process <c>.etl</c> to one process tree.</param>
     /// <param name="root">Optional substring of a frame name to scope the export to its subtree.</param>
+    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); .etl captures only.</param>
     /// <returns>The export-confirmation envelope.</returns>
     [McpServerTool(Name = "trace_export", ReadOnly = false, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
@@ -460,8 +461,9 @@ public sealed class TraceTools
         + "unlike the query tools this writes a file rather than returning the data, and overwrites an existing file "
         + "at that path). No folding or ranking is applied. Pass 'process' to scope a "
         + "machine-wide .etl to one process tree (as the ranking tools do); omit it to auto-scope to the busiest. "
-        + "Pass 'root' to scope the exported flame graph to the subtree under a frame - for a BenchmarkDotNet "
-        + "capture, set it to the measured workload frame so the harness/warmup does not dominate the graph. "
+        + "Pass 'root' to scope the exported flame graph to the subtree under a frame, or 'benchmark' to preset it "
+        + "to the BenchmarkDotNet measured-workload frame (mutually exclusive with 'root') so the harness/warmup "
+        + "does not dominate the graph - default to 'benchmark' for any BenchmarkDotNet capture. "
         + "Pass 'nativeSymbols' to resolve the unmanaged GC/JIT/memset/memcpy frames that would otherwise export "
         + "as an unresolved module!? leaf - opt-in, it fetches over the network and caches locally. "
         + "The response confirms the path, format, and byte count.")]
@@ -481,8 +483,13 @@ public sealed class TraceTools
         string process = "",
         [Description(
             "Optional substring of a frame name to scope the exported flame graph to its subtree; for a "
-            + "BenchmarkDotNet capture set to the measured-workload frame to exclude harness warmup.")]
+            + "BenchmarkDotNet capture prefer 'benchmark' instead. Mutually exclusive with 'benchmark'.")]
         string root = "",
+        [Description(
+            "Scope the exported flame graph to the BenchmarkDotNet measured-workload subtree (a preset root); "
+            + "default to this for any BenchmarkDotNet capture so the harness/warmup does not dominate the "
+            + "graph. Mutually exclusive with 'root'.")]
+        bool benchmark = false,
         [Description(
             "Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server. "
             + "Opt-in - it fetches over the network and caches locally. .etl captures only; managed frames "
@@ -496,10 +503,11 @@ public sealed class TraceTools
             throw new McpException("output is required: the file path to write the flame graph to.");
         }
 
+        string resolvedRoot = ResolveRoot(root, benchmark);
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process), symbolOptions: ResolveSymbols(nativeSymbols));
         TraceInfo info = trace.Info;
 
-        StackSampleSource scoped = RootScope.Apply(trace.Source, root);
+        StackSampleSource scoped = RootScope.Apply(trace.Source, resolvedRoot);
 
         string exported = chromium
             ? ChromiumExporter.Export(scoped, name)
@@ -932,6 +940,21 @@ public sealed class TraceTools
     // value scopes a multi-process .etl capture to the named process tree.
     private static ScopeRequest? ResolveScope(string process) =>
         string.IsNullOrEmpty(process) ? null : ScopeRequest.ForProcess(process);
+
+    /// <summary>
+    ///  Resolves the root-frame scope from the explicit <c>root</c> argument and the
+    ///  <c>benchmark</c> preset, mirroring the CLI's <c>--root</c>/<c>--benchmark</c>
+    ///  mutual exclusion (<c>RankRequestFactory.TryResolveRoot</c>).
+    /// </summary>
+    private static string ResolveRoot(string root, bool benchmark)
+    {
+        if (benchmark && !string.IsNullOrEmpty(root))
+        {
+            throw new McpException("Specify only one of 'root' and 'benchmark'.");
+        }
+
+        return benchmark ? FrameNames.BenchmarkWorkloadFrame : root;
+    }
 
     // Opt-in native runtime symbol resolution; the default cache directory is used.
     // Off resolves managed frames from the rundown only (offline).

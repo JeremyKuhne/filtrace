@@ -106,7 +106,7 @@ public static partial class FrameNames
     ///   so both apply the identical root-frame match.
     ///  </para>
     /// </remarks>
-    public static bool TryFindRootStart(IReadOnlyList<string> frames, string rootFrame, out int start)
+    public static bool TryFindRootStart(IReadOnlyList<string> frames, string? rootFrame, out int start)
     {
         if (string.IsNullOrEmpty(rootFrame))
         {

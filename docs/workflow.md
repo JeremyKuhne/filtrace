@@ -45,8 +45,7 @@ same call tree. The bundled
 [scripts/Capture-BenchmarkTrace.ps1](../.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1)
 wraps the whole loop: it runs the benchmark under the chosen profiler
 (self-elevating for ETW, with visible progress), finds the newest trace, and prints
-the next-step filtrace commands already scoped with `--process` - remember to add
-`--benchmark` to those printed commands too.
+the next-step filtrace commands already scoped with `--process` and `--benchmark`.
 
 To profile a whole executable project instead of a micro-benchmark, capture its
 running output with `dotnet-trace` (EventPipe) or `filtrace collect` (ETW). Build first
