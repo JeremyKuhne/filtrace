@@ -144,11 +144,16 @@ try {
         $response = $context.Response
         try {
             $response.Headers["Access-Control-Allow-Origin"] = $allowOrigin
+            # Private Network Access: a secure page (https) fetching a private address
+            # (127.0.0.1) is preflighted by modern Chromium, which requires this header on the
+            # response or it blocks the fetch. Harmless to browsers that do not send the check.
+            $response.Headers["Access-Control-Allow-Private-Network"] = "true"
             $response.Headers["Cache-Control"] = "no-cache"
 
             $requestPath = [System.Uri]::UnescapeDataString($request.Url.AbsolutePath)
             if ($request.HttpMethod -eq "OPTIONS") {
-                # Preflight (only sent if speedscope ever makes a non-simple request).
+                # Preflight - sent for a cross-origin non-simple request, and (via Private
+                # Network Access) for any https-to-loopback fetch on modern Chromium.
                 $response.Headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
                 $response.Headers["Access-Control-Allow-Headers"] = "*"
                 $response.StatusCode = 204
