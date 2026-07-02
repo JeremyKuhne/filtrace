@@ -110,7 +110,11 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     # survives Start-Process joining the array into a single command line.
     $argList = @('-NoProfile', '-File', "`"$PSCommandPath`"", '-Project', "`"$($projFile.FullName)`"",
         '-Filter', "`"$Filter`"", '-Profiler', 'ETW', '-Tfm', $Tfm, '-Process', "`"$Process`"", '-Top', $Top)
-    $proc = Start-Process pwsh -Verb RunAs -PassThru -Wait -WorkingDirectory $repoRoot -ArgumentList $argList
+    # Relaunch with the host that is ALREADY running this script, not a hardcoded 'pwsh' -
+    # a caller on Windows PowerShell 5.1 without PowerShell 7 installed would otherwise
+    # fail here with pwsh unresolved.
+    $hostExe = (Get-Process -Id $PID).Path
+    $proc = Start-Process -FilePath $hostExe -Verb RunAs -PassThru -Wait -WorkingDirectory $repoRoot -ArgumentList $argList
     if ($proc.ExitCode -ne 0) { Write-Error "Elevated capture failed (exit $($proc.ExitCode)). See $log." -ErrorAction Continue ; exit $proc.ExitCode }
     if (Test-Path $log) { Write-Host "`n--- capture log tail (full log: $log) ---" -ForegroundColor Cyan ; Get-Content $log -Tail 20 }
     exit 0
