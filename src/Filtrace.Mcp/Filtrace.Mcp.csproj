@@ -20,6 +20,15 @@
     <ToolCommandName>filtrace-mcp</ToolCommandName>
     <Description>MCP (Model Context Protocol) server exposing filtrace's .NET trace analysis - CPU, allocation, thread-time, GC, JIT, and exception profiling - as agent tools over stdio.</Description>
     <PackageTags>trace;profiling;diagnostics;performance;mcp;mcp-server;ai;agent;dotnet</PackageTags>
+
+    <!--
+      The skill ships its capture scripts as content under skills/filtrace/scripts/. NuGet's
+      NU5110 / NU5111 flag any loose .ps1 as an install script that must live under tools/ and
+      be named init|install|uninstall.ps1 to auto-run; these are documentation helpers, not
+      install hooks, so the heuristics are false positives. Suppress them - the repo builds
+      warnings-as-error.
+    -->
+    <NoWarn>$(NoWarn);NU5110;NU5111</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -56,14 +65,18 @@
 
   <!--
     Ship the agent skill inside the package so a consumer who pulls the MCP server gets the
-    same workflow knowledge an agent working in the repo sees. It travels as package content
-    under skills/ (it is not a tool input - the server reads nothing from it at runtime); the
-    canonical copy lives at the vendor-neutral .agents/skills/filtrace/ location, and the MCP
-    server's in-band `instructions` field carries the compressed workflow for clients that do
-    not surface packaged skills.
+    same workflow knowledge an agent working in the repo sees. The whole skill directory travels
+    as package content under skills/filtrace/ - SKILL.md, its README, and the bundled capture
+    scripts SKILL.md links to (Capture-BenchmarkTrace.ps1, Capture-ProjectTrace.ps1). It is not a
+    tool input; the server reads nothing from it at runtime. The canonical copy lives at the
+    vendor-neutral .agents/skills/filtrace/ location, and the MCP server's in-band `instructions`
+    field carries the compressed workflow for clients that do not surface packaged skills. The
+    include is recursive so a newly added script or reference cannot be left out of the package -
+    otherwise Test-Docs' link check passes on the repo layout while the packaged skill ships a
+    dangling link.
   -->
   <ItemGroup>
-    <None Include="..\..\.agents\skills\filtrace\SKILL.md" Pack="true" PackagePath="\skills\filtrace\SKILL.md" Visible="false" />
+    <None Include="..\..\.agents\skills\filtrace\**\*" Pack="true" PackagePath="\skills\filtrace\%(RecursiveDir)%(Filename)%(Extension)" Visible="false" />
   </ItemGroup>
 
 </Project>
