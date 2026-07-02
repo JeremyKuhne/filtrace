@@ -142,16 +142,24 @@ $symbols = Join-Path (Split-Path -Parent $projFile.FullName) "bin/Release/$Tfm"
 Write-Host "`nCaptured: $($trace.FullName)" -ForegroundColor Green
 Write-Host "`nNext-step filtrace commands:" -ForegroundColor Green
 if ($Profiler -eq 'ETW') {
-    # An .etl is machine-wide: scope every query to the benchmark process.
+    # An .etl is machine-wide: scope every query to the benchmark process AND to
+    # the measured workload with --benchmark - both, every time, not just when a
+    # ranking looks noisy. --process narrows the OS process; --benchmark is what
+    # excludes the harness/warmup subtree so a ranking or export's proportions
+    # actually reflect the measured [Benchmark] code.
     Write-Host "  filtrace processes `"$($trace.FullName)`""
-    Write-Host "  filtrace cpu `"$($trace.FullName)`" --process $Process --top $Top"
-    Write-Host "  filtrace threadtime `"$($trace.FullName)`" --process $Process --top $Top"
-    Write-Host "  filtrace lines `"$($trace.FullName)`" --process $Process --symbols `"$symbols`""
-    Write-Host "  filtrace classify `"$($trace.FullName)`" --process $Process --native-symbols"
+    Write-Host "  filtrace cpu `"$($trace.FullName)`" --process $Process --benchmark --top $Top"
+    Write-Host "  filtrace threadtime `"$($trace.FullName)`" --process $Process --benchmark --top $Top"
+    Write-Host "  filtrace lines `"$($trace.FullName)`" --process $Process --benchmark --symbols `"$symbols`""
+    Write-Host "  filtrace classify `"$($trace.FullName)`" --process $Process --benchmark --native-symbols"
+    Write-Host "  filtrace export `"$($trace.FullName)`" --process $Process --benchmark --native-symbols --symbols `"$symbols`" -o flame.speedscope.json"
 }
 else {
-    # A single-process EventPipe trace: scope past the BenchmarkDotNet harness.
+    # A single-process EventPipe trace: scope past the BenchmarkDotNet harness with
+    # --benchmark - every verb here, export included, not just the ones that print
+    # a ranking.
     Write-Host "  filtrace cpu `"$($trace.FullName)`" --benchmark --top $Top"
     Write-Host "  filtrace alloc `"$($trace.FullName)`" --benchmark --top $Top"
     Write-Host "  filtrace lines `"$($trace.FullName)`" --benchmark --symbols `"$symbols`""
+    Write-Host "  filtrace export `"$($trace.FullName)`" --benchmark --symbols `"$symbols`" -o flame.speedscope.json"
 }

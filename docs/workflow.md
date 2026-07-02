@@ -36,12 +36,17 @@ lighter, no-elevation choice. Reading an `.etl` is itself Windows-only (the
 ETW -> ETLX conversion), though the resulting `.etlx` then analyzes on any OS.
 
 For a BenchmarkDotNet capture, add `--keepFiles` so the kept build output supplies
-the PDBs that resolve source lines, and analyze with `--benchmark` to scope past the
-harness. The bundled
+the PDBs that resolve source lines, and **default every analysis to `--benchmark`**
+to scope past the harness - not just the ranking verbs, `export` too, and not just
+when the result looks noisy. `--benchmark` presets the root to the generated
+`WorkloadAction*` wrapper, isolating the measured `[Benchmark]` code from the
+bootstrap and warmup/overhead iterations a raw BDN trace otherwise dumps into the
+same call tree. The bundled
 [scripts/Capture-BenchmarkTrace.ps1](../.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1)
 wraps the whole loop: it runs the benchmark under the chosen profiler
 (self-elevating for ETW, with visible progress), finds the newest trace, and prints
-the next-step filtrace commands already scoped with `--process`.
+the next-step filtrace commands already scoped with `--process` - remember to add
+`--benchmark` to those printed commands too.
 
 To profile a whole executable project instead of a micro-benchmark, capture its
 running output with `dotnet-trace` (EventPipe) or `filtrace collect` (ETW). Build first
