@@ -141,6 +141,21 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 | `jitstats` | JIT method count, compile time, sizes | `filtrace jitstats app.nettrace` |
 | `events` | Query raw events by name, paged | `filtrace events app.nettrace --name GC/AllocationTick` |
 
+**Capture** (Windows, elevated) - record an ETW `.etl` yourself, no external recorder:
+
+| Verb | Purpose | Example |
+|---|---|---|
+| `collect` | Launch an executable and record a CPU / thread-time `.etl` | `filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl --metric threadtime` |
+
+```pwsh
+filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl              # CPU
+filtrace collect --launch dotnet --launch-args MyApp.dll --output tt.etl --metric threadtime
+```
+
+For an EventPipe (`.nettrace`) capture - cross-platform, no elevation - use the
+first-party `dotnet-trace` (`dotnet tool install -g dotnet-trace`, then
+`dotnet-trace collect -- <app>`); `collect` is ETW-only.
+
 **File ops** - manage the ETLX conversion cache TraceEvent keeps beside a trace:
 
 | Verb | Purpose | Example |

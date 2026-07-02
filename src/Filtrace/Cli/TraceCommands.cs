@@ -633,4 +633,67 @@ internal sealed class TraceCommands
     [Command("clean")]
     public int Clean([Argument] string trace) =>
         FileOpsExecutor.Clean(trace, Console.Out, Console.Error);
+
+    /// <summary>
+    ///  Record a Windows ETW (.etl) trace of a launched executable, then print the analysis
+    ///  commands the capture unlocks. Windows-only and requires Administrator; for an
+    ///  EventPipe (.nettrace) capture use dotnet-trace (cross-platform).
+    /// </summary>
+    /// <param name="launch">Path to the executable to launch and trace (the built app, never 'dotnet run').</param>
+    /// <param name="output">Path of the .etl file to write.</param>
+    /// <param name="metric">What to tune the capture for: cpu (default) or threadtime (adds context switches for wall-clock time).</param>
+    /// <param name="launchArgs">Arguments passed to the launched executable, as one command-line string.</param>
+    /// <param name="cpuMs">CPU sample interval in milliseconds.</param>
+    /// <param name="duration">Optional cap on capture length in seconds; 0 (default) captures until the process exits.</param>
+    /// <returns>A process exit code.</returns>
+    /// <remarks>
+    ///  Reproduces a PerfView-style capture with TraceEvent's session API, so no external
+    ///  recorder is needed. A launch capture needs no CLR rundown; managed frames resolve
+    ///  from the live JIT events. The written .etl is machine-wide, so the printed commands
+    ///  scope to the launched process with --process.
+    /// </remarks>
+    [Command("collect")]
+    public int Collect(
+        string launch,
+        string output,
+        string metric = "cpu",
+        string launchArgs = "",
+        [Range(1, 1000)] double cpuMs = 1.0,
+        [Range(0, int.MaxValue)] int duration = 0)
+    {
+        if (!TryResolveCollectMetric(metric, out CollectMetric resolved))
+        {
+            Console.Error.WriteLine($"Unknown metric '{metric}'. Supported capture metrics: cpu, threadtime.");
+            return ExitCodes.UsageError;
+        }
+
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = launch,
+            LaunchArguments = launchArgs,
+            Metric = resolved,
+            CpuSampleMSec = cpuMs,
+            DurationSeconds = duration > 0 ? duration : null,
+            OutputPath = output,
+        };
+
+        return CollectExecutor.Run(request, Console.Out, Console.Error);
+    }
+
+    // Resolve the collect --metric selector to its capture keyword set.
+    private static bool TryResolveCollectMetric(string metric, out CollectMetric result)
+    {
+        switch (metric?.Trim().ToLowerInvariant())
+        {
+            case "cpu":
+                result = CollectMetric.Cpu;
+                return true;
+            case "threadtime":
+                result = CollectMetric.ThreadTime;
+                return true;
+            default:
+                result = CollectMetric.Cpu;
+                return false;
+        }
+    }
 }
