@@ -56,6 +56,15 @@ your code (see the trap catalog). The bundled
 does this: it builds the project, resolves the run target, traces it under the
 chosen profiler, and prints the next-step filtrace commands.
 
+Once you have an `export`, two more bundled scripts open it in a hosted viewer with the
+profile already loaded, no manual upload:
+[scripts/Open-SpeedscopeTrace.ps1](../.agents/skills/filtrace/scripts/Open-SpeedscopeTrace.ps1)
+serves a `--format speedscope` profile to speedscope.app (defaulting to the Left Heavy
+hotspot view), and
+[scripts/Open-PerfettoTrace.ps1](../.agents/skills/filtrace/scripts/Open-PerfettoTrace.ps1)
+serves a `--format chromium` trace to the Perfetto UI. Each hosts the file on a one-shot
+loopback listener, so nothing is uploaded.
+
 ## The canonical investigation: orient -> rank -> drill -> compare
 
 Almost every investigation is the same four moves, and the verbs and MCP tools
