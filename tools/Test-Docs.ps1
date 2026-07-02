@@ -157,11 +157,15 @@ foreach ($tool in $tools) {
 $skillDir = Join-Path $root '.agents/skills/filtrace'
 $skillDirFull = [System.IO.Path]::GetFullPath($skillDir)
 $linkCount = 0
+# Absolute paths the shipped skill needs the MCP package to carry: each shipped skill
+# file, plus every in-directory file it links to. Verified against the package in check 5.
+$requiredInPackage = [System.Collections.Generic.List[string]]::new()
 if (Test-Path $skillDir) {
     $linkPattern = '\[[^\]]*\]\(([^)\s]+)\)'
     foreach ($file in Get-ChildItem -LiteralPath $skillDir -Recurse -Filter *.md -File) {
         $name = [System.IO.Path]::GetRelativePath($root, $file.FullName) -replace '\\', '/'
         $content = Get-Content -LiteralPath $file.FullName -Raw
+        [void]$requiredInPackage.Add($file.FullName)
         foreach ($match in [regex]::Matches($content, $linkPattern)) {
             $target = $match.Groups[1].Value
             # Exempt URLs (scheme: with a 2+ char scheme), protocol-relative (//host),
@@ -186,11 +190,61 @@ if (Test-Path $skillDir) {
             elseif (-not (Test-Path -LiteralPath $resolved)) {
                 Add-Failure "Skill file '$name' links to '$target', which does not resolve to an existing path."
             }
+            else {
+                # An in-directory file the skill references - it must travel in the package.
+                [void]$requiredInPackage.Add($resolved)
+            }
         }
     }
 }
 
-Write-Host "Checked $($blocks.Count) shared block(s), $($verbs.Count) verb(s), $($tools.Count) tool(s), $linkCount skill link(s)."
+# 5. Skill packaging completeness: every shipped skill file and every in-directory
+# file it links to must be carried into the MCP package - not merely resolvable in
+# the repo. Check 4 proves the repo layout; a curated <None Pack> include can still
+# drift from what SKILL.md references and ship a dangling link while check 4 passes
+# (issue #10, round two). Read the authoritative pack list from MSBuild (it expands
+# the include globs) instead of re-implementing glob semantics here.
+$mcpProject = Join-Path $root 'src/Filtrace.Mcp/Filtrace.Mcp.csproj'
+$packedCount = 0
+if ($requiredInPackage.Count -gt 0) {
+    if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+        Write-Host "  (skill-packaging check skipped: 'dotnet' not on PATH)" -ForegroundColor Yellow
+    }
+    elseif (-not (Test-Path $mcpProject)) {
+        Add-Failure "Cannot verify skill packaging: '$mcpProject' was not found."
+    }
+    else {
+        $itemsJson = & dotnet build $mcpProject -getItem:None 2>$null | Out-String
+        $noneItems = $null
+        if (-not [string]::IsNullOrWhiteSpace($itemsJson)) {
+            try { $noneItems = ($itemsJson | ConvertFrom-Json).Items.None } catch { }
+        }
+        if ($null -eq $noneItems) {
+            Add-Failure "Cannot verify skill packaging: 'dotnet build <Filtrace.Mcp> -getItem:None' returned no parseable None items."
+        }
+        else {
+            # Full paths of the files the package will carry (None items marked Pack=true).
+            $packedSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($item in $noneItems) {
+                if ($item.Pack -eq 'true' -and $item.FullPath) {
+                    $full = [System.IO.Path]::GetFullPath($item.FullPath)
+                    [void]$packedSet.Add($full)
+                    # Count only the packed files under the skill directory (for the summary).
+                    $fromSkill = [System.IO.Path]::GetRelativePath($skillDirFull, $full)
+                    if ($fromSkill -notmatch '^\.\.([\\/]|$)' -and -not [System.IO.Path]::IsPathRooted($fromSkill)) { $packedCount++ }
+                }
+            }
+            foreach ($required in ($requiredInPackage | Sort-Object -Unique)) {
+                if (-not $packedSet.Contains([System.IO.Path]::GetFullPath($required))) {
+                    $rel = [System.IO.Path]::GetRelativePath($skillDirFull, $required) -replace '\\', '/'
+                    Add-Failure "The MCP package (Filtrace.Mcp.csproj) does not pack 'skills/filtrace/$rel', which the shipped skill provides or links to; the packaged skill would ship a missing file / dangling link. Extend the skill's None include (Pack=true) to cover it."
+                }
+            }
+        }
+    }
+}
+
+Write-Host "Checked $($blocks.Count) shared block(s), $($verbs.Count) verb(s), $($tools.Count) tool(s), $linkCount skill link(s), $packedCount packed skill file(s)."
 
 if ($failures.Count -gt 0) {
     Write-Host ''
