@@ -57,6 +57,12 @@
 .PARAMETER Output
     Trace output path. Defaults to ./perf-traces/<AssemblyName>.<nettrace|etl>.
 
+.PARAMETER ElevatedTimeoutSeconds
+    How long the non-elevated parent waits for the self-elevated ETW capture to finish
+    before it stops blocking. Default 1200 (20 minutes). Only the ETW self-elevation path
+    uses it - it is the backstop that keeps a never-signaled elevated child from hanging
+    the parent indefinitely.
+
 .EXAMPLE
     ./Capture-ProjectTrace.ps1 -Project src/MyApp
 
@@ -74,7 +80,8 @@ param(
     [string]$Configuration = 'Release',
     [string[]]$AppArgs = @(),
     [int]$Top = 25,
-    [string]$Output
+    [string]$Output,
+    [int]$ElevatedTimeoutSeconds = 1200
 )
 
 $ErrorActionPreference = 'Stop'
@@ -131,8 +138,23 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     # a caller on Windows PowerShell 5.1 without PowerShell 7 installed would otherwise
     # fail here with pwsh unresolved.
     $hostExe = (Get-Process -Id $PID).Path
-    $proc = Start-Process -FilePath $hostExe -Verb RunAs -PassThru -Wait -WorkingDirectory (Get-Location).Path -ArgumentList $argList
-    if ($proc.ExitCode -ne 0) { Write-Error "Elevated capture failed (exit $($proc.ExitCode))." -ErrorAction Continue ; exit $proc.ExitCode }
+    # Do NOT pass -Wait here. With -Verb RunAs, Start-Process -Wait can fail to release
+    # after the elevated child self-closes, hanging the parent forever even though the
+    # capture already finished. Wait on the returned process object directly with a bounded
+    # WaitForExit, so a lost or access-denied handle degrades to a timeout, not a hang.
+    $proc = Start-Process -FilePath $hostExe -Verb RunAs -PassThru -WorkingDirectory (Get-Location).Path -ArgumentList $argList
+    if ($null -eq $proc) {
+        Write-Error 'Elevated relaunch returned no process handle; cannot wait for the capture. Check for a blocked UAC prompt.' -ErrorAction Continue
+        exit 1
+    }
+    if (-not $proc.WaitForExit($ElevatedTimeoutSeconds * 1000)) {
+        Write-Warning "Elevated capture still running after $ElevatedTimeoutSeconds s; not blocking further."
+    }
+    # ExitCode is only defined once the child has exited, and reading it on a higher-integrity
+    # (elevated) process can throw Access Denied - treat either as 'not observed', non-fatal.
+    $childExit = 0
+    if ($proc.HasExited) { try { $childExit = $proc.ExitCode } catch { $childExit = 0 } }
+    if ($childExit -ne 0) { Write-Error "Elevated capture failed (exit $childExit)." -ErrorAction Continue ; exit $childExit }
     exit 0
 }
 

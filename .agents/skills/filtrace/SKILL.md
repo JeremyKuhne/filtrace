@@ -44,6 +44,14 @@ BenchmarkDotNet micro-benchmark (add `--keepFiles`, analyze with `--benchmark`),
 executable project and traces its running output directly - never `dotnet run`,
 whose build/run host is a different process (see the trap catalog).
 
+Two more scripts open a filtrace `export` in a hosted viewer with the profile already
+loaded, no manual upload:
+[scripts/Open-SpeedscopeTrace.ps1](scripts/Open-SpeedscopeTrace.ps1) serves a
+`--format speedscope` profile to speedscope.app (defaulting to the Left Heavy hotspot
+view), and [scripts/Open-PerfettoTrace.ps1](scripts/Open-PerfettoTrace.ps1) serves a
+`--format chromium` trace to the Perfetto UI. Each hosts the file on a one-shot loopback
+listener, so nothing is uploaded.
+
 ## The workflow: orient -> rank -> drill -> compare
 
 Almost every investigation is the same four moves:
