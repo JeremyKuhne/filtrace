@@ -60,7 +60,7 @@ param(
     [string]$Filter = '',
     [switch]$SkipBuild,
     [string]$LogFile = '',
-    [int]$ElevatedTimeoutSeconds = 1800
+    [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1800
 )
 
 $ErrorActionPreference = 'Stop'

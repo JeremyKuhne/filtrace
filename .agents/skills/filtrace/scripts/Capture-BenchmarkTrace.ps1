@@ -72,7 +72,7 @@ param(
     [string]$Tfm = 'net10.0',
     [string]$Process,
     [int]$Top = 25,
-    [int]$ElevatedTimeoutSeconds = 1200
+    [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1200
 )
 
 $ErrorActionPreference = 'Stop'

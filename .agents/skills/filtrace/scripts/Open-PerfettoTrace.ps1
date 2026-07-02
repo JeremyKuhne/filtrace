@@ -73,7 +73,9 @@
 param(
     [Parameter(Mandatory)][string]$Path,
     [string]$Origin = "https://ui.perfetto.dev",
+    [ValidateRange(1, 65535)]
     [int]$Port = 9001,
+    [ValidateRange(1, 2147483647)]
     [int]$TimeoutSeconds = 300,
     [string]$PinTrack = "filtrace",
     [switch]$NoExpand,

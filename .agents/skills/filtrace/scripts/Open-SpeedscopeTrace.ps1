@@ -71,8 +71,10 @@ param(
     [ValidateSet("time-ordered", "left-heavy", "sandwich")]
     [string]$View = "left-heavy",
     [string]$Origin = "https://www.speedscope.app",
+    [ValidateRange(1, 65535)]
     [int]$Port = 9002,
     [string]$Title,
+    [ValidateRange(1, 2147483647)]
     [int]$TimeoutSeconds = 300,
     [switch]$NoOpenBrowser
 )

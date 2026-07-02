@@ -81,7 +81,7 @@ param(
     [string[]]$AppArgs = @(),
     [int]$Top = 25,
     [string]$Output,
-    [int]$ElevatedTimeoutSeconds = 1200
+    [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1200
 )
 
 $ErrorActionPreference = 'Stop'
