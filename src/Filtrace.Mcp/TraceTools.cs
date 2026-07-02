@@ -448,6 +448,7 @@ public sealed class TraceTools
     /// <param name="name">The profile name embedded in the flame graph, shown in the viewer.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process <c>.etl</c> to one process tree.</param>
+    /// <param name="root">Optional substring of a frame name to scope the export to its subtree.</param>
     /// <returns>The export-confirmation envelope.</returns>
     [McpServerTool(Name = "trace_export", ReadOnly = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
@@ -455,8 +456,10 @@ public sealed class TraceTools
         + "off a visual. format=speedscope (the default) opens at speedscope.app; format=chromium writes the Chrome "
         + "Trace Event Format for chrome://tracing or the Perfetto UI. 'output' is the file path to write (required; "
         + "unlike the query tools this writes a file rather than returning the data, and overwrites an existing file "
-        + "at that path). The whole sample source is exported - no folding or ranking. Pass 'process' to scope a "
+        + "at that path). No folding or ranking is applied. Pass 'process' to scope a "
         + "machine-wide .etl to one process tree (as the ranking tools do); omit it to auto-scope to the busiest. "
+        + "Pass 'root' to scope the exported flame graph to the subtree under a frame - for a BenchmarkDotNet "
+        + "capture, set it to the measured workload frame so the harness/warmup does not dominate the graph. "
         + "The response confirms the path, format, and byte count.")]
     public static AnalysisResult<ExportResult> Export(
         TraceStore store,
@@ -471,7 +474,11 @@ public sealed class TraceTools
         [Description(
             "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
             + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
-        string process = "")
+        string process = "",
+        [Description(
+            "Optional substring of a frame name to scope the exported flame graph to its subtree; for a "
+            + "BenchmarkDotNet capture set to the measured-workload frame to exclude harness warmup.")]
+        string root = "")
     {
         bool chromium = ResolveExportFormat(format);
 
@@ -483,9 +490,11 @@ public sealed class TraceTools
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process));
         TraceInfo info = trace.Info;
 
+        StackSampleSource scoped = RootScope.Apply(trace.Source, root);
+
         string exported = chromium
-            ? ChromiumExporter.Export(trace.Source, name)
-            : SpeedscopeExporter.Export(trace.Source, name);
+            ? ChromiumExporter.Export(scoped, name)
+            : SpeedscopeExporter.Export(scoped, name);
 
         string outputPath = WriteExport(output, exported);
         long byteCount = new FileInfo(outputPath).Length;

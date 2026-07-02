@@ -574,6 +574,39 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Export_RootScoped_ExportsOnlySubtreeUnderRootFrame()
+    {
+        TraceStore store = new();
+        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+
+        try
+        {
+            // The folding fixture's Program.Main -> MyApp.Work -> MyApp.Inner /
+            // MyApp.Other tree: scoping to MyApp.Work must drop Program.Main and the
+            // sibling MyApp.Other subtree, matching the same subtree `trace_rank`
+            // with root=MyApp.Work would rank.
+            AnalysisResult<ExportResult> envelope =
+                TraceTools.Export(store, FixturePath(Speedscope), outputPath, root: "MyApp.Work");
+
+            File.Exists(outputPath).Should().BeTrue();
+            AssertEnvelope(envelope);
+
+            string written = File.ReadAllText(outputPath);
+            written.Should().Contain("MyApp.Work");
+            written.Should().Contain("MyApp.Inner");
+            written.Should().NotContain("Program.Main");
+            written.Should().NotContain("MyApp.Other");
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [TestMethod]
     public void Export_UnknownFormat_Throws()
     {
         TraceStore store = new();

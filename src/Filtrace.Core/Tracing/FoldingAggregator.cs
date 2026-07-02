@@ -112,33 +112,6 @@ public sealed class FoldingAggregator
     private string ShortOf(string name) => _shortCache.GetOrAdd(name, static n => FrameNames.Short(n));
 
     /// <summary>
-    ///  Finds the index of the first frame (outermost-first) containing
-    ///  <paramref name="rootFrame"/>, or <c>0</c> when no root scoping is
-    ///  requested. Returns <see langword="false"/> in <paramref name="include"/>
-    ///  when a root frame was requested but not present on the stack.
-    /// </summary>
-    private static int ResolveStart(IReadOnlyList<string> frames, string rootFrame, out bool include)
-    {
-        if (string.IsNullOrEmpty(rootFrame))
-        {
-            include = true;
-            return 0;
-        }
-
-        for (int i = 0; i < frames.Count; i++)
-        {
-            if (frames[i].Contains(rootFrame, StringComparison.Ordinal))
-            {
-                include = true;
-                return i;
-            }
-        }
-
-        include = false;
-        return 0;
-    }
-
-    /// <summary>
     ///  Computes the folded self-time ranking.
     /// </summary>
     /// <param name="rootFrame">Substring scoping the ranking to a subtree, or empty for the whole trace.</param>
@@ -154,7 +127,7 @@ public sealed class FoldingAggregator
         foreach (SampleStack sample in _samples)
         {
             IReadOnlyList<string> frames = sample.Frames;
-            int startIdx = ResolveStart(frames, rootFrame, out bool include);
+            bool include = FrameNames.TryFindRootStart(frames, rootFrame, out int startIdx);
             if (!include || frames.Count == 0)
             {
                 continue;
@@ -202,7 +175,7 @@ public sealed class FoldingAggregator
         foreach (SampleStack sample in _samples)
         {
             IReadOnlyList<string> frames = sample.Frames;
-            int startIdx = ResolveStart(frames, rootFrame, out bool include);
+            bool include = FrameNames.TryFindRootStart(frames, rootFrame, out int startIdx);
             if (!include || frames.Count == 0)
             {
                 continue;
@@ -253,7 +226,7 @@ public sealed class FoldingAggregator
         foreach (SampleStack sample in _samples)
         {
             IReadOnlyList<string> frames = sample.Frames;
-            int startIdx = ResolveStart(frames, rootFrame, out bool include);
+            bool include = FrameNames.TryFindRootStart(frames, rootFrame, out int startIdx);
             if (!include || frames.Count == 0)
             {
                 continue;
@@ -298,7 +271,7 @@ public sealed class FoldingAggregator
         foreach (SampleStack sample in _samples)
         {
             IReadOnlyList<string> frames = sample.Frames;
-            int startIdx = ResolveStart(frames, rootFrame, out bool include);
+            bool include = FrameNames.TryFindRootStart(frames, rootFrame, out int startIdx);
             if (!include || frames.Count == 0)
             {
                 continue;
@@ -545,7 +518,7 @@ public sealed class FoldingAggregator
         foreach (SampleStack sample in _samples)
         {
             IReadOnlyList<string> frames = sample.Frames;
-            int startIdx = ResolveStart(frames, rootFrame, out bool include);
+            bool include = FrameNames.TryFindRootStart(frames, rootFrame, out int startIdx);
             if (!include || frames.Count == 0)
             {
                 continue;

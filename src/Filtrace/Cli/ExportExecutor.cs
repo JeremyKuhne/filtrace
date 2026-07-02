@@ -14,11 +14,14 @@ namespace Filtrace.Cli;
 /// </summary>
 /// <remarks>
 ///  <para>
-///   Export is a raw conversion of the sample source, so it takes no folding or
-///   ranking options; it does honor process scoping, so a machine-wide <c>.etl</c>
-///   can be narrowed to one process tree (as the ranking verbs do). Any
-///   symbol-resolution or scoping warning is written to the error writer rather than
-///   mixed into the flame-graph output, keeping the written JSON clean for the viewer.
+///   Export is a raw conversion of the sample source, so it takes no folding
+///   options; it does honor process scoping, so a machine-wide <c>.etl</c> can be
+///   narrowed to one process tree (as the ranking verbs do), and root-frame
+///   scoping (<c>--root</c> / <c>--benchmark</c>), which trims each exported
+///   stack to the subtree under a frame the same way the ranking verbs scope a
+///   ranking - see <see cref="RootScope"/>. Any symbol-resolution or scoping
+///   warning is written to the error writer rather than mixed into the
+///   flame-graph output, keeping the written JSON clean for the viewer.
 ///  </para>
 /// </remarks>
 internal static class ExportExecutor
@@ -44,9 +47,11 @@ internal static class ExportExecutor
             error.WriteLine($"! {warning}");
         }
 
+        StackSampleSource scoped = RootScope.Apply(trace.Source, request.Root);
+
         string exported = request.Format == ExportFormat.Chromium
-            ? ChromiumExporter.Export(trace.Source, request.Name)
-            : SpeedscopeExporter.Export(trace.Source, request.Name);
+            ? ChromiumExporter.Export(scoped, request.Name)
+            : SpeedscopeExporter.Export(scoped, request.Name);
 
         if (request.Output is null)
         {
