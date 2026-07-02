@@ -23,7 +23,12 @@ namespace Filtrace.Cli;
 ///  Substring scoping the export to the subtree under a frame, or empty for the
 ///  whole sample source.
 /// </param>
-/// <param name="SymbolOptions">Native-symbol resolution, or <see langword="null"/> for managed-only (the offline default).</param>
+/// <param name="SymbolOptions">
+///  Native-symbol resolution. <see langword="null"/> or <see cref="SymbolOptions.None"/>
+///  resolves managed frames from the rundown only (offline, the default); <see
+///  cref="SymbolOptions.WithCache"/> additionally fetches native runtime PDBs from the
+///  public symbol server.
+/// </param>
 internal sealed record ExportRequest(
     string Path,
     ExportFormat Format,
