@@ -61,7 +61,7 @@ internal sealed class TraceCommands
         if (!RankRequestFactory.TryResolveMetric(metric, out TraceMetric resolved))
         {
             Console.Error.WriteLine(
-                $"Unknown metric '{metric}'. Supported stack metrics: cpu, alloc, exceptions, threadtime, contention, wait.");
+                $"Unknown metric '{metric}'. Supported stack metrics: {string.Join(", ", TraceMetricSelector.Selectors)}.");
             return ExitCodes.UsageError;
         }
 

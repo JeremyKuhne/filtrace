@@ -25,7 +25,7 @@ analyzes whatever a recorder produces. Record or produce one, then point filtrac
 
 | Capture | Records | Elevation | Scope | Recorded by |
 |---|---|---|---|---|
-| EventPipe (`.nettrace`; a `.speedscope.json` export is cpu-only) | cpu, alloc, exceptions, contention, gc, jit | none | one process | `dotnet-trace collect`, BenchmarkDotNet `-p EP` |
+| EventPipe (`.nettrace`; a `.speedscope.json` export is cpu-only) | cpu, alloc, exceptions, contention, wait, gc, jit | none | one process | `dotnet-trace collect`, BenchmarkDotNet `-p EP` |
 | ETW (`.etl`) | cpu, threadtime, native frames | Administrator | machine-wide | `filtrace collect`, BenchmarkDotNet `-p ETW`, PerfView, `wpr` |
 
 Only an ETW `.etl` carries wall-clock (`threadtime`), the native GC / JIT / `memcpy`
@@ -34,6 +34,10 @@ split (`--native-symbols` + `classify`), and multi-process scoping (`processes` 
 my code?", or "which process is this?" - otherwise an EventPipe trace is the
 lighter, no-elevation choice. Reading an `.etl` is itself Windows-only (the
 ETW -> ETLX conversion), though the resulting `.etlx` then analyzes on any OS.
+
+One EventPipe caveat: the `wait` family needs the non-default `WaitHandle` keyword
+enabled at capture, so a plain `dotnet-trace collect` records the other families but
+not waits (`rank --metric wait` then warns it found none).
 
 For a BenchmarkDotNet capture, add `--keepFiles` so the kept build output supplies
 the PDBs that resolve source lines, and **default every analysis to `--benchmark`**
