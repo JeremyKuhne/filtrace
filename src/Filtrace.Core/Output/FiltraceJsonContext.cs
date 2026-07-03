@@ -45,6 +45,7 @@ namespace Filtrace.Output;
 [JsonSerializable(typeof(AnalysisResult<RankingDiffResult>))]
 [JsonSerializable(typeof(AnalysisResult<JitStatsResult>))]
 [JsonSerializable(typeof(AnalysisResult<GcStatsResult>))]
+[JsonSerializable(typeof(AnalysisResult<ThreadPoolResult>))]
 [JsonSerializable(typeof(AnalysisResult<EventQueryResult>))]
 [JsonSerializable(typeof(AnalysisResult<ExportResult>))]
 // Tool-parameter types the MCP head binds through these same options but that no result

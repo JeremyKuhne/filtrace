@@ -276,6 +276,39 @@ $fixtureWait = Join-Path $coreFixtures 'wait.nettrace'
 Copy-Item $waitTrace.FullName $fixtureWait -Force
 Write-Host "Wait fixture -> $fixtureWait ($([math]::Round($waitTrace.Length / 1KB)) KB)"
 
+# Capture the thread-pool starvation smoke trace for the thread-pool provider.
+# ThreadPoolStarveLoop floods the pool with blocking work items; its
+# ThreadPoolStarveConfig forces the pool to start at a single worker thread (via the
+# DOTNET_ThreadPool_ForceMinWorkerThreads runtime knob), so the backlog starves it and
+# the runtime records the worker-thread adjustment events (including Starvation) the
+# provider reads. These ride the Threading keyword, which IS in the default set.
+Write-Host 'Capturing the thread-pool smoke trace...'
+Push-Location $benchProject
+try
+{
+    dotnet run -c Release -f net10.0 -- --filter '*ThreadPoolStarveLoop*' | Out-Host
+    if ($LASTEXITCODE -ne 0)
+    {
+        throw "Thread-pool capture failed with exit code $LASTEXITCODE."
+    }
+}
+finally
+{
+    Pop-Location
+}
+
+$threadPoolTrace = Get-ChildItem -Recurse $artifacts -Filter '*ThreadPoolStarveLoop*.nettrace' |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+if ($null -eq $threadPoolTrace)
+{
+    throw "No thread-pool .nettrace was produced under $artifacts."
+}
+
+$fixtureThreadPool = Join-Path $coreFixtures 'threadpool.nettrace'
+Copy-Item $threadPoolTrace.FullName $fixtureThreadPool -Force
+Write-Host "Thread-pool fixture -> $fixtureThreadPool ($([math]::Round($threadPoolTrace.Length / 1KB)) KB)"
+
 # The net481 ETW (.etl) half is captured separately by capture-etw.ps1: it needs
 # an elevated session, and unlike this script it does not re-freeze the parity
 # oracle, so the two halves regenerate on independent cadences.

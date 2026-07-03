@@ -130,6 +130,7 @@ are named for them:
 |---|---|
 | `gcstats` | GC counts, pauses, heap summary |
 | `jitstats` | JIT method count, compile time, sizes |
+| `threadpool` | worker-thread adjustments and starvation (slow under load, CPU idle) |
 | `events --name <n>` | raw events by name, paged |
 
 **Capture** - record a Windows ETW `.etl` yourself (for an EventPipe `.nettrace`, use `dotnet-trace`):
@@ -180,7 +181,7 @@ go further:
 <!-- filtrace:begin tools -->
 ### MCP tools
 
-The MCP server exposes the same analysis as thirteen `trace_*` tools over stdio.
+The MCP server exposes the same analysis as fourteen `trace_*` tools over stdio.
 Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-step
 `hints`, and the typed result - and the read-only analysis tools are annotated
 `readOnlyHint`.
@@ -199,6 +200,7 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 | `trace_export` | `export` | write a speedscope / chromium flame graph (write tool) |
 | `trace_gc` | `gcstats` | GC counts, pauses, % time in GC, induced, heap |
 | `trace_jit` | `jitstats` | JIT compile time and sizes |
+| `trace_threadpool` | `threadpool` | worker-thread adjustments and starvation |
 | `trace_query_events` | `events` | raw events by name, paged |
 
 The file-management verbs (`convert`, `clean`) stay CLI-only - they manage the

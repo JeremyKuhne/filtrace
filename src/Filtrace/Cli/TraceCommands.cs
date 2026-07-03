@@ -616,6 +616,26 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
+    ///  Report thread-pool worker-thread adjustments: how often the pool grew, and how
+    ///  often because it detected starvation (the classic sync-over-async hang signal).
+    /// </summary>
+    /// <param name="trace">Path to a .nettrace EventPipe file.</param>
+    /// <param name="format">Render format: text or json.</param>
+    /// <returns>A process exit code.</returns>
+    /// <remarks>
+    ///  This is a structured report, not a stack ranking: a run of Starvation adjustments
+    ///  means the pool kept injecting threads because queued work was not completing.
+    /// </remarks>
+    [Command("threadpool")]
+    public int ThreadPool(
+        [Argument] string trace,
+        OutputFormat format = OutputFormat.Text)
+    {
+        ThreadPoolRequest request = new(trace, format);
+        return ThreadPoolExecutor.Run(request, Console.Out, Console.Error);
+    }
+
+    /// <summary>
     ///  Query the trace's raw events by name, with paging and a per-event payload cap.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe file.</param>

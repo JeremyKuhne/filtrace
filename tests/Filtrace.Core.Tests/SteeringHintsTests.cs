@@ -51,7 +51,8 @@ public sealed class SteeringHintsTests
         hints.Should().Contain(h => h.Contains("frequent exceptions -> exceptions", StringComparison.Ordinal));
         hints.Should().Contain(h => h.Contains("slow but low CPU", StringComparison.Ordinal)
             && h.Contains("contention", StringComparison.Ordinal)
-            && h.Contains("wait", StringComparison.Ordinal));
+            && h.Contains("wait", StringComparison.Ordinal)
+            && h.Contains("threadpool", StringComparison.Ordinal));
     }
 
     [TestMethod]
