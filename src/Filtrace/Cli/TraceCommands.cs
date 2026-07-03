@@ -205,7 +205,7 @@ internal sealed class TraceCommands
     ///  Rank exceptions by type (throw sites via callers) by count; the shortcut for 'rank --metric exceptions'.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe file carrying exception-throw events.</param>
-    /// <param name="measure">-m, Which measure to report: self (the throw site) or inclusive (its subtree).</param>
+    /// <param name="measure">-m, Which measure to report: self (the exception type) or inclusive (the throw sites and their callers).</param>
     /// <param name="root">Substring scoping the ranking to the subtree under a frame.</param>
     /// <param name="top">-n, Maximum number of rows to return.</param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>

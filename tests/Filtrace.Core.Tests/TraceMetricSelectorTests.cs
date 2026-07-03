@@ -38,6 +38,15 @@ public sealed class TraceMetricSelectorTests
     }
 
     [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    public void TryResolve_NullOrEmpty_ReturnsFalseAndDefaultsToCpu(string? selector)
+    {
+        TraceMetricSelector.TryResolve(selector, out TraceMetric metric).Should().BeFalse();
+        metric.Should().Be(TraceMetric.Cpu);
+    }
+
+    [TestMethod]
     public void Selectors_ListsTheCanonicalNames()
     {
         TraceMetricSelector.Selectors.Should().Equal("cpu", "threadtime", "alloc", "exceptions", "contention", "wait");

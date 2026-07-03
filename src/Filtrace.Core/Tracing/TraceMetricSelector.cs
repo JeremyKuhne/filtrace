@@ -29,14 +29,22 @@ public static class TraceMetricSelector
     /// <summary>
     ///  Resolves a <c>metric</c> selector string to the provider view it names.
     /// </summary>
-    /// <param name="selector">The requested provider metric (case-insensitive).</param>
+    /// <param name="selector">The requested provider metric (case-insensitive); <see langword="null"/> or empty is treated as an unknown metric.</param>
     /// <param name="metric">The resolved provider view when recognized; otherwise <see cref="TraceMetric.Cpu"/>.</param>
     /// <returns>
     ///  <see langword="true"/> when <paramref name="selector"/> names a wired provider;
     ///  otherwise <see langword="false"/>, and the caller should report a usage error.
     /// </returns>
-    public static bool TryResolve(string selector, out TraceMetric metric)
+    public static bool TryResolve(string? selector, out TraceMetric metric)
     {
+        // The selector is user/tool input, so a null or empty value is an unknown metric
+        // (default to CPU, return false) rather than a NullReferenceException.
+        if (string.IsNullOrEmpty(selector))
+        {
+            metric = TraceMetric.Cpu;
+            return false;
+        }
+
         switch (selector.ToLowerInvariant())
         {
             case "cpu":
