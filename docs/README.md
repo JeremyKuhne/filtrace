@@ -12,6 +12,7 @@ an embedded copy drifts. (The CLI/MCP help is a separate contract, validated by
 | [workflow.md](workflow.md) | `verbs`, `tools`, `agents-snippet` | `verbs` -> the skill; `agents-snippet` -> the README; `tools` is reference-only |
 | [traps.md](traps.md) | `traps` | the skill |
 | [implementation-plan.md](implementation-plan.md) | (prose, no embedded blocks) | - |
+| [traceevent-surface-assessment.md](traceevent-surface-assessment.md) | (prose, no embedded blocks) | - |
 
 Only the blocks with a consumer above are drift-checked; the rest of each page
 (and the README outside its embedded blocks) is ordinary prose. Edit a marked

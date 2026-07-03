@@ -214,6 +214,68 @@ $fixtureExceptions = Join-Path $coreFixtures 'exceptions.nettrace'
 Copy-Item $exceptionsTrace.FullName $fixtureExceptions -Force
 Write-Host "Exceptions fixture -> $fixtureExceptions ($([math]::Round($exceptionsTrace.Length / 1KB)) KB)"
 
+# Capture the contention smoke trace for the contention provider. ContentionLoop
+# runs several threads that contend on one lock under the CPU-sampling profile
+# (whose default runtime keyword set includes the contention keyword), so the trace
+# carries the Contention/Start and Contention/Stop events with blocking-site stacks.
+Write-Host 'Capturing the contention smoke trace...'
+Push-Location $benchProject
+try
+{
+    dotnet run -c Release -f net10.0 -- --filter '*ContentionLoop*' | Out-Host
+    if ($LASTEXITCODE -ne 0)
+    {
+        throw "Contention capture failed with exit code $LASTEXITCODE."
+    }
+}
+finally
+{
+    Pop-Location
+}
+
+$contentionTrace = Get-ChildItem -Recurse $artifacts -Filter '*ContentionLoop*.nettrace' |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+if ($null -eq $contentionTrace)
+{
+    throw "No contention .nettrace was produced under $artifacts."
+}
+
+$fixtureContention = Join-Path $coreFixtures 'contention.nettrace'
+Copy-Item $contentionTrace.FullName $fixtureContention -Force
+Write-Host "Contention fixture -> $fixtureContention ($([math]::Round($contentionTrace.Length / 1KB)) KB)"
+
+# Capture the wait smoke trace for the wait provider. WaitLoop blocks several worker
+# threads on a wait handle; its WaitCaptureConfig enables the WaitHandle keyword (a
+# .NET 9+ keyword that is NOT in the default set), so the trace carries the
+# WaitHandleWait/Start and WaitHandleWait/Stop events with blocking-site stacks.
+Write-Host 'Capturing the wait smoke trace...'
+Push-Location $benchProject
+try
+{
+    dotnet run -c Release -f net10.0 -- --filter '*WaitLoop*' | Out-Host
+    if ($LASTEXITCODE -ne 0)
+    {
+        throw "Wait capture failed with exit code $LASTEXITCODE."
+    }
+}
+finally
+{
+    Pop-Location
+}
+
+$waitTrace = Get-ChildItem -Recurse $artifacts -Filter '*WaitLoop*.nettrace' |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+if ($null -eq $waitTrace)
+{
+    throw "No wait .nettrace was produced under $artifacts."
+}
+
+$fixtureWait = Join-Path $coreFixtures 'wait.nettrace'
+Copy-Item $waitTrace.FullName $fixtureWait -Force
+Write-Host "Wait fixture -> $fixtureWait ($([math]::Round($waitTrace.Length / 1KB)) KB)"
+
 # The net481 ETW (.etl) half is captured separately by capture-etw.ps1: it needs
 # an elevated session, and unlike this script it does not re-freeze the parity
 # oracle, so the two halves regenerate on independent cadences.

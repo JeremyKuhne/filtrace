@@ -20,7 +20,8 @@ public sealed class TraceInfo
         int sampleCount,
         double symbolResolutionRate,
         IReadOnlyList<ThreadSampleInfo> threads,
-        IReadOnlyList<string> warnings)
+        IReadOnlyList<string> warnings,
+        IReadOnlyList<string> availableAnalyses)
     {
         Path = path;
         Format = format;
@@ -29,6 +30,7 @@ public sealed class TraceInfo
         SymbolResolutionRate = symbolResolutionRate;
         Threads = threads;
         Warnings = warnings;
+        AvailableAnalyses = availableAnalyses;
     }
 
     /// <summary>
@@ -72,6 +74,14 @@ public sealed class TraceInfo
     ///  Human-readable quality warnings (low symbol resolution, no samples, etc.).
     /// </summary>
     public IReadOnlyList<string> Warnings { get; }
+
+    /// <summary>
+    ///  The analyses filtrace can run against this trace given its format - the rank
+    ///  metrics and report verbs the format supports (see <see cref="TraceCapabilities"/>).
+    ///  An agent reads it to route a question to an analysis the capture can actually
+    ///  answer instead of trying one the format cannot support.
+    /// </summary>
+    public IReadOnlyList<string> AvailableAnalyses { get; }
 }
 
 /// <summary>

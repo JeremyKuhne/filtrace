@@ -92,6 +92,22 @@ public sealed class ExceptionsProviderTests
     }
 
     [TestMethod]
+    public void SelfTime_ExceptionFixture_RanksByExceptionType()
+    {
+        FoldingAggregator aggregator = new(LoadExceptions());
+
+        RankingResult result = aggregator.SelfTime("", FrameNames.DefaultFoldPatterns, 25);
+
+        // The synthetic type leaf makes self-time rank by exception type; the fixture
+        // throws InvalidOperationException about twice as often as ArgumentException.
+        result.Rows[0].Frame.Should().Contain("InvalidOperationException");
+
+        RankRow invalidOp = result.Rows.First(r => r.Frame.Contains("InvalidOperationException", StringComparison.Ordinal));
+        RankRow argument = result.Rows.First(r => r.Frame.Contains("ArgumentException", StringComparison.Ordinal));
+        (invalidOp.Weight / argument.Weight).Should().BeInRange(1.7, 2.3);
+    }
+
+    [TestMethod]
     public void Read_MissingFile_ThrowsFileNotFound()
     {
         ExceptionsProvider provider = new();

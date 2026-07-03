@@ -50,6 +50,21 @@ public sealed class GcStatsProviderTests
     }
 
     [TestMethod]
+    public void Read_GcVerboseFixture_ReportsPercentTimeAndInduced()
+    {
+        GcStatsResult result = LoadGcStats();
+
+        // % time in GC is a fraction of the captured window: non-negative and <= 100.
+        result.PercentTimeInGc.Should().BeGreaterThanOrEqualTo(0.0);
+        result.PercentTimeInGc.Should().BeLessThanOrEqualTo(100.0);
+
+        // BenchmarkDotNet's Monitoring harness forces a GC between iterations, so some
+        // collections are induced; the count is between zero and the total.
+        result.InducedCount.Should().BeGreaterThanOrEqualTo(0);
+        result.InducedCount.Should().BeLessThanOrEqualTo(result.GcCount);
+    }
+
+    [TestMethod]
     public void Read_MissingFile_ThrowsFileNotFound()
     {
         GcStatsProvider provider = new();

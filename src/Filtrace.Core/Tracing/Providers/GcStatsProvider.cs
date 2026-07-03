@@ -78,19 +78,20 @@ public sealed class GcStatsProvider
             }
         }
 
-        return Summarize(records);
+        return Summarize(records, traceLog.SessionDuration.TotalMilliseconds);
     }
 
-    private static GcStatsResult Summarize(List<GcRecord> records)
+    private static GcStatsResult Summarize(List<GcRecord> records, double durationMs)
     {
         if (records.Count == 0)
         {
-            return new GcStatsResult(0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, records);
+            return new GcStatsResult(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, records);
         }
 
         int gen0 = 0;
         int gen1 = 0;
         int gen2 = 0;
+        int induced = 0;
         double totalPause = 0.0;
         double maxPause = 0.0;
         double peakHeap = 0.0;
@@ -111,20 +112,34 @@ public sealed class GcStatsProvider
                     break;
             }
 
+            // The induced reasons (Induced, InducedNotForced, InducedLowMemory, ...) all
+            // start with "Induced"; count them so an explicit GC.Collect anti-pattern is
+            // visible at a glance.
+            if (gc.Reason.Contains("Induced", StringComparison.OrdinalIgnoreCase))
+            {
+                induced++;
+            }
+
             totalPause += gc.PauseMs;
             maxPause = Math.Max(maxPause, gc.PauseMs);
             peakHeap = Math.Max(peakHeap, gc.HeapSizeAfterMB);
             totalPromoted += gc.PromotedMB;
         }
 
+        // Percentage of the captured window spent paused for GC. A zero-length window
+        // (a degenerate capture) reports 0 rather than dividing by zero.
+        double percentInGc = durationMs > 0.0 ? 100.0 * totalPause / durationMs : 0.0;
+
         return new GcStatsResult(
             records.Count,
             gen0,
             gen1,
             gen2,
+            induced,
             totalPause,
             maxPause,
             totalPause / records.Count,
+            percentInGc,
             peakHeap,
             totalPromoted,
             records);

@@ -120,7 +120,8 @@ public sealed class OutputContractTests
             1234.567,
             42,
             0.91234,
-            [new ThreadSampleInfo("tid-1", 30)]);
+            [new ThreadSampleInfo("tid-1", 30)],
+            ["cpu", "alloc", "exceptions"]);
         AnalysisResult<TraceInfoView> envelope = new(view);
 
         string json = OutputJson.Serialize(envelope);
@@ -131,6 +132,7 @@ public sealed class OutputContractTests
         result.GetProperty("totalWeight").GetDouble().Should().Be(1234.57);
         result.GetProperty("symbolResolutionRate").GetDouble().Should().Be(0.91);
         result.GetProperty("threads")[0].GetProperty("thread").GetString().Should().Be("tid-1");
+        result.GetProperty("availableAnalyses")[0].GetString().Should().Be("cpu");
     }
 
     [TestMethod]

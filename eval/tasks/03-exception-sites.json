@@ -1,14 +1,14 @@
 {
   "id": "exception-sites",
-  "title": "Identify the most frequent exception throw site.",
-  "prompt": "What is the most frequent exception throw site in this trace?",
+  "title": "Identify the most frequently thrown exception type.",
+  "prompt": "What is the most frequently thrown exception type in this trace?",
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/exceptions.nettrace",
   "os": "any",
   "steps": [
     { "args": ["exceptions", "{fixture}", "--top", "5"] }
   ],
   "assert": [
-    { "topFrame": "System.Runtime.EH.DispatchEx" }
+    { "topFrame": "System.InvalidOperationException" }
   ],
-  "expect": ["DispatchEx"]
+  "expect": ["InvalidOperationException"]
 }

@@ -11,11 +11,11 @@
     },
     "exception-sites": {
       "calls": 1,
-      "tokens": 62
+      "tokens": 83
     },
     "gc-report": {
       "calls": 1,
-      "tokens": 368
+      "tokens": 381
     },
     "jit-report": {
       "calls": 1,

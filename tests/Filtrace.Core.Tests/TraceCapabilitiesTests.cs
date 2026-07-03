@@ -1,0 +1,52 @@
+// Copyright (c) 2025 Jeremy W Kuhne
+// SPDX-License-Identifier: MIT
+// See LICENSE file in the project root for full license information
+
+namespace Filtrace.Tracing;
+
+[TestClass]
+public sealed class TraceCapabilitiesTests
+{
+    [TestMethod]
+    public void AnalysesFor_NetTrace_ListsEventPipeAnalyses()
+    {
+        IReadOnlyList<string> analyses = TraceCapabilities.AnalysesFor(TraceFormat.NetTrace);
+
+        analyses.Should().Contain("cpu");
+        analyses.Should().Contain("alloc");
+        analyses.Should().Contain("exceptions");
+        analyses.Should().Contain("contention");
+        analyses.Should().Contain("wait");
+        analyses.Should().Contain("gcstats");
+        analyses.Should().Contain("jitstats");
+
+        // Thread time, the runtime-work classification, and the process inventory are ETW-only.
+        analyses.Should().NotContain("threadtime");
+        analyses.Should().NotContain("classify");
+    }
+
+    [TestMethod]
+    public void AnalysesFor_Etl_ListsEtwAnalyses()
+    {
+        IReadOnlyList<string> analyses = TraceCapabilities.AnalysesFor(TraceFormat.Etl);
+
+        analyses.Should().Contain("cpu");
+        analyses.Should().Contain("threadtime");
+        analyses.Should().Contain("classify");
+        analyses.Should().Contain("processes");
+
+        // Allocation, exceptions, contention, wait, and the GC / JIT reports are EventPipe-only.
+        analyses.Should().NotContain("alloc");
+        analyses.Should().NotContain("exceptions");
+        analyses.Should().NotContain("contention");
+        analyses.Should().NotContain("wait");
+        analyses.Should().NotContain("gcstats");
+        analyses.Should().NotContain("jitstats");
+    }
+
+    [TestMethod]
+    public void AnalysesFor_Speedscope_IsCpuOnly()
+    {
+        TraceCapabilities.AnalysesFor(TraceFormat.Speedscope).Should().Equal("cpu");
+    }
+}
