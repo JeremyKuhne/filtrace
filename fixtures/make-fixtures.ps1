@@ -281,7 +281,7 @@ Write-Host "Wait fixture -> $fixtureWait ($([math]::Round($waitTrace.Length / 1K
 # ThreadPoolStarveConfig forces the pool to start at a single worker thread (via the
 # DOTNET_ThreadPool_ForceMinWorkerThreads runtime knob), so the backlog starves it and
 # the runtime records the worker-thread adjustment events (including Starvation) the
-# provider ranks. These ride the Threading keyword, which IS in the default set.
+# provider reads. These ride the Threading keyword, which IS in the default set.
 Write-Host 'Capturing the thread-pool smoke trace...'
 Push-Location $benchProject
 try

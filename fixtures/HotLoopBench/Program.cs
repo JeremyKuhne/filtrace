@@ -452,7 +452,7 @@ public class WaitLoop
 ///   Forcing the minimum through an environment variable on the benchmark's child
 ///   process makes the pool begin at one thread, so a backlog of blocking work items
 ///   reliably starves it and the runtime injects threads it attributes to
-///   <c>Starvation</c> - the events the thread-pool provider ranks. The default
+///   <c>Starvation</c> - the events the thread-pool provider reads. The default
 ///   CpuSampling keyword set already includes the <c>Threading</c> keyword that carries
 ///   the worker-thread adjustment events, so no extra provider is needed.
 ///  </para>
@@ -480,7 +480,7 @@ internal sealed class ThreadPoolStarveConfig : ManualConfig
 ///  <see cref="ThreadPoolStarveConfig"/>), the runtime injects threads to drain the
 ///  backlog and attributes them to <c>Starvation</c>, so the captured trace carries the
 ///  <c>ThreadPoolWorkerThreadAdjustment/Adjustment</c> events the thread-pool provider
-///  ranks.
+///  reads.
 /// </summary>
 /// <remarks>
 ///  <para>
