@@ -438,6 +438,96 @@ public class WaitLoop
 }
 
 /// <summary>
+///  The BenchmarkDotNet configuration for the thread-pool starvation capture: a
+///  net10 Monitoring job that forces the runtime thread pool to start with a single
+///  worker thread (via the <c>DOTNET_ThreadPool_ForceMinWorkerThreads</c> runtime
+///  knob) and is profiled by <see cref="EventPipeProfiler"/> under the CpuSampling
+///  profile.
+/// </summary>
+/// <remarks>
+///  <para>
+///   BenchmarkDotNet's own harness pre-warms the thread pool to the machine's
+///   processor count before the benchmark body runs, so a runtime
+///   <c>ThreadPool.SetMinThreads</c> call is too late to make the pool start small.
+///   Forcing the minimum through an environment variable on the benchmark's child
+///   process makes the pool begin at one thread, so a backlog of blocking work items
+///   reliably starves it and the runtime injects threads it attributes to
+///   <c>Starvation</c> - the events the thread-pool provider ranks. The default
+///   CpuSampling keyword set already includes the <c>Threading</c> keyword that carries
+///   the worker-thread adjustment events, so no extra provider is needed.
+///  </para>
+/// </remarks>
+internal sealed class ThreadPoolStarveConfig : ManualConfig
+{
+    public ThreadPoolStarveConfig()
+    {
+        AddJob(Job.Default
+            .WithRuntime(CoreRuntime.Core10_0)
+            .WithStrategy(RunStrategy.Monitoring)
+            .WithLaunchCount(1)
+            .WithWarmupCount(0)
+            .WithIterationCount(1)
+            .WithInvocationCount(1)
+            .WithEnvironmentVariable(new EnvironmentVariable("DOTNET_ThreadPool_ForceMinWorkerThreads", "1")));
+
+        AddDiagnoser(new EventPipeProfiler(EventPipeProfile.CpuSampling, performExtraBenchmarksRun: false));
+    }
+}
+
+/// <summary>
+///  A loop that floods the thread pool with far more blocking work items than it has
+///  threads. With the pool forced to start at a single worker thread (see
+///  <see cref="ThreadPoolStarveConfig"/>), the runtime injects threads to drain the
+///  backlog and attributes them to <c>Starvation</c>, so the captured trace carries the
+///  <c>ThreadPoolWorkerThreadAdjustment/Adjustment</c> events the thread-pool provider
+///  ranks.
+/// </summary>
+/// <remarks>
+///  <para>
+///   Each queued item blocks its worker thread with a <c>Thread.Sleep</c> longer than
+///   the pool's ~500 ms starvation gate interval (the shape of the classic
+///   sync-over-async hang), so across a gate check no item has completed and the pool's
+///   hill-climbing heuristic injects another thread, crediting the injection to
+///   <c>Starvation</c>. Captured with a single <see cref="RunStrategy.Monitoring"/>
+///   invocation; the item count and block duration are tuned to starve reliably while
+///   keeping the committed trace small (the exact adjustment counts are timing-dependent,
+///   so tests assert the shape, not exact values).
+///  </para>
+/// </remarks>
+[Config(typeof(ThreadPoolStarveConfig))]
+public class ThreadPoolStarveLoop
+{
+    /// <summary>
+    ///  The benchmarked entry point: floods the thread pool with blocking work items.
+    /// </summary>
+    /// <returns>The number of items processed, returned so the work is not elided.</returns>
+    [Benchmark]
+    public int Starve() => StarveThreadPool(items: 20, blockMs: 600);
+
+    private int StarveThreadPool(int items, int blockMs)
+    {
+        int processed = 0;
+        using System.Threading.CountdownEvent done = new(items);
+        for (int i = 0; i < items; i++)
+        {
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                // Block longer than the pool's ~500 ms starvation gate interval, so across
+                // a gate check no item has completed: with the pool forced to start at a
+                // single thread (see ThreadPoolStarveConfig), the runtime injects threads to
+                // drain the backlog and attributes them to Starvation.
+                System.Threading.Thread.Sleep(blockMs);
+                System.Threading.Interlocked.Increment(ref processed);
+                done.Signal();
+            });
+        }
+
+        done.Wait();
+        return System.Threading.Volatile.Read(ref processed);
+    }
+}
+
+/// <summary>
 ///  The BenchmarkDotNet configuration for the ETW (<c>.etl</c>) capture: a
 ///  net481 job profiled by <see cref="EtwProfiler"/> with the kernel keywords the
 ///  ThreadTime view needs.

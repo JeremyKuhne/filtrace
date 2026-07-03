@@ -62,6 +62,7 @@ public static class SteeringHints
         List<string> blocked = [];
         if (analyses.Contains("contention")) { blocked.Add("contention"); }
         if (analyses.Contains("wait")) { blocked.Add("wait"); }
+        if (analyses.Contains("threadpool")) { blocked.Add("threadpool"); }
         if (analyses.Contains("threadtime")) { blocked.Add("threadtime"); }
         if (blocked.Count > 0)
         {

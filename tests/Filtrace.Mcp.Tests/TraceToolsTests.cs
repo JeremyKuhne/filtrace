@@ -17,6 +17,7 @@ public sealed class TraceToolsTests
     private const string Alloc = "alloc.nettrace";
     private const string Exceptions = "exceptions.nettrace";
     private const string Jit = "jit.nettrace";
+    private const string ThreadPoolTrace = "threadpool.nettrace";
     private const string Etw = "etw.etl";
 
     private static string FixturePath(string name) =>
@@ -340,6 +341,27 @@ public sealed class TraceToolsTests
         AnalysisResult<GcStatsResult> envelope = TraceTools.Gc(FixturePath(Alloc), top: 1);
 
         envelope.Result.Gcs.Count.Should().BeLessThanOrEqualTo(1);
+    }
+
+    [TestMethod]
+    public void ThreadPool_NetTrace_ReturnsAdjustmentSummary()
+    {
+        AnalysisResult<ThreadPoolResult> envelope = TraceTools.ThreadPool(FixturePath(ThreadPoolTrace));
+
+        AssertEnvelope(envelope);
+        envelope.Result.AdjustmentCount.Should().BeGreaterThan(0);
+        envelope.Result.StarvationCount.Should().BeGreaterThan(0);
+        envelope.Result.AdjustmentsByReason.Should().NotBeEmpty();
+    }
+
+    [TestMethod]
+    public void ThreadPool_NonNetTraceInput_ThrowsMcpException()
+    {
+        // The thread-pool report parses the EventPipe format; an .etl or speedscope is
+        // rejected up front by the extension guardrail.
+        Action act = () => TraceTools.ThreadPool(FixturePath(Speedscope));
+
+        act.Should().Throw<McpException>().WithMessage("*requires a .nettrace*");
     }
 
     [TestMethod]

@@ -1,9 +1,9 @@
 # TraceEvent surface audit and API-expansion assessment
 
-**Status:** TE-1 to TE-4 (lock contention, waits, GC-report depth, exception-by-type)
-and TE-11 (agentic discoverability) have landed; TE-5 to TE-10 are proposed. A living
-backlog of candidate analysis families and enrichments, prioritized against
-filtrace's design intents.
+**Status:** TE-1 to TE-4 (lock contention, waits, GC-report depth, exception-by-type),
+TE-5 (ThreadPool starvation report), and TE-11 (agentic discoverability) have landed;
+TE-6 to TE-10 are proposed. A living backlog of candidate analysis families and
+enrichments, prioritized against filtrace's design intents.
 **Date:** 2026-07-02
 **Basis:** Reflection over the actually-referenced assembly
 `Microsoft.Diagnostics.Tracing.TraceEvent` **3.2.3** (`lib/netstandard2.0`),
@@ -173,7 +173,7 @@ Stable IDs (TE-n) so items can be tracked and referenced as they move.
 | TE-2 | Wait / blocking family | `.nettrace` (.NET 9+) | Low | new `metric` | P0 | Landed (`.nettrace`) |
 | TE-3 | GC-report depth (reason / type / %GC / promoted) | `.nettrace` | Low | extend `gcstats` / `trace_gc` | P0 | Landed (`.nettrace`) |
 | TE-4 | Exception grouping by type | `.nettrace` | Trivial | extend `exceptions` | P0 | Landed (`.nettrace`) |
-| TE-5 | ThreadPool starvation report | `.nettrace` | Med | new structured verb / tool | P1 | Proposed |
+| TE-5 | ThreadPool starvation report | `.nettrace` | Med | new structured verb / tool | P1 | Landed |
 | TE-6 | Thread-time blocked-leaf split (disk / net / lock / paging) | `.etl` | Low-Med | enrich `threadtime` | P1 | Proposed |
 | TE-7 | Disk-I/O and File-I/O families | `.etl` | Med | new `metric`(s) | P1 | Proposed |
 | TE-8 | Request / activity scoping (`--activity`) | both | Med-High | scope grammar + family | P2 | Proposed |
@@ -263,7 +263,16 @@ crawls but the CPU is barely busy and requests pile up - why?" *Applicability to
 the pool injects new ones only slowly while the queue grows. Aggregate
 `ThreadPoolWorkerThreadAdjustmentAdjustment` (Reason = Starvation), thread-injection
 rate, and queue growth into a structured report like `gcstats`. Otherwise invisible
-to a non-expert.
+to a non-expert. *Status:* landed - the `ThreadPoolProvider` reads the runtime's
+`ThreadPoolWorkerThreadAdjustment/Adjustment` and `ThreadPoolMinMaxThreads` events
+into a `ThreadPoolResult` (adjustment tally, starvation count, worker-thread range
+against the configured min/max, and a per-reason breakdown), wired as the
+`threadpool` verb and the `trace_threadpool` tool, listed in `availableAnalyses` and
+routed from the "slow but low CPU / does not scale" symptom hint. The Threading
+keyword is in the default EventPipe set, so a plain CpuSampling capture records the
+events - the `ThreadPoolStarveLoop` fixture forces the pool to start at one worker
+thread (via `DOTNET_ThreadPool_ForceMinWorkerThreads`) so a backlog of blocking work
+reliably starves it.
 
 **TE-6. Thread-time blocked-leaf split.** *A developer asks:* "I know it's blocked -
 but on the disk, the network, a lock, or paging?" *Applicability to .NET:* general -
@@ -309,7 +318,8 @@ dependency-gated. This corrects Addendum A's "analysis ships without the lift" c
 **Progress:** the full "why is this slow?" increment has landed - TE-1 to TE-4 on the
 `.nettrace` path (the `contention` and `wait` metrics sharing a `LatencyStackReader`,
 GC-report depth, exception-by-type ranking) plus TE-11 (content-aware `trace_info` +
-symptom-routing hints). TE-5 to TE-10 remain.
+symptom-routing hints), and TE-5 (the `threadpool` starvation report). TE-6 to TE-10
+remain.
 
 Land **TE-11 alongside TE-1 through TE-4** as one increment aimed squarely at the
 "why is this slow?" flow: the two new stack providers (`ContentionProvider`,

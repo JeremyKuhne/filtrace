@@ -358,6 +358,34 @@ public sealed class TraceTools
     }
 
     /// <summary>
+    ///  Returns the thread-pool report for a <c>.nettrace</c> EventPipe trace: how often
+    ///  the runtime adjusted the worker-thread count and how often because it detected
+    ///  starvation.
+    /// </summary>
+    /// <param name="path">Path to the trace file.</param>
+    /// <returns>The thread-pool report envelope.</returns>
+    [McpServerTool(Name = "trace_threadpool", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [Description(
+        "Thread-pool report for a .nettrace EventPipe trace: the count of worker-thread adjustments, how many were "
+        + "caused by Starvation (the runtime injecting threads because queued work was not completing - the classic "
+        + "sync-over-async hang signal), the worker-thread range against the configured min/max, and the adjustments "
+        + "broken down by reason. Use it when a service is slow under load but the CPU is idle and requests pile up. "
+        + "Requires a .nettrace trace; .etl and speedscope inputs are rejected.")]
+    public static AnalysisResult<ThreadPoolResult> ThreadPool(
+        [Description("Path to a .nettrace EventPipe trace file.")] string path)
+    {
+        ThreadPoolResult report = ReadThreadPool(path);
+
+        List<string> warnings = [];
+        if (report.AdjustmentCount == 0)
+        {
+            warnings.Add("The trace carries no thread-pool worker-thread adjustment events.");
+        }
+
+        return new AnalysisResult<ThreadPoolResult>(report, warnings);
+    }
+
+    /// <summary>
     ///  The largest page <see cref="QueryEvents"/> returns. A larger <c>take</c> is
     ///  clamped to this with a warning, so one call cannot accumulate an unbounded
     ///  page into memory or push the response past the token budget.
@@ -833,6 +861,32 @@ public sealed class TraceTools
         try
         {
             return new GcStatsProvider().Read(path);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or FormatException
+            or ArgumentException)
+        {
+            // A missing, unreadable, or malformed .nettrace surfaces as a clean tool
+            // error rather than an unhandled exception.
+            throw new McpException(ex.Message);
+        }
+    }
+
+    /// <summary>
+    ///  Reads the thread-pool report for a <c>.nettrace</c> trace, applying the format
+    ///  guardrail and mapping the provider's failure modes to a clean <see cref="McpException"/>.
+    /// </summary>
+    private static ThreadPoolResult ReadThreadPool(string path)
+    {
+        RequireNetTrace(path, "thread-pool report");
+
+        try
+        {
+            return new ThreadPoolProvider().Read(path);
         }
         catch (Exception ex) when (
             ex is IOException

@@ -37,6 +37,9 @@
     <None Include="..\Filtrace.Core.Tests\Fixtures\jit.nettrace" Link="Fixtures\jit.nettrace">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\Filtrace.Core.Tests\Fixtures\threadpool.nettrace" Link="Fixtures\threadpool.nettrace">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="..\Filtrace.Core.Tests\Fixtures\etw.etl" Link="Fixtures\etw.etl">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

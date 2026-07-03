@@ -19,6 +19,7 @@ public sealed class TraceCapabilitiesTests
         analyses.Should().Contain("wait");
         analyses.Should().Contain("gcstats");
         analyses.Should().Contain("jitstats");
+        analyses.Should().Contain("threadpool");
 
         // Thread time, the runtime-work classification, and the process inventory are ETW-only.
         analyses.Should().NotContain("threadtime");
@@ -35,13 +36,14 @@ public sealed class TraceCapabilitiesTests
         analyses.Should().Contain("classify");
         analyses.Should().Contain("processes");
 
-        // Allocation, exceptions, contention, wait, and the GC / JIT reports are EventPipe-only.
+        // Allocation, exceptions, contention, wait, and the GC / JIT / thread-pool reports are EventPipe-only.
         analyses.Should().NotContain("alloc");
         analyses.Should().NotContain("exceptions");
         analyses.Should().NotContain("contention");
         analyses.Should().NotContain("wait");
         analyses.Should().NotContain("gcstats");
         analyses.Should().NotContain("jitstats");
+        analyses.Should().NotContain("threadpool");
     }
 
     [TestMethod]

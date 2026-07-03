@@ -119,6 +119,7 @@ filtrace diff before.nettrace after.nettrace # 4. what changed
 |---|---|
 | `gcstats` | GC counts, pauses, heap summary |
 | `jitstats` | JIT method count, compile time, sizes |
+| `threadpool` | worker-thread adjustments and starvation (slow under load, CPU idle) |
 | `events --name <n>` | raw events by name, paged |
 
 **Capture** - record a Windows ETW `.etl` yourself (for an EventPipe `.nettrace`, use `dotnet-trace`):
@@ -228,10 +229,11 @@ The recurring ways a .NET trace investigation goes wrong:
 The two heads expose the same analysis:
 
 - **CLI** - `dotnet tool install -g KlutzyNinja.Filtrace`, then `filtrace <verb>`.
-- **MCP server** - `dnx KlutzyNinja.Filtrace.Mcp` over stdio, exposing thirteen
+- **MCP server** - `dnx KlutzyNinja.Filtrace.Mcp` over stdio, exposing fourteen
   `trace_*` tools (`trace_info`, `trace_rank`, `trace_callers`, `trace_lines`,
   `trace_heatmap`, `trace_tree`, `trace_processes`, `trace_classify`,
-  `trace_diff`, `trace_export`, `trace_gc`, `trace_jit`, `trace_query_events`).
+  `trace_diff`, `trace_export`, `trace_gc`, `trace_jit`, `trace_threadpool`,
+  `trace_query_events`).
   Each returns one envelope: a `schemaVersion`, a `warnings` list, next-step
   `hints`, and the typed result.
 
