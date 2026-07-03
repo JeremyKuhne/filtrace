@@ -38,6 +38,39 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForTraceInfo_NetTrace_RoutesSymptomsToSupportedAnalyses()
+    {
+        TraceInfo info = new(
+            "/t.nettrace", TraceFormat.NetTrace, 100.0, 10, 1.0, [], [],
+            TraceCapabilities.AnalysesFor(TraceFormat.NetTrace));
+
+        IReadOnlyList<string> hints = SteeringHints.ForTraceInfo(info);
+
+        hints.Should().Contain(h => h.Contains("this trace can answer", StringComparison.Ordinal)
+            && h.Contains("contention", StringComparison.Ordinal));
+        hints.Should().Contain(h => h.Contains("frequent exceptions -> exceptions", StringComparison.Ordinal));
+        hints.Should().Contain(h => h.Contains("slow but low CPU", StringComparison.Ordinal)
+            && h.Contains("contention", StringComparison.Ordinal)
+            && h.Contains("wait", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ForTraceInfo_Etl_OmitsRoutesTheFormatCannotAnswer()
+    {
+        TraceInfo info = new(
+            "/t.etl", TraceFormat.Etl, 100.0, 10, 1.0, [], [],
+            TraceCapabilities.AnalysesFor(TraceFormat.Etl));
+
+        IReadOnlyList<string> hints = SteeringHints.ForTraceInfo(info);
+
+        // An .etl supports thread time, so the blocked route names it; but allocation,
+        // the GC report, and exceptions are EventPipe-only, so those routes are omitted.
+        hints.Should().Contain(h => h.Contains("threadtime", StringComparison.Ordinal));
+        hints.Should().NotContain(h => h.Contains("gcstats", StringComparison.Ordinal));
+        hints.Should().NotContain(h => h.Contains("frequent exceptions", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void ForCallers_WithNamedCaller_NudgesUpTheStack()
     {
         CallersResult callers = new(

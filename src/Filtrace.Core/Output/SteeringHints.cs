@@ -41,6 +41,54 @@ public static class SteeringHints
     private const string EmptyScope = "no frames in scope; widen the filter or check symbol resolution";
 
     /// <summary>
+    ///  The next-step hints for a trace-info orientation: name the analyses this
+    ///  trace's format can answer, and route each common symptom to one of them, so an
+    ///  agent starting from a vague "why is this slow?" reaches an applicable metric or
+    ///  report without guessing.
+    /// </summary>
+    /// <param name="info">The trace info the hints steer from.</param>
+    /// <returns>The steering hints, never <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="info"/> is <see langword="null"/>.</exception>
+    public static IReadOnlyList<string> ForTraceInfo(TraceInfo info)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+
+        HashSet<string> analyses = new(info.AvailableAnalyses, StringComparer.Ordinal);
+
+        // Route each symptom only to the analyses this format actually supports, so the
+        // nudge never points at a metric the trace cannot produce.
+        List<string> routes = ["CPU-bound -> cpu"];
+
+        List<string> blocked = [];
+        if (analyses.Contains("contention")) { blocked.Add("contention"); }
+        if (analyses.Contains("wait")) { blocked.Add("wait"); }
+        if (analyses.Contains("threadtime")) { blocked.Add("threadtime"); }
+        if (blocked.Count > 0)
+        {
+            routes.Add($"slow but low CPU / does not scale -> {string.Join(", ", blocked)}");
+        }
+
+        List<string> memory = [];
+        if (analyses.Contains("alloc")) { memory.Add("alloc"); }
+        if (analyses.Contains("gcstats")) { memory.Add("gcstats"); }
+        if (memory.Count > 0)
+        {
+            routes.Add($"growing memory or GC pauses -> {string.Join(", ", memory)}");
+        }
+
+        if (analyses.Contains("exceptions"))
+        {
+            routes.Add("frequent exceptions -> exceptions");
+        }
+
+        return
+        [
+            $"this trace can answer: {string.Join(", ", info.AvailableAnalyses)}",
+            $"match the symptom to an analysis this trace supports - {string.Join("; ", routes)}"
+        ];
+    }
+
+    /// <summary>
     ///  The next-step hints for a self-time or inclusive-time ranking: drill into
     ///  the hottest frame's callers.
     /// </summary>

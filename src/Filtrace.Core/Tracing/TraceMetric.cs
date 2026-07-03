@@ -47,5 +47,21 @@ public enum TraceMetric
     ///  (<see cref="MetricInfo.Exceptions"/>). Read from a <c>.nettrace</c>
     ///  EventPipe trace carrying <c>Exception/Start</c> events.
     /// </summary>
-    Exceptions
+    Exceptions,
+
+    /// <summary>
+    ///  The lock-contention sites, weighted by the milliseconds threads spent
+    ///  blocked acquiring a lock (<see cref="MetricInfo.Contention"/>). Read from a
+    ///  <c>.nettrace</c> EventPipe trace carrying <c>Contention/Start</c> and
+    ///  <c>Contention/Stop</c> events.
+    /// </summary>
+    Contention,
+
+    /// <summary>
+    ///  The blocking-wait sites, weighted by the milliseconds threads spent waiting
+    ///  on a synchronization handle (<see cref="MetricInfo.Wait"/>). Read from a
+    ///  <c>.nettrace</c> EventPipe trace carrying the .NET 9+ <c>WaitHandleWait/Start</c>
+    ///  and <c>WaitHandleWait/Stop</c> events.
+    /// </summary>
+    Wait
 }

@@ -243,6 +243,201 @@ public class JitLoop
 }
 
 /// <summary>
+///  A loop in which several worker threads contend on one shared lock, captured
+///  under the CPU-sampling EventPipe profile (whose default runtime keyword set
+///  includes the contention keyword), so its trace carries the
+///  <c>Contention/Start</c> events (with the blocking call stack) and
+///  <c>Contention/Stop</c> events (with the blocked duration) the contention
+///  provider ranks by blocking site.
+/// </summary>
+/// <remarks>
+///  <para>
+///   The worker threads repeatedly enter one monitor and do a little bounded work
+///   while holding it, so the others block acquiring it - producing the managed
+///   lock contention the runtime reports. The single blocking site
+///   (<see cref="HoldLock"/>) is named and non-inlined so the contention ranking
+///   has a clear, reproducible top frame (the exact counts and durations are
+///   timing-dependent, so tests assert the shape, not exact values). Captured with
+///   <see cref="RunStrategy.Monitoring"/> and a single invocation so the committed
+///   smoke trace stays small.
+///  </para>
+/// </remarks>
+[EventPipeProfiler(EventPipeProfile.CpuSampling)]
+[SimpleJob(RunStrategy.Monitoring, launchCount: 1, warmupCount: 0, iterationCount: 1, invocationCount: 1)]
+public class ContentionLoop
+{
+    private readonly object _gate = new();
+
+    /// <summary>
+    ///  The benchmarked entry point: runs several threads that contend on one lock.
+    /// </summary>
+    /// <returns>The accumulated work, returned so it is not elided.</returns>
+    [Benchmark]
+    public long Contend() => ContendOnLock(threads: 4, iterationsPerThread: 8_000);
+
+    private long ContendOnLock(int threads, int iterationsPerThread)
+    {
+        long total = 0;
+        System.Threading.Thread[] workers = new System.Threading.Thread[threads];
+        for (int t = 0; t < threads; t++)
+        {
+            workers[t] = new System.Threading.Thread(() =>
+            {
+                long local = 0;
+                for (int i = 0; i < iterationsPerThread; i++)
+                {
+                    local += HoldLock(i);
+                }
+
+                System.Threading.Interlocked.Add(ref total, local);
+            });
+        }
+
+        foreach (System.Threading.Thread worker in workers)
+        {
+            worker.Start();
+        }
+
+        foreach (System.Threading.Thread worker in workers)
+        {
+            worker.Join();
+        }
+
+        return System.Threading.Interlocked.Read(ref total);
+    }
+
+    // Holds the shared lock while doing a little bounded work, so the other worker
+    // threads block acquiring it. Non-inlined so its frame anchors the contention
+    // ranking.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private long HoldLock(int seed)
+    {
+        lock (_gate)
+        {
+            long sum = 0;
+            for (int i = 0; i < 100; i++)
+            {
+                sum += (seed + i) % 7;
+            }
+
+            return sum;
+        }
+    }
+}
+
+/// <summary>
+///  The BenchmarkDotNet configuration for the wait (<c>WaitHandleWait</c>) EventPipe
+///  capture: a net10 job whose runtime provider explicitly enables the
+///  <c>WaitHandle</c> keyword the wait provider needs.
+/// </summary>
+/// <remarks>
+///  <para>
+///   The .NET 9+ <c>WaitHandleWaitStart</c> / <c>WaitHandleWaitStop</c> events ride the
+///   <c>WaitHandle</c> keyword (<c>0x40000000000</c>), which is NOT in the default
+///   EventPipe keyword set, so a plain <c>[EventPipeProfiler(CpuSampling)]</c> capture
+///   would miss them. This config adds a runtime provider that enables the default
+///   keywords plus <c>WaitHandle</c>; it is listed after the CpuSampling profile's
+///   providers so it wins the duplicate-provider-name merge, keeping the default
+///   method rundown (for symbol resolution) alongside the wait events.
+///  </para>
+/// </remarks>
+internal sealed class WaitCaptureConfig : ManualConfig
+{
+    public WaitCaptureConfig()
+    {
+        AddJob(Job.Default
+            .WithRuntime(CoreRuntime.Core10_0)
+            .WithStrategy(RunStrategy.Monitoring)
+            .WithLaunchCount(1)
+            .WithWarmupCount(0)
+            .WithIterationCount(1)
+            .WithInvocationCount(1));
+
+        Microsoft.Diagnostics.NETCore.Client.EventPipeProvider runtime = new(
+            ClrTraceEventParser.ProviderName,
+            System.Diagnostics.Tracing.EventLevel.Verbose,
+            (long)(ClrTraceEventParser.Keywords.Default | ClrTraceEventParser.Keywords.WaitHandle));
+
+        AddDiagnoser(new EventPipeProfiler(
+            EventPipeProfile.CpuSampling,
+            new[] { runtime },
+            performExtraBenchmarksRun: false));
+    }
+}
+
+/// <summary>
+///  A loop in which several worker threads block on a wait handle, captured with the
+///  <c>WaitHandle</c> keyword enabled (see <see cref="WaitCaptureConfig"/>), so its
+///  trace carries the .NET 9+ <c>WaitHandleWait/Start</c> events (with the blocking
+///  call stack) and <c>WaitHandleWait/Stop</c> events (with the blocked duration) the
+///  wait provider ranks by blocking site.
+/// </summary>
+/// <remarks>
+///  <para>
+///   Each worker repeatedly waits on its own never-signalled <c>ManualResetEvent</c>
+///   with a short timeout, so every wait is a real, bounded, blocking kernel wait -
+///   deterministic and terminating, unlike a signalled producer/consumer. The single
+///   blocking site (<see cref="BlockOnHandle"/>) is named and non-inlined so the wait
+///   ranking has a clear, reproducible top frame (the exact counts and durations are
+///   timing-dependent, so tests assert the shape, not exact values). Captured with
+///   <see cref="RunStrategy.Monitoring"/> and a single invocation so the committed
+///   smoke trace stays small.
+///  </para>
+/// </remarks>
+[Config(typeof(WaitCaptureConfig))]
+public class WaitLoop
+{
+    /// <summary>
+    ///  The benchmarked entry point: runs several threads that block on a wait handle.
+    /// </summary>
+    /// <returns>The accumulated wait budget, returned so it is not elided.</returns>
+    [Benchmark]
+    public long Wait() => WaitOnHandles(threads: 4, waitsPerThread: 150, timeoutMs: 2);
+
+    private long WaitOnHandles(int threads, int waitsPerThread, int timeoutMs)
+    {
+        long total = 0;
+        System.Threading.Thread[] workers = new System.Threading.Thread[threads];
+        for (int t = 0; t < threads; t++)
+        {
+            workers[t] = new System.Threading.Thread(() =>
+            {
+                using System.Threading.ManualResetEvent gate = new(initialState: false);
+                long local = 0;
+                for (int i = 0; i < waitsPerThread; i++)
+                {
+                    local += BlockOnHandle(gate, timeoutMs);
+                }
+
+                System.Threading.Interlocked.Add(ref total, local);
+            });
+        }
+
+        foreach (System.Threading.Thread worker in workers)
+        {
+            worker.Start();
+        }
+
+        foreach (System.Threading.Thread worker in workers)
+        {
+            worker.Join();
+        }
+
+        return System.Threading.Interlocked.Read(ref total);
+    }
+
+    // Blocks on the never-signalled handle for a short timeout - a real WaitHandle
+    // wait that the runtime reports as WaitHandleWait/Start+Stop. Non-inlined so its
+    // frame anchors the wait ranking.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private long BlockOnHandle(System.Threading.ManualResetEvent gate, int timeoutMs)
+    {
+        gate.WaitOne(timeoutMs);
+        return timeoutMs;
+    }
+}
+
+/// <summary>
 ///  The BenchmarkDotNet configuration for the ETW (<c>.etl</c>) capture: a
 ///  net481 job profiled by <see cref="EtwProfiler"/> with the kernel keywords the
 ///  ThreadTime view needs.

@@ -84,10 +84,10 @@ filtrace diff before.nettrace after.nettrace # 4. what changed
 
 | Verb | Ranks | Reads |
 |---|---|---|
-| `rank --metric <m>` | any metric (`cpu`, `alloc`, `exceptions`, `threadtime`) | per metric |
+| `rank --metric <m>` | any metric (`cpu`, `alloc`, `exceptions`, `threadtime`, `contention`, `wait`) | per metric |
 | `cpu` | CPU self/inclusive time | `.nettrace`, `.etl`, `.speedscope.json` |
 | `alloc` | bytes allocated, by site | `.nettrace` |
-| `exceptions` | throw sites, by count | `.nettrace` |
+| `exceptions` | exception types, by count | `.nettrace` |
 | `threadtime` | wall-clock (running + blocked) | `.etl` (Windows) |
 
 **Drill** - follow a ranking into detail:

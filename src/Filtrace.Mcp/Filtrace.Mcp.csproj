@@ -66,9 +66,9 @@
   <!--
     Ship the agent skill inside the package so a consumer who pulls the MCP server gets the
     same workflow knowledge an agent working in the repo sees. The whole skill directory travels
-    as package content under skills/filtrace/ - SKILL.md, its README, and the bundled capture
-    scripts SKILL.md links to (Capture-BenchmarkTrace.ps1, Capture-ProjectTrace.ps1). It is not a
-    tool input; the server reads nothing from it at runtime. The canonical copy lives at the
+    as package content under skills/filtrace/ - SKILL.md, its README, and every bundled capture
+    and trace-viewer script SKILL.md links to. It is not a tool input; the server reads nothing
+    from it at runtime. The canonical copy lives at the
     vendor-neutral .agents/skills/filtrace/ location, and the MCP server's in-band `instructions`
     field carries the compressed workflow for clients that do not surface packaged skills. The
     include is recursive so a newly added script or reference cannot be left out of the package -

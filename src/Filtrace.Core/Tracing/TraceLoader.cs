@@ -110,6 +110,8 @@ public sealed class TraceLoader
             TraceMetric.Cpu => LoadCpu(fullPath, reader, symbolsDirectory, scope, symbolOptions),
             TraceMetric.Allocations => LoadAllocations(fullPath, reader),
             TraceMetric.Exceptions => LoadExceptions(fullPath, reader),
+            TraceMetric.Contention => LoadContention(fullPath, reader),
+            TraceMetric.Wait => LoadWait(fullPath, reader),
             TraceMetric.ThreadTime => LoadThreadTime(fullPath, reader, scope),
             // Enums can be cast from any int, so reject an undefined value rather than
             // silently falling back to a CPU load and masking a bad caller (or a future
@@ -191,6 +193,65 @@ public sealed class TraceLoader
         return new LoadedTrace(info, source);
     }
 
+    private static LoadedTrace LoadContention(string fullPath, ITraceReader reader)
+    {
+        // Contention is the Contention/Start+Stop view of an EventPipe trace; an .etl
+        // or speedscope export is rejected here rather than let the provider fail deep
+        // in the reader. (Contention events also ride an .etl capture, but that path is
+        // multi-process and is a separate follow-up; the .nettrace path is the headline,
+        // no-elevation, cross-platform one.)
+        if (reader.Format != TraceFormat.NetTrace)
+        {
+            throw new NotSupportedException(
+                $"The contention metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
+        }
+
+        StackSampleSource source = new ContentionProvider().Read(fullPath);
+
+        List<string> warnings = [];
+        if (source.Samples.Count == 0)
+        {
+            warnings.Add(
+                "No lock-contention events were found. Did the workload contend on any locks, "
+                + "and was the trace captured with the default runtime keywords?");
+        }
+
+        // Contention frames resolve from the trace's CLR rundown, so - as with the
+        // allocation and exceptions families - resolution is reported complete and the
+        // --strict gate does not apply.
+        TraceInfo info = BuildInfo(fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0, warnings);
+        return new LoadedTrace(info, source);
+    }
+
+    private static LoadedTrace LoadWait(string fullPath, ITraceReader reader)
+    {
+        // Wait is the WaitHandleWait/Start+Stop view of an EventPipe trace; an .etl or
+        // speedscope export is rejected here rather than let the provider fail deep in
+        // the reader.
+        if (reader.Format != TraceFormat.NetTrace)
+        {
+            throw new NotSupportedException(
+                $"The wait metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
+        }
+
+        StackSampleSource source = new WaitProvider().Read(fullPath);
+
+        List<string> warnings = [];
+        if (source.Samples.Count == 0)
+        {
+            warnings.Add(
+                "No wait events were found. WaitHandleWait events are a .NET 9+ feature on the WaitHandle "
+                + "keyword (not in the default set); was the workload blocked on a wait handle and the trace "
+                + "captured with that keyword enabled?");
+        }
+
+        // Wait frames resolve from the trace's CLR rundown, so - as with the allocation,
+        // exceptions, and contention families - resolution is reported complete and the
+        // --strict gate does not apply.
+        TraceInfo info = BuildInfo(fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0, warnings);
+        return new LoadedTrace(info, source);
+    }
+
     private static LoadedTrace LoadThreadTime(string fullPath, ITraceReader reader, ScopeRequest? scope)
     {
         // Thread time is reconstructed from ETW context-switch events, which only an
@@ -265,7 +326,8 @@ public sealed class TraceLoader
             samples.Count,
             symbolResolutionRate,
             threads,
-            warnings);
+            warnings,
+            TraceCapabilities.AnalysesFor(format));
     }
 
     private ITraceReader? ResolveReader(string path)

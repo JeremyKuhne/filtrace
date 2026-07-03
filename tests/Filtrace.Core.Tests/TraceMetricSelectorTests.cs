@@ -13,6 +13,8 @@ public sealed class TraceMetricSelectorTests
     [DataRow("alloc", TraceMetric.Allocations)]
     [DataRow("allocations", TraceMetric.Allocations)]
     [DataRow("exceptions", TraceMetric.Exceptions)]
+    [DataRow("contention", TraceMetric.Contention)]
+    [DataRow("wait", TraceMetric.Wait)]
     public void TryResolve_KnownSelector_ResolvesToProviderView(string selector, TraceMetric expected)
     {
         TraceMetricSelector.TryResolve(selector, out TraceMetric metric).Should().BeTrue();
@@ -38,6 +40,6 @@ public sealed class TraceMetricSelectorTests
     [TestMethod]
     public void Selectors_ListsTheCanonicalNames()
     {
-        TraceMetricSelector.Selectors.Should().Equal("cpu", "threadtime", "alloc", "exceptions");
+        TraceMetricSelector.Selectors.Should().Equal("cpu", "threadtime", "alloc", "exceptions", "contention", "wait");
     }
 }

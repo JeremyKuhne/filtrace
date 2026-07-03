@@ -28,10 +28,15 @@ namespace Filtrace.Output;
 ///  <c>0.8</c> usually means symbols are missing and the rankings are unreliable.
 /// </param>
 /// <param name="Threads">Per-thread sample counts, highest first.</param>
+/// <param name="AvailableAnalyses">
+///  The analyses this trace's format can answer (rank metrics and report verbs) - the
+///  inventory that routes a question to an analysis the capture supports.
+/// </param>
 public sealed record TraceInfoView(
     string Path,
     string Format,
     double TotalWeight,
     int SampleCount,
     double SymbolResolutionRate,
-    IReadOnlyList<ThreadSampleInfo> Threads);
+    IReadOnlyList<ThreadSampleInfo> Threads,
+    IReadOnlyList<string> AvailableAnalyses);

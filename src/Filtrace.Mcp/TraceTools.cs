@@ -56,8 +56,9 @@ public sealed class TraceTools
     [Description(
         "Load a trace (.speedscope.json, .nettrace, or .etl) and return its format, total weight (CPU "
         + "milliseconds, bytes allocated, or event counts depending on the trace), sample count, "
-        + "symbol-resolution rate, per-thread sample counts, and quality warnings. Call this first: a "
-        + "resolution rate below 0.8 means symbols are missing and the rankings should not be trusted.")]
+        + "symbol-resolution rate, per-thread sample counts, the analyses the trace's format can answer "
+        + "(availableAnalyses, with a hint routing each symptom to one), and quality warnings. Call this "
+        + "first: a resolution rate below 0.8 means symbols are missing and the rankings should not be trusted.")]
     public static AnalysisResult<TraceInfoView> Info(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -77,8 +78,9 @@ public sealed class TraceTools
             info.TotalWeight,
             info.SampleCount,
             info.SymbolResolutionRate,
-            info.Threads);
-        return new AnalysisResult<TraceInfoView>(view, info.Warnings);
+            info.Threads,
+            info.AvailableAnalyses);
+        return new AnalysisResult<TraceInfoView>(view, info.Warnings, SteeringHints.ForTraceInfo(info));
     }
 
     /// <summary>
@@ -101,13 +103,14 @@ public sealed class TraceTools
         "Rank the hottest frames over a chosen provider metric. measure=self credits the executing leaf "
         + "(JIT-helper leaves folded into the real method that incurred them); measure=inclusive credits a "
         + "frame and everything it calls. One tool spans every family - metric=cpu (sampled milliseconds, any "
-        + "format), threadtime (wall-clock per thread, .etl only), alloc (bytes allocated, .nettrace only), or "
-        + "exceptions (throw count, .nettrace only). Scope to a subtree with root; for a BenchmarkDotNet "
-        + "capture set root to the measured workload to exclude harness warmup.")]
+        + "format), threadtime (wall-clock per thread, .etl only), alloc (bytes allocated, .nettrace only), "
+        + "exceptions (throw count by type, .nettrace only), contention (ms blocked on locks, .nettrace only), or "
+        + "wait (ms blocked on a wait handle, .nettrace only). Scope to a subtree with root; for a "
+        + "BenchmarkDotNet capture set root to the measured workload to exclude harness warmup.")]
     public static AnalysisResult<RankingResult> Rank(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
-        [Description("Provider view to rank: cpu, threadtime, alloc, or exceptions.")] string metric = "cpu",
+        [Description("Provider view to rank: cpu, threadtime, alloc, exceptions, contention, or wait.")] string metric = "cpu",
         [Description("Which measure to report: self or inclusive.")] string measure = "self",
         [Description("Optional substring of a frame name to scope the ranking to its subtree.")] string root = "",
         [Description("Maximum number of ranked rows to return.")] int top = 25,

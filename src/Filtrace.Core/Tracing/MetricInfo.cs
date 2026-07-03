@@ -46,4 +46,20 @@ public sealed record MetricInfo(string Name, string Unit)
     ///  count so the engine ranks where exceptions are thrown.
     /// </summary>
     public static MetricInfo Exceptions { get; } = new("Exceptions", "count");
+
+    /// <summary>
+    ///  The contention metric: milliseconds a thread spent blocked acquiring a lock,
+    ///  per contention call stack. This is the metric of the contention provider,
+    ///  which weights each lock-contention site by the time threads waited on it, so
+    ///  the engine ranks where lock contention costs the most wall-clock time.
+    /// </summary>
+    public static MetricInfo Contention { get; } = new("Contention", "ms");
+
+    /// <summary>
+    ///  The wait metric: milliseconds a thread spent blocked waiting on a
+    ///  synchronization handle (a <c>WaitHandle</c>, <c>SemaphoreSlim</c>,
+    ///  <c>Monitor.Wait</c>, ...), per wait call stack. This is the metric of the wait
+    ///  provider, which weights each blocking-wait site by the time threads waited on it.
+    /// </summary>
+    public static MetricInfo Wait { get; } = new("Wait", "ms");
 }

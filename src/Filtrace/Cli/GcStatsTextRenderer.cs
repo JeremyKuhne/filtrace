@@ -42,9 +42,9 @@ internal static class GcStatsTextRenderer
         }
 
         output.WriteLine(
-            $"  {report.GcCount} collections   gen0 {report.Gen0Count}  gen1 {report.Gen1Count}  gen2 {report.Gen2Count}");
+            $"  {report.GcCount} collections   gen0 {report.Gen0Count}  gen1 {report.Gen1Count}  gen2 {report.Gen2Count}   induced {report.InducedCount}");
         output.WriteLine(
-            $"  pause   total {report.TotalPauseMs:N2} ms   max {report.MaxPauseMs:N2} ms   mean {report.MeanPauseMs:N2} ms");
+            $"  pause   total {report.TotalPauseMs:N2} ms   max {report.MaxPauseMs:N2} ms   mean {report.MeanPauseMs:N2} ms   ({report.PercentTimeInGc:N1}% of trace)");
         output.WriteLine(
             $"  heap    peak {report.PeakHeapSizeMB:N2} MB   promoted {report.TotalPromotedMB:N2} MB");
         output.WriteLine();

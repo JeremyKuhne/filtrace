@@ -22,9 +22,9 @@ internal sealed class TraceCommands
     /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="metric">
-    ///  Provider metric to rank: cpu (default), alloc, exceptions, or threadtime. The cpu
-    ///  metric weights each sample as 1 ms, so its weights are approximate; the relative
-    ///  percentages are exact.
+    ///  Provider metric to rank: cpu (default), alloc, exceptions, threadtime,
+    ///  contention, or wait. The cpu metric weights each sample as 1 ms, so its weights
+    ///  are approximate; the relative percentages are exact.
     /// </param>
     /// <param name="measure">-m, Which measure to report: self (leaf time, helpers folded) or inclusive.</param>
     /// <param name="root">Substring scoping the ranking to the subtree under a frame.</param>
@@ -61,7 +61,7 @@ internal sealed class TraceCommands
         if (!RankRequestFactory.TryResolveMetric(metric, out TraceMetric resolved))
         {
             Console.Error.WriteLine(
-                $"Unknown metric '{metric}'. Supported stack metrics: cpu, alloc, exceptions, threadtime.");
+                $"Unknown metric '{metric}'. Supported stack metrics: cpu, alloc, exceptions, threadtime, contention, wait.");
             return ExitCodes.UsageError;
         }
 
@@ -202,7 +202,7 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Rank exception throw sites by count; the shortcut for 'rank --metric exceptions'.
+    ///  Rank exceptions by type (throw sites via callers) by count; the shortcut for 'rank --metric exceptions'.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe file carrying exception-throw events.</param>
     /// <param name="measure">-m, Which measure to report: self (the throw site) or inclusive (its subtree).</param>
