@@ -221,8 +221,9 @@ internal static class TraceExecution
         // throwing (matching the MCP RequireEtl guardrail).
         if (string.IsNullOrEmpty(path) || !path.EndsWith(".etl", StringComparison.OrdinalIgnoreCase))
         {
+            string display = string.IsNullOrEmpty(path) ? "(no path)" : path;
             error.WriteLine(
-                $"The {reportName} report requires a Windows ETW .etl trace; '{path}' is not a .etl file.");
+                $"The {reportName} report requires a Windows ETW .etl trace; '{display}' is not a .etl file.");
             result = null;
             return false;
         }

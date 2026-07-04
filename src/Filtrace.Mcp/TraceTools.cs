@@ -403,17 +403,14 @@ public sealed class TraceTools
         DiskIoResult full = ReadDiskIo(path);
 
         // Keep the full aggregate summary, but cap the per-file detail to the heaviest
-        // files so a broad capture cannot blow the output budget.
+        // files so a broad capture cannot blow the output budget. An empty report is
+        // conveyed by the empty file list, like the other reports.
         List<string> warnings = [];
         IReadOnlyList<DiskIoFileRecord> shown = full.Files;
         if (shown.Count > top)
         {
             shown = [.. shown.Take(top)];
             warnings.Add($"Showing the top {top} of {full.Files.Count} files by disk time.");
-        }
-        else if (full.Files.Count == 0)
-        {
-            warnings.Add("The trace carries no physical disk I/O events.");
         }
 
         DiskIoResult report = full with { Files = shown };

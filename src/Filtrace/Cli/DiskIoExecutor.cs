@@ -57,17 +57,14 @@ internal static class DiskIoExecutor
         }
 
         // Keep the full aggregate summary, but cap the per-file detail to the heaviest
-        // files so a broad capture cannot blow the output budget.
+        // files so a broad capture cannot blow the output budget. The empty case is shown
+        // by the renderer (and the empty file list in JSON), like the other reports.
         List<string> warnings = [];
         IReadOnlyList<DiskIoFileRecord> shown = full.Files;
         if (shown.Count > request.Top)
         {
             shown = [.. shown.Take(request.Top)];
             warnings.Add($"Showing the top {request.Top} of {full.Files.Count} files by disk time.");
-        }
-        else if (full.Files.Count == 0)
-        {
-            warnings.Add("The trace carries no physical disk I/O events.");
         }
 
         DiskIoResult report = full with { Files = shown };

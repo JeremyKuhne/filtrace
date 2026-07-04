@@ -772,8 +772,11 @@ internal static class DiskIoCapture
                     int written = 0;
                     while (written < bytesPerFile)
                     {
-                        write.Write(buffer, 0, buffer.Length);
-                        written += buffer.Length;
+                        // Clamp the last chunk so the file is exactly bytesPerFile even
+                        // when it is not a whole multiple of the buffer length.
+                        int chunk = System.Math.Min(buffer.Length, bytesPerFile - written);
+                        write.Write(buffer, 0, chunk);
+                        written += chunk;
                     }
 
                     write.Flush(flushToDisk: true);
