@@ -72,11 +72,11 @@ public sealed class TraceStore
     /// </param>
     /// <param name="scope">
     ///  Optional scope (an explicit process name or the automatic busiest-process
-    ///  default, an activity task name, and/or a time window). The process and activity
-    ///  scopes are consumed only by the CPU and thread-time metrics; the time window is
-    ///  consumed by every metric, since every sampled event carries a timestamp. The
-    ///  cache keys on whichever axes a metric honors, so the same trace scoped two ways
-    ///  is cached separately.
+    ///  default, an activity task name, and/or a time window). The process scope is
+    ///  consumed by the CPU and thread-time metrics and the activity scope by the CPU
+    ///  metric only; the time window is consumed by every metric, since every sampled
+    ///  event carries a timestamp. The cache keys on whichever axes a metric honors, so
+    ///  the same trace scoped two ways is cached separately.
     /// </param>
     /// <param name="symbolOptions">
     ///  Optional native-symbol resolution. Consumed only by the CPU metric; the cache
@@ -102,13 +102,17 @@ public sealed class TraceStore
             ? Path.GetFullPath(symbolsDirectory)
             : null;
 
-        // Only the CPU and thread-time metrics read a multi-process capture, so the
-        // process and activity scopes only distinguish those; drop them for the
-        // single-process EventPipe metrics so their cache entries are not split by an
-        // ignored scope.
-        string scopeKey = metric is TraceMetric.Cpu or TraceMetric.ThreadTime
-            ? ScopeKey(scope)
-            : "-";
+        // The process scope narrows a multi-process capture, which only the CPU and
+        // thread-time metrics read; the activity scope narrows the CPU reader alone
+        // (thread time ignores it), so it keys the CPU metric only. Drop both for the
+        // single-process EventPipe metrics so their entries are not split by an ignored
+        // scope.
+        string scopeKey = metric switch
+        {
+            TraceMetric.Cpu => ScopeKey(scope, includeActivity: true),
+            TraceMetric.ThreadTime => ScopeKey(scope, includeActivity: false),
+            _ => "-"
+        };
 
         // The time window scopes every metric - every sampled event carries a timestamp -
         // so it keys all of them: a trace read for one window must not serve another.
@@ -135,16 +139,17 @@ public sealed class TraceStore
     // A stable cache-key fragment for a scope request: the process axis ('all' for
     // all-processes, 'auto' for the automatic busiest-process default - a null request
     // is unspecified, the same default - or the explicit process name) followed by the
-    // activity axis ('-' for none, or the activity task name). Because the load path
-    // treats a null request as the automatic default, null and ScopeRequest.Auto resolve
-    // to the same trace and so share the 'auto' fragment by design. Both names are
-    // length-prefixed so they cannot be confused with the sentinels, each other, or the
-    // following key segment. The activity is part of the key because the CPU reader
-    // filters samples by it, so a trace scoped to an activity must not serve an unscoped
-    // read (or one scoped to a different activity).
-    private static string ScopeKey(ScopeRequest? scope)
+    // activity axis ('-' for none or when not keyed, or the activity task name). Because
+    // the load path treats a null request as the automatic default, null and
+    // ScopeRequest.Auto resolve to the same trace and so share the 'auto' fragment by
+    // design. Both names are length-prefixed so they cannot be confused with the
+    // sentinels, each other, or the following key segment. The activity is keyed only
+    // when includeActivity is set (the CPU metric): the CPU reader filters samples by it,
+    // so a trace scoped to an activity must not serve an unscoped read; thread time
+    // ignores it, so keying it there would only fragment the cache.
+    private static string ScopeKey(ScopeRequest? scope, bool includeActivity)
     {
-        string activity = scope?.ActivityName is string name && name.Length > 0
+        string activity = includeActivity && scope?.ActivityName is string name && name.Length > 0
             ? $"a{name.Length}:{name}"
             : "-";
 
