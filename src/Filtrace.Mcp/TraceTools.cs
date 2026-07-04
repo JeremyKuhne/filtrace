@@ -956,8 +956,9 @@ public sealed class TraceTools
     }
 
     /// <summary>
-    ///  Reads an events page for a <c>.nettrace</c> trace, applying the format guardrail
-    ///  and mapping the provider's failure modes to a clean <see cref="McpException"/>.
+    ///  Reads an events page for a <c>.nettrace</c> or <c>.etl</c> trace, applying the
+    ///  format guardrail and mapping the provider's failure modes to a clean
+    ///  <see cref="McpException"/>.
     /// </summary>
     private static EventQueryResult ReadEvents(string path, string name, int skip, int take, int maxPayload)
     {
@@ -975,8 +976,9 @@ public sealed class TraceTools
             or FormatException
             or ArgumentException)
         {
-            // A missing, unreadable, or malformed .nettrace surfaces as a clean tool
-            // error rather than an unhandled exception.
+            // A missing, unreadable, or malformed trace - or an .etl read attempted off
+            // Windows (PlatformNotSupportedException derives from NotSupportedException) -
+            // surfaces as a clean tool error rather than an unhandled exception.
             throw new McpException(ex.Message);
         }
     }

@@ -145,7 +145,7 @@ are named for them:
 | `jitstats` | JIT method count, compile time, sizes (`.nettrace`) |
 | `threadpool` | worker-thread adjustments and starvation - slow under load, CPU idle (`.nettrace`) |
 | `diskio` | physical disk I/O by file: bytes and disk service time (`.etl`, Windows) |
-| `events --name <n>` | raw events by name, paged (`.nettrace`, `.etl`) |
+| `events --name <n>` | raw events by name, paged (`.nettrace`, or `.etl` on Windows) |
 
 **Capture** - record a Windows ETW `.etl` yourself (for an EventPipe `.nettrace`, use `dotnet-trace`):
 
