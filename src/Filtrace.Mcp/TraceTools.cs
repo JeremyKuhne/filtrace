@@ -431,8 +431,9 @@ public sealed class TraceTools
     private const int MaxEventPayloadChars = 4000;
 
     /// <summary>
-    ///  Queries the raw events of a <c>.nettrace</c> EventPipe trace by name, paged and
-    ///  with each event's payload truncated, so an agent can inspect arbitrary events.
+    ///  Queries the raw events of a <c>.nettrace</c> EventPipe or <c>.etl</c> ETW trace by
+    ///  name, paged and with each event's payload truncated, so an agent can inspect
+    ///  arbitrary events.
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
     /// <param name="name">Substring matched against <c>Provider/EventName</c>; empty matches every event.</param>
@@ -442,12 +443,12 @@ public sealed class TraceTools
     /// <returns>The events-page envelope.</returns>
     [McpServerTool(Name = "trace_query_events", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Query the raw events of a .nettrace EventPipe trace by name - the escape hatch for events the structured "
-        + "reports do not cover. 'name' is a case-insensitive substring matched against Provider/EventName (empty "
-        + "matches all). Paged with 'skip'/'take', each payload truncated to 'maxPayload' chars; a hint gives the "
-        + "next page's skip when more remain. Requires a .nettrace trace; .etl and speedscope are rejected.")]
+        "Query the raw events of a .nettrace EventPipe or Windows ETW .etl trace by name - the escape hatch for events the "
+        + "structured reports do not cover. 'name' is a case-insensitive substring matched against Provider/EventName "
+        + "(empty matches all). Paged with 'skip'/'take', each payload truncated to 'maxPayload' chars; a hint gives the "
+        + "next page's skip when more remain. A speedscope export is rejected.")]
     public static AnalysisResult<EventQueryResult> QueryEvents(
-        [Description("Path to a .nettrace EventPipe trace file.")] string path,
+        [Description("Path to a .nettrace EventPipe or Windows ETW .etl trace file.")] string path,
         [Description("Substring matched against Provider/EventName; omit to match every event.")] string name = "",
         [Description("The number of matches to skip, for paging.")] int skip = 0,
         [Description("The maximum number of matches to return on this page.")] int take = 100,
@@ -955,12 +956,13 @@ public sealed class TraceTools
     }
 
     /// <summary>
-    ///  Reads an events page for a <c>.nettrace</c> trace, applying the format guardrail
-    ///  and mapping the provider's failure modes to a clean <see cref="McpException"/>.
+    ///  Reads an events page for a <c>.nettrace</c> or <c>.etl</c> trace, applying the
+    ///  format guardrail and mapping the provider's failure modes to a clean
+    ///  <see cref="McpException"/>.
     /// </summary>
     private static EventQueryResult ReadEvents(string path, string name, int skip, int take, int maxPayload)
     {
-        RequireNetTrace(path, "events query");
+        RequireNetTraceOrEtl(path, "events query");
 
         try
         {
@@ -974,8 +976,9 @@ public sealed class TraceTools
             or FormatException
             or ArgumentException)
         {
-            // A missing, unreadable, or malformed .nettrace surfaces as a clean tool
-            // error rather than an unhandled exception.
+            // A missing, unreadable, or malformed trace - or an .etl read attempted off
+            // Windows (PlatformNotSupportedException derives from NotSupportedException) -
+            // surfaces as a clean tool error rather than an unhandled exception.
             throw new McpException(ex.Message);
         }
     }
@@ -993,6 +996,26 @@ public sealed class TraceTools
         {
             throw new McpException(
                 $"The {reportName} requires a .nettrace EventPipe trace; '{path}' is not a .nettrace file.");
+        }
+    }
+
+    /// <summary>
+    ///  Rejects a trace that is neither <c>.nettrace</c> nor <c>.etl</c> up front for the
+    ///  raw event query, which reads the event stream both formats carry (but not a
+    ///  speedscope export, which holds only CPU stacks).
+    /// </summary>
+    private static void RequireNetTraceOrEtl(string path, string reportName)
+    {
+        // Format guardrail (an extension test, no I/O): the raw event query spans the
+        // EventPipe (.nettrace) and ETW (.etl) event streams, so reject anything else - a
+        // speedscope export carries no event stream to query.
+        if (string.IsNullOrEmpty(path)
+            || !(path.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".etl", StringComparison.OrdinalIgnoreCase)))
+        {
+            string display = string.IsNullOrEmpty(path) ? "(no path)" : path;
+            throw new McpException(
+                $"The {reportName} requires a .nettrace EventPipe or .etl ETW trace (Windows-only); '{display}' is neither.");
         }
     }
 

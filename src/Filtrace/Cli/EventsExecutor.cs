@@ -37,9 +37,9 @@ internal static class EventsExecutor
     /// <returns>A process exit code (see <see cref="ExitCodes"/>).</returns>
     public static int Run(EventsRequest request, TextWriter output, TextWriter error)
     {
-        if (!TraceExecution.TryReadNetTraceReport(
+        if (!TraceExecution.TryReadDualFormatReport(
             request.Path,
-            "events",
+            "events query",
             () => new EventQueryProvider().Query(
                 request.Path,
                 request.Name,

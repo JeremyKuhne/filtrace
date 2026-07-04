@@ -86,12 +86,7 @@ public sealed class EventQueryProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        string etlxPath = Etlx.TraceLog.CreateFromEventPipeDataFile(
-            fullPath,
-            null,
-            new Etlx.TraceLogOptions { ContinueOnError = true });
-
-        using Etlx.TraceLog traceLog = new(etlxPath);
+        using Etlx.TraceLog traceLog = OpenTrace(fullPath);
 
         int matched = 0;
         List<EventRecord> page = [];
@@ -122,6 +117,27 @@ public sealed class EventQueryProvider
         // Report the number of matches actually skipped, which is fewer than the
         // requested skip when the query matched fewer events than that.
         return new EventQueryResult(matched, Math.Min(skip, matched), page);
+    }
+
+    // Opens a trace of either supported format as a TraceLog: an ETW .etl via
+    // OpenOrConvert (the ETW -> ETLX conversion is Windows-only), or an EventPipe
+    // .nettrace via CreateFromEventPipeDataFile. The event loop over TraceLog.Events is
+    // identical for both, so the raw query spans EventPipe and ETW alike.
+    private static Etlx.TraceLog OpenTrace(string fullPath)
+    {
+        if (fullPath.EndsWith(".etl", StringComparison.OrdinalIgnoreCase))
+        {
+            return Etlx.TraceLog.OpenOrConvert(
+                fullPath,
+                new Etlx.TraceLogOptions { ContinueOnError = true });
+        }
+
+        string etlxPath = Etlx.TraceLog.CreateFromEventPipeDataFile(
+            fullPath,
+            null,
+            new Etlx.TraceLogOptions { ContinueOnError = true });
+
+        return new Etlx.TraceLog(etlxPath);
     }
 
     // Renders an event's named fields as "name=value; ..." truncated to the cap, so

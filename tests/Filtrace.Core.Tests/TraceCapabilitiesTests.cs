@@ -48,9 +48,9 @@ public sealed class TraceCapabilitiesTests
         analyses.Should().NotContain("jitstats");
         analyses.Should().NotContain("threadpool");
 
-        // The raw events query is .nettrace-only (the events verb and trace_query_events
-        // reject an .etl), so it is not listed as an Etl analysis.
-        analyses.Should().NotContain("events");
+        // The raw event query spans both formats (the events verb and trace_query_events
+        // now read an .etl too), so it is listed as an Etl analysis.
+        analyses.Should().Contain("events");
     }
 
     [TestMethod]
