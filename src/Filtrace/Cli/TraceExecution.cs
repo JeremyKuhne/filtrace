@@ -216,8 +216,10 @@ internal static class TraceExecution
         [NotNullWhen(true)] out T? result) where T : class
     {
         // Format guardrail (an extension test, no I/O): the kernel disk / file events are
-        // ETW-only, so reject a .nettrace or speedscope export cleanly here.
-        if (!path.EndsWith(".etl", StringComparison.OrdinalIgnoreCase))
+        // ETW-only, so reject a .nettrace or speedscope export cleanly here. Guard a null
+        // or empty path too, so a bad input takes the clean InputError path rather than
+        // throwing (matching the MCP RequireEtl guardrail).
+        if (string.IsNullOrEmpty(path) || !path.EndsWith(".etl", StringComparison.OrdinalIgnoreCase))
         {
             error.WriteLine(
                 $"The {reportName} report requires a Windows ETW .etl trace; '{path}' is not a .etl file.");
