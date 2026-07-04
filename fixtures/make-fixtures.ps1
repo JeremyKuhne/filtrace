@@ -276,6 +276,38 @@ $fixtureWait = Join-Path $coreFixtures 'wait.nettrace'
 Copy-Item $waitTrace.FullName $fixtureWait -Force
 Write-Host "Wait fixture -> $fixtureWait ($([math]::Round($waitTrace.Length / 1KB)) KB)"
 
+# Capture the activity smoke trace for the activity metric. ActivityLoop emits nested
+# start-stop activities (Order { Query, Render }) through a custom EventSource; its
+# ActivityCaptureConfig enables that Filtrace-ActivityBench provider (not in any default
+# set), so the trace carries the paired Start/Stop activity events the activity metric
+# ranks by cumulative duration.
+Write-Host 'Capturing the activity smoke trace...'
+Push-Location $benchProject
+try
+{
+    dotnet run -c Release -f net10.0 -- --filter '*ActivityLoop*' | Out-Host
+    if ($LASTEXITCODE -ne 0)
+    {
+        throw "Activity capture failed with exit code $LASTEXITCODE."
+    }
+}
+finally
+{
+    Pop-Location
+}
+
+$activityTrace = Get-ChildItem -Recurse $artifacts -Filter '*ActivityLoop*.nettrace' |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+if ($null -eq $activityTrace)
+{
+    throw "No activity .nettrace was produced under $artifacts."
+}
+
+$fixtureActivity = Join-Path $coreFixtures 'activity.nettrace'
+Copy-Item $activityTrace.FullName $fixtureActivity -Force
+Write-Host "Activity fixture -> $fixtureActivity ($([math]::Round($activityTrace.Length / 1KB)) KB)"
+
 # Capture the thread-pool starvation smoke trace for the thread-pool provider.
 # ThreadPoolStarveLoop floods the pool with blocking work items; its
 # ThreadPoolStarveConfig forces the pool to start at a single worker thread (via the

@@ -112,6 +112,7 @@ public sealed class TraceLoader
             TraceMetric.Exceptions => LoadExceptions(fullPath, reader),
             TraceMetric.Contention => LoadContention(fullPath, reader),
             TraceMetric.Wait => LoadWait(fullPath, reader),
+            TraceMetric.Activity => LoadActivity(fullPath, reader),
             TraceMetric.ThreadTime => LoadThreadTime(fullPath, reader, scope),
             // Enums can be cast from any int, so reject an undefined value rather than
             // silently falling back to a CPU load and masking a bad caller (or a future
@@ -248,6 +249,36 @@ public sealed class TraceLoader
         // Wait frames resolve from the trace's CLR rundown, so - as with the allocation,
         // exceptions, and contention families - resolution is reported complete and the
         // --strict gate does not apply.
+        TraceInfo info = BuildInfo(fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0, warnings);
+        return new LoadedTrace(info, source);
+    }
+
+    private static LoadedTrace LoadActivity(string fullPath, ITraceReader reader)
+    {
+        // Activities are the EventSource Start/Stop view of an EventPipe trace; an .etl
+        // or speedscope export is rejected here rather than let the provider fail deep in
+        // the reader. (Start/Stop activities also ride an .etl capture, but that
+        // multi-process path is a separate follow-up; the .nettrace path is the headline,
+        // no-elevation, cross-platform one.)
+        if (reader.Format != TraceFormat.NetTrace)
+        {
+            throw new NotSupportedException(
+                $"The activity metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
+        }
+
+        StackSampleSource source = new ActivityProvider().Read(fullPath);
+
+        List<string> warnings = [];
+        if (source.Samples.Count == 0)
+        {
+            warnings.Add(
+                "No start-stop activities were found. Activities come from EventSource Start/Stop events "
+                + "(ASP.NET requests, HttpClient calls, the TPL, or a custom source); did the workload emit any?");
+        }
+
+        // Activity frames are the activity names from the event stream, not resolved
+        // symbols, so - as with the other stack-source families - resolution is reported
+        // complete and the --strict gate does not apply.
         TraceInfo info = BuildInfo(fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0, warnings);
         return new LoadedTrace(info, source);
     }

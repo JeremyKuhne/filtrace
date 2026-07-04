@@ -25,7 +25,7 @@ analyzes whatever a recorder produces. Record or produce one, then point filtrac
 
 | Capture | Records | Elevation | Scope | Recorded by |
 |---|---|---|---|---|
-| EventPipe (`.nettrace`; a `.speedscope.json` export is cpu-only) | cpu, alloc, exceptions, contention, wait, gc, jit | none | one process | `dotnet-trace collect`, BenchmarkDotNet `-p EP` |
+| EventPipe (`.nettrace`; a `.speedscope.json` export is cpu-only) | cpu, alloc, exceptions, contention, wait, activity, gc, jit | none | one process | `dotnet-trace collect`, BenchmarkDotNet `-p EP` |
 | ETW (`.etl`) | cpu, threadtime, native frames | Administrator | machine-wide | `filtrace collect`, BenchmarkDotNet `-p ETW`, PerfView, `wpr` |
 
 Only an ETW `.etl` carries wall-clock (`threadtime`), the native GC / JIT / `memcpy`
@@ -108,7 +108,7 @@ are named for them:
 
 | Verb | Ranks | Reads |
 |---|---|---|
-| `rank --metric <m>` | any metric (`cpu`, `alloc`, `exceptions`, `threadtime`, `contention`, `wait`) | per metric |
+| `rank --metric <m>` | any metric (`cpu`, `alloc`, `exceptions`, `threadtime`, `contention`, `wait`, `activity`) | per metric |
 | `cpu` | CPU self/inclusive time | `.nettrace`, `.etl`, `.speedscope.json` |
 | `alloc` | bytes allocated, by site | `.nettrace` |
 | `exceptions` | exception types, by count | `.nettrace` |
@@ -203,7 +203,7 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 | Tool | CLI equivalent | Purpose |
 |---|---|---|
 | `trace_info` | (orient) | format, sample count, symbol-resolution rate, available analyses; call first |
-| `trace_rank` | `rank` / `cpu` / `alloc` / `exceptions` / `threadtime` | rank by `metric` (cpu, threadtime, alloc, exceptions, contention, wait) |
+| `trace_rank` | `rank` / `cpu` / `alloc` / `exceptions` / `threadtime` | rank by `metric` (cpu, threadtime, alloc, exceptions, contention, wait, activity) |
 | `trace_callers` | `callers` | immediate callers of a frame |
 | `trace_lines` | `lines` | hottest source lines of the scoped methods |
 | `trace_heatmap` | `heatmap` | per-line heat for one source file |
@@ -263,6 +263,6 @@ filtrace is built for an agent mid-investigation. Two ways to wire it in:
 Either way, the canonical loop is **orient -> rank -> drill -> compare**: read
 `trace_info` first and trust the rankings only when the symbol-resolution rate is
 at or above 0.8; rank by the metric that matches the question (cpu, alloc,
-exceptions, threadtime, contention, wait); drill the hot frame with callers / lines / tree; diff
+exceptions, threadtime, contention, wait, activity); drill the hot frame with callers / lines / tree; diff
 against a baseline to see what changed.
 <!-- filtrace:end agents-snippet -->

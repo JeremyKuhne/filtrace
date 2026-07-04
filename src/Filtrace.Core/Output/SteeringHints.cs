@@ -87,6 +87,11 @@ public static class SteeringHints
             routes.Add("frequent exceptions -> exceptions");
         }
 
+        if (analyses.Contains("activity"))
+        {
+            routes.Add("one request / endpoint / job is slow -> activity");
+        }
+
         return
         [
             $"this trace can answer: {string.Join(", ", info.AvailableAnalyses)}",

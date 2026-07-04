@@ -840,6 +840,14 @@ internal static class Program
             return CountEvents(args[1]);
         }
 
+        // `activities <trace>` runs the start-stop activity computers over a trace and
+        // prints the activities found, so make-fixtures can confirm a capture carries the
+        // activity events the activity metric reads.
+        if (args.Length >= 2 && string.Equals(args[0], "activities", StringComparison.OrdinalIgnoreCase))
+        {
+            return ActivityInspector.Run(args[1]);
+        }
+
         // `convert <etl> <outEtlx>` converts an ETW trace to ETLX, the cross-machine
         // hand-off format the O1 spike commits and reads off Windows.
         if (args.Length >= 3 && string.Equals(args[0], "convert", StringComparison.OrdinalIgnoreCase))

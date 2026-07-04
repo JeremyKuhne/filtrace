@@ -103,12 +103,13 @@ public sealed class TraceTools
         + "(JIT-helper leaves folded into the real method); measure=inclusive credits a frame and everything it "
         + "calls. One tool spans every family - metric=cpu (sampled ms, any format), threadtime (wall-clock per "
         + "thread, .etl only), alloc (bytes, .nettrace only), exceptions (throw count by type, .nettrace only), "
-        + "contention (ms on locks, .nettrace only), or wait (ms on a wait handle, .nettrace only). Scope with "
+        + "contention (ms on locks, .nettrace only), wait (ms on a wait handle, .nettrace only), or activity (ms "
+        + "per request/activity, .nettrace only). Scope with "
         + "root; for a BenchmarkDotNet capture set root to the measured workload to exclude harness warmup.")]
     public static AnalysisResult<RankingResult> Rank(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
-        [Description("Provider view to rank: cpu, threadtime, alloc, exceptions, contention, or wait.")] string metric = "cpu",
+        [Description("Provider view to rank: cpu, threadtime, alloc, exceptions, contention, wait, or activity.")] string metric = "cpu",
         [Description("Which measure to report: self or inclusive.")] string measure = "self",
         [Description("Optional substring of a frame name to scope the ranking to its subtree.")] string root = "",
         [Description("Maximum number of ranked rows to return.")] int top = 25,
@@ -122,6 +123,10 @@ public sealed class TraceTools
             + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
         string process = "",
         [Description(
+            "Optional start-stop activity task name to scope the ranking to - the CPU samples taken inside that "
+            + "request/job (cpu metric only). Omit for the whole trace.")]
+        string activity = "",
+        [Description(
             "Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server. "
             + "Opt-in - it fetches over the network and caches locally. cpu metric over an .etl capture only; "
             + "managed frames already resolve without it.")]
@@ -132,7 +137,21 @@ public sealed class TraceTools
         RequirePositiveTop(top);
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
 
-        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), resolved, ResolveScope(process), ResolveSymbols(nativeSymbols));
+        // The activity scope filters CPU samples by the request/job they were taken in, so
+        // it applies to the cpu metric only; reject the combination rather than ignore it.
+        if (!string.IsNullOrEmpty(activity) && resolved != TraceMetric.Cpu)
+        {
+            throw new McpException(
+                "The activity scope applies to the cpu metric only. Use metric=cpu (or omit metric) to scope to an activity.");
+        }
+
+        ScopeRequest? scope = ResolveScope(process);
+        if (!string.IsNullOrEmpty(activity))
+        {
+            scope = (scope ?? ScopeRequest.Auto).WithActivity(activity);
+        }
+
+        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), resolved, scope, ResolveSymbols(nativeSymbols));
         TraceInfo info = trace.Info;
         RankingResult ranking = inclusive
             ? trace.Aggregator.InclusiveTime(root, foldPatterns, top)

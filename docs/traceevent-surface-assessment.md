@@ -177,7 +177,7 @@ Stable IDs (TE-n) so items can be tracked and referenced as they move.
 | TE-5 | ThreadPool starvation report | `.nettrace` | Med | new structured verb / tool | P1 | Landed |
 | TE-6 | Thread-time blocked-leaf split (disk / net / lock / paging) | `.etl` | Low-Med | enrich `threadtime` | P1 | Landed (`.etl`) |
 | TE-7 | Disk-I/O and File-I/O families | `.etl` | Med | new `metric`(s) | P1 | Landed (disk) |
-| TE-8 | Request / activity scoping (`--activity`) | both | Med-High | scope grammar + family | P2 | Proposed |
+| TE-8 | Request / activity scoping (`--activity`) | both | Med-High | scope grammar + family | P2 | Landed (`.nettrace`) |
 | TE-9 | PMC / CPU-counter ranking | `.etl` capture | Med | new `metric` | P2 | Proposed |
 | TE-10 | Retention / leak (`.gcdump`) - re-scope | shell out | Med + new dependency | separate assembly | P2 | Proposed |
 | TE-11 | Agentic discoverability (content-aware `trace_info` + symptom hints + triage) | both | Low-Med | cross-cutting; enables every row | P0 | Landed (info + hints) |
@@ -317,9 +317,18 @@ matters.
 **TE-8. Request / activity scoping.** *A developer asks:* "The app is fine except
 this one endpoint or job - can I see just its time?" *Applicability to .NET:*
 central to server apps (ASP.NET requests, background jobs, message handlers).
-`StartStopActivityComputer` / `StartStopLatencyComputer` unlock the deferred
-`--activity` intent and "why is *this request* slow." Cross-cutting (scope grammar
-plus a family), so higher cost.
+*Status:* landed (`.nettrace`) - two halves over `StartStopActivityComputer`, which
+pairs EventSource Start/Stop events into named, timed, nested activities. The
+**activity metric** (`rank --metric activity`) weights each activity by its wall-clock
+duration and nests it under its parent - the `ActivityProvider` builds each stack from
+the activity's `Creator` chain, framed by the clean `TaskName` so instances fold
+together - so the existing aggregator ranks which request / job type costs the most
+time. The **`--activity <name>` scope** filters the cpu view to the samples taken
+inside a matching activity (or one nested under it), async-correct via
+`GetCurrentStartStopActivity` rather than a per-thread time window, and is rejected
+with a non-cpu metric. A `Filtrace-ActivityBench` EventSource fixture (`ActivityLoop`,
+Order { Query, Render }) proves both. Cross-metric activity scoping (alloc,
+exceptions, ...) and the `.etl` path are the noted follow-ups.
 
 **TE-9. PMC / CPU-counter ranking.** *A developer asks:* "The CPU is busy but I
 can't see why this loop is expensive - is it cache misses or branch mispredicts?"

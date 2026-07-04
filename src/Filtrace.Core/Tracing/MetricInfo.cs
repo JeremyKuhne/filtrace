@@ -62,4 +62,13 @@ public sealed record MetricInfo(string Name, string Unit)
     ///  provider, which weights each blocking-wait site by the time threads waited on it.
     /// </summary>
     public static MetricInfo Wait { get; } = new("Wait", "ms");
+
+    /// <summary>
+    ///  The activity metric: milliseconds each start-stop activity (a request, job, or
+    ///  operation) ran, per activity call path. This is the metric of the activity
+    ///  provider, which weights each activity by its wall-clock duration and nests it
+    ///  under its parent activity, so the engine ranks which activity types cost the most
+    ///  wall-clock time.
+    /// </summary>
+    public static MetricInfo Activity { get; } = new("Activity", "ms");
 }
