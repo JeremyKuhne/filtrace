@@ -286,7 +286,7 @@ internal static class TraceExecution
         {
             string display = string.IsNullOrEmpty(path) ? "(no path)" : path;
             error.WriteLine(
-                $"The {reportName} requires a .nettrace EventPipe or .etl ETW trace; '{display}' is neither.");
+                $"The {reportName} requires a .nettrace EventPipe or .etl ETW trace (Windows-only); '{display}' is neither.");
             result = null;
             return false;
         }
