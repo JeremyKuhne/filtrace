@@ -105,7 +105,7 @@ public sealed class TraceTools
         + "thread, .etl only), alloc (bytes, .nettrace only), exceptions (throw count by type, .nettrace only), "
         + "contention (ms on locks, .nettrace only), wait (ms on a wait handle, .nettrace only), or activity (ms "
         + "per request/activity, .nettrace only). Scope with "
-        + "root; for a BenchmarkDotNet capture set root to the measured workload to exclude harness warmup.")]
+        + "root; for a BenchmarkDotNet capture set root to the measured workload to skip the harness.")]
     public static AnalysisResult<RankingResult> Rank(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -123,13 +123,11 @@ public sealed class TraceTools
             + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
         string process = "",
         [Description(
-            "Optional start-stop activity task name to scope the ranking to - the CPU samples taken inside that "
-            + "request/job (cpu metric only). Omit for the whole trace.")]
+            "Optional activity task name to scope the CPU ranking to that request/job (cpu metric only).")]
         string activity = "",
         [Description(
-            "Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server. "
-            + "Opt-in - it fetches over the network and caches locally. cpu metric over an .etl capture only; "
-            + "managed frames already resolve without it.")]
+            "Resolve native runtime frames (GC, JIT, memcpy) from the Microsoft public symbol server. Opt-in "
+            + "(fetches over the network, cached locally); cpu metric over an .etl capture only.")]
         bool nativeSymbols = false)
     {
         TraceMetric resolved = ResolveMetric(metric);
