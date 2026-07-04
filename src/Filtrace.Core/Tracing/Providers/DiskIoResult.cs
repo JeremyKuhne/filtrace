@@ -6,7 +6,7 @@ namespace Filtrace.Tracing.Providers;
 
 /// <summary>
 ///  The disk I/O attributed to one file in a <see cref="DiskIoResult"/>: how many
-///  bytes the process read and wrote to it, the operation counts, and the total time
+///  bytes were read from and written to it, the operation counts, and the total time
 ///  the physical disk spent servicing them.
 /// </summary>
 /// <param name="FileName">The file the disk I/O resolved to, or <c>(unknown)</c> when the event carried no file name.</param>
