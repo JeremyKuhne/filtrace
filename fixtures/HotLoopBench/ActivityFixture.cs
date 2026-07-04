@@ -191,9 +191,9 @@ internal static class ActivityInspector
             new TraceLogOptions { ContinueOnError = true });
 
         using TraceLog traceLog = new(etlxPath);
-        TraceLogEventSource source = traceLog.Events.GetSource();
+        using TraceLogEventSource source = traceLog.Events.GetSource();
 
-        Microsoft.Diagnostics.Symbols.SymbolReader symbolReader = new(System.IO.TextWriter.Null);
+        using Microsoft.Diagnostics.Symbols.SymbolReader symbolReader = new(System.IO.TextWriter.Null);
         GCReferenceComputer gcReferences = new(source);
         ActivityComputer activityComputer = new(source, symbolReader, gcReferences);
         StartStopActivityComputer startStop = new(source, activityComputer, false);
