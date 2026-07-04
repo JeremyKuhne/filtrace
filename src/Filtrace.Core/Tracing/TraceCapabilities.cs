@@ -13,7 +13,7 @@ namespace Filtrace.Tracing;
 ///  <para>
 ///   The list is a hard format constraint, not a capture-content guarantee: an
 ///   analysis is listed when filtrace can build it from this format at all. Allocation,
-///   exceptions, contention, wait, and the GC / JIT / thread-pool reports are
+///   exceptions, contention, wait, activity, and the GC / JIT / thread-pool reports are
 ///   EventPipe-only; thread time, the runtime-work classification, the process
 ///   inventory, and the disk-I/O report are ETW-only; a speedscope export carries CPU
 ///   stacks alone. The raw event query is the one analysis that spans both EventPipe
@@ -33,7 +33,7 @@ public static class TraceCapabilities
     public static IReadOnlyList<string> AnalysesFor(TraceFormat format) => format switch
     {
         TraceFormat.Speedscope => ["cpu"],
-        TraceFormat.NetTrace => ["cpu", "alloc", "exceptions", "contention", "wait", "gcstats", "jitstats", "threadpool", "events"],
+        TraceFormat.NetTrace => ["cpu", "alloc", "exceptions", "contention", "wait", "activity", "gcstats", "jitstats", "threadpool", "events"],
         TraceFormat.Etl => ["cpu", "threadtime", "classify", "processes", "diskio", "events"],
         _ => []
     };

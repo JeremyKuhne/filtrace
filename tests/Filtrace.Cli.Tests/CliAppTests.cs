@@ -229,6 +229,17 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_ActivityWithNonCpuMetric_ReturnsUsageError()
+    {
+        // The activity scope filters CPU samples, so it is rejected with a non-cpu metric
+        // up front, before any trace read - deterministic on every CI leg.
+        (int exit, _, string error) = Run("rank", Speedscope, "--metric", "alloc", "--activity", "Order");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("activity scope applies to the cpu metric only");
+    }
+
+    [TestMethod]
     public void Run_Benchmark_ScopesToTheMeasuredWorkload()
     {
         // The exceptions fixture is a BenchmarkDotNet EventPipe capture; --benchmark

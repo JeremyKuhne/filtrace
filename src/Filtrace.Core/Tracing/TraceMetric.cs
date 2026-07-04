@@ -63,5 +63,13 @@ public enum TraceMetric
     ///  <c>.nettrace</c> EventPipe trace carrying the .NET 9+ <c>WaitHandleWait/Start</c>
     ///  and <c>WaitHandleWait/Stop</c> events.
     /// </summary>
-    Wait
+    Wait,
+
+    /// <summary>
+    ///  The start-stop activities - requests, jobs, or operations - weighted by each
+    ///  activity's wall-clock duration and nested under its parent activity
+    ///  (<see cref="MetricInfo.Activity"/>). Read from a <c>.nettrace</c> EventPipe trace
+    ///  carrying EventSource <c>Start</c> / <c>Stop</c> activity events.
+    /// </summary>
+    Activity
 }

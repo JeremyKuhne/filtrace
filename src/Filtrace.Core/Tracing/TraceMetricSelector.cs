@@ -14,7 +14,7 @@ namespace Filtrace.Tracing;
 ///   This is the single source of truth for the selector vocabulary so the CLI and
 ///   MCP heads cannot drift: both resolve <c>cpu</c>, <c>threadtime</c>,
 ///   <c>alloc</c> (or its <c>allocations</c> alias), <c>exceptions</c>,
-///   <c>contention</c>, and <c>wait</c> through here, and both report an unknown
+///   <c>contention</c>, <c>wait</c>, and <c>activity</c> through here, and both report an unknown
 ///   selector against the one <see cref="Selectors"/> list.
 ///  </para>
 /// </remarks>
@@ -24,7 +24,7 @@ public static class TraceMetricSelector
     ///  The canonical selector names, lowest-level first, for help and error text.
     ///  The <c>alloc</c> selector also accepts the <c>allocations</c> alias.
     /// </summary>
-    public static IReadOnlyList<string> Selectors { get; } = ["cpu", "threadtime", "alloc", "exceptions", "contention", "wait"];
+    public static IReadOnlyList<string> Selectors { get; } = ["cpu", "threadtime", "alloc", "exceptions", "contention", "wait", "activity"];
 
     /// <summary>
     ///  Resolves a <c>metric</c> selector string to the provider view it names.
@@ -65,6 +65,9 @@ public static class TraceMetricSelector
                 return true;
             case "wait":
                 metric = TraceMetric.Wait;
+                return true;
+            case "activity":
+                metric = TraceMetric.Activity;
                 return true;
             default:
                 metric = TraceMetric.Cpu;

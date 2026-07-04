@@ -23,7 +23,7 @@ internal sealed class TraceCommands
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="metric">
     ///  Provider metric to rank: cpu (default), alloc, exceptions, threadtime,
-    ///  contention, or wait. The cpu metric weights each sample as 1 ms, so its weights
+    ///  contention, wait, or activity. The cpu metric weights each sample as 1 ms, so its weights
     ///  are approximate; the relative percentages are exact.
     /// </param>
     /// <param name="measure">-m, Which measure to report: self (leaf time, helpers folded) or inclusive.</param>
@@ -35,6 +35,7 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="activity">Scope the ranking to one start-stop activity by task name - the CPU samples taken inside that request/job (cpu metric only); omit for the whole trace.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl CPU captures only.</param>
     /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
@@ -53,6 +54,7 @@ internal sealed class TraceCommands
         bool strict = false,
         string process = "",
         bool allProcesses = false,
+        string activity = "",
         bool benchmark = false,
         bool nativeSymbols = false,
         string symbolCache = "",
@@ -70,6 +72,18 @@ internal sealed class TraceCommands
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
         }
+
+        // The activity scope filters CPU samples by the request/job they were taken in,
+        // so it applies to the cpu metric only; the other metrics' providers do not read
+        // it. Reject the combination rather than silently ignore it.
+        if (!string.IsNullOrEmpty(activity) && resolved != TraceMetric.Cpu)
+        {
+            Console.Error.WriteLine(
+                "The --activity scope applies to the cpu metric only. Use --metric cpu (or omit --metric) to scope to an activity.");
+            return ExitCodes.UsageError;
+        }
+
+        scope = scope.WithActivity(activity);
 
         if (!RankRequestFactory.TryResolveRoot(root, benchmark, out string resolvedRoot, out string? rootError))
         {

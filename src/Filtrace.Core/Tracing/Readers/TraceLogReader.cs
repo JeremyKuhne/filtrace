@@ -107,7 +107,16 @@ internal abstract class TraceLogReader : ITraceReader
             HashSet<int>? scopePids = ProcessTree.ResolveScope(
                 traceLog, scope ?? ScopeRequest.Auto, out appliedScopeName);
 
-            return ReadCore(traceLog, symbolReader, scopePids, appliedScopeName);
+            // When an activity scope is requested, pre-pass the trace to find which CPU
+            // samples were taken inside that activity (or one nested under it), so the
+            // main read below keeps only those. Async-correct: it consults each sample's
+            // current start-stop activity, not a per-thread time window.
+            string? activityName = scope?.ActivityName;
+            HashSet<EventIndex>? activitySamples = string.IsNullOrEmpty(activityName)
+                ? null
+                : ComputeActivitySampleFilter(traceLog, symbolReader, activityName);
+
+            return ReadCore(traceLog, symbolReader, scopePids, appliedScopeName, activitySamples, activityName);
         }
         finally
         {
@@ -126,11 +135,62 @@ internal abstract class TraceLogReader : ITraceReader
         }
     }
 
+    // Runs the start-stop activity computer over the trace and returns the set of CPU
+    // sample events (by index) taken while a thread was inside an activity whose task
+    // name matches, or inside one nested under it. This is a pre-pass over the same
+    // TraceLog the main read then walks; consulting each sample's current start-stop
+    // activity (rather than a per-thread time window) keeps it correct across the async
+    // thread hops an activity makes.
+    private static HashSet<EventIndex> ComputeActivitySampleFilter(
+        TraceLog traceLog,
+        SymbolReader symbolReader,
+        string activityName)
+    {
+        using TraceLogEventSource source = traceLog.Events.GetSource();
+        GCReferenceComputer gcReferences = new(source);
+        ActivityComputer activityComputer = new(source, symbolReader, gcReferences);
+        StartStopActivityComputer startStop = new(source, activityComputer, ignoreApplicationInsightsRequestsWithRelatedActivityId: false);
+
+        HashSet<EventIndex> matching = [];
+        source.AllEvents += data =>
+        {
+            if (data is not (SampledProfileTraceData or ClrThreadSampleTraceData))
+            {
+                return;
+            }
+
+            TraceThread? thread = data.Thread();
+            if (thread is null)
+            {
+                return;
+            }
+
+            // GetCurrentStartStopActivity returns the innermost activity on the thread;
+            // walk its parent (Creator) chain so a scope to an outer activity also keeps
+            // samples taken inside its nested children.
+            for (StartStopActivity? activity = startStop.GetCurrentStartStopActivity(thread, data);
+                activity is not null;
+                activity = activity.Creator)
+            {
+                if (string.Equals(activity.TaskName, activityName, StringComparison.OrdinalIgnoreCase))
+                {
+                    matching.Add(data.EventIndex);
+                    break;
+                }
+            }
+        };
+
+        source.Process();
+        return matching;
+    }
+
     private static TraceReadResult ReadCore(
         TraceLog traceLog,
         SymbolReader symbolReader,
         HashSet<int>? scopePids,
-        string? appliedScopeName)
+        string? appliedScopeName,
+        HashSet<EventIndex>? activitySamples,
+        string? activityName)
     {
         Dictionary<int, string> locationCache = [];
 
@@ -159,6 +219,13 @@ internal abstract class TraceLogReader : ITraceReader
             // When scoped to a process tree, drop samples from any process outside it.
             // The trace is already fully resolved, so this is a lossless narrowing.
             if (scopePids is not null && !scopePids.Contains(data.ProcessID))
+            {
+                continue;
+            }
+
+            // When scoped to an activity, drop samples that were not taken inside it (the
+            // matching set was computed by the activity pre-pass above).
+            if (activitySamples is not null && !activitySamples.Contains(data.EventIndex))
             {
                 continue;
             }
@@ -227,19 +294,41 @@ internal abstract class TraceLogReader : ITraceReader
         List<string> warnings = [];
         if (samples.Count == 0)
         {
-            // An empty result has two distinct causes now that scoping can drop every
-            // sample: a scope that matched no process (the trace is fine), or a trace
-            // that carried no CPU samples at all. Name the right one so the message does
-            // not blame the capture when the scope is at fault.
-            warnings.Add(appliedScopeName is not null
-                ? $"No samples remained after scoping to the '{appliedScopeName}' process tree; "
-                    + "the scope may match no process with samples - pass --all-processes to read every process."
-                : "No sampled-profile (CPU) events were found. Was the trace captured with a CPU sampler?");
+            // An empty result can come from either scope dropping every sample or an
+            // absent CPU sampler; name the most specific cause so the message does not
+            // blame the capture when a scope is at fault.
+            if (activityName is not null && appliedScopeName is not null)
+            {
+                warnings.Add(
+                    $"No samples remained after scoping to the '{appliedScopeName}' process tree and the "
+                    + $"'{activityName}' activity; either scope may have dropped them all - relax one to see which.");
+            }
+            else if (activityName is not null)
+            {
+                warnings.Add(
+                    $"No samples remained inside the '{activityName}' activity; the trace may carry no such "
+                    + "activity (activities come from EventSource Start/Stop events), or none of its samples were CPU samples.");
+            }
+            else
+            {
+                warnings.Add(appliedScopeName is not null
+                    ? $"No samples remained after scoping to the '{appliedScopeName}' process tree; "
+                        + "the scope may match no process with samples - pass --all-processes to read every process."
+                    : "No sampled-profile (CPU) events were found. Was the trace captured with a CPU sampler?");
+            }
         }
-        else if (appliedScopeName is not null)
+        else
         {
-            warnings.Add(
-                $"Scoped to the '{appliedScopeName}' process tree; pass --all-processes to read every process.");
+            if (appliedScopeName is not null)
+            {
+                warnings.Add(
+                    $"Scoped to the '{appliedScopeName}' process tree; pass --all-processes to read every process.");
+            }
+
+            if (activityName is not null)
+            {
+                warnings.Add($"Scoped to the '{activityName}' activity.");
+            }
         }
 
         if (SymbolGate.TryGetWarning(resolutionRate, samples.Count, out string? symbolWarning))

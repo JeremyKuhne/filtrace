@@ -25,23 +25,24 @@ namespace Filtrace.Tracing;
 /// </remarks>
 public sealed class ScopeRequest
 {
-    private ScopeRequest(bool includeAll, string? processName, bool includeChildren)
+    private ScopeRequest(bool includeAll, string? processName, bool includeChildren, string? activityName)
     {
         IncludeAll = includeAll;
         ProcessName = processName;
         IncludeChildren = includeChildren;
+        ActivityName = activityName;
     }
 
     /// <summary>
     ///  The default: let the loader scope a multi-process capture to the busiest
     ///  process tree automatically.
     /// </summary>
-    public static ScopeRequest Auto { get; } = new(includeAll: false, processName: null, includeChildren: true);
+    public static ScopeRequest Auto { get; } = new(includeAll: false, processName: null, includeChildren: true, activityName: null);
 
     /// <summary>
     ///  Read every process - the opt-out from automatic scenario scoping.
     /// </summary>
-    public static ScopeRequest AllProcesses { get; } = new(includeAll: true, processName: null, includeChildren: true);
+    public static ScopeRequest AllProcesses { get; } = new(includeAll: true, processName: null, includeChildren: true, activityName: null);
 
     /// <summary>
     ///  Scope to the process(es) whose name contains <paramref name="processName"/>,
@@ -58,8 +59,19 @@ public sealed class ScopeRequest
     public static ScopeRequest ForProcess(string processName, bool includeChildren = true)
     {
         ArgumentException.ThrowIfNullOrEmpty(processName);
-        return new ScopeRequest(includeAll: false, processName: processName, includeChildren: includeChildren);
+        return new ScopeRequest(includeAll: false, processName: processName, includeChildren: includeChildren, activityName: null);
     }
+
+    /// <summary>
+    ///  Returns a copy of this request additionally scoped to the start-stop activity
+    ///  whose task name matches <paramref name="activityName"/> (case-insensitive): only
+    ///  the samples taken while a thread was inside that activity (or one nested under
+    ///  it) are kept. An empty or <see langword="null"/> name clears the activity scope.
+    /// </summary>
+    /// <param name="activityName">The activity task name to scope to, or <see langword="null"/> for none.</param>
+    /// <returns>A copy of this request with the activity scope applied.</returns>
+    public ScopeRequest WithActivity(string? activityName) =>
+        new(IncludeAll, ProcessName, IncludeChildren, string.IsNullOrEmpty(activityName) ? null : activityName);
 
     /// <summary>
     ///  Whether every process is read (the all-processes opt-out).
@@ -77,5 +89,13 @@ public sealed class ScopeRequest
     ///  an explicit <see cref="ForProcess"/> request and to the automatic scope.
     /// </summary>
     public bool IncludeChildren { get; }
+
+    /// <summary>
+    ///  The start-stop activity task name to scope samples to (case-insensitive), or
+    ///  <see langword="null"/> when no activity scope was requested. When set, only the
+    ///  samples taken while a thread was inside that activity (or one nested under it)
+    ///  are kept. Honored by the CPU reader; other metrics ignore it.
+    /// </summary>
+    public string? ActivityName { get; }
 }
 
