@@ -190,6 +190,63 @@ internal static class TraceExecution
     }
 
     /// <summary>
+    ///  Reads a structured report that needs a Windows ETW (<c>.etl</c>) trace, applying
+    ///  the format guardrail and mapping the provider's failure modes to a clean exit.
+    /// </summary>
+    /// <typeparam name="T">The report result type.</typeparam>
+    /// <param name="path">The trace file path.</param>
+    /// <param name="reportName">The report's display name, used in the guardrail message.</param>
+    /// <param name="read">Reads the report; called only after the format guardrail passes.</param>
+    /// <param name="error">The writer load errors are reported to.</param>
+    /// <param name="result">The report on success; <see langword="null"/> on failure.</param>
+    /// <returns><see langword="true"/> if the report was read; otherwise <see langword="false"/>.</returns>
+    /// <remarks>
+    ///  <para>
+    ///   The mirror of <see cref="TryReadNetTraceReport{T}"/> for the kernel-event reports
+    ///   (disk I/O and the like): those events are an ETW capability, so an EventPipe
+    ///   <c>.nettrace</c> or a speedscope export is rejected up front with a clear message
+    ///   rather than parsed into an empty report.
+    ///  </para>
+    /// </remarks>
+    public static bool TryReadEtlReport<T>(
+        string path,
+        string reportName,
+        Func<T> read,
+        TextWriter error,
+        [NotNullWhen(true)] out T? result) where T : class
+    {
+        // Format guardrail (an extension test, no I/O): the kernel disk / file events are
+        // ETW-only, so reject a .nettrace or speedscope export cleanly here.
+        if (!path.EndsWith(".etl", StringComparison.OrdinalIgnoreCase))
+        {
+            error.WriteLine(
+                $"The {reportName} report requires a Windows ETW .etl trace; '{path}' is not a .etl file.");
+            result = null;
+            return false;
+        }
+
+        try
+        {
+            result = read();
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or FormatException
+            or ArgumentException)
+        {
+            // A missing, unreadable, or malformed .etl terminates with a defined exit code
+            // rather than crashing the process.
+            error.WriteLine(ex.Message);
+            result = null;
+            return false;
+        }
+    }
+
+    /// <summary>
     ///  The quality warnings to attach to a result envelope: the full list the reader
     ///  and loader recorded on <see cref="TraceInfo.Warnings"/>.
     /// </summary>

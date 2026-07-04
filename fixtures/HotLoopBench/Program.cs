@@ -638,6 +638,183 @@ public class EtwLoop
     }
 }
 
+#if NET
+/// <summary>
+///  Captures the disk-I/O ETW (<c>.etl</c>) fixture: opens a tight kernel session
+///  around an inline file-I/O workload, so the trace carries the workload's
+///  <c>DiskIO</c> events (with file names) and the disk-blocked intervals the thread-time
+///  view credits to <c>DISK_TIME</c>, without the volume of a long, machine-wide capture.
+/// </summary>
+/// <remarks>
+///  <para>
+///   ETW kernel tracing is machine-wide, so trace size is driven by the capture window,
+///   not the workload: a BenchmarkDotNet capture (which spans the net481 build and run)
+///   with the <c>DiskIO</c> keyword balloons to hundreds of megabytes, while this bespoke
+///   session is open only for the sub-second inline workload, keeping the committed trace
+///   small. The workload writes a few small files with write-through (so the bytes hit
+///   the physical disk and the writing thread blocks on it), flushes to disk, reads them
+///   back, then deletes them - defeating the write cache so the capture carries real
+///   <c>DiskIO</c> write events. The machine-wide <c>FileIO</c> keyword is deliberately
+///   not enabled - it is extremely high volume even in a short window. Runs on net10;
+///   Windows-only and elevated.
+///  </para>
+/// </remarks>
+internal static class DiskIoCapture
+{
+    /// <summary>
+    ///  Opens a tight kernel ETW session, runs the inline file-I/O workload, and writes
+    ///  the captured trace to <paramref name="outputPath"/>.
+    /// </summary>
+    /// <param name="outputPath">The <c>.etl</c> file to write.</param>
+    /// <returns>A process exit code: 0 on success.</returns>
+    public static int Capture(string outputPath)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Console.Error.WriteLine("Disk I/O capture is Windows-only.");
+            return 1;
+        }
+
+        if (Microsoft.Diagnostics.Tracing.Session.TraceEventSession.IsElevated() != true)
+        {
+            Console.Error.WriteLine("ETW capture needs Administrator. Re-run elevated.");
+            return 1;
+        }
+
+        string fullPath = System.IO.Path.GetFullPath(outputPath);
+        string? directory = System.IO.Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            System.IO.Directory.CreateDirectory(directory);
+        }
+
+        if (System.IO.File.Exists(fullPath))
+        {
+            System.IO.File.Delete(fullPath);
+        }
+
+        // The CPU / thread-time set plus the disk I/O keywords the disk provider reads
+        // and the thread-time view needs to attribute DISK_TIME. FileIO is left off on
+        // purpose: it is machine-wide and extremely high volume even in a short window.
+        KernelTraceEventParser.Keywords kernelKeywords =
+            KernelTraceEventParser.Keywords.Profile
+            | KernelTraceEventParser.Keywords.ImageLoad
+            | KernelTraceEventParser.Keywords.Thread
+            | KernelTraceEventParser.Keywords.ContextSwitch
+            | KernelTraceEventParser.Keywords.Dispatcher
+            | KernelTraceEventParser.Keywords.DiskIO
+            | KernelTraceEventParser.Keywords.DiskIOInit
+            | KernelTraceEventParser.Keywords.DiskFileIO;
+
+        // Stacks only on the CPU-sample and context-switch events (as for the thread-time
+        // capture); the disk events carry the file name, not a stack.
+        KernelTraceEventParser.Keywords stackKeywords =
+            KernelTraceEventParser.Keywords.Profile
+            | KernelTraceEventParser.Keywords.ContextSwitch;
+
+        string sessionName = "filtrace-diskio-capture-"
+            + System.Diagnostics.Process.GetCurrentProcess().Id.ToString();
+
+        using (Microsoft.Diagnostics.Tracing.Session.TraceEventSession session =
+            new(sessionName, fullPath) { StopOnDispose = true })
+        {
+            session.EnableKernelProvider(kernelKeywords, stackKeywords);
+
+            // Enable the CLR provider so the session-stop rundown resolves the workload's
+            // managed methods, giving the DISK_TIME blocking stack real frame names.
+            session.EnableProvider(
+                ClrTraceEventParser.ProviderGuid,
+                TraceEventLevel.Verbose,
+                (ulong)ClrTraceEventParser.Keywords.Default);
+
+            long read = FileIoWorkload(files: 4, bytesPerFile: 512 * 1024);
+            Console.WriteLine($"Workload read {read} bytes.");
+
+            // A brief settle so trailing DiskIO completion events land before the session
+            // stops and flushes on dispose.
+            System.Threading.Thread.Sleep(250);
+        }
+
+        Console.WriteLine($"Disk I/O capture -> {fullPath}");
+        return 0;
+    }
+
+    private static long FileIoWorkload(int files, int bytesPerFile)
+    {
+        string dir = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            $"filtrace-io-{System.Diagnostics.Process.GetCurrentProcess().Id}");
+        System.IO.Directory.CreateDirectory(dir);
+
+        byte[] buffer = new byte[64 * 1024];
+        for (int i = 0; i < buffer.Length; i++)
+        {
+            buffer[i] = (byte)i;
+        }
+
+        long totalRead = 0;
+        try
+        {
+            for (int f = 0; f < files; f++)
+            {
+                string path = System.IO.Path.Combine(dir, "block-" + f.ToString() + ".bin");
+
+                // Write-through so the bytes are committed to the physical disk (and the
+                // writing thread blocks on the disk) rather than sitting in the cache.
+                using (System.IO.FileStream write = new(
+                    path,
+                    System.IO.FileMode.Create,
+                    System.IO.FileAccess.Write,
+                    System.IO.FileShare.None,
+                    buffer.Length,
+                    System.IO.FileOptions.WriteThrough))
+                {
+                    int written = 0;
+                    while (written < bytesPerFile)
+                    {
+                        write.Write(buffer, 0, buffer.Length);
+                        written += buffer.Length;
+                    }
+
+                    write.Flush(flushToDisk: true);
+                }
+
+                // Read the file back so the capture also carries file-read I/O.
+                using (System.IO.FileStream read = new(
+                    path,
+                    System.IO.FileMode.Open,
+                    System.IO.FileAccess.Read,
+                    System.IO.FileShare.None,
+                    buffer.Length,
+                    System.IO.FileOptions.SequentialScan))
+                {
+                    int n;
+                    while ((n = read.Read(buffer, 0, buffer.Length)) > 0)
+                    {
+                        totalRead += n;
+                    }
+                }
+
+                System.IO.File.Delete(path);
+            }
+        }
+        finally
+        {
+            try
+            {
+                System.IO.Directory.Delete(dir, recursive: true);
+            }
+            catch (System.IO.IOException)
+            {
+                // A leftover temp file is harmless; the OS reclaims the temp directory.
+            }
+        }
+
+        return totalRead;
+    }
+}
+#endif
+
 /// <summary>
 ///  Runs the fixture benchmarks under the EventPipe profiler, or inspects a
 ///  captured trace's event types.
@@ -651,6 +828,13 @@ internal static class Program
         if (args.Length >= 2 && string.Equals(args[0], "inspect", StringComparison.OrdinalIgnoreCase))
         {
             return Inspect(args[1]);
+        }
+
+        // `count <trace>` tallies raw ETW events by provider/name via a fast streaming
+        // reader (no ETLX conversion), so a large capture can be diagnosed quickly.
+        if (args.Length >= 2 && string.Equals(args[0], "count", StringComparison.OrdinalIgnoreCase))
+        {
+            return CountEvents(args[1]);
         }
 
         // `convert <etl> <outEtlx>` converts an ETW trace to ETLX, the cross-machine
@@ -670,6 +854,15 @@ internal static class Program
             return Trim(args[1], args[2], args[3], includeChildren);
         }
 
+#if NET
+        // `capture-disk <outEtl>` opens a tight kernel ETW session around an inline
+        // file-I/O workload, producing a small disk-I/O smoke trace (Windows, elevated).
+        if (args.Length >= 2 && string.Equals(args[0], "capture-disk", StringComparison.OrdinalIgnoreCase))
+        {
+            return DiskIoCapture.Capture(args[1]);
+        }
+#endif
+
         IEnumerable<Summary> summaries = BenchmarkSwitcher.FromAssembly(typeof(HotLoop).Assembly).Run(args);
 
         // Propagate a non-zero exit code when any benchmark failed to build/run or was
@@ -680,11 +873,15 @@ internal static class Program
 
     // Relogs an ETW trace keeping only the events of a process tree - the process(es)
     // whose name contains the given substring plus, by default, all their descendants
-    // - so a machine-wide capture shrinks to a small per-scenario file. Following
-    // children is essential for BenchmarkDotNet, which runs each workload in a child
-    // process the orchestrating host launches; it is equally the right default for
-    // "profile my app", whose work often runs in children too. Runs unelevated:
-    // relogging an existing file is not a live session.
+    // - so a machine-wide capture shrinks to a small per-scenario file. The kept events
+    // include the process tree's own disk I/O (DiskIO completions, which the kernel
+    // misattributes to the completing process, are matched back to the issuing thread by
+    // IRP), so a disk capture - otherwise dominated by a machine-wide file-name rundown -
+    // trims down to a committable smoke. Following children is essential for
+    // BenchmarkDotNet, which runs each workload in a child process the orchestrating host
+    // launches; it is equally the right default for "profile my app", whose work often
+    // runs in children too. Runs unelevated: relogging an existing file is not a live
+    // session.
     //
     // KNOWN LIMITATION: the relogged file resolves native modules but NOT JITted
     // managed methods, even with the full CLR method/module rundown preserved - the
@@ -709,6 +906,7 @@ internal static class Program
         // so the keep-set is computed here and matched by ID during the relog.
         HashSet<int> keepPids = [];
         HashSet<int> keepThreadIds = [];
+        HashSet<ulong> referencedFileKeys = [];
         List<string> keptNames = [];
         using (TraceLog traceLog = OpenAnyTrace(inEtlPath))
         {
@@ -753,6 +951,20 @@ internal static class Program
                     {
                         keepThreadIds.Add(thread.ThreadID);
                     }
+                }
+            }
+
+            // Collect the file keys the kept processes' disk I/O references, so the relog
+            // can keep the file-name rundown entries for exactly those files (and drop the
+            // rest of the system-wide rundown, which is the bulk of a disk capture).
+            // TraceLog attributes each DiskIO event to its issuing process, so a by-process
+            // test picks out the target's own I/O.
+            foreach (TraceEvent data in traceLog.Events)
+            {
+                if (data is DiskIOTraceData disk
+                    && (keepPids.Contains(disk.ProcessID) || keepThreadIds.Contains(disk.ThreadID)))
+                {
+                    referencedFileKeys.Add(disk.FileKey);
                 }
             }
         }
@@ -842,6 +1054,51 @@ internal static class Program
                 }
             };
 
+            // DiskIO completion events are attributed by the kernel to whichever process
+            // was running when the I/O completed (frequently the idle or System process),
+            // not the process that issued the I/O - so a by-process filter would drop the
+            // target's own disk activity. Correlate each completion to its issuing thread
+            // by IRP instead: the matching *Init event is logged in the issuing thread's
+            // context, so keep the Init events belonging to a kept thread, record their
+            // IRPs, and keep the completion whose IRP matches (removing it, since IRPs are
+            // reused). The process's own FileIO name / create events are kept by the
+            // by-process handler below, so the kept disk I/O still resolves to file names,
+            // while the machine-wide disk traffic and the system-wide file-name rundown
+            // (the bulk of a disk capture) are dropped.
+            HashSet<ulong> keptDiskIrps = [];
+
+            kernel.AddCallbackForEvents<DiskIOInitTraceData>(data =>
+            {
+                if (keepThreadIds.Contains(data.ThreadID))
+                {
+                    relogger.WriteEvent(data);
+                    keptDiskIrps.Add(data.Irp);
+                    kept++;
+                }
+            });
+
+            kernel.AddCallbackForEvents<DiskIOTraceData>(data =>
+            {
+                if (keptDiskIrps.Remove(data.Irp))
+                {
+                    relogger.WriteEvent(data);
+                    kept++;
+                }
+            });
+
+            // Keep the file-name rundown entries for the files the kept disk I/O touched
+            // (their keys were collected in the TraceLog pass above), so the trimmed
+            // DiskIO events still resolve to file names. The rest of the system-wide
+            // file-name rundown - the bulk of a disk capture - is dropped.
+            kernel.AddCallbackForEvents<FileIONameTraceData>(data =>
+            {
+                if (referencedFileKeys.Contains(data.FileKey))
+                {
+                    relogger.WriteEvent(data);
+                    kept++;
+                }
+            });
+
             relogger.AllEvents += data =>
             {
                 total++;
@@ -858,7 +1115,10 @@ internal static class Program
                     or CSwitchTraceData
                     or StackWalkStackTraceData
                     or StackWalkRefTraceData
-                    or StackWalkDefTraceData)
+                    or StackWalkDefTraceData
+                    or DiskIOTraceData
+                    or DiskIOInitTraceData
+                    or FileIONameTraceData)
                 {
                     return;
                 }
@@ -913,6 +1173,39 @@ internal static class Program
             new TraceLogOptions { ContinueOnError = true });
 
         Console.WriteLine($"Converted {etlPath} -> {etlxPath}");
+        return 0;
+    }
+
+    // Tallies raw ETW events by provider/name using a streaming source (no ETLX
+    // conversion), so a large .etl can be diagnosed quickly. Diagnostic helper.
+    private static int CountEvents(string tracePath)
+    {
+        if (!File.Exists(tracePath))
+        {
+            Console.Error.WriteLine($"Trace not found: {tracePath}");
+            return 1;
+        }
+
+        Dictionary<string, long> counts = new(StringComparer.Ordinal);
+        long total = 0;
+        using (ETWTraceEventSource source = new(tracePath))
+        {
+            source.AllEvents += data =>
+            {
+                total++;
+                string key = $"{data.ProviderName}/{data.EventName}";
+                counts.TryGetValue(key, out long c);
+                counts[key] = c + 1;
+            };
+            source.Process();
+        }
+
+        Console.WriteLine($"total events: {total:n0}");
+        foreach (KeyValuePair<string, long> pair in counts.OrderByDescending(static p => p.Value).Take(30))
+        {
+            Console.WriteLine($"{pair.Value,14:n0}  {pair.Key}");
+        }
+
         return 0;
     }
 

@@ -67,6 +67,7 @@ public sealed class SteeringHintsTests
         // An .etl supports thread time, so the blocked route names it; but allocation,
         // the GC report, and exceptions are EventPipe-only, so those routes are omitted.
         hints.Should().Contain(h => h.Contains("threadtime", StringComparison.Ordinal));
+        hints.Should().Contain(h => h.Contains("diskio", StringComparison.Ordinal));
         hints.Should().NotContain(h => h.Contains("gcstats", StringComparison.Ordinal));
         hints.Should().NotContain(h => h.Contains("frequent exceptions", StringComparison.Ordinal));
     }

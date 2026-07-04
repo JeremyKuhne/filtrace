@@ -43,6 +43,9 @@
     <None Include="..\Filtrace.Core.Tests\Fixtures\etw.etl" Link="Fixtures\etw.etl">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\Filtrace.Core.Tests\Fixtures\diskio.etl" Link="Fixtures\diskio.etl">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

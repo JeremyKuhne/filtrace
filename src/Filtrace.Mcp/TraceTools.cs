@@ -54,11 +54,10 @@ public sealed class TraceTools
     /// <returns>The trace summary envelope.</returns>
     [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Load a trace (.speedscope.json, .nettrace, or .etl) and return its format, total weight (CPU "
-        + "milliseconds, bytes allocated, or event counts depending on the trace), sample count, "
+        "Load a trace (.speedscope.json, .nettrace, or .etl) and return its format, total weight, sample count, "
         + "symbol-resolution rate, per-thread sample counts, the analyses the trace's format can answer "
-        + "(availableAnalyses, with a hint routing each symptom to one), and quality warnings. Call this "
-        + "first: a resolution rate below 0.8 means symbols are missing and the rankings should not be trusted.")]
+        + "(availableAnalyses, with a hint routing each symptom to one), and quality warnings. Call this first: a "
+        + "resolution rate below 0.8 means symbols are missing and the rankings should not be trusted.")]
     public static AnalysisResult<TraceInfoView> Info(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -101,12 +100,11 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_rank", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description(
         "Rank the hottest frames over a chosen provider metric. measure=self credits the executing leaf "
-        + "(JIT-helper leaves folded into the real method that incurred them); measure=inclusive credits a "
-        + "frame and everything it calls. One tool spans every family - metric=cpu (sampled milliseconds, any "
-        + "format), threadtime (wall-clock per thread, .etl only), alloc (bytes allocated, .nettrace only), "
-        + "exceptions (throw count by type, .nettrace only), contention (ms blocked on locks, .nettrace only), or "
-        + "wait (ms blocked on a wait handle, .nettrace only). Scope to a subtree with root; for a "
-        + "BenchmarkDotNet capture set root to the measured workload to exclude harness warmup.")]
+        + "(JIT-helper leaves folded into the real method); measure=inclusive credits a frame and everything it "
+        + "calls. One tool spans every family - metric=cpu (sampled ms, any format), threadtime (wall-clock per "
+        + "thread, .etl only), alloc (bytes, .nettrace only), exceptions (throw count by type, .nettrace only), "
+        + "contention (ms on locks, .nettrace only), or wait (ms on a wait handle, .nettrace only). Scope with "
+        + "root; for a BenchmarkDotNet capture set root to the measured workload to exclude harness warmup.")]
     public static AnalysisResult<RankingResult> Rank(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -239,10 +237,10 @@ public sealed class TraceTools
     /// <returns>The heat-map envelope.</returns>
     [McpServerTool(Name = "trace_heatmap", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Per-line self-time heat map for one source file: each leaf sample (JIT-helper leaves folded into their "
-        + "caller) attributed to the line that was executing, ordered by line number to overlay onto the source. "
-        + "Matching is by file name only. Requires a .nettrace or .etl trace whose modules have portable PDBs; "
-        + "pass 'symbols' pointing at the build-output directory. Speedscope inputs return an empty map.")]
+        "Per-line self-time heat map for one source file: each leaf sample (JIT-helper leaves folded) attributed "
+        + "to the executing line, ordered by line number to overlay onto the source. Matched by file name. Requires "
+        + "a .nettrace or .etl trace whose modules have portable PDBs (pass 'symbols'). Speedscope returns an empty "
+        + "map.")]
     public static AnalysisResult<SourceHeatmapResult> Heatmap(
         TraceStore store,
         [Description("Path to a .nettrace or .etl trace file (speedscope carries no line data).")] string path,
@@ -284,10 +282,9 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_diff", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
         "Compare two CPU traces and report the per-frame change (regressions and improvements), largest absolute "
-        + "change first. Both traces are ranked fully (no row cap) before diffing, so a frame hot on only one side "
-        + "is not misreported as a total regression. measure=self credits the executing leaf (JIT-helper leaves "
-        + "folded into the real method); measure=inclusive credits a frame and everything it calls. Use it to find "
-        + "what got slower or faster between two runs - for example a capture from before and after a change.")]
+        + "change first. Both sides are ranked fully (no cap) before diffing, so a frame hot on one side is not "
+        + "misreported. measure=self credits the executing leaf (JIT-helper leaves folded); measure=inclusive "
+        + "credits a frame and all it calls. Finds what got slower or faster between two runs.")]
     public static AnalysisResult<RankingDiffResult> Diff(
         TraceStore store,
         [Description("Path to the baseline (before) .speedscope.json, .nettrace, or .etl trace file.")] string beforePath,
@@ -332,10 +329,10 @@ public sealed class TraceTools
     /// <returns>The GC-report envelope.</returns>
     [McpServerTool(Name = "trace_gc", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Garbage-collection report for a .nettrace EventPipe trace: aggregate counts (gen 0/1/2), total, max, and "
-        + "mean pause time, peak heap size, total promoted bytes, and the per-collection records capped to the "
-        + "'top' hottest pauses. Use it to judge GC pressure - frequent gen-2 collections or long pauses point at "
-        + "allocation problems. Requires a .nettrace trace; .etl and speedscope inputs are rejected.")]
+        "Garbage-collection report for a .nettrace EventPipe trace: aggregate counts (gen 0/1/2), total/max/mean "
+        + "pause time, peak heap size, promoted bytes, and per-collection records capped to the 'top' hottest "
+        + "pauses. Frequent gen-2 collections or long pauses point at allocation problems. Requires a .nettrace "
+        + "trace; .etl and speedscope are rejected.")]
     public static AnalysisResult<GcStatsResult> Gc(
         [Description("Path to a .nettrace EventPipe trace file.")] string path,
         [Description("Maximum number of per-collection records to return, ranked by pause time.")] int top = 25)
@@ -366,11 +363,11 @@ public sealed class TraceTools
     /// <returns>The thread-pool report envelope.</returns>
     [McpServerTool(Name = "trace_threadpool", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Thread-pool report for a .nettrace EventPipe trace: the count of worker-thread adjustments, how many were "
-        + "caused by Starvation (the runtime injecting threads because queued work was not completing - the classic "
-        + "sync-over-async hang signal), the worker-thread range against the configured min/max, and the adjustments "
-        + "broken down by reason. Use it when a service is slow under load but the CPU is idle and requests pile up. "
-        + "Requires a .nettrace trace; .etl and speedscope inputs are rejected.")]
+        "Thread-pool report for a .nettrace EventPipe trace: worker-thread adjustment counts, how many were "
+        + "Starvation (the pool injecting threads because queued work is not completing - the sync-over-async hang "
+        + "signal), the worker-thread range vs the configured min/max, and adjustments by reason. Use it when a "
+        + "service is slow under load but the CPU is idle. Requires a .nettrace trace; .etl and speedscope are "
+        + "rejected.")]
     public static AnalysisResult<ThreadPoolResult> ThreadPool(
         [Description("Path to a .nettrace EventPipe trace file.")] string path)
     {
@@ -383,6 +380,44 @@ public sealed class TraceTools
         }
 
         return new AnalysisResult<ThreadPoolResult>(report, warnings);
+    }
+
+    /// <summary>
+    ///  Returns the disk I/O report for a Windows ETW <c>.etl</c> trace: physical disk
+    ///  reads and writes aggregated by file, ranked by disk service time.
+    /// </summary>
+    /// <param name="path">Path to the trace file.</param>
+    /// <param name="top">Maximum per-file rows to return, ranked by disk time.</param>
+    /// <returns>The disk-I/O report envelope.</returns>
+    [McpServerTool(Name = "trace_diskio", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [Description(
+        "Disk I/O report for a Windows ETW .etl trace: physical disk reads and writes by file (bytes, op counts, "
+        + "disk service time), capped to the 'top' heaviest files. Physical disk events are after the file-system "
+        + "cache, so they show real disk pressure that logical file calls hide. Requires a .etl trace; .nettrace "
+        + "and speedscope are rejected.")]
+    public static AnalysisResult<DiskIoResult> DiskIo(
+        [Description("Path to a Windows ETW .etl trace file.")] string path,
+        [Description("Maximum number of per-file rows to return, ranked by disk service time.")] int top = 25)
+    {
+        RequirePositiveTop(top);
+        DiskIoResult full = ReadDiskIo(path);
+
+        // Keep the full aggregate summary, but cap the per-file detail to the heaviest
+        // files so a broad capture cannot blow the output budget.
+        List<string> warnings = [];
+        IReadOnlyList<DiskIoFileRecord> shown = full.Files;
+        if (shown.Count > top)
+        {
+            shown = [.. shown.Take(top)];
+            warnings.Add($"Showing the top {top} of {full.Files.Count} files by disk time.");
+        }
+        else if (full.Files.Count == 0)
+        {
+            warnings.Add("The trace carries no physical disk I/O events.");
+        }
+
+        DiskIoResult report = full with { Files = shown };
+        return new AnalysisResult<DiskIoResult>(report, warnings);
     }
 
     /// <summary>
@@ -410,12 +445,10 @@ public sealed class TraceTools
     /// <returns>The events-page envelope.</returns>
     [McpServerTool(Name = "trace_query_events", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Query the raw events of a .nettrace EventPipe trace by name - the escape hatch for inspecting arbitrary "
-        + "events the structured reports do not cover. 'name' is a case-insensitive substring matched against "
-        + "Provider/EventName (empty matches every event). Results are paged with 'skip'/'take' and each event's "
-        + "payload is truncated to 'maxPayload' characters, so a query matching hundreds of thousands of events "
-        + "stays within budget; when more matches remain, a hint gives the next page's skip. Requires a .nettrace "
-        + "trace; .etl and speedscope inputs are rejected.")]
+        "Query the raw events of a .nettrace EventPipe trace by name - the escape hatch for events the structured "
+        + "reports do not cover. 'name' is a case-insensitive substring matched against Provider/EventName (empty "
+        + "matches all). Paged with 'skip'/'take', each payload truncated to 'maxPayload' chars; a hint gives the "
+        + "next page's skip when more remain. Requires a .nettrace trace; .etl and speedscope are rejected.")]
     public static AnalysisResult<EventQueryResult> QueryEvents(
         [Description("Path to a .nettrace EventPipe trace file.")] string path,
         [Description("Substring matched against Provider/EventName; omit to match every event.")] string name = "",
@@ -486,18 +519,14 @@ public sealed class TraceTools
     /// <returns>The export-confirmation envelope.</returns>
     [McpServerTool(Name = "trace_export", ReadOnly = false, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description(
-        "Export a trace's CPU samples to a flame-graph file for a human to open in a viewer - this is how you hand "
-        + "off a visual. format=speedscope (the default) opens at speedscope.app; format=chromium writes the Chrome "
-        + "Trace Event Format for chrome://tracing or the Perfetto UI. 'output' is the file path to write (required; "
-        + "unlike the query tools this writes a file rather than returning the data, and overwrites an existing file "
-        + "at that path). No folding or ranking is applied. Pass 'process' to scope a "
-        + "machine-wide .etl to one process tree (as the ranking tools do); omit it to auto-scope to the busiest. "
-        + "Pass 'root' to scope the exported flame graph to the subtree under a frame, or 'benchmark' to preset it "
-        + "to the BenchmarkDotNet measured-workload frame (mutually exclusive with 'root') so the harness/warmup "
-        + "does not dominate the graph - default to 'benchmark' for any BenchmarkDotNet capture. "
-        + "Pass 'nativeSymbols' to resolve the unmanaged GC/JIT/memset/memcpy frames that would otherwise export "
-        + "as an unresolved module!? leaf - opt-in, it fetches over the network and caches locally. "
-        + "The response confirms the path, format, and byte count.")]
+        "Export a trace's CPU samples to a flame-graph file for a human to open in a viewer. format=speedscope "
+        + "(the default) opens at speedscope.app; format=chromium writes the Chrome Trace Event Format for "
+        + "chrome://tracing or Perfetto. 'output' is the file path to write (required; this writes a file and "
+        + "overwrites an existing one). No folding or ranking is applied. Pass 'process' to scope a machine-wide "
+        + ".etl to one process tree (omit to auto-scope to the busiest), 'root' to scope to a frame's subtree, or "
+        + "'benchmark' to preset the BenchmarkDotNet measured-workload frame (mutually exclusive with 'root'; "
+        + "default it for a BenchmarkDotNet capture). Pass 'nativeSymbols' to resolve unmanaged GC/JIT frames "
+        + "(opt-in, network). The response confirms the path, format, and byte count.")]
     public static AnalysisResult<ExportResult> Export(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -967,6 +996,46 @@ public sealed class TraceTools
         {
             throw new McpException(
                 $"The {reportName} requires a .nettrace EventPipe trace; '{path}' is not a .nettrace file.");
+        }
+    }
+
+    /// <summary>
+    ///  Reads the disk I/O report for a Windows ETW <c>.etl</c> trace, applying the format
+    ///  guardrail and mapping the provider's failure modes to a clean <see cref="McpException"/>.
+    /// </summary>
+    private static DiskIoResult ReadDiskIo(string path)
+    {
+        RequireEtl(path, "disk I/O report");
+
+        try
+        {
+            return new DiskIoProvider().Read(path);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or FormatException
+            or ArgumentException)
+        {
+            // A missing, unreadable, or malformed .etl surfaces as a clean tool error.
+            throw new McpException(ex.Message);
+        }
+    }
+
+    /// <summary>
+    ///  Rejects a non-<c>.etl</c> input up front for the ETW-only report providers, with
+    ///  a clean message naming the report, rather than failing deep inside the reader.
+    /// </summary>
+    private static void RequireEtl(string path, string reportName)
+    {
+        // Format guardrail (an extension test, no I/O): the kernel disk events are
+        // ETW-only, so reject a .nettrace or speedscope export cleanly here.
+        if (string.IsNullOrEmpty(path) || !path.EndsWith(".etl", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new McpException(
+                $"The {reportName} requires a Windows ETW .etl trace; '{path}' is not a .etl file.");
         }
     }
 

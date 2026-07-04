@@ -113,14 +113,15 @@ filtrace diff before.nettrace after.nettrace # 4. what changed
 | `diff <before> <after>` | what got slower/faster between two traces |
 | `export --format <fmt>` | write a flame graph for a viewer - `speedscope` or `chromium` |
 
-**Structured reports** (EventPipe `.nettrace`):
+**Structured reports:**
 
 | Verb | Reports |
 |---|---|
-| `gcstats` | GC counts, pauses, heap summary |
-| `jitstats` | JIT method count, compile time, sizes |
-| `threadpool` | worker-thread adjustments and starvation (slow under load, CPU idle) |
-| `events --name <n>` | raw events by name, paged |
+| `gcstats` | GC counts, pauses, heap summary (`.nettrace`) |
+| `jitstats` | JIT method count, compile time, sizes (`.nettrace`) |
+| `threadpool` | worker-thread adjustments and starvation - slow under load, CPU idle (`.nettrace`) |
+| `diskio` | physical disk I/O by file: bytes and disk service time (`.etl`, Windows) |
+| `events --name <n>` | raw events by name, paged (`.nettrace`) |
 
 **Capture** - record a Windows ETW `.etl` yourself (for an EventPipe `.nettrace`, use `dotnet-trace`):
 
@@ -229,11 +230,11 @@ The recurring ways a .NET trace investigation goes wrong:
 The two heads expose the same analysis:
 
 - **CLI** - `dotnet tool install -g KlutzyNinja.Filtrace`, then `filtrace <verb>`.
-- **MCP server** - `dnx KlutzyNinja.Filtrace.Mcp` over stdio, exposing fourteen
+- **MCP server** - `dnx KlutzyNinja.Filtrace.Mcp` over stdio, exposing fifteen
   `trace_*` tools (`trace_info`, `trace_rank`, `trace_callers`, `trace_lines`,
   `trace_heatmap`, `trace_tree`, `trace_processes`, `trace_classify`,
   `trace_diff`, `trace_export`, `trace_gc`, `trace_jit`, `trace_threadpool`,
-  `trace_query_events`).
+  `trace_diskio`, `trace_query_events`).
   Each returns one envelope: a `schemaVersion`, a `warnings` list, next-step
   `hints`, and the typed result.
 
