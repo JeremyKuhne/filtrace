@@ -182,6 +182,9 @@ Stable IDs (TE-n) so items can be tracked and referenced as they move.
 | TE-10 | Retention / leak (`.gcdump`) - re-scope | shell out | Med + new dependency | separate assembly | P2 | Proposed |
 | TE-11 | Agentic discoverability (content-aware `trace_info` + symptom hints + triage) | both | Low-Med | cross-cutting; enables every row | P0 | Landed (info + hints) |
 | TE-12 | Raw event query over `.etl` (extend `events` / `trace_query_events`) | `.etl` | Low | extend the `events` reader + guardrail | P3 | Proposed |
+| TE-13 | Capture size cap (circular buffer) | `.etl` capture | Low | new `collect --max-size-mb` option | P2 | Proposed |
+| TE-14 | Ship the process-tree `trim` as a verb | `.etl` relog | Med | new verb | P3 | Proposed |
+| TE-15 | Time-window trim axis (`[t0, t1]`) | `.etl` relog / analysis | Med | option on `trim` / a `--time` scope | P3 | Proposed |
 
 ### P0 - high value, low cost, EventPipe-native, drops into the existing engine
 
@@ -343,6 +346,35 @@ to accept `.etl` - reading via `TraceLog` like the other ETW analyses - would le
 raw query span both formats and restore `events` to the ETW `availableAnalyses`.
 Surfaced by the TE-7 review. *Status:* proposed.
 
+**TE-13. Capture size cap (circular buffer).** *A developer asks:* "My capture ran
+for a while and produced a giant `.etl` - can I keep it bounded?" *Applicability to
+.NET:* any open-ended or long capture - a service under load, or a hang you have to
+wait for. `filtrace collect` writes an unbounded sequential `.etl` today, bounded only
+by `--duration` (time, not size). `TraceEventSession.CircularBufferMB` records into a
+fixed-size ring that keeps the last N MB, so a `collect --max-size-mb` option would cap
+the file for a capture whose end you cannot predict. This is a low-cost, capture-side
+prefilter that filtrace does not yet use. *Status:* proposed.
+
+**TE-14. Ship the process-tree `trim` as a verb.** *A developer asks:* "This `.etl`
+is huge - can I shrink it to just my app before I move it?" *Applicability to .NET:*
+common whenever a trace has to leave the capture machine - committing it as a fixture,
+attaching it to an issue, handing it to a teammate. The process-tree relog extended
+for TE-7 lives only in the `HotLoopBench` fixture tool; shipping it as a filtrace verb
+would put the shrink in users' hands. Because analysis-time `--process` scoping is
+already lossless, physical trim is a *transport* optimization, not an analysis one,
+and it carries a known limitation: the raw relogger does not rebuild the
+managed-method address map, so a trimmed `.etl` resolves native modules but drops
+JITted managed frames (see [filtrace-etl-trimming.md](filtrace-etl-trimming.md)). P3
+until that rebuild is solved - resolving it would make the shrink lossless and raise
+the priority. *Status:* proposed.
+
+**TE-15. Time-window trim axis.** *A developer asks:* "Only the few seconds around
+the spike matter - can I keep just that slice?" *Applicability to .NET:* long captures
+whose interesting behavior is a brief window - a latency spike, one slow request, a GC
+pause. `trim` scopes by process tree only; a time-window trim (`[t0, t1]`) is the
+natural second axis, reusing the same relog machinery as TE-14 (or landing as an
+analysis-time `--time` scope). *Status:* proposed.
+
 ## Recommended next step
 
 **Progress:** the full "why is this slow?" increment has landed - TE-1 to TE-4 on the
@@ -351,7 +383,9 @@ GC-report depth, exception-by-type ranking) plus TE-11 (content-aware `trace_inf
 symptom-routing hints), TE-5 (the `threadpool` starvation report), and the ETW
 follow-on TE-6 (thread-time blocked-reason leaves) and TE-7 (the `diskio` report,
 unblocked by teaching the `trim` fixture tool to keep a process tree's disk I/O). TE-8
-to TE-10 remain.
+to TE-10 remain, with TE-12 through TE-15 proposed as lower-priority follow-ups (a raw
+`.etl` event query, plus the capture-size and trimming items surfaced by the TE-7
+fixture work).
 
 Land **TE-11 alongside TE-1 through TE-4** as one increment aimed squarely at the
 "why is this slow?" flow: the two new stack providers (`ContentionProvider`,
