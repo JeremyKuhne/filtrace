@@ -33,7 +33,7 @@ public static class TraceCapabilities
     {
         TraceFormat.Speedscope => ["cpu"],
         TraceFormat.NetTrace => ["cpu", "alloc", "exceptions", "contention", "wait", "gcstats", "jitstats", "threadpool", "events"],
-        TraceFormat.Etl => ["cpu", "threadtime", "classify", "processes", "diskio", "events"],
+        TraceFormat.Etl => ["cpu", "threadtime", "classify", "processes", "diskio"],
         _ => []
     };
 }
