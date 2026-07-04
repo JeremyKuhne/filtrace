@@ -116,7 +116,7 @@ internal abstract class TraceLogReader : ITraceReader
                 ? null
                 : ComputeActivitySampleFilter(traceLog, symbolReader, activityName);
 
-            return ReadCore(traceLog, symbolReader, scopePids, appliedScopeName, activitySamples, activityName);
+            return ReadCore(traceLog, symbolReader, scopePids, appliedScopeName, activitySamples, activityName, scope?.Window);
         }
         finally
         {
@@ -190,7 +190,8 @@ internal abstract class TraceLogReader : ITraceReader
         HashSet<int>? scopePids,
         string? appliedScopeName,
         HashSet<EventIndex>? activitySamples,
-        string? activityName)
+        string? activityName,
+        TimeWindow? window)
     {
         Dictionary<int, string> locationCache = [];
 
@@ -219,6 +220,13 @@ internal abstract class TraceLogReader : ITraceReader
             // When scoped to a process tree, drop samples from any process outside it.
             // The trace is already fully resolved, so this is a lossless narrowing.
             if (scopePids is not null && !scopePids.Contains(data.ProcessID))
+            {
+                continue;
+            }
+
+            // When scoped to a time window, drop samples taken outside it; every sample
+            // carries a trace-relative timestamp, so the same guard scopes every metric.
+            if (window is TimeWindow timeScope && !timeScope.Contains(data.TimeStampRelativeMSec))
             {
                 continue;
             }
@@ -294,20 +302,43 @@ internal abstract class TraceLogReader : ITraceReader
         List<string> warnings = [];
         if (samples.Count == 0)
         {
-            // An empty result can come from either scope dropping every sample or an
-            // absent CPU sampler; name the most specific cause so the message does not
-            // blame the capture when a scope is at fault.
-            if (activityName is not null && appliedScopeName is not null)
+            // An empty result can come from a scope dropping every sample or an absent
+            // CPU sampler; name the most specific cause so the message does not blame the
+            // capture when a scope is at fault. With more than one scope applied, name
+            // them all - any one could be responsible - rather than guess.
+            List<string> scopes = [];
+            if (appliedScopeName is not null)
+            {
+                scopes.Add($"the '{appliedScopeName}' process tree");
+            }
+
+            if (activityName is not null)
+            {
+                scopes.Add($"the '{activityName}' activity");
+            }
+
+            if (window is TimeWindow emptyWindow && emptyWindow.IsBounded)
+            {
+                scopes.Add($"the {emptyWindow} window");
+            }
+
+            if (scopes.Count > 1)
             {
                 warnings.Add(
-                    $"No samples remained after scoping to the '{appliedScopeName}' process tree and the "
-                    + $"'{activityName}' activity; either scope may have dropped them all - relax one to see which.");
+                    $"No samples remained after scoping to {JoinScopes(scopes)}; "
+                    + "a scope may have dropped them all - relax one to see which.");
             }
             else if (activityName is not null)
             {
                 warnings.Add(
                     $"No samples remained inside the '{activityName}' activity; the trace may carry no such "
                     + "activity (activities come from EventSource Start/Stop events), or none of its samples were CPU samples.");
+            }
+            else if (window is TimeWindow soleWindow && soleWindow.IsBounded)
+            {
+                warnings.Add(
+                    $"No samples remained inside the {soleWindow} window; the trace may carry no CPU samples "
+                    + "there, or the window may lie outside the captured range - widen or drop it to check.");
             }
             else
             {
@@ -329,6 +360,11 @@ internal abstract class TraceLogReader : ITraceReader
             {
                 warnings.Add($"Scoped to the '{activityName}' activity.");
             }
+
+            if (window is TimeWindow appliedWindow && appliedWindow.IsBounded)
+            {
+                warnings.Add($"Scoped to the {appliedWindow} window.");
+            }
         }
 
         if (SymbolGate.TryGetWarning(resolutionRate, samples.Count, out string? symbolWarning))
@@ -338,6 +374,16 @@ internal abstract class TraceLogReader : ITraceReader
 
         return new TraceReadResult(samples, resolutionRate, warnings);
     }
+
+    // Joins the applied-scope phrases into one clause: "A" for one, "A and B" for two,
+    // and "A, B, and C" for three, so an empty-result warning can name every scope that
+    // could have dropped the samples in readable prose.
+    private static string JoinScopes(List<string> scopes) => scopes.Count switch
+    {
+        <= 1 => scopes.Count == 1 ? scopes[0] : string.Empty,
+        2 => $"{scopes[0]} and {scopes[1]}",
+        _ => $"{string.Join(", ", scopes.GetRange(0, scopes.Count - 1))}, and {scopes[^1]}"
+    };
 
     /// <summary>
     ///  Points <paramref name="symbolReader"/> at the Microsoft public symbol server

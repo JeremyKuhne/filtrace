@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using Filtrace.Caching;
 using Filtrace.Tracing;
 
@@ -70,11 +71,12 @@ public sealed class TraceStore
     ///  and allocation views are cached separately.
     /// </param>
     /// <param name="scope">
-    ///  Optional process scope (an explicit name, the automatic busiest-process
-    ///  default, or every process). Consumed only by the CPU and thread-time metrics;
-    ///  the other providers read a single-process EventPipe trace and ignore it. The
-    ///  cache keys on it for those metrics, so the same trace scoped two ways is cached
-    ///  separately.
+    ///  Optional scope (an explicit process name or the automatic busiest-process
+    ///  default, an activity task name, and/or a time window). The process and activity
+    ///  scopes are consumed only by the CPU and thread-time metrics; the time window is
+    ///  consumed by every metric, since every sampled event carries a timestamp. The
+    ///  cache keys on whichever axes a metric honors, so the same trace scoped two ways
+    ///  is cached separately.
     /// </param>
     /// <param name="symbolOptions">
     ///  Optional native-symbol resolution. Consumed only by the CPU metric; the cache
@@ -100,12 +102,17 @@ public sealed class TraceStore
             ? Path.GetFullPath(symbolsDirectory)
             : null;
 
-        // Only the CPU and thread-time metrics read a multi-process capture, so scope
-        // only distinguishes those; drop it for the single-process EventPipe metrics so
-        // their cache entries are not split by an ignored scope.
+        // Only the CPU and thread-time metrics read a multi-process capture, so the
+        // process and activity scopes only distinguish those; drop them for the
+        // single-process EventPipe metrics so their cache entries are not split by an
+        // ignored scope.
         string scopeKey = metric is TraceMetric.Cpu or TraceMetric.ThreadTime
             ? ScopeKey(scope)
             : "-";
+
+        // The time window scopes every metric - every sampled event carries a timestamp -
+        // so it keys all of them: a trace read for one window must not serve another.
+        string timeKey = TimeKey(scope?.Window);
 
         // Only the CPU loader consumes symbolOptions (native resolution), so a trace
         // read with native symbols caches separately from one without; the other
@@ -117,33 +124,57 @@ public sealed class TraceStore
         // Length-prefix the first path so the two components cannot be confused for a
         // different pair: '|' - like every other ASCII separator - is a legal POSIX
         // file-name character, so a plain "a|b" delimiter could collide ("a|b" + "c"
-        // versus "a" + "b|c"). The metric, scope, and symbol prefixes keep a trace's
-        // distinct provider views, scopes, and symbol modes from sharing one cache
-        // entry. Loading uses the normalized symbols path so a relative symbolsDirectory
-        // resolves exactly the way it was keyed.
-        string key = $"{(int)metric}:{scopeKey}:{symbolKey}:{fullPath.Length}|{fullPath}{fullSymbols}";
+        // versus "a" + "b|c"). The metric, scope, time, and symbol prefixes keep a
+        // trace's distinct provider views, scopes, windows, and symbol modes from
+        // sharing one cache entry. Loading uses the normalized symbols path so a relative
+        // symbolsDirectory resolves exactly the way it was keyed.
+        string key = $"{(int)metric}:{scopeKey}:{timeKey}:{symbolKey}:{fullPath.Length}|{fullPath}{fullSymbols}";
         return _cache.GetOrAdd(key, _ => _loader.Load(fullPath, metric, fullSymbols, scope, symbolOptions));
     }
 
-    // A stable cache-key fragment for a scope request: 'all' for all-processes, 'auto'
-    // for the automatic busiest-process default (a null request is unspecified, which is
-    // the same default), or the explicit process name. Because the load path treats a
-    // null request as the automatic default, null and ScopeRequest.Auto resolve to the
-    // same trace and so share the 'auto' fragment by design. The name is length-prefixed
-    // so it cannot be confused with the sentinels or run into the following key segment.
+    // A stable cache-key fragment for a scope request: the process axis ('all' for
+    // all-processes, 'auto' for the automatic busiest-process default - a null request
+    // is unspecified, the same default - or the explicit process name) followed by the
+    // activity axis ('-' for none, or the activity task name). Because the load path
+    // treats a null request as the automatic default, null and ScopeRequest.Auto resolve
+    // to the same trace and so share the 'auto' fragment by design. Both names are
+    // length-prefixed so they cannot be confused with the sentinels, each other, or the
+    // following key segment. The activity is part of the key because the CPU reader
+    // filters samples by it, so a trace scoped to an activity must not serve an unscoped
+    // read (or one scoped to a different activity).
     private static string ScopeKey(ScopeRequest? scope)
     {
+        string activity = scope?.ActivityName is string name && name.Length > 0
+            ? $"a{name.Length}:{name}"
+            : "-";
+
         if (scope is null || (scope.ProcessName is null && !scope.IncludeAll))
         {
-            return "auto";
+            return $"auto:{activity}";
         }
 
         if (scope.IncludeAll)
         {
-            return "all";
+            return $"all:{activity}";
         }
 
-        string name = scope.ProcessName!;
-        return $"p{(scope.IncludeChildren ? "+" : "-")}{name.Length}:{name}";
+        string processName = scope.ProcessName!;
+        return $"p{(scope.IncludeChildren ? "+" : "-")}{processName.Length}:{processName}:{activity}";
+    }
+
+    // A stable cache-key fragment for a time window: '-' when unbounded (no time scope),
+    // otherwise the round-trippable start and end bounds ('*' for an open bound). Keyed
+    // for every metric because the window scopes every metric, so a trace read for one
+    // window must not serve another.
+    private static string TimeKey(TimeWindow? window)
+    {
+        if (window is not TimeWindow bounded || !bounded.IsBounded)
+        {
+            return "-";
+        }
+
+        string start = bounded.StartMSec is double lower ? lower.ToString("R", CultureInfo.InvariantCulture) : "*";
+        string end = bounded.EndMSec is double upper ? upper.ToString("R", CultureInfo.InvariantCulture) : "*";
+        return $"t{start},{end}";
     }
 }

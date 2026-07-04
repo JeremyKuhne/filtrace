@@ -150,6 +150,11 @@ Run `filtrace <verb> --help` for the full option set of any verb.
 - **Scope to the benchmark.** For a BenchmarkDotNet capture, `--benchmark` presets
   the root to the measured-workload wrapper so the harness and warmup do not
   dominate the ranking.
+- **Scope to a time window.** `rank --time <start>,<end>` (milliseconds relative to
+  the trace start, either bound optional: `1000,5000`, `1000,`, or `,5000`) keeps
+  only the samples anchored in the window. It applies to every metric, so it zooms
+  a `.nettrace` / `.etl` ranking to the slice around a spike or one slow request
+  (not `.speedscope.json`, whose timeline is not in milliseconds).
 - **Symbols.** Managed frames (including NGEN and ReadyToRun framework methods)
   resolve for free from the trace's CLR rundown. `--symbols <dir>` resolves your
   own managed frames and source lines; `--native-symbols` (CPU `.etl` only,

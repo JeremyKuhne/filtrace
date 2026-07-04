@@ -44,10 +44,14 @@ public sealed class ActivityProvider
     ///  <paramref name="path"/>.
     /// </summary>
     /// <param name="path">The <c>.nettrace</c> file path.</param>
+    /// <param name="window">
+    ///  Optional time window; when set, only activities whose start falls inside it are
+    ///  read. <see langword="null"/> reads the whole trace.
+    /// </param>
     /// <returns>The activity source: wall-clock-duration-weighted activity stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public StackSampleSource Read(string path)
+    public StackSampleSource Read(string path, TimeWindow? window = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
@@ -82,6 +86,13 @@ public sealed class ActivityProvider
         {
             double weight = activity.DurationMSec;
             if (weight <= 0.0)
+            {
+                return;
+            }
+
+            // When scoped to a time window, drop activities that started outside it; the
+            // stack is rooted at the activity's start, so this scopes by when it began.
+            if (window is TimeWindow scope && !scope.Contains(activity.StartTimeRelativeMSec))
             {
                 return;
             }

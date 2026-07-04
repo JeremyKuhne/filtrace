@@ -40,10 +40,14 @@ public sealed class ExceptionsProvider
     ///  <paramref name="path"/>.
     /// </summary>
     /// <param name="path">The <c>.nettrace</c> file path.</param>
+    /// <param name="window">
+    ///  Optional time window; when set, only exception-throw events whose timestamp
+    ///  falls inside it are read. <see langword="null"/> reads the whole trace.
+    /// </param>
     /// <returns>The exceptions source: count-weighted throw-site stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public StackSampleSource Read(string path)
+    public StackSampleSource Read(string path, TimeWindow? window = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
@@ -68,6 +72,13 @@ public sealed class ExceptionsProvider
             // ExceptionTraceData is the Exception/Start (throw) event; the catch and
             // stop events have different types and are skipped.
             if (data is not ExceptionTraceData exception)
+            {
+                continue;
+            }
+
+            // When scoped to a time window, drop throws outside it; every event carries a
+            // trace-relative timestamp, so the same guard scopes every metric.
+            if (window is TimeWindow scope && !scope.Contains(data.TimeStampRelativeMSec))
             {
                 continue;
             }

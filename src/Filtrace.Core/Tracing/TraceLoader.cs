@@ -31,11 +31,12 @@ public sealed class TraceLoader
     ///  rankings. Ignored for speedscope inputs.
     /// </param>
     /// <param name="scope">
-    ///  Optional process scope. A <see langword="null"/> request is the automatic
+    ///  Optional scope. A <see langword="null"/> request is the automatic
     ///  busiest-process default (the same as <see cref="ScopeRequest.Auto"/>): the read
     ///  is narrowed to an explicit name, the busiest process automatically, or every
-    ///  process when opted out - losslessly. Ignored for single-process inputs
-    ///  (speedscope).
+    ///  process when opted out - losslessly. The process scope is ignored for
+    ///  single-process inputs (speedscope); a time window on the scope, when set, applies
+    ///  to every metric.
     /// </param>
     /// <returns>The loaded trace.</returns>
     /// <exception cref="ArgumentException">
@@ -61,12 +62,13 @@ public sealed class TraceLoader
     ///  frames resolve from the trace's own CLR rundown (allocation, exceptions).
     /// </param>
     /// <param name="scope">
-    ///  Optional process scope. A <see langword="null"/> request is the automatic
+    ///  Optional scope. A <see langword="null"/> request is the automatic
     ///  busiest-process default (the same as <see cref="ScopeRequest.Auto"/>): the read
     ///  is narrowed to an explicit name, the busiest process automatically, or every
-    ///  process when opted out - losslessly. Ignored for single-process inputs
-    ///  (speedscope) and for the single-process EventPipe metrics (allocation,
-    ///  exceptions).
+    ///  process when opted out - losslessly. The process and activity scopes are ignored
+    ///  for single-process inputs (speedscope) and the single-process EventPipe metrics
+    ///  (allocation, exceptions); a time window on the scope, when set, applies to every
+    ///  metric.
     /// </param>
     /// <param name="symbolOptions">
     ///  Optional native-symbol resolution for the CPU metric. <see langword="null"/>
@@ -108,11 +110,11 @@ public sealed class TraceLoader
         return metric switch
         {
             TraceMetric.Cpu => LoadCpu(fullPath, reader, symbolsDirectory, scope, symbolOptions),
-            TraceMetric.Allocations => LoadAllocations(fullPath, reader),
-            TraceMetric.Exceptions => LoadExceptions(fullPath, reader),
-            TraceMetric.Contention => LoadContention(fullPath, reader),
-            TraceMetric.Wait => LoadWait(fullPath, reader),
-            TraceMetric.Activity => LoadActivity(fullPath, reader),
+            TraceMetric.Allocations => LoadAllocations(fullPath, reader, scope),
+            TraceMetric.Exceptions => LoadExceptions(fullPath, reader, scope),
+            TraceMetric.Contention => LoadContention(fullPath, reader, scope),
+            TraceMetric.Wait => LoadWait(fullPath, reader, scope),
+            TraceMetric.Activity => LoadActivity(fullPath, reader, scope),
             TraceMetric.ThreadTime => LoadThreadTime(fullPath, reader, scope),
             // Enums can be cast from any int, so reject an undefined value rather than
             // silently falling back to a CPU load and masking a bad caller (or a future
@@ -140,7 +142,7 @@ public sealed class TraceLoader
         return new LoadedTrace(info, result.Samples);
     }
 
-    private static LoadedTrace LoadAllocations(string fullPath, ITraceReader reader)
+    private static LoadedTrace LoadAllocations(string fullPath, ITraceReader reader, ScopeRequest? scope)
     {
         // The allocation metric is the GCAllocationTick view of an EventPipe trace; an
         // .etl or speedscope export carries no such events, so reject a wrong-format
@@ -151,14 +153,14 @@ public sealed class TraceLoader
                 $"The allocation metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new AllocationProvider().Read(fullPath);
+        StackSampleSource source = new AllocationProvider().Read(fullPath, scope?.Window);
 
         List<string> warnings = [];
-        if (source.Samples.Count == 0)
-        {
-            warnings.Add(
-                "No allocation events were found. Was the trace captured with allocation sampling (GcVerbose)?");
-        }
+        AddWindowWarnings(
+            warnings,
+            scope?.Window,
+            source.Samples.Count,
+            "No allocation events were found. Was the trace captured with allocation sampling (GcVerbose)?");
 
         // Managed allocation frames resolve from the CLR rundown embedded in the
         // trace, and this provider carries no separate symbol-reader signal, so
@@ -168,7 +170,7 @@ public sealed class TraceLoader
         return new LoadedTrace(info, source);
     }
 
-    private static LoadedTrace LoadExceptions(string fullPath, ITraceReader reader)
+    private static LoadedTrace LoadExceptions(string fullPath, ITraceReader reader, ScopeRequest? scope)
     {
         // The exceptions metric is the Exception/Start view of an EventPipe trace; an
         // .etl or speedscope export carries no such events, so reject a wrong-format
@@ -179,13 +181,14 @@ public sealed class TraceLoader
                 $"The exceptions metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new ExceptionsProvider().Read(fullPath);
+        StackSampleSource source = new ExceptionsProvider().Read(fullPath, scope?.Window);
 
         List<string> warnings = [];
-        if (source.Samples.Count == 0)
-        {
-            warnings.Add("No exception-throw events were found. Did the workload throw any exceptions?");
-        }
+        AddWindowWarnings(
+            warnings,
+            scope?.Window,
+            source.Samples.Count,
+            "No exception-throw events were found. Did the workload throw any exceptions?");
 
         // Throw-site frames resolve from the trace's CLR rundown, so - as with the
         // allocation family - resolution is reported complete and the --strict gate
@@ -194,7 +197,7 @@ public sealed class TraceLoader
         return new LoadedTrace(info, source);
     }
 
-    private static LoadedTrace LoadContention(string fullPath, ITraceReader reader)
+    private static LoadedTrace LoadContention(string fullPath, ITraceReader reader, ScopeRequest? scope)
     {
         // Contention is the Contention/Start+Stop view of an EventPipe trace; an .etl
         // or speedscope export is rejected here rather than let the provider fail deep
@@ -207,15 +210,15 @@ public sealed class TraceLoader
                 $"The contention metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new ContentionProvider().Read(fullPath);
+        StackSampleSource source = new ContentionProvider().Read(fullPath, scope?.Window);
 
         List<string> warnings = [];
-        if (source.Samples.Count == 0)
-        {
-            warnings.Add(
-                "No lock-contention events were found. Did the workload contend on any locks, "
+        AddWindowWarnings(
+            warnings,
+            scope?.Window,
+            source.Samples.Count,
+            "No lock-contention events were found. Did the workload contend on any locks, "
                 + "and was the trace captured with the default runtime keywords?");
-        }
 
         // Contention frames resolve from the trace's CLR rundown, so - as with the
         // allocation and exceptions families - resolution is reported complete and the
@@ -224,7 +227,7 @@ public sealed class TraceLoader
         return new LoadedTrace(info, source);
     }
 
-    private static LoadedTrace LoadWait(string fullPath, ITraceReader reader)
+    private static LoadedTrace LoadWait(string fullPath, ITraceReader reader, ScopeRequest? scope)
     {
         // Wait is the WaitHandleWait/Start+Stop view of an EventPipe trace; an .etl or
         // speedscope export is rejected here rather than let the provider fail deep in
@@ -235,16 +238,16 @@ public sealed class TraceLoader
                 $"The wait metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new WaitProvider().Read(fullPath);
+        StackSampleSource source = new WaitProvider().Read(fullPath, scope?.Window);
 
         List<string> warnings = [];
-        if (source.Samples.Count == 0)
-        {
-            warnings.Add(
-                "No wait events were found. WaitHandleWait events are a .NET 9+ feature on the WaitHandle "
+        AddWindowWarnings(
+            warnings,
+            scope?.Window,
+            source.Samples.Count,
+            "No wait events were found. WaitHandleWait events are a .NET 9+ feature on the WaitHandle "
                 + "keyword (not in the default set); was the workload blocked on a wait handle and the trace "
                 + "captured with that keyword enabled?");
-        }
 
         // Wait frames resolve from the trace's CLR rundown, so - as with the allocation,
         // exceptions, and contention families - resolution is reported complete and the
@@ -253,7 +256,7 @@ public sealed class TraceLoader
         return new LoadedTrace(info, source);
     }
 
-    private static LoadedTrace LoadActivity(string fullPath, ITraceReader reader)
+    private static LoadedTrace LoadActivity(string fullPath, ITraceReader reader, ScopeRequest? scope)
     {
         // Activities are the EventSource Start/Stop view of an EventPipe trace; an .etl
         // or speedscope export is rejected here rather than let the provider fail deep in
@@ -266,15 +269,15 @@ public sealed class TraceLoader
                 $"The activity metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new ActivityProvider().Read(fullPath);
+        StackSampleSource source = new ActivityProvider().Read(fullPath, scope?.Window);
 
         List<string> warnings = [];
-        if (source.Samples.Count == 0)
-        {
-            warnings.Add(
-                "No start-stop activities were found. Activities come from EventSource Start/Stop events "
+        AddWindowWarnings(
+            warnings,
+            scope?.Window,
+            source.Samples.Count,
+            "No start-stop activities were found. Activities come from EventSource Start/Stop events "
                 + "(ASP.NET requests, HttpClient calls, the TPL, or a custom source); did the workload emit any?");
-        }
 
         // Activity frames are the activity names from the event stream, not resolved
         // symbols, so - as with the other stack-source families - resolution is reported
@@ -296,22 +299,53 @@ public sealed class TraceLoader
 
         StackSampleSource source = new ThreadTimeProvider().Read(fullPath, scope, out string? appliedScopeName);
 
+        // Thread time carries both scope axes an ETW capture supports: the process tree
+        // and the time window. Name whichever narrowed the read so an empty or reduced
+        // result is not misread as a bad capture.
+        string? windowPhrase = scope?.Window is TimeWindow window && window.IsBounded ? window.ToString() : null;
+
         List<string> warnings = [];
         if (source.Samples.Count == 0)
         {
-            // An empty result has two distinct causes now that scoping can drop every
-            // sample: a scope that matched no process (the capture is fine), or a capture
-            // taken without the context-switch keywords. Name the right one so the
-            // message does not blame the capture when the scope is at fault.
-            warnings.Add(appliedScopeName is not null
-                ? $"No thread-time samples remained after scoping to the '{appliedScopeName}' process tree; "
-                    + "the scope may match no process with samples - pass --all-processes to read every process."
-                : "No thread-time samples were found. Was the capture taken with the context-switch keywords?");
+            // An empty result has distinct causes now that scoping can drop every sample:
+            // a scope that matched no process, a window that excluded every interval (the
+            // capture is fine either way), or a capture taken without the context-switch
+            // keywords. Name the applied scopes so the message does not blame the capture
+            // when a scope is at fault.
+            List<string> scopes = [];
+            if (appliedScopeName is not null)
+            {
+                scopes.Add($"the '{appliedScopeName}' process tree");
+            }
+
+            if (windowPhrase is not null)
+            {
+                scopes.Add($"the {windowPhrase} window");
+            }
+
+            if (scopes.Count > 0)
+            {
+                warnings.Add(
+                    $"No thread-time samples remained after scoping to {(scopes.Count == 2 ? $"{scopes[0]} and {scopes[1]}" : scopes[0])}; "
+                    + "a scope may match nothing with samples - pass --all-processes or widen the time window.");
+            }
+            else
+            {
+                warnings.Add("No thread-time samples were found. Was the capture taken with the context-switch keywords?");
+            }
         }
-        else if (appliedScopeName is not null)
+        else
         {
-            warnings.Add(
-                $"Scoped to the '{appliedScopeName}' process tree; pass --all-processes to read every process.");
+            if (appliedScopeName is not null)
+            {
+                warnings.Add(
+                    $"Scoped to the '{appliedScopeName}' process tree; pass --all-processes to read every process.");
+            }
+
+            if (windowPhrase is not null)
+            {
+                warnings.Add($"Scoped to the {windowPhrase} window.");
+            }
         }
 
         // The thread-time computer resolves frames from the ETW capture itself and
@@ -320,6 +354,32 @@ public sealed class TraceLoader
         // apply. The total weight BuildInfo sums is elapsed milliseconds.
         TraceInfo info = BuildInfo(fullPath, TraceFormat.Etl, source.Samples, symbolResolutionRate: 1.0, warnings);
         return new LoadedTrace(info, source);
+    }
+
+    // Adds the time-window warnings shared by the single-process EventPipe providers
+    // (allocation, exceptions, contention, wait, activity): an empty windowed result
+    // names the window as a likely cause rather than blaming the capture, a non-empty
+    // windowed result notes the scope so the caller knows the read was narrowed, and an
+    // unwindowed empty result falls back to the provider's own diagnostic.
+    private static void AddWindowWarnings(
+        List<string> warnings,
+        TimeWindow? window,
+        int sampleCount,
+        string emptyBaseMessage)
+    {
+        if (window is TimeWindow bounded && bounded.IsBounded)
+        {
+            warnings.Add(sampleCount == 0
+                ? $"No samples remained inside the {bounded} window; the trace may carry none there, or the "
+                    + "window may lie outside the captured range - widen or drop the time window to check."
+                : $"Scoped to the {bounded} window.");
+            return;
+        }
+
+        if (sampleCount == 0)
+        {
+            warnings.Add(emptyBaseMessage);
+        }
     }
 
     // Computes the format-agnostic metadata (total weight, sample count, per-thread

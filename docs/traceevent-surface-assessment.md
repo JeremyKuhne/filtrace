@@ -1,11 +1,12 @@
 # TraceEvent surface audit and API-expansion assessment
 
-**Status:** TE-1 to TE-4 (lock contention, waits, GC-report depth, exception-by-type),
-TE-5 (ThreadPool starvation report), TE-6 (thread-time blocked-reason leaves), TE-7
-(disk-I/O-by-file report), and TE-11 (agentic discoverability) have landed; TE-8 to
-TE-10 are proposed. A living backlog of candidate analysis families and enrichments,
-prioritized against filtrace's design intents.
-**Date:** 2026-07-02
+**Status:** TE-1 to TE-8 (lock contention, waits, GC-report depth, exception-by-type,
+ThreadPool starvation, thread-time blocked-reason leaves, disk-I/O-by-file, and
+request/activity scoping), TE-11 (agentic discoverability), TE-12 (raw event query over
+`.etl`), TE-13 (capture-size cap), and TE-15 (time-window `--time` scope) have landed;
+TE-9, TE-10, and TE-14 are proposed. A living backlog of candidate analysis families and
+enrichments, prioritized against filtrace's design intents.
+**Date:** 2026-07-04
 **Basis:** Reflection over the actually-referenced assembly
 `Microsoft.Diagnostics.Tracing.TraceEvent` **3.2.3** (`lib/netstandard2.0`),
 cross-checked against filtrace's current providers and
@@ -111,6 +112,7 @@ and a family. Every row is a routine .NET situation, not an exotic one.
 | "Fine on my machine, piles up under load" | threadpool starvation | threadpool report (TE-5) | `threadpool` |
 | "It waits on the disk / database / network" | I/O | disk/file I/O (TE-7), blocked-leaf (TE-6) | `rank metric=diskio` |
 | "Just this one endpoint is slow" | per-request | activity scoping (TE-8) | `--activity` |
+| "Only the seconds around the spike matter" | a time slice | time-window scoping (TE-15) | `--time` |
 
 That map is also the argument for the P0 items: today the "CPU is idle but it's
 slow" row - one of the most common real complaints - has no cross-platform answer
@@ -184,7 +186,7 @@ Stable IDs (TE-n) so items can be tracked and referenced as they move.
 | TE-12 | Raw event query over `.etl` (extend `events` / `trace_query_events`) | `.etl` | Low | extend the `events` reader + guardrail | P3 | Landed |
 | TE-13 | Capture size cap (circular buffer) | `.etl` capture | Low | new `collect --max-size-mb` option | P2 | Landed |
 | TE-14 | Ship the process-tree `trim` as a verb | `.etl` relog | Med | new verb | P3 | Proposed |
-| TE-15 | Time-window trim axis (`[t0, t1]`) | `.etl` relog / analysis | Med | option on `trim` / a `--time` scope | P3 | Proposed |
+| TE-15 | Time-window scope (`--time`) | both | Low | new `--time` option on `rank` / `trace_rank` | P3 | Landed (analysis-time) |
 
 ### P0 - high value, low cost, EventPipe-native, drops into the existing engine
 
@@ -380,12 +382,20 @@ JITted managed frames (see [filtrace-etl-trimming.md](filtrace-etl-trimming.md))
 until that rebuild is solved - resolving it would make the shrink lossless and raise
 the priority. *Status:* proposed.
 
-**TE-15. Time-window trim axis.** *A developer asks:* "Only the few seconds around
+**TE-15. Time-window scope.** *A developer asks:* "Only the few seconds around
 the spike matter - can I keep just that slice?" *Applicability to .NET:* long captures
 whose interesting behavior is a brief window - a latency spike, one slow request, a GC
-pause. `trim` scopes by process tree only; a time-window trim (`[t0, t1]`) is the
-natural second axis, reusing the same relog machinery as TE-14 (or landing as an
-analysis-time `--time` scope). *Status:* proposed.
+pause. *Status:* landed as an analysis-time `--time <start>,<end>` scope (milliseconds
+relative to the trace start, either bound optional), the lossless read-time counterpart
+to the physical relog TE-14 would add. Because every sampled event carries a timestamp,
+this is the one scope axis that applies to *every* metric - the CPU sampler, allocation
+ticks, exception throws, contention and wait pairs, activities, and thread-time
+intervals - so unlike the cpu-only `--activity` it is not gated on the metric. It rides
+the existing `ScopeRequest` (a new `Window`) onto `rank` and `trace_rank`, keeping the
+samples whose anchor time falls in the window; a `.speedscope.json` timeline is in the
+profile's own unit, not milliseconds, so `--time` is a no-op there (with a warning).
+Extending it to the metric-shortcut and drill-down verbs, and the physical `[t0, t1]`
+relog (TE-14's sibling), remain follow-ups.
 
 ## Recommended next step
 

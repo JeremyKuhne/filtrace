@@ -159,6 +159,63 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Rank_TimeWindow_ScopesTheRankingAndNotesTheWindow()
+    {
+        TraceStore store = new();
+
+        // A window spanning the whole capture keeps every sample and notes the scope, so
+        // the assertion does not depend on the fixture's exact timing.
+        AnalysisResult<RankingResult> envelope = TraceTools.Rank(
+            store, FixturePath(Alloc), metric: "alloc", time: "0,100000");
+
+        AssertEnvelope(envelope);
+        envelope.Result.Rows.Should().NotBeEmpty();
+        envelope.Warnings.Should().Contain(w =>
+            w.Contains("Scoped to the [0, 100000] ms window", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Rank_TimeWindow_IsUniversalUnlikeTheActivityScope()
+    {
+        TraceStore store = new();
+
+        // The activity scope is cpu-only and throws with a non-cpu metric; the time window
+        // applies to every metric, so the same alloc+scope combination must succeed.
+        Action activityOnAlloc = () => TraceTools.Rank(store, FixturePath(Alloc), metric: "alloc", activity: "Order");
+        activityOnAlloc.Should().Throw<McpException>();
+
+        Action timeOnAlloc = () => TraceTools.Rank(store, FixturePath(Alloc), metric: "alloc", time: "0,100000");
+        timeOnAlloc.Should().NotThrow();
+    }
+
+    [TestMethod]
+    public void Rank_MalformedTimeWindow_ThrowsMcpException()
+    {
+        TraceStore store = new();
+
+        // The window is parsed before any read, so a malformed value is a clean tool error
+        // regardless of the fixture.
+        Action act = () => TraceTools.Rank(store, FixturePath(Speedscope), time: "500");
+
+        act.Should().Throw<McpException>().WithMessage("*time window must be 'start,end'*");
+    }
+
+    [TestMethod]
+    public void Rank_TimeWindow_IgnoredForSpeedscopeWithAWarning()
+    {
+        TraceStore store = new();
+
+        // A speedscope timeline is not in milliseconds, so the window is ignored - but with
+        // a warning rather than silently returning the whole trace.
+        AnalysisResult<RankingResult> envelope = TraceTools.Rank(
+            store, FixturePath(Speedscope), time: "0,100");
+
+        AssertEnvelope(envelope);
+        envelope.Warnings.Should().Contain(w =>
+            w.Contains("not applied to a speedscope", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void Callers_Speedscope_ReturnsCallerBreakdown()
     {
         TraceStore store = new();

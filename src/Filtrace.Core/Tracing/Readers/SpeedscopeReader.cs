@@ -60,6 +60,18 @@ internal sealed class SpeedscopeReader : ITraceReader
             warnings.Add("No timed samples were found in the speedscope file.");
         }
 
+        // A speedscope timeline is in the profile's own unit (nanoseconds, microseconds,
+        // ...), not the milliseconds a TimeWindow is measured in, so a time-window scope
+        // cannot be applied consistently here. Ignore it, but say so rather than silently
+        // returning the whole trace when the caller asked for a slice.
+        if (scope?.Window is TimeWindow window && window.IsBounded)
+        {
+            warnings.Add(
+                "Time-window scoping is not applied to a speedscope trace (its timeline is in the profile's "
+                + "own unit, not milliseconds); the requested time window was ignored. Use a .nettrace or .etl "
+                + "capture to scope by time.");
+        }
+
         return new TraceReadResult(samples, 1.0, warnings);
     }
 
