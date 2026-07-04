@@ -722,6 +722,7 @@ internal sealed class TraceCommands
     /// <param name="launchArgs">Arguments passed to the launched executable, as one command-line string.</param>
     /// <param name="cpuMs">CPU sample interval in milliseconds.</param>
     /// <param name="duration">Optional cap on capture length in seconds; 0 (default) captures until the process exits.</param>
+    /// <param name="maxSizeMb">Optional cap on the capture's on-disk size in megabytes; 0 (default) writes an unbounded file. When set, a circular buffer keeps the last N MB - size it to hold the run, since a full ring overwrites the oldest events and can drop early JIT method names.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
     ///  Reproduces a PerfView-style capture with TraceEvent's session API, so no external
@@ -736,7 +737,8 @@ internal sealed class TraceCommands
         string metric = "cpu",
         string launchArgs = "",
         [Range(1, 1000)] double cpuMs = 1.0,
-        [Range(0, int.MaxValue)] int duration = 0)
+        [Range(0, int.MaxValue)] int duration = 0,
+        [Range(0, int.MaxValue)] int maxSizeMb = 0)
     {
         if (!TryResolveCollectMetric(metric, out CollectMetric resolved))
         {
@@ -751,6 +753,7 @@ internal sealed class TraceCommands
             Metric = resolved,
             CpuSampleMSec = cpuMs,
             DurationSeconds = duration > 0 ? duration : null,
+            MaxSizeMB = maxSizeMb > 0 ? maxSizeMb : null,
             OutputPath = output,
         };
 
