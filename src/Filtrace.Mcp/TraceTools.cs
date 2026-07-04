@@ -443,12 +443,12 @@ public sealed class TraceTools
     /// <returns>The events-page envelope.</returns>
     [McpServerTool(Name = "trace_query_events", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Query the raw events of a .nettrace EventPipe or .etl ETW trace by name - the escape hatch for events the "
+        "Query the raw events of a .nettrace EventPipe or Windows ETW .etl trace by name - the escape hatch for events the "
         + "structured reports do not cover. 'name' is a case-insensitive substring matched against Provider/EventName "
         + "(empty matches all). Paged with 'skip'/'take', each payload truncated to 'maxPayload' chars; a hint gives the "
         + "next page's skip when more remain. A speedscope export is rejected.")]
     public static AnalysisResult<EventQueryResult> QueryEvents(
-        [Description("Path to a .nettrace EventPipe or .etl ETW trace file.")] string path,
+        [Description("Path to a .nettrace EventPipe or Windows ETW .etl trace file.")] string path,
         [Description("Substring matched against Provider/EventName; omit to match every event.")] string name = "",
         [Description("The number of matches to skip, for paging.")] int skip = 0,
         [Description("The maximum number of matches to return on this page.")] int take = 100,
