@@ -64,6 +64,17 @@ public sealed class EtwCollectRequest
     public int? DurationSeconds { get; init; }
 
     /// <summary>
+    ///  An optional cap on the capture's on-disk size in megabytes. When set, the session
+    ///  records into a fixed-size circular buffer that keeps the last N megabytes, bounding
+    ///  an otherwise open-ended capture; <see langword="null"/> (the default) writes an
+    ///  unbounded sequential file. Note that once a capture fills the ring the oldest events
+    ///  are overwritten, which can drop the early JIT method-name events and lower symbol
+    ///  resolution, so prefer a cap large enough to hold the run (or
+    ///  <see cref="DurationSeconds"/>) when managed frames matter.
+    /// </summary>
+    public int? MaxSizeMB { get; init; }
+
+    /// <summary>
     ///  The <c>.etl</c> file the capture is written to.
     /// </summary>
     public required string OutputPath { get; init; }
@@ -159,6 +170,13 @@ public static class EtwCollector
                 "The duration cap must be positive when set; omit it to capture until the process exits.");
         }
 
+        if (request.MaxSizeMB is int maxSizeMB && maxSizeMB <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request.MaxSizeMB), maxSizeMB,
+                "The size cap must be positive when set; omit it to write an unbounded sequential file.");
+        }
+
         if (!OperatingSystem.IsWindows())
         {
             throw new PlatformNotSupportedException(
@@ -216,6 +234,14 @@ public static class EtwCollector
             CpuSampleIntervalMSec = (float)request.CpuSampleMSec,
         })
         {
+            // A size cap records into a fixed-size ring so an open-ended capture is bounded
+            // to the last MaxSizeMB megabytes on disk. Set before enabling the providers so
+            // the session starts circular.
+            if (request.MaxSizeMB is int maxSizeMB)
+            {
+                session.CircularBufferMB = maxSizeMB;
+            }
+
             session.EnableKernelProvider(kernelKeywords, stackKeywords);
             session.EnableProvider(
                 ClrTraceEventParser.ProviderGuid,

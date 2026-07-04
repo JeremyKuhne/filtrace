@@ -118,6 +118,22 @@ public sealed class CollectExecutorTests
     }
 
     [TestMethod]
+    public void Collect_NonPositiveMaxSizeMB_ThrowsArgumentOutOfRange()
+    {
+        // Input validation runs before the OS / elevation guard, so this is deterministic
+        // on every OS. A set-but-non-positive cap is an error; omitting it (null) is how a
+        // capture stays unbounded.
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+            MaxSizeMB = 0,
+        });
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [TestMethod]
     public void Collect_NegativeDuration_ThrowsArgumentOutOfRange()
     {
         Action act = () => EtwCollector.Collect(new EtwCollectRequest

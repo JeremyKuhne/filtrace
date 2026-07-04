@@ -230,14 +230,14 @@ The recurring ways a .NET trace investigation goes wrong:
    thousands of events that dwarf the workload) no matter how short the window.
    `filtrace collect` avoids this by design - it enables only the CPU (and, for
    `threadtime`, context-switch) keywords and stacks just the sampled events, never the
-   File/Disk rundown - so prefer it and bound open-ended runs with `--duration`. Only a
-   `diskio` capture needs the
-   File/Disk keywords, and `filtrace collect` has no switch for them: that capture comes
-   from another recorder (PerfView, `wpr`, or BenchmarkDotNet ETW), so expect the
-   system-wide rundown there and trim it down afterward. To focus a big capture on your
-   code, scope at *analysis* time with `--process` (lossless - it keeps managed stacks);
-   physically trimming the file by relogging is a transport-only optimization that
-   currently drops JITted managed frames.
+   File/Disk rundown - so prefer it and bound open-ended runs with `--duration` or
+   `--max-size-mb` (a circular buffer that keeps the last N MB). Only a `diskio` capture
+   needs the File/Disk keywords, and `filtrace collect` has no switch for them: that
+   capture comes from another recorder (PerfView, `wpr`, or BenchmarkDotNet ETW), so
+   expect the system-wide rundown there and trim it down afterward. To focus a big
+   capture on your code, scope at *analysis* time with `--process` (lossless - it keeps
+   managed stacks); physically trimming the file by relogging is a transport-only
+   optimization that currently drops JITted managed frames.
 <!-- filtrace:end traps -->
 
 ## CLI or MCP

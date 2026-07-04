@@ -182,7 +182,7 @@ Stable IDs (TE-n) so items can be tracked and referenced as they move.
 | TE-10 | Retention / leak (`.gcdump`) - re-scope | shell out | Med + new dependency | separate assembly | P2 | Proposed |
 | TE-11 | Agentic discoverability (content-aware `trace_info` + symptom hints + triage) | both | Low-Med | cross-cutting; enables every row | P0 | Landed (info + hints) |
 | TE-12 | Raw event query over `.etl` (extend `events` / `trace_query_events`) | `.etl` | Low | extend the `events` reader + guardrail | P3 | Proposed |
-| TE-13 | Capture size cap (circular buffer) | `.etl` capture | Low | new `collect --max-size-mb` option | P2 | Proposed |
+| TE-13 | Capture size cap (circular buffer) | `.etl` capture | Low | new `collect --max-size-mb` option | P2 | Landed |
 | TE-14 | Ship the process-tree `trim` as a verb | `.etl` relog | Med | new verb | P3 | Proposed |
 | TE-15 | Time-window trim axis (`[t0, t1]`) | `.etl` relog / analysis | Med | option on `trim` / a `--time` scope | P3 | Proposed |
 
@@ -349,11 +349,14 @@ Surfaced by the TE-7 review. *Status:* proposed.
 **TE-13. Capture size cap (circular buffer).** *A developer asks:* "My capture ran
 for a while and produced a giant `.etl` - can I keep it bounded?" *Applicability to
 .NET:* any open-ended or long capture - a service under load, or a hang you have to
-wait for. `filtrace collect` writes an unbounded sequential `.etl` today, bounded only
-by `--duration` (time, not size). `TraceEventSession.CircularBufferMB` records into a
-fixed-size ring that keeps the last N MB, so a `collect --max-size-mb` option would cap
-the file for a capture whose end you cannot predict. This is a low-cost, capture-side
-prefilter that filtrace does not yet use. *Status:* proposed.
+wait for. Without a cap `filtrace collect` writes an unbounded sequential `.etl`,
+bounded only by `--duration` (time, not size). *Status:* landed - `collect
+--max-size-mb` sets `TraceEventSession.CircularBufferMB`, so the session records into a
+fixed-size ring that keeps the last N megabytes (validated as positive, or omitted for
+an unbounded file). The one caveat, documented on the option, is that once the ring
+fills the oldest events are overwritten - which can drop the early JIT method-name
+events and lower symbol resolution - so size the cap to hold the run when managed
+frames matter.
 
 **TE-14. Ship the process-tree `trim` as a verb.** *A developer asks:* "This `.etl`
 is huge - can I shrink it to just my app before I move it?" *Applicability to .NET:*
@@ -383,9 +386,9 @@ GC-report depth, exception-by-type ranking) plus TE-11 (content-aware `trace_inf
 symptom-routing hints), TE-5 (the `threadpool` starvation report), and the ETW
 follow-on TE-6 (thread-time blocked-reason leaves) and TE-7 (the `diskio` report,
 unblocked by teaching the `trim` fixture tool to keep a process tree's disk I/O). TE-8
-to TE-10 remain, with TE-12 through TE-15 proposed as lower-priority follow-ups (a raw
-`.etl` event query, plus the capture-size and trimming items surfaced by the TE-7
-fixture work).
+to TE-10 remain; TE-13 (the capture-size cap) landed, and TE-12, TE-14, and TE-15 are
+proposed lower-priority follow-ups (a raw `.etl` event query, plus the trimming items
+surfaced by the TE-7 fixture work).
 
 Land **TE-11 alongside TE-1 through TE-4** as one increment aimed squarely at the
 "why is this slow?" flow: the two new stack providers (`ContentionProvider`,
