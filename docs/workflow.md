@@ -35,6 +35,16 @@ my code?", or "which process is this?" - otherwise an EventPipe trace is the
 lighter, no-elevation choice. Reading an `.etl` is itself Windows-only (the
 ETW -> ETLX conversion), though the resulting `.etlx` then analyzes on any OS.
 
+A machine-wide `.etl` also grows fast, so keep the capture lean. `filtrace collect`
+enables only the CPU (and, for `threadtime`, context-switch) keywords and stacks only
+the sampled events; it never turns on the File/Disk keywords, whose system-wide *name*
+rundown enumerates every open file on the machine - hundreds of thousands of events
+that dominate the trace no matter how short the window. Bound an open-ended run with
+`--duration`, enable the File/Disk keywords only when you want the `diskio` report, and
+narrow the analysis to your code with `--process` (lossless, so managed stacks survive)
+rather than physically shrinking the file (see
+[filtrace-etl-trimming.md](filtrace-etl-trimming.md)).
+
 One EventPipe caveat: the `wait` family needs the non-default `WaitHandle` keyword
 enabled at capture, so a plain `dotnet-trace collect` records the other families but
 not waits (`rank --metric wait` then warns it found none).
