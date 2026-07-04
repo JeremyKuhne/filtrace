@@ -38,6 +38,14 @@ internal static class DiskIoExecutor
     /// <returns>A process exit code (see <see cref="ExitCodes"/>).</returns>
     public static int Run(DiskIoRequest request, TextWriter output, TextWriter error)
     {
+        // Defensive: the verb enforces top >= 1, but Run is also called directly, so
+        // guard the boundary rather than emit a confusing "top 0" report.
+        if (request.Top < 1)
+        {
+            error.WriteLine("top must be 1 or greater.");
+            return ExitCodes.UsageError;
+        }
+
         if (!TraceExecution.TryReadEtlReport(
             request.Path,
             "disk I/O",

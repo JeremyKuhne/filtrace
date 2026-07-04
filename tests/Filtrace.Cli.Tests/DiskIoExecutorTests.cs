@@ -88,4 +88,15 @@ public sealed class DiskIoExecutorTests
         exit.Should().Be(ExitCodes.InputError);
         error.Should().Contain("disk I/O report requires");
     }
+
+    [TestMethod]
+    public void Run_NonPositiveTop_ReturnsUsageError()
+    {
+        // The verb enforces top >= 1, but the executor guards the boundary too so a
+        // direct call with a bad top fails cleanly rather than emitting a "top 0" report.
+        (int exit, _, string error) = Run(Request(DiskIo, top: 0));
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("top must be 1 or greater");
+    }
 }
