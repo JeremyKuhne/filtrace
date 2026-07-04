@@ -40,9 +40,11 @@ enables only the CPU (and, for `threadtime`, context-switch) keywords and stacks
 the sampled events; it never turns on the File/Disk keywords, whose system-wide *name*
 rundown enumerates every open file on the machine - hundreds of thousands of events
 that dominate the trace no matter how short the window. Bound an open-ended run with
-`--duration`, enable the File/Disk keywords only when you want the `diskio` report, and
-narrow the analysis to your code with `--process` (lossless, so managed stacks survive)
-rather than physically shrinking the file (see
+`--duration`. Only a `diskio` capture needs those File/Disk keywords, and `collect` has
+no switch for them: that capture comes from another recorder (PerfView, `wpr`, or
+BenchmarkDotNet ETW), so expect the rundown there and trim it down afterward. Narrow
+the analysis to your code with `--process` (lossless, so managed stacks survive) rather
+than physically shrinking the file (see
 [filtrace-etl-trimming.md](filtrace-etl-trimming.md)).
 
 One EventPipe caveat: the `wait` family needs the non-default `WaitHandle` keyword

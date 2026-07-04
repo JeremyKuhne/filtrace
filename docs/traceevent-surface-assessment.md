@@ -352,8 +352,8 @@ for a while and produced a giant `.etl` - can I keep it bounded?" *Applicability
 wait for. `filtrace collect` writes an unbounded sequential `.etl` today, bounded only
 by `--duration` (time, not size). `TraceEventSession.CircularBufferMB` records into a
 fixed-size ring that keeps the last N MB, so a `collect --max-size-mb` option would cap
-the file for a capture whose end you cannot predict. A capture-side prefilter filtrace
-does not yet use, and low cost. *Status:* proposed.
+the file for a capture whose end you cannot predict. This is a low-cost, capture-side
+prefilter that filtrace does not yet use. *Status:* proposed.
 
 **TE-14. Ship the process-tree `trim` as a verb.** *A developer asks:* "This `.etl`
 is huge - can I shrink it to just my app before I move it?" *Applicability to .NET:*

@@ -73,11 +73,13 @@ embeds the marked block below verbatim and
    ETW kernel tracing is machine-wide, so the wrong keywords balloon the file: the
    File/Disk *name* rundowns enumerate every open file on the box (hundreds of
    thousands of events that dwarf the workload) no matter how short the window.
-   `filtrace collect` already stays lean - CPU / context-switch keywords only, stacks
-   on just the sampled events, no File/Disk rundown - so prefer it, bound open-ended
-   runs with `--duration`, and enable the File/Disk keywords only for the `diskio`
-   report. To focus a big capture on your code, scope at *analysis* time with
-   `--process` (lossless - it keeps managed stacks); physically trimming the file by
-   relogging is a transport-only optimization that currently drops JITted managed
-   frames.
+   `filtrace collect` avoids this by design - it enables only the CPU / context-switch
+   keywords and stacks just the sampled events, never the File/Disk rundown - so prefer
+   it and bound open-ended runs with `--duration`. Only a `diskio` capture needs the
+   File/Disk keywords, and `filtrace collect` has no switch for them: that capture comes
+   from another recorder (PerfView, `wpr`, or BenchmarkDotNet ETW), so expect the
+   system-wide rundown there and trim it down afterward. To focus a big capture on your
+   code, scope at *analysis* time with `--process` (lossless - it keeps managed stacks);
+   physically trimming the file by relogging is a transport-only optimization that
+   currently drops JITted managed frames.
 <!-- filtrace:end traps -->
