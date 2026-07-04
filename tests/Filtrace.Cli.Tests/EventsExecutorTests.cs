@@ -14,6 +14,8 @@ public sealed class EventsExecutorTests
 
     private static string Speedscope => FixturePath("folding.speedscope.json");
 
+    private static string DiskIoTrace => FixturePath("diskio.etl");
+
     private static EventsRequest Request(
         string path,
         string name = "",
@@ -94,11 +96,25 @@ public sealed class EventsExecutorTests
     }
 
     [TestMethod]
-    public void Run_WrongFormat_ReturnsInputError()
+    public void Run_SpeedscopeInput_ReturnsInputError()
     {
+        // The events query spans .nettrace and .etl, but a speedscope export carries only
+        // CPU stacks - no event stream - so it is rejected up front.
         (int exit, _, string error) = Run(Request(Speedscope));
 
         exit.Should().Be(ExitCodes.InputError);
-        error.Should().Contain("events report requires");
+        error.Should().Contain("requires a .nettrace EventPipe or .etl");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_EtlTrace_ReturnsSuccess()
+    {
+        // The events query accepts an .etl too (reading it is Windows-only, hence the OS
+        // guard); the kernel event stream yields a matched page.
+        (int exit, string output, _) = Run(Request(DiskIoTrace, take: 5));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("matched");
     }
 }

@@ -250,6 +250,70 @@ internal static class TraceExecution
     }
 
     /// <summary>
+    ///  Reads a report that spans both trace formats - the raw event query, which reads
+    ///  either an EventPipe <c>.nettrace</c> or a Windows ETW <c>.etl</c> - applying the
+    ///  format guardrail and mapping the provider's failure modes to a clean exit.
+    /// </summary>
+    /// <typeparam name="T">The report result type.</typeparam>
+    /// <param name="path">The trace file path.</param>
+    /// <param name="reportName">The query's display name, used in the guardrail message.</param>
+    /// <param name="read">Reads the report; called only after the format guardrail passes.</param>
+    /// <param name="error">The writer load errors are reported to.</param>
+    /// <param name="result">The report on success; <see langword="null"/> on failure.</param>
+    /// <returns><see langword="true"/> if the report was read; otherwise <see langword="false"/>.</returns>
+    /// <remarks>
+    ///  <para>
+    ///   Unlike the format-specific report guardrails, the raw event query reads the event
+    ///   stream both EventPipe and ETW carry, so it accepts a <c>.nettrace</c> or an
+    ///   <c>.etl</c> - but not a speedscope export, which holds only CPU stacks. Reading an
+    ///   <c>.etl</c> is Windows-only (the ETW -> ETLX conversion), which surfaces from the
+    ///   reader as one of the caught failure modes off Windows.
+    ///  </para>
+    /// </remarks>
+    public static bool TryReadDualFormatReport<T>(
+        string path,
+        string reportName,
+        Func<T> read,
+        TextWriter error,
+        [NotNullWhen(true)] out T? result) where T : class
+    {
+        // Format guardrail (an extension test, no I/O): the raw event query spans the
+        // EventPipe (.nettrace) and ETW (.etl) event streams, but a speedscope export
+        // carries only CPU stacks, so reject anything that is neither .nettrace nor .etl.
+        if (string.IsNullOrEmpty(path)
+            || !(path.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".etl", StringComparison.OrdinalIgnoreCase)))
+        {
+            string display = string.IsNullOrEmpty(path) ? "(no path)" : path;
+            error.WriteLine(
+                $"The {reportName} requires a .nettrace EventPipe or .etl ETW trace; '{display}' is neither.");
+            result = null;
+            return false;
+        }
+
+        try
+        {
+            result = read();
+            return true;
+        }
+        catch (Exception ex) when (
+            ex is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or FormatException
+            or ArgumentException)
+        {
+            // A missing, unreadable, or malformed trace - or an .etl read attempted off
+            // Windows (PlatformNotSupportedException derives from NotSupportedException) -
+            // terminates with a defined exit code rather than crashing the process.
+            error.WriteLine(ex.Message);
+            result = null;
+            return false;
+        }
+    }
+
+    /// <summary>
     ///  The quality warnings to attach to a result envelope: the full list the reader
     ///  and loader recorded on <see cref="TraceInfo.Warnings"/>.
     /// </summary>

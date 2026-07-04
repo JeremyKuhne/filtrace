@@ -660,7 +660,7 @@ internal sealed class TraceCommands
     /// <summary>
     ///  Query the trace's raw events by name, with paging and a per-event payload cap.
     /// </summary>
-    /// <param name="trace">Path to a .nettrace EventPipe file.</param>
+    /// <param name="trace">Path to a .nettrace EventPipe or .etl ETW file.</param>
     /// <param name="name">Case-insensitive substring matched against provider/event; omit to match every event.</param>
     /// <param name="skip">Number of matches to skip, for paging.</param>
     /// <param name="take">-n, Maximum number of matches to return on this page.</param>

@@ -181,7 +181,7 @@ Stable IDs (TE-n) so items can be tracked and referenced as they move.
 | TE-9 | PMC / CPU-counter ranking | `.etl` capture | Med | new `metric` | P2 | Proposed |
 | TE-10 | Retention / leak (`.gcdump`) - re-scope | shell out | Med + new dependency | separate assembly | P2 | Proposed |
 | TE-11 | Agentic discoverability (content-aware `trace_info` + symptom hints + triage) | both | Low-Med | cross-cutting; enables every row | P0 | Landed (info + hints) |
-| TE-12 | Raw event query over `.etl` (extend `events` / `trace_query_events`) | `.etl` | Low | extend the `events` reader + guardrail | P3 | Proposed |
+| TE-12 | Raw event query over `.etl` (extend `events` / `trace_query_events`) | `.etl` | Low | extend the `events` reader + guardrail | P3 | Landed |
 | TE-13 | Capture size cap (circular buffer) | `.etl` capture | Low | new `collect --max-size-mb` option | P2 | Landed |
 | TE-14 | Ship the process-tree `trim` as a verb | `.etl` relog | Med | new verb | P3 | Proposed |
 | TE-15 | Time-window trim axis (`[t0, t1]`) | `.etl` relog / analysis | Med | option on `trim` / a `--time` scope | P3 | Proposed |
@@ -339,12 +339,12 @@ dependency-gated. This corrects Addendum A's "analysis ships without the lift" c
 **TE-12. Raw event query over `.etl`.** *A developer asks:* "I have an ETW capture -
 can I inspect its raw events by name the way I can for a `.nettrace`?" *Applicability
 to .NET:* niche but low-cost - the escape hatch the structured reports do not cover,
-for `.etl` as well as EventPipe. Today `events` / `trace_query_events` (and the
-`EventQueryProvider`) are `.nettrace`-only, so `trace_info` no longer advertises
-`events` for an `.etl` (the verb would reject it). Extending the reader and guardrail
-to accept `.etl` - reading via `TraceLog` like the other ETW analyses - would let the
-raw query span both formats and restore `events` to the ETW `availableAnalyses`.
-Surfaced by the TE-7 review. *Status:* proposed.
+for `.etl` as well as EventPipe. *Status:* landed - the `EventQueryProvider` now opens
+an `.etl` via `TraceLog.OpenOrConvert` (the event loop over `TraceLog.Events` is
+identical for both formats), the `events` verb and `trace_query_events` accept a
+`.nettrace` or an `.etl` through a shared dual-format guardrail (a speedscope export,
+which carries no event stream, is still rejected), and `events` is back in the ETW
+`availableAnalyses`. Reading an `.etl` stays Windows-only. Surfaced by the TE-7 review.
 
 **TE-13. Capture size cap (circular buffer).** *A developer asks:* "My capture ran
 for a while and produced a giant `.etl` - can I keep it bounded?" *Applicability to

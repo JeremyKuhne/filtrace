@@ -12,6 +12,8 @@ public sealed class EventQueryProviderTests
 
     private static string AllocTrace => FixturePath("alloc.nettrace");
 
+    private static string EtwTrace => FixturePath("etw.etl");
+
     [TestMethod]
     public void Query_NoFilter_MatchesEveryEvent()
     {
@@ -20,6 +22,25 @@ public sealed class EventQueryProviderTests
         // The fixture carries hundreds of events; the total reflects all of them.
         result.TotalMatched.Should().BeGreaterThan(5);
         result.Events.Should().HaveCount(5, "take caps the page");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Query_EtlTrace_MatchesKernelEvents()
+    {
+        // The raw event query spans both formats: an .etl carries the kernel event stream
+        // (reading it is Windows-only, hence the OS guard), so a no-filter query matches
+        // its events and a name filter narrows to a kernel event the capture records.
+        EventQueryProvider provider = new();
+
+        EventQueryResult all = provider.Query(EtwTrace, take: 5);
+        all.TotalMatched.Should().BeGreaterThan(5);
+        all.Events.Should().HaveCount(5);
+
+        EventQueryResult threads = provider.Query(EtwTrace, "Thread", take: 1000);
+        threads.TotalMatched.Should().BeGreaterThan(0);
+        threads.Events.Should().OnlyContain(
+            e => $"{e.Provider}/{e.EventName}".Contains("Thread", StringComparison.OrdinalIgnoreCase));
     }
 
     [TestMethod]

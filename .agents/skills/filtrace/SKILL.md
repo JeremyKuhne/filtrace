@@ -121,7 +121,7 @@ filtrace diff before.nettrace after.nettrace # 4. what changed
 | `jitstats` | JIT method count, compile time, sizes (`.nettrace`) |
 | `threadpool` | worker-thread adjustments and starvation - slow under load, CPU idle (`.nettrace`) |
 | `diskio` | physical disk I/O by file: bytes and disk service time (`.etl`, Windows) |
-| `events --name <n>` | raw events by name, paged (`.nettrace`) |
+| `events --name <n>` | raw events by name, paged (`.nettrace`, `.etl`) |
 
 **Capture** - record a Windows ETW `.etl` yourself (for an EventPipe `.nettrace`, use `dotnet-trace`):
 

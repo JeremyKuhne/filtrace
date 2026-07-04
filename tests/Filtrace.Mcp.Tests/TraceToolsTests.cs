@@ -773,6 +773,20 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void QueryEvents_EtlTrace_ReturnsMatchingEventsPage()
+    {
+        // The raw event query now spans both formats: an .etl carries a kernel event
+        // stream (reading it is Windows-only, hence the OS guard), so the query returns a
+        // page of its events.
+        AnalysisResult<EventQueryResult> envelope = TraceTools.QueryEvents(FixturePath(Etw));
+
+        AssertEnvelope(envelope);
+        envelope.Result.TotalMatched.Should().BeGreaterThan(0);
+        envelope.Result.Events.Should().NotBeEmpty();
+    }
+
+    [TestMethod]
     public void QueryEvents_Take_PagesAndHintsRemaining()
     {
         // A take smaller than the total match count returns one page and steers toward
@@ -789,13 +803,13 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
-    public void QueryEvents_NonNetTraceInput_ThrowsMcpException()
+    public void QueryEvents_SpeedscopeInput_ThrowsMcpException()
     {
-        // The events query parses the EventPipe format; an .etl or speedscope is rejected
-        // up front by the extension guardrail.
+        // The raw event query spans .nettrace and .etl, but a speedscope export carries
+        // only CPU stacks - no event stream - so it is rejected up front by the guardrail.
         Action act = () => TraceTools.QueryEvents(FixturePath(Speedscope));
 
-        act.Should().Throw<McpException>().WithMessage("*requires a .nettrace*");
+        act.Should().Throw<McpException>().WithMessage("*requires a .nettrace EventPipe or .etl*");
     }
 
     [TestMethod]
