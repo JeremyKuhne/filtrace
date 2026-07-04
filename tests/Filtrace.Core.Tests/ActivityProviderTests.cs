@@ -44,7 +44,7 @@ public sealed class ActivityProviderTests
         // per-instance activity Name (which embeds a unique activity path), so instances
         // fold together in the ranking.
         source.Samples.SelectMany(s => s.Frames).Should().Contain("Order");
-        source.Samples.SelectMany(s => s.Frames).Should().OnlyContain(f => !f.Contains('(', StringComparison.Ordinal));
+        source.Samples.SelectMany(s => s.Frames).Should().OnlyContain(f => !f.Contains('('));
     }
 
     [TestMethod]

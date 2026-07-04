@@ -196,7 +196,7 @@ internal static class ActivityInspector
         using Microsoft.Diagnostics.Symbols.SymbolReader symbolReader = new(System.IO.TextWriter.Null);
         GCReferenceComputer gcReferences = new(source);
         ActivityComputer activityComputer = new(source, symbolReader, gcReferences);
-        StartStopActivityComputer startStop = new(source, activityComputer, false);
+        StartStopActivityComputer startStop = new(source, activityComputer, ignoreApplicationInsightsRequestsWithRelatedActivityId: false);
 
         Dictionary<string, (int Count, double TotalMs)> byName = new(StringComparer.Ordinal);
         startStop.Stop += (activity, _) =>

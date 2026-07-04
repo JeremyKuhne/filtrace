@@ -297,7 +297,13 @@ internal abstract class TraceLogReader : ITraceReader
             // An empty result can come from either scope dropping every sample or an
             // absent CPU sampler; name the most specific cause so the message does not
             // blame the capture when a scope is at fault.
-            if (activityName is not null)
+            if (activityName is not null && appliedScopeName is not null)
+            {
+                warnings.Add(
+                    $"No samples remained after scoping to the '{appliedScopeName}' process tree and the "
+                    + $"'{activityName}' activity; either scope may have dropped them all - relax one to see which.");
+            }
+            else if (activityName is not null)
             {
                 warnings.Add(
                     $"No samples remained inside the '{activityName}' activity; the trace may carry no such "
