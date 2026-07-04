@@ -63,7 +63,7 @@ public sealed class ActivityProvider
             new TraceLogOptions { ContinueOnError = true });
 
         using TraceLog traceLog = new(etlxPath);
-        TraceLogEventSource source = traceLog.Events.GetSource();
+        using TraceLogEventSource source = traceLog.Events.GetSource();
 
         // The activity computer needs a symbol reader and a GC-reference computer to
         // build; neither resolves symbols here (activity names come from the event

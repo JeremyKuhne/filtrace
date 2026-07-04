@@ -35,7 +35,7 @@ public sealed class ActivityScopeTests
     }
 
     [TestMethod]
-    public void Load_CpuScopedToActivity_KeepsOnlyThatActivitysSamples()
+    public void Load_CpuScopedToActivity_KeepsSamplesTakenInsideIt()
     {
         TraceLoader loader = new();
 

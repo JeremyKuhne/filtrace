@@ -146,7 +146,7 @@ internal abstract class TraceLogReader : ITraceReader
         SymbolReader symbolReader,
         string activityName)
     {
-        TraceLogEventSource source = traceLog.Events.GetSource();
+        using TraceLogEventSource source = traceLog.Events.GetSource();
         GCReferenceComputer gcReferences = new(source);
         ActivityComputer activityComputer = new(source, symbolReader, gcReferences);
         StartStopActivityComputer startStop = new(source, activityComputer, ignoreApplicationInsightsRequestsWithRelatedActivityId: false);
