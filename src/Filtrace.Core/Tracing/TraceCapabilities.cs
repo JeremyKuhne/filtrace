@@ -17,7 +17,7 @@ namespace Filtrace.Tracing;
 ///   EventPipe-only; thread time, the runtime-work classification, the process
 ///   inventory, and the disk-I/O report are ETW-only; a speedscope export carries CPU
 ///   stacks alone. Whether the specific events are present is a separate question each
-///   analysis answers with its own "no &lt;x&gt; events found" warning, since some (for
+///   analysis answers with its own "no events found" warning, since some (for
 ///   example wait) need a non-default capture keyword.
 ///  </para>
 /// </remarks>
