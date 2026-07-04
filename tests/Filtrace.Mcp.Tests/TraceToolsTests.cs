@@ -366,6 +366,7 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
     public void DiskIo_EtlTrace_ReturnsByFileReport()
     {
         AnalysisResult<DiskIoResult> envelope = TraceTools.DiskIo(FixturePath(DiskIoTrace));

@@ -5,6 +5,7 @@
 namespace Filtrace.Cli;
 
 [TestClass]
+[OSCondition(OperatingSystems.Windows)]
 public sealed class DiskIoExecutorTests
 {
     private static string FixturePath(string name) =>

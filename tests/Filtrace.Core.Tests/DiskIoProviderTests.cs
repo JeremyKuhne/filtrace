@@ -5,6 +5,7 @@
 namespace Filtrace.Tracing.Providers;
 
 [TestClass]
+[OSCondition(OperatingSystems.Windows)]
 public sealed class DiskIoProviderTests
 {
     private static string FixturePath(string name) =>
