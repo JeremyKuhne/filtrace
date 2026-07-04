@@ -1031,8 +1031,9 @@ public sealed class TraceTools
         // ETW-only, so reject a .nettrace or speedscope export cleanly here.
         if (string.IsNullOrEmpty(path) || !path.EndsWith(".etl", StringComparison.OrdinalIgnoreCase))
         {
+            string display = string.IsNullOrEmpty(path) ? "(no path)" : path;
             throw new McpException(
-                $"The {reportName} requires a Windows ETW .etl trace; '{path}' is not a .etl file.");
+                $"The {reportName} requires a Windows ETW .etl trace; '{display}' is not a .etl file.");
         }
     }
 
