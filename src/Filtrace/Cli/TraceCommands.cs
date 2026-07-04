@@ -467,7 +467,7 @@ internal sealed class TraceCommands
     /// <summary>
     ///  Report physical disk I/O by file: bytes read and written to each file, and disk service time.
     /// </summary>
-    /// <param name="trace">Path to a Windows ETW .etl file captured with the DiskIO kernel keyword.</param>
+    /// <param name="trace">Path to a Windows ETW .etl file captured with the DiskIO (and DiskFileIO, for file names) kernel keyword.</param>
     /// <param name="top">-n, Maximum number of per-file rows to show, ranked by disk time.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>

@@ -24,7 +24,9 @@ namespace Filtrace.Tracing.Providers;
 ///  </para>
 ///  <para>
 ///   Physical disk events are an ETW (kernel) capability, so this reads an <c>.etl</c>
-///   captured with the <c>DiskIO</c> kernel keyword. An EventPipe <c>.nettrace</c>
+///   captured with the <c>DiskIO</c> kernel keyword; the companion <c>DiskFileIO</c>
+///   keyword supplies the file-name rundown that resolves each transfer to a file, and
+///   without it the rows aggregate under <c>(unknown)</c>. An EventPipe <c>.nettrace</c>
 ///   carries no kernel disk events, so disk I/O is not available from it.
 ///  </para>
 /// </remarks>
