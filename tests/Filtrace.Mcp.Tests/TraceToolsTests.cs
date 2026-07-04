@@ -18,6 +18,7 @@ public sealed class TraceToolsTests
     private const string Exceptions = "exceptions.nettrace";
     private const string Jit = "jit.nettrace";
     private const string ThreadPoolTrace = "threadpool.nettrace";
+    private const string DiskIoTrace = "diskio.etl";
     private const string Etw = "etw.etl";
 
     private static string FixturePath(string name) =>
@@ -362,6 +363,35 @@ public sealed class TraceToolsTests
         Action act = () => TraceTools.ThreadPool(FixturePath(Speedscope));
 
         act.Should().Throw<McpException>().WithMessage("*requires a .nettrace*");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void DiskIo_EtlTrace_ReturnsByFileReport()
+    {
+        AnalysisResult<DiskIoResult> envelope = TraceTools.DiskIo(FixturePath(DiskIoTrace));
+
+        AssertEnvelope(envelope);
+        envelope.Result.WriteCount.Should().BeGreaterThan(0);
+        envelope.Result.Files.Should().NotBeEmpty();
+    }
+
+    [TestMethod]
+    public void DiskIo_NonEtlInput_ThrowsMcpException()
+    {
+        // The disk I/O report reads kernel ETW events; a .nettrace or speedscope is
+        // rejected up front by the format guardrail.
+        Action act = () => TraceTools.DiskIo(FixturePath(Alloc));
+
+        act.Should().Throw<McpException>().WithMessage("*requires a Windows ETW .etl*");
+    }
+
+    [TestMethod]
+    public void DiskIo_NonPositiveTop_Throws()
+    {
+        Action act = () => TraceTools.DiskIo(FixturePath(DiskIoTrace), top: 0);
+
+        act.Should().Throw<McpException>().WithMessage("*top must be 1 or greater*");
     }
 
     [TestMethod]

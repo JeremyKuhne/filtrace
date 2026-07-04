@@ -1,9 +1,10 @@
 # TraceEvent surface audit and API-expansion assessment
 
 **Status:** TE-1 to TE-4 (lock contention, waits, GC-report depth, exception-by-type),
-TE-5 (ThreadPool starvation report), and TE-11 (agentic discoverability) have landed;
-TE-6 to TE-10 are proposed. A living backlog of candidate analysis families and
-enrichments, prioritized against filtrace's design intents.
+TE-5 (ThreadPool starvation report), TE-6 (thread-time blocked-reason leaves), TE-7
+(disk-I/O-by-file report), and TE-11 (agentic discoverability) have landed; TE-8 to
+TE-10 are proposed. A living backlog of candidate analysis families and enrichments,
+prioritized against filtrace's design intents.
 **Date:** 2026-07-02
 **Basis:** Reflection over the actually-referenced assembly
 `Microsoft.Diagnostics.Tracing.TraceEvent` **3.2.3** (`lib/netstandard2.0`),
@@ -174,12 +175,13 @@ Stable IDs (TE-n) so items can be tracked and referenced as they move.
 | TE-3 | GC-report depth (reason / type / %GC / promoted) | `.nettrace` | Low | extend `gcstats` / `trace_gc` | P0 | Landed (`.nettrace`) |
 | TE-4 | Exception grouping by type | `.nettrace` | Trivial | extend `exceptions` | P0 | Landed (`.nettrace`) |
 | TE-5 | ThreadPool starvation report | `.nettrace` | Med | new structured verb / tool | P1 | Landed |
-| TE-6 | Thread-time blocked-leaf split (disk / net / lock / paging) | `.etl` | Low-Med | enrich `threadtime` | P1 | Proposed |
-| TE-7 | Disk-I/O and File-I/O families | `.etl` | Med | new `metric`(s) | P1 | Proposed |
+| TE-6 | Thread-time blocked-leaf split (disk / net / lock / paging) | `.etl` | Low-Med | enrich `threadtime` | P1 | Landed (`.etl`) |
+| TE-7 | Disk-I/O and File-I/O families | `.etl` | Med | new `metric`(s) | P1 | Landed (disk) |
 | TE-8 | Request / activity scoping (`--activity`) | both | Med-High | scope grammar + family | P2 | Proposed |
 | TE-9 | PMC / CPU-counter ranking | `.etl` capture | Med | new `metric` | P2 | Proposed |
 | TE-10 | Retention / leak (`.gcdump`) - re-scope | shell out | Med + new dependency | separate assembly | P2 | Proposed |
 | TE-11 | Agentic discoverability (content-aware `trace_info` + symptom hints + triage) | both | Low-Med | cross-cutting; enables every row | P0 | Landed (info + hints) |
+| TE-12 | Raw event query over `.etl` (extend `events` / `trace_query_events`) | `.etl` | Low | extend the `events` reader + guardrail | P3 | Proposed |
 
 ### P0 - high value, low cost, EventPipe-native, drops into the existing engine
 
@@ -277,17 +279,35 @@ reliably starves it.
 **TE-6. Thread-time blocked-leaf split.** *A developer asks:* "I know it's blocked -
 but on the disk, the network, a lock, or paging?" *Applicability to .NET:* general -
 any I/O- or lock-heavy workload. The `ThreadTimeStackComputer` already emits DISK /
-NETWORK / HARD_FAULT / READIED leaves; filtrace collapses them to CPU_TIME /
-BLOCKED_TIME (and sets `ExcludeReadyThread = true`). Surface the finer leaves so "X
-ms blocked" becomes "blocked on disk / network / lock / paging." Low code cost, but
-the blocked-time simulation is sensitive to input filtering, so tread carefully.
+NETWORK / HARD_FAULT / READIED leaves, and filtrace passes them through the ranking
+unchanged - only `CPU_TIME` is folded, and `ExcludeReadyThread = true` drops the
+ready-thread leaf - so the finer leaves already surface as distinct rows. *Status:*
+landed - the blocked-reason leaves (`DISK_TIME`, `HARD_FAULT`, `NETWORK_TIME`) rank on
+their own, verified by a thread-time test over the new disk-I/O fixture that asserts
+`DISK_TIME` appears. (The assessment's earlier "filtrace collapses them to CPU_TIME /
+BLOCKED_TIME" claim was inaccurate: it never collapsed them; they were simply not
+exercised by a fixture until TE-7 produced one.)
 
 **TE-7. Disk-I/O and File-I/O families.** *A developer asks:* "Is my code really
 waiting on the disk or a file, and which path issues those reads?" *Applicability to
 .NET:* common in data-heavy apps, logging, serialization, config loading.
 `KernelTraceEventParser` `DiskIORead` / `DiskIOWrite` / `FileIORead` / `FileIOWrite`
 carry stacks; weight by bytes or I/O time into the same provider shape. ETW-only,
-fits the "reach for `.etl` when..." framing.
+fits the "reach for `.etl` when..." framing. *Status:* landed for disk I/O - a
+`DiskIoProvider` reads the kernel `DiskIO/Read` and `DiskIO/Write` events into a
+`DiskIoResult` aggregated by file (read / write bytes, operation counts, disk service
+time), wired as the `diskio` verb and the `trace_diskio` tool, listed in
+`availableAnalyses` and routed from a "waiting on disk / heavy file I/O" hint. The
+committed fixture was the hard part: a machine-wide ETW disk capture is dominated by
+the `DiskFileIO` file-name rundown (650K+ events, hundreds of megabytes) regardless of
+the capture window, so the `trim` fixture tool was extended to keep just the target
+process tree's disk I/O - correlating `DiskIO` completions (which the kernel
+misattributes to the idle / System process) back to their issuing thread by IRP, and
+keeping the file-name rundown entries for the referenced file keys - shrinking a
+1.16 GB capture to a 364 KB fixture whose disk events still resolve to file names.
+*File I/O* (logical, largely cache-served) was deliberately deferred: its keyword is an
+order of magnitude higher volume, and physical disk time is the pressure that actually
+matters.
 
 ### P2 - strategic or dependency- / capture-gated
 
@@ -313,13 +333,25 @@ TraceEvent 3.2.3; run a spike to locate the assembly that carries `MemoryGraph` 
 `GCHeapDump` (PerfView-side `Graphs` / `HeapDump`) and treat retention as
 dependency-gated. This corrects Addendum A's "analysis ships without the lift" claim.
 
+**TE-12. Raw event query over `.etl`.** *A developer asks:* "I have an ETW capture -
+can I inspect its raw events by name the way I can for a `.nettrace`?" *Applicability
+to .NET:* niche but low-cost - the escape hatch the structured reports do not cover,
+for `.etl` as well as EventPipe. Today `events` / `trace_query_events` (and the
+`EventQueryProvider`) are `.nettrace`-only, so `trace_info` no longer advertises
+`events` for an `.etl` (the verb would reject it). Extending the reader and guardrail
+to accept `.etl` - reading via `TraceLog` like the other ETW analyses - would let the
+raw query span both formats and restore `events` to the ETW `availableAnalyses`.
+Surfaced by the TE-7 review. *Status:* proposed.
+
 ## Recommended next step
 
 **Progress:** the full "why is this slow?" increment has landed - TE-1 to TE-4 on the
 `.nettrace` path (the `contention` and `wait` metrics sharing a `LatencyStackReader`,
 GC-report depth, exception-by-type ranking) plus TE-11 (content-aware `trace_info` +
-symptom-routing hints), and TE-5 (the `threadpool` starvation report). TE-6 to TE-10
-remain.
+symptom-routing hints), TE-5 (the `threadpool` starvation report), and the ETW
+follow-on TE-6 (thread-time blocked-reason leaves) and TE-7 (the `diskio` report,
+unblocked by teaching the `trim` fixture tool to keep a process tree's disk I/O). TE-8
+to TE-10 remain.
 
 Land **TE-11 alongside TE-1 through TE-4** as one increment aimed squarely at the
 "why is this slow?" flow: the two new stack providers (`ContentionProvider`,

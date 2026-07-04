@@ -124,14 +124,15 @@ are named for them:
 | `diff <before> <after>` | what got slower/faster between two traces |
 | `export --format <fmt>` | write a flame graph for a viewer - `speedscope` or `chromium` |
 
-**Structured reports** (EventPipe `.nettrace`):
+**Structured reports:**
 
 | Verb | Reports |
 |---|---|
-| `gcstats` | GC counts, pauses, heap summary |
-| `jitstats` | JIT method count, compile time, sizes |
-| `threadpool` | worker-thread adjustments and starvation (slow under load, CPU idle) |
-| `events --name <n>` | raw events by name, paged |
+| `gcstats` | GC counts, pauses, heap summary (`.nettrace`) |
+| `jitstats` | JIT method count, compile time, sizes (`.nettrace`) |
+| `threadpool` | worker-thread adjustments and starvation - slow under load, CPU idle (`.nettrace`) |
+| `diskio` | physical disk I/O by file: bytes and disk service time (`.etl`, Windows) |
+| `events --name <n>` | raw events by name, paged (`.nettrace`) |
 
 **Capture** - record a Windows ETW `.etl` yourself (for an EventPipe `.nettrace`, use `dotnet-trace`):
 
@@ -181,7 +182,7 @@ go further:
 <!-- filtrace:begin tools -->
 ### MCP tools
 
-The MCP server exposes the same analysis as fourteen `trace_*` tools over stdio.
+The MCP server exposes the same analysis as fifteen `trace_*` tools over stdio.
 Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-step
 `hints`, and the typed result - and the read-only analysis tools are annotated
 `readOnlyHint`.
@@ -201,6 +202,7 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 | `trace_gc` | `gcstats` | GC counts, pauses, % time in GC, induced, heap |
 | `trace_jit` | `jitstats` | JIT compile time and sizes |
 | `trace_threadpool` | `threadpool` | worker-thread adjustments and starvation |
+| `trace_diskio` | `diskio` | physical disk I/O by file (bytes, disk time) |
 | `trace_query_events` | `events` | raw events by name, paged |
 
 The file-management verbs (`convert`, `clean`) stay CLI-only - they manage the

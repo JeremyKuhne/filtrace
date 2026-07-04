@@ -77,6 +77,11 @@ public static class SteeringHints
             routes.Add($"growing memory or GC pauses -> {string.Join(", ", memory)}");
         }
 
+        if (analyses.Contains("diskio"))
+        {
+            routes.Add("waiting on disk / heavy file I/O -> diskio");
+        }
+
         if (analyses.Contains("exceptions"))
         {
             routes.Add("frequent exceptions -> exceptions");

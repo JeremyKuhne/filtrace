@@ -311,5 +311,7 @@ Write-Host "Thread-pool fixture -> $fixtureThreadPool ($([math]::Round($threadPo
 
 # The net481 ETW (.etl) half is captured separately by capture-etw.ps1: it needs
 # an elevated session, and unlike this script it does not re-freeze the parity
-# oracle, so the two halves regenerate on independent cadences.
+# oracle, so the two halves regenerate on independent cadences. The disk-I/O ETW
+# fixture (diskio.etl) is captured by capture-diskio.ps1, also elevated and
+# independent.
 Write-Host 'Done.'

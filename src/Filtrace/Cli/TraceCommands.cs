@@ -465,6 +465,28 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
+    ///  Report physical disk I/O by file: bytes read and written to each file, and disk service time.
+    /// </summary>
+    /// <param name="trace">Path to a Windows ETW .etl file captured with the DiskIO (and DiskFileIO, for file names) kernel keyword.</param>
+    /// <param name="top">-n, Maximum number of per-file rows to show, ranked by disk time.</param>
+    /// <param name="format">Render format: text or json.</param>
+    /// <returns>A process exit code.</returns>
+    /// <remarks>
+    ///  A structured report, not a stack ranking. Physical disk events are recorded after
+    ///  the file-system cache, so they show the real disk pressure the logical file APIs
+    ///  hide. Windows ETW only; .nettrace and speedscope inputs are rejected.
+    /// </remarks>
+    [Command("diskio")]
+    public int DiskIo(
+        [Argument] string trace,
+        [Range(1, int.MaxValue)] int top = 25,
+        OutputFormat format = OutputFormat.Text)
+    {
+        DiskIoRequest request = new(trace, top, format);
+        return DiskIoExecutor.Run(request, Console.Out, Console.Error);
+    }
+
+    /// <summary>
     ///  Compare two traces and report what got slower or faster between them.
     /// </summary>
     /// <param name="before">Path to the baseline .speedscope.json, .nettrace, or .etl file.</param>

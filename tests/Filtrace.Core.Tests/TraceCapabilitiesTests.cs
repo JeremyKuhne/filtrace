@@ -21,9 +21,11 @@ public sealed class TraceCapabilitiesTests
         analyses.Should().Contain("jitstats");
         analyses.Should().Contain("threadpool");
 
-        // Thread time, the runtime-work classification, and the process inventory are ETW-only.
+        // Thread time, the runtime-work classification, the process inventory, and the
+        // disk-I/O report are ETW-only.
         analyses.Should().NotContain("threadtime");
         analyses.Should().NotContain("classify");
+        analyses.Should().NotContain("diskio");
     }
 
     [TestMethod]
@@ -35,6 +37,7 @@ public sealed class TraceCapabilitiesTests
         analyses.Should().Contain("threadtime");
         analyses.Should().Contain("classify");
         analyses.Should().Contain("processes");
+        analyses.Should().Contain("diskio");
 
         // Allocation, exceptions, contention, wait, and the GC / JIT / thread-pool reports are EventPipe-only.
         analyses.Should().NotContain("alloc");
@@ -44,6 +47,10 @@ public sealed class TraceCapabilitiesTests
         analyses.Should().NotContain("gcstats");
         analyses.Should().NotContain("jitstats");
         analyses.Should().NotContain("threadpool");
+
+        // The raw events query is .nettrace-only (the events verb and trace_query_events
+        // reject an .etl), so it is not listed as an Etl analysis.
+        analyses.Should().NotContain("events");
     }
 
     [TestMethod]

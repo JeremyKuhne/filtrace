@@ -15,6 +15,8 @@ public sealed class ThreadTimeProviderTests
 {
     private static string EtwFixture => Path.Combine(AppContext.BaseDirectory, "Fixtures", "etw.etl");
 
+    private static string DiskIoFixture => Path.Combine(AppContext.BaseDirectory, "Fixtures", "diskio.etl");
+
     // The load path treats null as the automatic busiest-process default; the tests
     // that want the whole capture pass ScopeRequest.AllProcesses explicitly. The
     // single-result tests pass null (the default) since the fixture's busiest tree is
@@ -47,6 +49,18 @@ public sealed class ThreadTimeProviderTests
         // because the workload interleaves hot CPU work with brief sleeps.
         HasLeaf(source, "BLOCKED_TIME").Should().BeTrue("the workload blocks on its sleeps");
         HasLeaf(source, "CPU_TIME").Should().BeTrue("the workload also runs on the CPU");
+    }
+
+    [TestMethod]
+    public void Read_DiskIoFixture_CreditsBlockedTimeToTheDiskLeaf()
+    {
+        // Thread time splits blocked intervals by their cause: when a thread blocks on a
+        // physical disk read or write, the computer credits that interval to a DISK_TIME
+        // leaf rather than the generic BLOCKED_TIME, so "blocked on disk" is visible. The
+        // disk-I/O fixture's write-through workload produces such intervals.
+        StackSampleSource source = new ThreadTimeProvider().Read(DiskIoFixture, ScopeRequest.AllProcesses, out _);
+
+        HasLeaf(source, "DISK_TIME").Should().BeTrue("the write-through workload blocks on the disk");
     }
 
     [TestMethod]

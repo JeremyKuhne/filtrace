@@ -61,7 +61,7 @@ filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source line
 filtrace diff before.nettrace after.nettrace   # 4. what changed between runs
 ```
 
-The same analysis is exposed as a stdio MCP server (fourteen `trace_*` tools);
+The same analysis is exposed as a stdio MCP server (fifteen `trace_*` tools);
 see [Using filtrace from an AI agent](#using-filtrace-from-an-ai-agent) for the
 client config and tool workflow.
 
@@ -128,13 +128,14 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 | `diff` | What got slower/faster between two traces | `filtrace diff before.nettrace after.nettrace` |
 | `export` | Write a flame graph (speedscope / chromium) | `filtrace export app.nettrace --format speedscope -o app.json` |
 
-**Structured reports** (EventPipe `.nettrace`):
+**Structured reports:**
 
 | Verb | Purpose | Example |
 |---|---|---|
 | `gcstats` | GC counts, pauses, % time in GC, induced, heap | `filtrace gcstats app.nettrace` |
 | `jitstats` | JIT method count, compile time, sizes | `filtrace jitstats app.nettrace` |
 | `threadpool` | Worker-thread adjustments and starvation (slow under load, CPU idle) | `filtrace threadpool app.nettrace` |
+| `diskio` | Physical disk I/O by file: bytes and disk service time (ETW) | `filtrace diskio app.etl` |
 | `events` | Query raw events by name, paged | `filtrace events app.nettrace --name GC/AllocationTick` |
 
 **Capture** (Windows, elevated) - record an ETW `.etl` yourself, no external recorder:
