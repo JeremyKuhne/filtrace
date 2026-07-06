@@ -12,16 +12,16 @@ namespace Filtrace.Cli;
 /// </summary>
 /// <param name="Path">The trace file path.</param>
 /// <param name="Symbols">
-///  Optional build-output directory whose embedded PDBs resolve managed frames, which
-///  lifts the reported symbol-resolution rate. <see langword="null"/> when not given.
+///  Optional build-output directory whose embedded PDBs resolve managed frames to
+///  source lines. <see langword="null"/> when not given.
 /// </param>
 /// <param name="Format">The render format.</param>
 /// <param name="Scope">
-///  The process scope for a multi-process <c>.etl</c> (an explicit name, the automatic
-///  busiest-process default, or every process).
+///  The process scope for a multi-process <c>.etl</c> - an explicit name, or the
+///  automatic busiest-process default when <see langword="null"/>.
 /// </param>
 internal sealed record InfoRequest(
     string Path,
     string? Symbols,
     OutputFormat Format,
-    ScopeRequest? Scope);
+    ScopeRequest? Scope = null);
