@@ -88,7 +88,7 @@ Almost every investigation is the same four moves, and the verbs and MCP tools
 are named for them:
 
 1. **Orient.** Read the trace's format, sample count, and symbol-resolution rate
-   first (`filtrace processes` / `trace_info`). A symbol-resolution rate below
+   first (`filtrace info` / `trace_info`). A symbol-resolution rate below
    **0.8** means managed frames are missing and the rankings cannot be trusted -
    pass a `--symbols <build-output-dir>` before reading further. `trace_info` also
    reports which analyses the trace's format can answer and hints the metric that
