@@ -18,6 +18,40 @@ namespace Filtrace.Cli;
 internal sealed class TraceCommands
 {
     /// <summary>
+    ///  Report a trace's identity and quality signals - the orientation step to run first.
+    /// </summary>
+    /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
+    /// <param name="symbols">-s, Build-output directory whose embedded PDBs resolve managed frames (lifts the symbol rate).</param>
+    /// <param name="format">Render format: text or json.</param>
+    /// <param name="process">Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.</param>
+    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <returns>A process exit code.</returns>
+    /// <remarks>
+    ///  Reports the format, sample count, total weight, symbol-resolution rate, the
+    ///  busiest threads, the analyses the trace's format can answer, and quality
+    ///  warnings. It is the CLI counterpart of the <c>trace_info</c> tool - run it
+    ///  first, and trust the rankings only when the symbol-resolution rate is at or
+    ///  above 0.8.
+    /// </remarks>
+    [Command("info")]
+    public int Info(
+        [Argument] string trace,
+        string? symbols = null,
+        OutputFormat format = OutputFormat.Text,
+        string process = "",
+        bool allProcesses = false)
+    {
+        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        {
+            Console.Error.WriteLine(scopeError);
+            return ExitCodes.UsageError;
+        }
+
+        InfoRequest request = new(trace, symbols, format, scope);
+        return InfoExecutor.Run(request, Console.Out, Console.Error);
+    }
+
+    /// <summary>
     ///  Rank the hottest frames in a trace by self- or inclusive-time.
     /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>

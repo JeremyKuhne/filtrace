@@ -80,6 +80,12 @@ filtrace diff before.nettrace after.nettrace # 4. what changed
 <!-- filtrace:begin verbs -->
 ### CLI verbs
 
+**Orient** - see what a capture holds before ranking:
+
+| Verb | Shows |
+|---|---|
+| `info` | format, sample count, symbol-resolution rate, per-thread counts, the analyses the trace can answer, and quality warnings - the CLI counterpart of `trace_info` |
+
 **Rank** - find the hottest frames by a metric:
 
 | Verb | Ranks | Reads |

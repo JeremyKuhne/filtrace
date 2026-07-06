@@ -54,24 +54,36 @@ with `--format json`). The canonical investigation is **rank -> drill -> compare
 find the hot frames, drill into one, then diff against a baseline.
 
 ```pwsh
-# Workflow: rank the hottest frames, drill into one, then diff two runs.
+# Workflow: orient, rank the hottest frames, drill into one, then diff two runs.
+filtrace info app.nettrace                     # 0. orient: format, symbol rate, what it can answer
 filtrace cpu app.nettrace                      # 1. what's hot (self-time)
 filtrace callers app.nettrace MyApp.Parse      # 2. who calls the hot frame
 filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source lines
 filtrace diff before.nettrace after.nettrace   # 4. what changed between runs
 ```
 
-The same analysis is exposed as a stdio MCP server (fifteen `trace_*` tools);
-see [Using filtrace from an AI agent](#using-filtrace-from-an-ai-agent) for the
-client config and tool workflow.
+The same analysis is exposed as a stdio MCP server: every analysis verb has a
+matching `trace_*` tool (fifteen in all - `info` -> `trace_info`, `rank` ->
+`trace_rank`, `callers` -> `trace_callers`, and so on), returning the same envelope
+shape, so an agent gets identical results either way. Only the capture and
+housekeeping verbs (`collect`, `convert`, `clean`) are CLI-only. See
+[Using filtrace from an AI agent](#using-filtrace-from-an-ai-agent) for the client
+config and tool workflow.
 
 ### Verbs
+
+**Orient** - see what a capture holds before ranking (the CLI counterpart of the
+`trace_info` tool):
+
+| Verb | Purpose | Example |
+|---|---|---|
+| `info` | Format, sample count, symbol-resolution rate, the analyses the trace can answer, and warnings | `filtrace info app.nettrace` |
 
 **Ranking** - rank stacks by a metric (`--metric` on `rank`, or a shortcut verb):
 
 | Verb | What it ranks | Example |
 |---|---|---|
-| `rank` | Any metric (`--metric cpu\|alloc\|exceptions\|threadtime`) | `filtrace rank app.nettrace --metric alloc` |
+| `rank` | Any metric (`cpu`, `alloc`, `exceptions`, `threadtime`, `contention`, `wait`, `activity`) | `filtrace rank app.nettrace --metric contention` |
 | `cpu` | CPU self-/inclusive-time | `filtrace cpu app.nettrace --measure inclusive` |
 | `alloc` | Bytes allocated, by site | `filtrace alloc app.nettrace --top 10` |
 | `exceptions` | Throw sites, by count | `filtrace exceptions app.nettrace` |
@@ -85,9 +97,10 @@ plus the drill-down `callers`, `lines`, and `heatmap` - also accept `--process` 
 auto-scoped by default); `alloc` and `exceptions` read single-process
 `.nettrace` only, so they have no process options. To see what is in a
 multi-process capture before scoping, run `filtrace processes` (below). The `rank`
-verb additionally takes `--time <start>,<end>` (milliseconds from the trace start,
-either bound optional) to scope any metric to the slice around a latency spike or
-one slow request.
+verb adds two more scopes: `--activity <name>` (the CPU samples taken inside one
+start-stop request/job) and `--time <start>,<end>` (milliseconds from the trace
+start, either bound optional; any metric), to zoom in on one request or the slice
+around a latency spike.
 
 ```pwsh
 filtrace cpu bdn.nettrace --benchmark          # just the [Benchmark] code
@@ -151,6 +164,7 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 ```pwsh
 filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl              # CPU
 filtrace collect --launch dotnet --launch-args MyApp.dll --output tt.etl --metric threadtime
+filtrace collect --launch MyApp.exe --output ring.etl --max-size-mb 512                 # bounded ring buffer
 ```
 
 For an EventPipe (`.nettrace`) capture - cross-platform, no elevation - use the
@@ -190,10 +204,10 @@ filtrace is built for an agent mid-investigation. Two ways to wire it in:
   and let the agent shell out to `filtrace <verb>`.
 
 Either way, the canonical loop is **orient -> rank -> drill -> compare**: read
-`trace_info` first and trust the rankings only when the symbol-resolution rate is
-at or above 0.8; rank by the metric that matches the question (cpu, alloc,
-exceptions, threadtime, contention, wait, activity); drill the hot frame with callers / lines / tree; diff
-against a baseline to see what changed.
+`trace_info` (CLI: `filtrace info`) first and trust the rankings only when the
+symbol-resolution rate is at or above 0.8; rank by the metric that matches the
+question (cpu, alloc, exceptions, threadtime, contention, wait, activity); drill the
+hot frame with callers / lines / tree; diff against a baseline to see what changed.
 <!-- filtrace:end agents-snippet -->
 
 ## Layout

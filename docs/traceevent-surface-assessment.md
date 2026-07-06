@@ -181,7 +181,7 @@ Stable IDs (TE-n) so items can be tracked and referenced as they move.
 | TE-7 | Disk-I/O and File-I/O families | `.etl` | Med | new `metric`(s) | P1 | Landed (disk) |
 | TE-8 | Request / activity scoping (`--activity`) | both | Med-High | scope grammar + family | P2 | Landed (`.nettrace`) |
 | TE-9 | PMC / CPU-counter ranking | `.etl` capture | Med | new `metric` | P2 | Proposed |
-| TE-10 | Retention / leak (`.gcdump`) - re-scope | shell out | Med + new dependency | separate assembly | P2 | Proposed |
+| TE-10 | Retention / leak (`.gcdump`) - re-scope | read a `.gcdump` | High: vendored PerfView source (~173 KB) + new analysis engine | new object model + `retention` verb / tool | P2 | Proposed (dependency-gated) |
 | TE-11 | Agentic discoverability (content-aware `trace_info` + symptom hints + triage) | both | Low-Med | cross-cutting; enables every row | P0 | Landed (info + hints) |
 | TE-12 | Raw event query over `.etl` (extend `events` / `trace_query_events`) | `.etl` | Low | extend the `events` reader + guardrail | P3 | Landed |
 | TE-13 | Capture size cap (circular buffer) | `.etl` capture | Low | new `collect --max-size-mb` option | P2 | Landed |
@@ -342,10 +342,29 @@ already has it.
 **TE-10. Retention / leak - re-scope, do not assume it is free.** *A developer
 asks:* "My memory never comes back down - what is holding all these objects alive?"
 *Applicability to .NET:* common - event-handler leaks, static caches, captured
-closures, undisposed scopes. Reflection shows the `.gcdump` analysis types are not in
-TraceEvent 3.2.3; run a spike to locate the assembly that carries `MemoryGraph` /
-`GCHeapDump` (PerfView-side `Graphs` / `HeapDump`) and treat retention as
-dependency-gated. This corrects Addendum A's "analysis ships without the lift" claim.
+closures, undisposed scopes. *Spike (2026-07-05):* the `.gcdump` heap-graph types are
+**not shipped by any NuGet package**. Reflection over all four DLLs in
+`Microsoft.Diagnostics.Tracing.TraceEvent` 3.2.3 (`TraceEvent`, `FastSerialization`,
+`Dia2Lib`, `TraceReloggerLib`) finds no `MemoryGraph` / `GCHeapDump` / `Graph` /
+`RefGraph`. The reference reader ([`dotnet-gcdump`](https://github.com/dotnet/diagnostics/tree/main/src/Tools/dotnet-gcdump))
+does not reference a package for them either - its `.csproj` names only
+`System.CommandLine` and `TraceEvent` and **vendors** the graph types as source copied
+from PerfView (`Graph.cs` ~116 KB, `GCHeapDump.cs` ~40 KB, `MemoryGraph.cs`,
+`DotNetHeapInfo.cs`; ~173 KB read-only, MIT). Its folder README states they were
+"copied in their entirety from microsoft/PerfView" because factoring them into
+TraceEvent "proved to be too disruptive" (diamond dependencies, mismatched target
+frameworks) and "should be treated as read-only," mirrored back to PerfView. They
+build on `FastSerialization`, which filtrace already ships (bundled in the TraceEvent
+package), so that layer is free. Consequences: retention is **dependency-gated by
+vendoring**, not a package add; it also needs more than the reader - a `.gcdump` is a
+heap snapshot with no timeline or stacks, so it does not fit the sample-source ranking
+engine and needs its own object model, a `retention` verb / tool, and the path-to-root
+("what holds this alive") analysis, which is *not* in the vendored `dotnet-gcdump` set
+(it lives elsewhere in PerfView) and would be filtrace-authored on the `RefGraph`
+primitive. It also requires `AllowUnsafeBlocks`, and its AOT/trimming posture needs
+verifying. This corrects Addendum A's "analysis ships without the lift" claim: it is
+the heaviest item in the backlog - a vendored dependency *and* a new analysis engine.
+*Status:* proposed (dependency-gated).
 
 **TE-12. Raw event query over `.etl`.** *A developer asks:* "I have an ETW capture -
 can I inspect its raw events by name the way I can for a `.nettrace`?" *Applicability
