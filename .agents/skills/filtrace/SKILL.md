@@ -57,7 +57,7 @@ listener, so nothing is uploaded.
 Almost every investigation is the same four moves:
 
 1. **Orient.** Read the trace's format, sample count, and symbol-resolution rate
-   first - `filtrace processes <trace>` or the `trace_info` tool. A
+   first - `filtrace info <trace>` or the `trace_info` tool. A
    symbol-resolution rate **below 0.8** means managed frames are missing and the
    rankings cannot be trusted; pass `--symbols <build-output-dir>` (the directory
    holding your portable PDBs) before reading further.
@@ -71,7 +71,8 @@ Almost every investigation is the same four moves:
    `export --format speedscope` to hand a human a flame graph.
 
 ```pwsh
-filtrace cpu app.nettrace                    # 1-2. orient + rank self-time
+filtrace info app.nettrace                   # 1. orient: format, symbol rate, analyses
+filtrace cpu app.nettrace                    # 2. rank self-time
 filtrace callers app.nettrace MyApp.Parse    # 3. who drives the hot frame
 filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source lines
 filtrace diff before.nettrace after.nettrace # 4. what changed
