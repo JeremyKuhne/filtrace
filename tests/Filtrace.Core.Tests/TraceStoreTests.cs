@@ -84,6 +84,54 @@ public sealed class TraceStoreTests
     }
 
     [TestMethod]
+    public void Get_CpuScopedToActivity_DoesNotCollideWithTheUnscopedRead()
+    {
+        TraceStore store = new();
+        string path = FixturePath("activity.nettrace");
+
+        // Load the unscoped CPU view first so it populates the cache, then the activity-
+        // scoped view: the scope must produce a distinct, narrower entry rather than serve
+        // the cached unscoped result. Guards the activity axis of the cache key - without
+        // it the second read would return the first's unscoped samples.
+        LoadedTrace whole = store.Get(path, metric: TraceMetric.Cpu);
+        LoadedTrace scoped = store.Get(
+            path, metric: TraceMetric.Cpu, scope: ScopeRequest.Auto.WithActivity("Order"));
+
+        scoped.Should().NotBeSameAs(whole);
+        scoped.Info.SampleCount.Should().BeLessThan(whole.Info.SampleCount);
+    }
+
+    [TestMethod]
+    public void Get_CpuScopedToTimeWindow_CachesSeparatelyFromTheUnscopedRead()
+    {
+        TraceStore store = new();
+        string path = FixturePath("activity.nettrace");
+
+        LoadedTrace whole = store.Get(path, metric: TraceMetric.Cpu);
+        LoadedTrace windowed = store.Get(
+            path, metric: TraceMetric.Cpu, scope: ScopeRequest.Auto.WithTimeWindow(null, 150.0));
+
+        windowed.Should().NotBeSameAs(whole);
+        windowed.Info.SampleCount.Should().BeLessThan(whole.Info.SampleCount);
+    }
+
+    [TestMethod]
+    public void Get_TimeWindowOnNonCpuMetric_CachesSeparately()
+    {
+        TraceStore store = new();
+        string path = FixturePath("alloc.nettrace");
+
+        // The time window scopes every metric, so an allocation read scoped to a window
+        // must key separately from the unscoped one - unlike the process scope, which the
+        // single-process EventPipe providers ignore and so do not key on.
+        LoadedTrace whole = store.Get(path, metric: TraceMetric.Allocations);
+        LoadedTrace windowed = store.Get(
+            path, metric: TraceMetric.Allocations, scope: ScopeRequest.Auto.WithTimeWindow(0.0, 1e9));
+
+        windowed.Should().NotBeSameAs(whole);
+    }
+
+    [TestMethod]
     public void Get_NonCpuMetric_IgnoresSymbolsDirectoryInCacheKey()
     {
         TraceStore store = new();

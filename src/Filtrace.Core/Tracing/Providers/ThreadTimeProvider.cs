@@ -116,6 +116,13 @@ public sealed class ThreadTimeProvider
                 return;
             }
 
+            // When scoped to a time window, drop intervals anchored outside it; every
+            // sample carries a trace-relative time, so the same guard scopes every metric.
+            if (scope?.Window is TimeWindow timeWindow && !timeWindow.Contains(sample.TimeRelativeMSec))
+            {
+                return;
+            }
+
             leafToRoot.Clear();
             for (StackSourceCallStackIndex index = sample.StackIndex;
                 index != StackSourceCallStackIndex.Invalid;

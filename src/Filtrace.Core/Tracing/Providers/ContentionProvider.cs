@@ -39,12 +39,17 @@ public sealed class ContentionProvider
     ///  <paramref name="path"/>.
     /// </summary>
     /// <param name="path">The <c>.nettrace</c> file path.</param>
+    /// <param name="window">
+    ///  Optional time window; when set, only contentions whose start falls inside it
+    ///  are read. <see langword="null"/> reads the whole trace.
+    /// </param>
     /// <returns>The contention source: blocked-millisecond-weighted contention stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public StackSampleSource Read(string path) =>
+    public StackSampleSource Read(string path, TimeWindow? window = null) =>
         LatencyStackReader.Read(
             path,
             MetricInfo.Contention,
-            static (traceLog, stackSource) => new ContentionLatencyComputer(traceLog, stackSource));
+            static (traceLog, stackSource) => new ContentionLatencyComputer(traceLog, stackSource),
+            window);
 }

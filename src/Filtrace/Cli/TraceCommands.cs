@@ -36,6 +36,7 @@ internal sealed class TraceCommands
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
     /// <param name="activity">Scope the ranking to one start-stop activity by task name - the CPU samples taken inside that request/job (cpu metric only); omit for the whole trace.</param>
+    /// <param name="time">Scope to a time window 'start,end' in ms relative to the trace start; either bound may be omitted (e.g. 1000,5000 or 1000, or ,5000). Applies to every metric.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl CPU captures only.</param>
     /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
@@ -55,6 +56,7 @@ internal sealed class TraceCommands
         string process = "",
         bool allProcesses = false,
         string activity = "",
+        string time = "",
         bool benchmark = false,
         bool nativeSymbols = false,
         string symbolCache = "",
@@ -84,6 +86,14 @@ internal sealed class TraceCommands
         }
 
         scope = scope.WithActivity(activity);
+
+        if (!TimeWindow.TryParse(time, out double? startMSec, out double? endMSec, out string? timeError))
+        {
+            Console.Error.WriteLine(timeError);
+            return ExitCodes.UsageError;
+        }
+
+        scope = scope.WithTimeWindow(startMSec, endMSec);
 
         if (!RankRequestFactory.TryResolveRoot(root, benchmark, out string resolvedRoot, out string? rootError))
         {

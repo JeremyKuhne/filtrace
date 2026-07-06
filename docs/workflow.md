@@ -176,6 +176,14 @@ defaults to scenario scope and lets you tighten further:
 - **`--benchmark`** - preset the root to the BenchmarkDotNet measured-workload
   wrapper, isolating the `[Benchmark]` code from the harness and warmup. Mutually
   exclusive with `--root`.
+- **`--activity <name>`** (`rank`, cpu metric) - scope the CPU view to the samples
+  taken inside one start-stop activity - a request, job, or operation - or a child
+  of it. Answers "why is *this* request slow?".
+- **`--time <start>,<end>`** (`rank`, any metric) - scope to a time window in
+  milliseconds relative to the trace start, keeping only the samples anchored inside
+  it. Either bound may be omitted (`1000,5000`, `1000,`, or `,5000`). Zooms every
+  metric to the slice around a latency spike or one slow request. (A `.speedscope.json`
+  timeline is in its own unit, not milliseconds, so `--time` does not apply there.)
 
 ## Symbols
 

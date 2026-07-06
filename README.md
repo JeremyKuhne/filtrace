@@ -84,13 +84,17 @@ plus the drill-down `callers`, `lines`, and `heatmap` - also accept `--process` 
 `--all-processes` (the busiest process tree, ranked by CPU sample count, is
 auto-scoped by default); `alloc` and `exceptions` read single-process
 `.nettrace` only, so they have no process options. To see what is in a
-multi-process capture before scoping, run `filtrace processes` (below).
+multi-process capture before scoping, run `filtrace processes` (below). The `rank`
+verb additionally takes `--time <start>,<end>` (milliseconds from the trace start,
+either bound optional) to scope any metric to the slice around a latency spike or
+one slow request.
 
 ```pwsh
 filtrace cpu bdn.nettrace --benchmark          # just the [Benchmark] code
 filtrace alloc bdn.nettrace --benchmark        # allocations under the workload
 filtrace processes machinewide.etl             # list every process by weight
 filtrace cpu machinewide.etl --process MyApp   # one process tree
+filtrace rank app.nettrace --time 1000,5000    # just the spike window
 ```
 
 **Native runtime symbols.** Managed frames (including NGEN and ReadyToRun

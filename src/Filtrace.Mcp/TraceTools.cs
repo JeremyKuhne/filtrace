@@ -95,17 +95,18 @@ public sealed class TraceTools
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
+    /// <param name="activity">Optional start-stop activity task name scoping the CPU ranking to that request/job.</param>
+    /// <param name="time">Optional time window 'start,end' in ms scoping the ranking to that slice; any metric.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.</param>
     /// <returns>The ranking envelope.</returns>
     [McpServerTool(Name = "trace_rank", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description(
         "Rank the hottest frames over a chosen provider metric. measure=self credits the executing leaf "
-        + "(JIT-helper leaves folded into the real method); measure=inclusive credits a frame and everything it "
-        + "calls. One tool spans every family - metric=cpu (sampled ms, any format), threadtime (wall-clock per "
-        + "thread, .etl only), alloc (bytes, .nettrace only), exceptions (throw count by type, .nettrace only), "
-        + "contention (ms on locks, .nettrace only), wait (ms on a wait handle, .nettrace only), or activity (ms "
-        + "per request/activity, .nettrace only). Scope with "
-        + "root; for a BenchmarkDotNet capture set root to the measured workload to skip the harness.")]
+        + "(JIT helpers folded in); measure=inclusive credits a frame and all it calls. One tool spans every "
+        + "family - metric=cpu (sampled ms, any format), threadtime (wall-clock, .etl only), alloc (bytes), "
+        + "exceptions (throws by type), contention (ms on locks), wait (ms on a handle), or activity (ms per "
+        + "request); all but cpu and threadtime need a .nettrace. Scope with root; for a BenchmarkDotNet "
+        + "capture set root to the workload to skip the harness.")]
     public static AnalysisResult<RankingResult> Rank(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -120,14 +121,18 @@ public sealed class TraceTools
         string symbols = "",
         [Description(
             "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
-            + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
+            + "to auto-scope to the busiest.")]
         string process = "",
         [Description(
-            "Optional activity task name to scope the CPU ranking to that request/job (cpu metric only).")]
+            "Optional activity task name scoping the CPU ranking to that request/job (cpu only).")]
         string activity = "",
         [Description(
-            "Resolve native runtime frames (GC, JIT, memcpy) from the Microsoft public symbol server. Opt-in "
-            + "(fetches over the network, cached locally); cpu metric over an .etl capture only.")]
+            "Optional time window 'start,end' in ms scoping the ranking to that slice; either bound optional "
+            + "(e.g. 1000, or ,5000). Any metric.")]
+        string time = "",
+        [Description(
+            "Resolve native runtime frames (GC, JIT, memcpy) from the Microsoft public symbol server; opt-in "
+            + "(network, cached); cpu over .etl only.")]
         bool nativeSymbols = false)
     {
         TraceMetric resolved = ResolveMetric(metric);
@@ -147,6 +152,18 @@ public sealed class TraceTools
         if (!string.IsNullOrEmpty(activity))
         {
             scope = (scope ?? ScopeRequest.Auto).WithActivity(activity);
+        }
+
+        // The time window scopes every metric, so it is not gated on the metric like the
+        // activity scope; a malformed value is a clean tool error, not an exception.
+        if (!TimeWindow.TryParse(NullIfEmpty(time), out double? startMSec, out double? endMSec, out string? timeError))
+        {
+            throw new McpException(timeError);
+        }
+
+        if (startMSec is not null || endMSec is not null)
+        {
+            scope = (scope ?? ScopeRequest.Auto).WithTimeWindow(startMSec, endMSec);
         }
 
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), resolved, scope, ResolveSymbols(nativeSymbols));

@@ -43,12 +43,17 @@ public sealed class WaitProvider
     ///  <paramref name="path"/>.
     /// </summary>
     /// <param name="path">The <c>.nettrace</c> file path.</param>
+    /// <param name="window">
+    ///  Optional time window; when set, only waits whose start falls inside it are
+    ///  read. <see langword="null"/> reads the whole trace.
+    /// </param>
     /// <returns>The wait source: blocked-millisecond-weighted wait stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public StackSampleSource Read(string path) =>
+    public StackSampleSource Read(string path, TimeWindow? window = null) =>
         LatencyStackReader.Read(
             path,
             MetricInfo.Wait,
-            static (traceLog, stackSource) => new WaitHandleWaitLatencyComputer(traceLog, stackSource));
+            static (traceLog, stackSource) => new WaitHandleWaitLatencyComputer(traceLog, stackSource),
+            window);
 }

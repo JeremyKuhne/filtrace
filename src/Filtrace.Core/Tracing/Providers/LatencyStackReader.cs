@@ -51,13 +51,18 @@ internal static class LatencyStackReader
     ///  <see cref="ContentionLatencyComputer"/> or a
     ///  <see cref="WaitHandleWaitLatencyComputer"/>).
     /// </param>
+    /// <param name="window">
+    ///  Optional time window; when set, only pairs whose start falls inside it are
+    ///  kept. <see langword="null"/> reads the whole trace.
+    /// </param>
     /// <returns>The latency source: blocked-millisecond-weighted stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
     public static StackSampleSource Read(
         string path,
         MetricInfo metric,
-        Func<TraceLog, MutableTraceEventStackSource, StartStopLatencyComputer> createComputer)
+        Func<TraceLog, MutableTraceEventStackSource, StartStopLatencyComputer> createComputer,
+        TimeWindow? window = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
@@ -87,6 +92,13 @@ internal static class LatencyStackReader
             // non-positive weight is a broken or zero-length pair.
             double weight = sample.Metric;
             if (weight <= 0.0)
+            {
+                return;
+            }
+
+            // When scoped to a time window, drop pairs whose start falls outside it; the
+            // sample's time is the Start event's, so this scopes by when the block began.
+            if (window is TimeWindow scope && !scope.Contains(sample.TimeRelativeMSec))
             {
                 return;
             }

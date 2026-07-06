@@ -25,24 +25,30 @@ namespace Filtrace.Tracing;
 /// </remarks>
 public sealed class ScopeRequest
 {
-    private ScopeRequest(bool includeAll, string? processName, bool includeChildren, string? activityName)
+    private ScopeRequest(
+        bool includeAll,
+        string? processName,
+        bool includeChildren,
+        string? activityName,
+        TimeWindow? window)
     {
         IncludeAll = includeAll;
         ProcessName = processName;
         IncludeChildren = includeChildren;
         ActivityName = activityName;
+        Window = window;
     }
 
     /// <summary>
     ///  The default: let the loader scope a multi-process capture to the busiest
     ///  process tree automatically.
     /// </summary>
-    public static ScopeRequest Auto { get; } = new(includeAll: false, processName: null, includeChildren: true, activityName: null);
+    public static ScopeRequest Auto { get; } = new(includeAll: false, processName: null, includeChildren: true, activityName: null, window: null);
 
     /// <summary>
     ///  Read every process - the opt-out from automatic scenario scoping.
     /// </summary>
-    public static ScopeRequest AllProcesses { get; } = new(includeAll: true, processName: null, includeChildren: true, activityName: null);
+    public static ScopeRequest AllProcesses { get; } = new(includeAll: true, processName: null, includeChildren: true, activityName: null, window: null);
 
     /// <summary>
     ///  Scope to the process(es) whose name contains <paramref name="processName"/>,
@@ -59,7 +65,7 @@ public sealed class ScopeRequest
     public static ScopeRequest ForProcess(string processName, bool includeChildren = true)
     {
         ArgumentException.ThrowIfNullOrEmpty(processName);
-        return new ScopeRequest(includeAll: false, processName: processName, includeChildren: includeChildren, activityName: null);
+        return new ScopeRequest(includeAll: false, processName: processName, includeChildren: includeChildren, activityName: null, window: null);
     }
 
     /// <summary>
@@ -71,7 +77,26 @@ public sealed class ScopeRequest
     /// <param name="activityName">The activity task name to scope to, or <see langword="null"/> for none.</param>
     /// <returns>A copy of this request with the activity scope applied.</returns>
     public ScopeRequest WithActivity(string? activityName) =>
-        new(IncludeAll, ProcessName, IncludeChildren, string.IsNullOrEmpty(activityName) ? null : activityName);
+        new(IncludeAll, ProcessName, IncludeChildren, string.IsNullOrEmpty(activityName) ? null : activityName, Window);
+
+    /// <summary>
+    ///  Returns a copy of this request additionally scoped to the time window spanning
+    ///  <paramref name="startMSec"/> to <paramref name="endMSec"/> (both inclusive,
+    ///  either open): only the samples whose anchor time falls inside the window are
+    ///  kept. Passing <see langword="null"/> for both bounds clears the time scope.
+    /// </summary>
+    /// <param name="startMSec">The window start in milliseconds relative to the trace start, or <see langword="null"/> for the trace start.</param>
+    /// <param name="endMSec">The window end in milliseconds relative to the trace start, or <see langword="null"/> for the trace end.</param>
+    /// <returns>A copy of this request with the time-window scope applied.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">A bound is negative or not a number.</exception>
+    /// <exception cref="ArgumentException"><paramref name="startMSec"/> is greater than <paramref name="endMSec"/>.</exception>
+    public ScopeRequest WithTimeWindow(double? startMSec, double? endMSec) =>
+        new(
+            IncludeAll,
+            ProcessName,
+            IncludeChildren,
+            ActivityName,
+            startMSec is null && endMSec is null ? null : new TimeWindow(startMSec, endMSec));
 
     /// <summary>
     ///  Whether every process is read (the all-processes opt-out).
@@ -97,5 +122,13 @@ public sealed class ScopeRequest
     ///  are kept. Honored by the CPU reader; other metrics ignore it.
     /// </summary>
     public string? ActivityName { get; }
+
+    /// <summary>
+    ///  The time window to scope samples to, or <see langword="null"/> when no time
+    ///  scope was requested. When set, only the samples whose anchor time falls inside
+    ///  the window are kept. Unlike the process and activity scopes, this applies to
+    ///  every metric, since every sampled event carries a timestamp.
+    /// </summary>
+    public TimeWindow? Window { get; }
 }
 

@@ -35,10 +35,14 @@ public sealed class AllocationProvider
     ///  <paramref name="path"/>.
     /// </summary>
     /// <param name="path">The <c>.nettrace</c> file path.</param>
+    /// <param name="window">
+    ///  Optional time window; when set, only allocation events whose timestamp falls
+    ///  inside it are read. <see langword="null"/> reads the whole trace.
+    /// </param>
     /// <returns>The allocation source: byte-weighted allocation-site stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public StackSampleSource Read(string path)
+    public StackSampleSource Read(string path, TimeWindow? window = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
@@ -61,6 +65,13 @@ public sealed class AllocationProvider
         foreach (TraceEvent data in traceLog.Events)
         {
             if (data is not GCAllocationTickTraceData alloc)
+            {
+                continue;
+            }
+
+            // When scoped to a time window, drop allocation ticks outside it; every event
+            // carries a trace-relative timestamp, so the same guard scopes every metric.
+            if (window is TimeWindow scope && !scope.Contains(data.TimeStampRelativeMSec))
             {
                 continue;
             }

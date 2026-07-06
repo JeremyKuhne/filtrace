@@ -240,6 +240,50 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_TimeMalformed_ReturnsUsageError()
+    {
+        // A --time value with no comma is rejected before any trace read, so this runs on
+        // every CI leg regardless of the fixture's format.
+        (int exit, _, string error) = Run("rank", Speedscope, "--time", "500");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("time window must be 'start,end'");
+    }
+
+    [TestMethod]
+    public void Run_TimeInverted_ReturnsUsageError()
+    {
+        // A start greater than the end is caught during parsing, before any read.
+        (int exit, _, string error) = Run("rank", Speedscope, "--time", "5000,1000");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("must not be greater than the end");
+    }
+
+    [TestMethod]
+    public void Run_TimeWindow_CpuScopesAndNotesTheWindow()
+    {
+        // A window spanning the whole capture keeps every sample and notes the scope, so
+        // the assertion does not depend on the fixture's exact timing. --time lives on the
+        // rank verb (as --activity does), not the metric shortcuts, so drive it through rank.
+        (int exit, string output, _) = Run("rank", ExceptionsTrace, "--time", "0,100000");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("Scoped to the [0, 100000] ms window");
+    }
+
+    [TestMethod]
+    public void Run_TimeWindow_AppliesToNonCpuMetric()
+    {
+        // Unlike --activity, the time window is universal: it scopes the allocation metric
+        // (and every other) too, with no cpu-only guard.
+        (int exit, string output, _) = Run("rank", Alloc, "--metric", "alloc", "--time", "0,100000");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("Scoped to the [0, 100000] ms window");
+    }
+
+    [TestMethod]
     public void Run_Benchmark_ScopesToTheMeasuredWorkload()
     {
         // The exceptions fixture is a BenchmarkDotNet EventPipe capture; --benchmark
