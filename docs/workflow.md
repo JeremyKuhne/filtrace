@@ -104,6 +104,12 @@ are named for them:
 <!-- filtrace:begin verbs -->
 ### CLI verbs
 
+**Orient** - see what a capture holds before ranking:
+
+| Verb | Shows |
+|---|---|
+| `info` | format, sample count, symbol-resolution rate, per-thread counts, the analyses the trace can answer, and quality warnings - the CLI counterpart of `trace_info` |
+
 **Rank** - find the hottest frames by a metric:
 
 | Verb | Ranks | Reads |
@@ -269,8 +275,8 @@ filtrace is built for an agent mid-investigation. Two ways to wire it in:
   and let the agent shell out to `filtrace <verb>`.
 
 Either way, the canonical loop is **orient -> rank -> drill -> compare**: read
-`trace_info` first and trust the rankings only when the symbol-resolution rate is
-at or above 0.8; rank by the metric that matches the question (cpu, alloc,
-exceptions, threadtime, contention, wait, activity); drill the hot frame with callers / lines / tree; diff
-against a baseline to see what changed.
+`trace_info` (CLI: `filtrace info`) first and trust the rankings only when the
+symbol-resolution rate is at or above 0.8; rank by the metric that matches the
+question (cpu, alloc, exceptions, threadtime, contention, wait, activity); drill the
+hot frame with callers / lines / tree; diff against a baseline to see what changed.
 <!-- filtrace:end agents-snippet -->

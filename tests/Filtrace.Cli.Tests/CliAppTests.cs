@@ -57,6 +57,7 @@ public sealed class CliAppTests
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("Commands:");
         output.Should().Contain("rank");
+        output.Should().Contain("info");
         output.Should().Contain("cpu");
         output.Should().Contain("alloc");
         output.Should().Contain("exceptions");
@@ -72,6 +73,42 @@ public sealed class CliAppTests
         output.Should().Contain("events");
         output.Should().Contain("convert");
         output.Should().Contain("clean");
+    }
+
+    [TestMethod]
+    public void Run_Info_ReportsFormatAnalysesAndSymbolRate()
+    {
+        // info is the CLI orientation step (the counterpart of the trace_info tool): it
+        // reports the format, the analyses the trace can answer, and the symbol rate.
+        (int exit, string output, _) = Run("info", Speedscope);
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("Speedscope");
+        output.Should().Contain("analyses:");
+        output.Should().Contain("cpu");
+        output.Should().Contain("symbols");
+    }
+
+    [TestMethod]
+    public void Run_InfoJson_EmitsTheSameEnvelopeAsTheTool()
+    {
+        // The JSON shape must match trace_info: a schemaVersion-2 envelope whose result
+        // carries availableAnalyses, so an agent gets the same orientation either way.
+        (int exit, string output, _) = Run("info", Speedscope, "--format", "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("\"schemaVersion\"");
+        output.Should().Contain("\"availableAnalyses\"");
+        output.Should().Contain("\"symbolResolutionRate\"");
+    }
+
+    [TestMethod]
+    public void Run_Info_MissingTrace_ReturnsInputError()
+    {
+        (int exit, _, string error) = Run("info", "does-not-exist.nettrace");
+
+        exit.Should().Be(ExitCodes.InputError);
+        error.Should().NotBeNullOrEmpty();
     }
 
     [TestMethod]
