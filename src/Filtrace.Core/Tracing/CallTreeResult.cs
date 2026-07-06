@@ -5,30 +5,6 @@
 namespace Filtrace.Tracing;
 
 /// <summary>
-///  A node in a call tree: a frame, the weight of the subtree rooted at it, that
-///  subtree's share of the scoped total, and the frames it called.
-/// </summary>
-/// <remarks>
-///  <para>
-///   The tree is path-based: a method that appears at two different stack
-///   positions is two nodes, and a recursive call shows as a node nested under
-///   itself, so a node's <see cref="Children"/> are exactly the frames called at
-///   that point on the stack. <see cref="Weight"/> is inclusive - it sums every
-///   sample that passed through this node - so a node's weight is at least the sum
-///   of its children's.
-///  </para>
-/// </remarks>
-/// <param name="Frame">The shortened frame name, or <c>&lt;root&gt;</c> for the synthetic root.</param>
-/// <param name="Weight">The subtree's inclusive weight, in the metric's unit (milliseconds for CPU, bytes for allocations).</param>
-/// <param name="PercentOfScope">The subtree's share of the scoped total, in percent.</param>
-/// <param name="Children">The called frames, highest weight first.</param>
-public sealed record TreeNode(
-    string Frame,
-    double Weight,
-    double PercentOfScope,
-    IReadOnlyList<TreeNode> Children);
-
-/// <summary>
 ///  A top-down call tree over a scoped trace: each node's children are the frames
 ///  it called, weighted by the metric spent in them, so an agent can follow the
 ///  hot path from the root down to the work that dominates it.

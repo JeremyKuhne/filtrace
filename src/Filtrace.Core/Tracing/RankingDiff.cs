@@ -5,40 +5,6 @@
 namespace Filtrace.Tracing;
 
 /// <summary>
-///  A single frame's change between a baseline and a current ranking.
-/// </summary>
-/// <param name="Frame">The shortened frame name.</param>
-/// <param name="BeforeWeight">The frame's weight in the baseline ranking, in the metric's unit (0 if absent).</param>
-/// <param name="AfterWeight">The frame's weight in the current ranking, in the metric's unit (0 if absent).</param>
-/// <param name="Delta">The change in weight (<c>AfterWeight - BeforeWeight</c>); positive is a regression.</param>
-public sealed record DiffRow(string Frame, double BeforeWeight, double AfterWeight, double Delta);
-
-/// <summary>
-///  The change between two rankings of the same metric: the per-frame deltas
-///  ordered by the size of the change, plus the scope totals on each side.
-/// </summary>
-/// <remarks>
-///  <para>
-///   This is the engine's <c>diff</c> verb. It is purely a comparison of two
-///   rankings, so it is provider-agnostic - diff two CPU rankings to find a
-///   time regression, or two allocation rankings to find an allocation growth -
-///   and composes with scoping and filtering (diff two filtered, scoped
-///   rankings). The two rankings must be of the same metric and kind (both
-///   self-time or both inclusive); mixing them is a caller error the result
-///   shape cannot guard against.
-///  </para>
-/// </remarks>
-/// <param name="BeforeScopeWeight">The baseline ranking's scoped total, in the metric's unit.</param>
-/// <param name="AfterScopeWeight">The current ranking's scoped total, in the metric's unit.</param>
-/// <param name="ScopeDelta">The change in scoped total (<c>AfterScopeWeight - BeforeScopeWeight</c>).</param>
-/// <param name="Rows">The per-frame changes, largest absolute change first.</param>
-public sealed record RankingDiffResult(
-    double BeforeScopeWeight,
-    double AfterScopeWeight,
-    double ScopeDelta,
-    IReadOnlyList<DiffRow> Rows);
-
-/// <summary>
 ///  Computes the change between a baseline ranking and a current one, so an agent
 ///  can see what got slower or faster (or allocated more or less) between two
 ///  runs.

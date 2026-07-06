@@ -30,7 +30,7 @@ namespace Filtrace.Output;
 ///   double-rounding converter that the wire format requires.
 ///  </para>
 /// </remarks>
-public static class OutputJson
+public static partial class OutputJson
 {
     /// <summary>
     ///  The number of decimal places doubles are rounded to in the serialized output.
@@ -93,22 +93,5 @@ public static class OutputJson
 
         options.Converters.Add(new RoundingDoubleConverter(DoublePrecision));
         return options;
-    }
-
-    /// <summary>
-    ///  Writes doubles rounded to a fixed number of decimal places so serialized
-    ///  rankings are deterministic and free of floating-point noise.
-    /// </summary>
-    private sealed class RoundingDoubleConverter : JsonConverter<double>
-    {
-        private readonly int _digits;
-
-        public RoundingDoubleConverter(int digits) => _digits = digits;
-
-        public override double Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
-            reader.GetDouble();
-
-        public override void Write(Utf8JsonWriter writer, double value, JsonSerializerOptions options) =>
-            writer.WriteNumberValue(Math.Round(value, _digits, MidpointRounding.AwayFromZero));
     }
 }

@@ -5,14 +5,6 @@
 namespace Filtrace.Tracing.Providers;
 
 /// <summary>
-///  The count of worker-thread adjustments the runtime made for one reason, in a
-///  <see cref="ThreadPoolResult"/>.
-/// </summary>
-/// <param name="Reason">The adjustment reason (for example <c>Starvation</c> or <c>ClimbingMove</c>).</param>
-/// <param name="Count">How many adjustments the runtime made for that reason.</param>
-public sealed record ThreadPoolAdjustment(string Reason, int Count);
-
-/// <summary>
 ///  The thread-pool report for a trace: how the runtime grew or shrank the worker
 ///  pool and, above all, how often it did so because it detected <c>Starvation</c> -
 ///  the signal behind the classic "everything is slow under load but the CPU is idle

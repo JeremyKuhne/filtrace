@@ -8,33 +8,6 @@ using Etlx = Microsoft.Diagnostics.Tracing.Etlx;
 namespace Filtrace.Tracing.Providers;
 
 /// <summary>
-///  One event in an <see cref="EventQueryResult"/>.
-/// </summary>
-/// <param name="TimestampMs">The event time, in milliseconds relative to the start of the trace.</param>
-/// <param name="Provider">The ETW / EventPipe provider that emitted the event.</param>
-/// <param name="EventName">The event name.</param>
-/// <param name="ThreadId">The OS thread the event was emitted on.</param>
-/// <param name="Payload">The event's named fields rendered compactly, truncated to the query's payload cap.</param>
-public sealed record EventRecord(
-    double TimestampMs,
-    string Provider,
-    string EventName,
-    int ThreadId,
-    string Payload);
-
-/// <summary>
-///  A page of events matching an <see cref="EventQueryProvider"/> query, plus the
-///  total number matched so a consumer can page through them.
-/// </summary>
-/// <param name="TotalMatched">The total number of events matching the query across the whole trace.</param>
-/// <param name="Skipped">The number of matches skipped before this page.</param>
-/// <param name="Events">The events on this page, in trace (time) order.</param>
-public sealed record EventQueryResult(
-    int TotalMatched,
-    int Skipped,
-    IReadOnlyList<EventRecord> Events);
-
-/// <summary>
 ///  Queries the raw events of a trace by name, with pagination and payload
 ///  truncation, so an agent can inspect arbitrary events (the field guide's "Any
 ///  Stacks" / event view) without drowning in a machine-wide firehose.
