@@ -157,7 +157,7 @@ are named for them:
 | `jitstats` | JIT method count, compile time, sizes (`.nettrace`) |
 | `threadpool` | worker-thread adjustments and starvation - slow under load, CPU idle (`.nettrace`) |
 | `diskio` | physical disk I/O by file: bytes and disk service time (`.etl`, Windows) |
-| `events --name <n>` | raw events by name, paged (`.nettrace`, or `.etl` on Windows) |
+| `events --name <n>` | raw events, filtered by name / payload / pid / tid, paged (`.nettrace`, or `.etl` on Windows) |
 
 **Capture** - record a Windows ETW `.etl` yourself (for an EventPipe `.nettrace`, use `dotnet-trace`):
 
@@ -237,7 +237,7 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 | `trace_jit` | `jitstats` | JIT compile time and sizes |
 | `trace_threadpool` | `threadpool` | worker-thread adjustments and starvation |
 | `trace_diskio` | `diskio` | physical disk I/O by file (bytes, disk time) |
-| `trace_query_events` | `events` | raw events by name, paged |
+| `trace_query_events` | `events` | raw events, filtered by name / payload / pid / tid, paged |
 
 The file-management verbs (`convert`, `clean`) stay CLI-only - they manage the
 on-disk ETLX cache rather than return an analysis.

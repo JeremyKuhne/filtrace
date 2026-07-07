@@ -14,7 +14,7 @@ The six planned initiatives:
 | P1 | DATAS server-GC tuning analysis | `datas` verb, `trace_datas` tool | M | Low | **Backlog** |
 | P2 | Multi-lane timeline correlation | `timeline` verb, `trace_timeline` tool | M-L | Med | **Done (v1)** |
 | P3 | Point-in-time snapshot | `snapshot` verb, `trace_snapshot` tool | M | Low | Planned |
-| P4 | Event payload / PID / TID filtering | extend `events` / `trace_query_events` | S | Low | Planned |
+| P4 | Event payload / PID / TID filtering | extend `events` / `trace_query_events` | S | Low | **Done** |
 | P5 | Bidirectional caller+callee view | extend `callers` / new focus view | M | Low | **Done** |
 | P6 | Per-method temporal buckets | optional field on rankings | M | Med | Planned |
 
@@ -324,6 +324,15 @@ timeline peak or an external latency report.
 ---
 
 ## P4 - Event payload / PID / TID filtering
+
+> **Status: implemented.** `EventQueryProvider.Query` gained `payloadFilter` (a
+> case-insensitive substring matched against each event's payload values, scanning the
+> full untruncated value so a match past the output cap is not missed, and only when set),
+> `processId`, and `threadId`. The cheap id filters run before the payload scan. `events`
+> exposes them as `--payload` / `--pid` / `--tid` and `trace_query_events` as `payload` /
+> `pid` / `tid` (the CLI/MCP boundary uses a `-1` sentinel for "unset" since neither layer
+> had precedent for `int?`). `EventRecord` now also carries `ProcessId` (a column in the
+> text view), the natural companion to the existing `ThreadId`.
 
 **Goal.** Turn `events` from a name-only pager into a forensic filter: search across
 payload *values* (e.g. `ConnectionReset`) and narrow by process or thread - a small

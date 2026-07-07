@@ -912,6 +912,30 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void QueryEvents_PayloadFilter_NarrowsToMatchingEvents()
+    {
+        AnalysisResult<EventQueryResult> matched =
+            TraceTools.QueryEvents(FixturePath(Alloc), name: "AllocationTick", take: 1000, payload: "Small");
+
+        AssertEnvelope(matched);
+        matched.Result.TotalMatched.Should().BeGreaterThan(0);
+
+        AnalysisResult<EventQueryResult> none =
+            TraceTools.QueryEvents(FixturePath(Alloc), name: "AllocationTick", payload: "__no_such_value__");
+        none.Result.TotalMatched.Should().Be(0);
+    }
+
+    [TestMethod]
+    public void QueryEvents_ProcessFilter_UnknownPid_MatchesNothing()
+    {
+        AnalysisResult<EventQueryResult> envelope =
+            TraceTools.QueryEvents(FixturePath(Alloc), name: "AllocationTick", pid: 999999);
+
+        AssertEnvelope(envelope);
+        envelope.Result.TotalMatched.Should().Be(0);
+    }
+
+    [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
     public void QueryEvents_EtlTrace_ReturnsMatchingEventsPage()
     {

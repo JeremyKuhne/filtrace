@@ -45,7 +45,10 @@ internal static class EventsExecutor
                 request.Name,
                 request.Skip,
                 request.Take,
-                request.MaxPayload),
+                request.MaxPayload,
+                request.Payload,
+                request.Pid,
+                request.Tid),
             error,
             out EventQueryResult? result))
         {

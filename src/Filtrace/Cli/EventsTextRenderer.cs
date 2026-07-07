@@ -53,12 +53,12 @@ internal static class EventsTextRenderer
         output.WriteLine($"  {result.TotalMatched} matched   showing {from}-{through}");
         output.WriteLine();
 
-        output.WriteLine($"  {"time(ms)",12}  {"thread",6}  {"provider / event",-QualifiedNameWidth}  payload");
+        output.WriteLine($"  {"time(ms)",12}  {"proc",6}  {"thread",6}  {"provider / event",-QualifiedNameWidth}  payload");
         foreach (EventRecord e in result.Events)
         {
             string qualified = $"{e.Provider}/{e.EventName}";
             output.WriteLine(
-                $"  {e.TimestampMs,12:N2}  {e.ThreadId,6}  {qualified,-QualifiedNameWidth}  {e.Payload}");
+                $"  {e.TimestampMs,12:N2}  {e.ProcessId,6}  {e.ThreadId,6}  {qualified,-QualifiedNameWidth}  {e.Payload}");
         }
 
         RenderHints(envelope, output);

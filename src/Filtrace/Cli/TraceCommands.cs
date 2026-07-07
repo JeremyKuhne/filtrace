@@ -754,6 +754,9 @@ internal sealed class TraceCommands
     /// <param name="skip">Number of matches to skip, for paging.</param>
     /// <param name="take">-n, Maximum number of matches to return on this page.</param>
     /// <param name="maxPayload">Per-event payload character cap; 0 omits payloads.</param>
+    /// <param name="payload">Keep only events whose payload values contain this (case-insensitive); omit for no payload filter.</param>
+    /// <param name="pid">Keep only events from this process id; omit for every process.</param>
+    /// <param name="tid">Keep only events on this thread id; omit for every thread.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -767,9 +770,14 @@ internal sealed class TraceCommands
         [Range(0, int.MaxValue)] int skip = 0,
         [Range(1, int.MaxValue)] int take = 50,
         [Range(0, int.MaxValue)] int maxPayload = EventQueryProvider.DefaultMaxPayloadChars,
+        string payload = "",
+        int pid = -1,
+        int tid = -1,
         OutputFormat format = OutputFormat.Text)
     {
-        EventsRequest request = new(trace, name, skip, take, maxPayload, format);
+        EventsRequest request = new(
+            trace, name, skip, take, maxPayload, payload,
+            pid >= 0 ? pid : null, tid >= 0 ? tid : null, format);
         return EventsExecutor.Run(request, Console.Out, Console.Error);
     }
 

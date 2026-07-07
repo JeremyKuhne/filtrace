@@ -37,6 +37,14 @@ public sealed class EventQueryProvider
     /// <param name="skip">The number of matches to skip (for paging). Must be non-negative.</param>
     /// <param name="take">The maximum number of matches to return. Must be non-negative.</param>
     /// <param name="maxPayloadChars">The per-event payload character cap. Must be non-negative.</param>
+    /// <param name="payloadFilter">
+    ///  A case-insensitive substring matched against each event's payload <em>values</em>;
+    ///  empty applies no payload filter. The full untruncated value is scanned, so a match
+    ///  past <paramref name="maxPayloadChars"/> is not missed, and the scan runs only when a
+    ///  filter is set, so an unfiltered query never materializes payload values.
+    /// </param>
+    /// <param name="processId">Keep only events emitted from this OS process id; <see langword="null"/> keeps every process.</param>
+    /// <param name="threadId">Keep only events emitted on this OS thread id; <see langword="null"/> keeps every thread.</param>
     /// <returns>The page of matching events, plus the total matched.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="ArgumentOutOfRangeException">A paging or cap argument is negative.</exception>
@@ -46,7 +54,10 @@ public sealed class EventQueryProvider
         string nameFilter = "",
         int skip = 0,
         int take = 100,
-        int maxPayloadChars = DefaultMaxPayloadChars)
+        int maxPayloadChars = DefaultMaxPayloadChars,
+        string payloadFilter = "",
+        int? processId = null,
+        int? threadId = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         ArgumentOutOfRangeException.ThrowIfNegative(skip);
@@ -73,6 +84,26 @@ public sealed class EventQueryProvider
                 continue;
             }
 
+            // The process and thread filters are cheap id comparisons, applied before the
+            // payload scan so that scan only runs for events that already match.
+            if (processId is int pid && data.ProcessID != pid)
+            {
+                continue;
+            }
+
+            if (threadId is int tid && data.ThreadID != tid)
+            {
+                continue;
+            }
+
+            // The payload search scans the full, untruncated values so a match past the
+            // output cap is not missed. It is done last, and only when a payload filter is
+            // set, so an unfiltered query never materializes payload values.
+            if (payloadFilter.Length > 0 && !PayloadMatches(data, payloadFilter))
+            {
+                continue;
+            }
+
             // Count every match for the total, but only materialize the requested page.
             if (matched >= skip && page.Count < take)
             {
@@ -80,6 +111,7 @@ public sealed class EventQueryProvider
                     data.TimeStampRelativeMSec,
                     data.ProviderName,
                     data.EventName,
+                    data.ProcessID,
                     data.ThreadID,
                     RenderPayload(data, maxPayloadChars)));
             }
@@ -111,6 +143,23 @@ public sealed class EventQueryProvider
             new Etlx.TraceLogOptions { ContinueOnError = true });
 
         return new Etlx.TraceLog(etlxPath);
+    }
+
+    // Whether any of the event's payload values contains the filter (case-insensitive).
+    // Scans the full untruncated value - a match past the output cap must still count -
+    // and is called only when a payload filter is set.
+    private static bool PayloadMatches(TraceEvent data, string filter)
+    {
+        string[] names = data.PayloadNames;
+        for (int i = 0; i < names.Length; i++)
+        {
+            if (data.PayloadString(i, null).Contains(filter, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // Renders an event's named fields as "name=value; ..." truncated to the cap, so
