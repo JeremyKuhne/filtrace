@@ -40,6 +40,10 @@
     "threadtime-hotpath": {
       "calls": 1,
       "tokens": 527
+    },
+    "timeline-window": {
+      "calls": 1,
+      "tokens": 882
     }
   }
 }

@@ -402,6 +402,63 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Timeline_NetTrace_ReturnsAlignedLanesAndHint()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(FixturePath(Alloc), buckets: 20);
+
+        AssertEnvelope(envelope);
+        envelope.Hints.Should().NotBeEmpty();
+        envelope.Result.BucketCount.Should().Be(20);
+        envelope.Result.Gc.Should().NotBeNull().And.HaveCount(20);
+        envelope.Result.Gc!.Sum(static b => b.Count).Should().BeGreaterThan(0);
+    }
+
+    [TestMethod]
+    public void Timeline_LanesSelector_LimitsLanes()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(FixturePath(Alloc), lanes: "gc");
+
+        envelope.Result.Gc.Should().NotBeNull();
+        envelope.Result.Cpu.Should().BeNull();
+        envelope.Result.Alloc.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void Timeline_UnknownLane_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(FixturePath(Alloc), lanes: "bogus");
+
+        act.Should().Throw<McpException>().WithMessage("*Unknown lane 'bogus'*");
+    }
+
+    [TestMethod]
+    public void Timeline_BucketsBelowMinimum_ClampsAndWarns()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(FixturePath(Alloc), buckets: 1);
+
+        envelope.Result.BucketCount.Should().Be(5);
+        envelope.Warnings.Should().Contain(w => w.Contains("below the minimum"));
+    }
+
+    [TestMethod]
+    public void Timeline_BadTimeWindow_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(FixturePath(Alloc), time: "not-a-window");
+
+        act.Should().Throw<McpException>();
+    }
+
+    [TestMethod]
+    public void Timeline_Speedscope_ThrowsMcpException()
+    {
+        // A speedscope export carries only CPU stacks, not the event stream the timeline
+        // reads; the dual-format guardrail rejects it up front.
+        Action act = () => TraceTools.Timeline(FixturePath(Speedscope));
+
+        act.Should().Throw<McpException>().WithMessage("*requires a .nettrace*");
+    }
+
+    [TestMethod]
     public void ThreadPool_NetTrace_ReturnsAdjustmentSummary()
     {
         AnalysisResult<ThreadPoolResult> envelope = TraceTools.ThreadPool(FixturePath(ThreadPoolTrace));

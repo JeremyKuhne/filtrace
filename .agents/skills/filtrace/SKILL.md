@@ -113,6 +113,12 @@ filtrace diff before.nettrace after.nettrace # 4. what changed
 | `processes` | processes by CPU-sample weight, to pick a `--process` target |
 | `classify` | CPU time by runtime work category (zeroing / copying / GC / JIT) |
 
+**Temporal** - see what happened when, to find the window to drill:
+
+| Verb | Shows |
+|---|---|
+| `timeline` | per-bucket GC / CPU / exception / allocation / JIT activity across the trace |
+
 **Compare and export:**
 
 | Verb | Does |
@@ -148,9 +154,9 @@ Run `filtrace <verb> --help` for the full option set of any verb.
 
 ## Scope and symbols
 
-- **Scope to one process.** The stack verbs that read a multi-process `.etl`
-  (`cpu`, `threadtime`, `rank`, `callers`, `lines`, `heatmap`, `tree`, `classify`)
-  auto-scope to the busiest process tree. Run `processes` first to see the
+- **Scope to one process.** The verbs that read a multi-process `.etl`
+  (`cpu`, `threadtime`, `rank`, `callers`, `lines`, `heatmap`, `tree`, `classify`,
+  `timeline`) auto-scope to the busiest process tree. Run `processes` first to see the
   capture, then `--process <name>` to override, or `--all-processes` to widen.
   `alloc` / `exceptions` read a single-process `.nettrace` and have no process
   options.
@@ -257,11 +263,11 @@ The recurring ways a .NET trace investigation goes wrong:
 The two heads expose the same analysis:
 
 - **CLI** - `dotnet tool install -g KlutzyNinja.Filtrace`, then `filtrace <verb>`.
-- **MCP server** - `dnx KlutzyNinja.Filtrace.Mcp` over stdio, exposing fifteen
+- **MCP server** - `dnx KlutzyNinja.Filtrace.Mcp` over stdio, exposing sixteen
   `trace_*` tools (`trace_info`, `trace_rank`, `trace_callers`, `trace_lines`,
   `trace_heatmap`, `trace_tree`, `trace_processes`, `trace_classify`,
-  `trace_diff`, `trace_export`, `trace_gc`, `trace_jit`, `trace_threadpool`,
-  `trace_diskio`, `trace_query_events`).
+  `trace_diff`, `trace_export`, `trace_timeline`, `trace_gc`, `trace_jit`,
+  `trace_threadpool`, `trace_diskio`, `trace_query_events`).
   Each returns one envelope: a `schemaVersion`, a `warnings` list, next-step
   `hints`, and the typed result.
 

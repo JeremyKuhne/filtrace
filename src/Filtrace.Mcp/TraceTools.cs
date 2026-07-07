@@ -389,6 +389,61 @@ public sealed class TraceTools
     }
 
     /// <summary>
+    ///  Returns a time-bucketed correlation of what a <c>.nettrace</c> or <c>.etl</c>
+    ///  trace was doing over its duration: per-bucket GC, CPU, exception, allocation,
+    ///  and JIT activity, aligned on one time axis.
+    /// </summary>
+    /// <param name="path">Path to the trace file.</param>
+    /// <param name="lanes">Comma-separated lanes to include; empty means every lane.</param>
+    /// <param name="buckets">Number of equal time buckets to divide the window into.</param>
+    /// <param name="time">Optional time window (<c>start,end</c> ms) scoping the timeline.</param>
+    /// <returns>The timeline envelope.</returns>
+    [McpServerTool(Name = "trace_timeline", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [Description(
+        "Time-bucketed activity across a .nettrace or .etl trace: per-bucket GC, CPU (top method), exception, "
+        + "allocation, and JIT counts on one time axis. An orientation view, not a ranking - find the busy window, "
+        + "then scope a ranking to it (the hint gives the exact rank --time call). A speedscope export is rejected.")]
+    public static AnalysisResult<TimelineResult> Timeline(
+        [Description("Path to a .nettrace or .etl trace file.")] string path,
+        [Description("Lanes to include: gc, cpu, exceptions, alloc, jit; omit for all.")] string lanes = "",
+        [Description("Number of time buckets (clamped to 5-200).")] int buckets = TimelineProvider.DefaultBucketCount,
+        [Description("Optional time window 'start,end' in ms; either bound may be omitted.")] string time = "",
+        [Description("Process-name substring scoping a multi-process .etl to one tree; omit to auto-scope to the busiest.")] string process = "")
+    {
+        if (!TimeWindow.TryParse(NullIfEmpty(time), out double? startMSec, out double? endMSec, out string? timeError))
+        {
+            throw new McpException(timeError ?? "Invalid time window.");
+        }
+
+        if (!TimelineProvider.TryResolveLanes(lanes, out IReadOnlyList<string> resolvedLanes, out string? laneError))
+        {
+            throw new McpException(laneError!);
+        }
+
+        List<string> warnings = [];
+        int resolvedBuckets = TimelineProvider.ClampBucketCount(buckets, out string? bucketWarning);
+        if (bucketWarning is not null)
+        {
+            warnings.Add(bucketWarning);
+        }
+
+        TimeWindow? window = startMSec is null && endMSec is null
+            ? null
+            : new TimeWindow(startMSec, endMSec);
+
+        TimelineResult result = ReadTimeline(path, window, resolvedLanes, resolvedBuckets, ResolveScope(process));
+
+        // Surface the process the scope resolved to (an explicit name or the automatic
+        // busiest) so a narrowed machine-wide capture is not silently one process's view.
+        if (result.Process is not null)
+        {
+            warnings.Add($"Scoped to process '{result.Process}'.");
+        }
+
+        return new AnalysisResult<TimelineResult>(result, warnings, SteeringHints.ForTimeline(result));
+    }
+
+    /// <summary>
     ///  Returns the thread-pool report for a <c>.nettrace</c> EventPipe trace: how often
     ///  the runtime adjusted the worker-thread count and how often because it detected
     ///  starvation.
@@ -881,6 +936,34 @@ public sealed class TraceTools
         if (top < 1)
         {
             throw new McpException("top must be 1 or greater.");
+        }
+    }
+
+    /// <summary>
+    ///  Reads the timeline for a <c>.nettrace</c> or <c>.etl</c> trace, applying the
+    ///  format guardrail and mapping the provider's failure modes to a clean
+    ///  <see cref="McpException"/>.
+    /// </summary>
+    private static TimelineResult ReadTimeline(string path, TimeWindow? window, IReadOnlyList<string> lanes, int buckets, ScopeRequest? scope)
+    {
+        RequireNetTraceOrEtl(path, "timeline");
+
+        try
+        {
+            return new TimelineProvider().Read(path, window, lanes, buckets, scope);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or FormatException
+            or ArgumentException)
+        {
+            // A missing, unreadable, or malformed trace - or an .etl read attempted off
+            // Windows (PlatformNotSupportedException derives from NotSupportedException) -
+            // surfaces as a clean tool error rather than an unhandled exception.
+            throw new McpException(ex.Message);
         }
     }
 

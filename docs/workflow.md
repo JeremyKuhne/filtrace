@@ -136,6 +136,12 @@ are named for them:
 | `processes` | processes by CPU-sample weight, to pick a `--process` target |
 | `classify` | CPU time by runtime work category (zeroing / copying / GC / JIT) |
 
+**Temporal** - see what happened when, to find the window to drill:
+
+| Verb | Shows |
+|---|---|
+| `timeline` | per-bucket GC / CPU / exception / allocation / JIT activity across the trace |
+
 **Compare and export:**
 
 | Verb | Does |
@@ -172,10 +178,10 @@ are named for them:
 An agent wants the smallest relevant slice, not a machine-wide firehose. filtrace
 defaults to scenario scope and lets you tighten further:
 
-- **`--process <name>` / `--all-processes`** - the stack verbs that read a
+- **`--process <name>` / `--all-processes`** - the verbs that read a
   multi-process `.etl` (`cpu`, `threadtime`, `rank`, `callers`, `lines`,
-  `heatmap`, `tree`, `classify`) auto-scope to the busiest process tree (ranked by
-  CPU-sample count) unless told otherwise. `alloc` and `exceptions` read a
+  `heatmap`, `tree`, `classify`, `timeline`) auto-scope to the busiest process tree
+  (ranked by CPU-sample count) unless told otherwise. `alloc` and `exceptions` read a
   single-process `.nettrace`, so they have no process options. Run `processes`
   first to see what is in a capture.
 - **`--root <frame>`** - scope a ranking to the subtree under a frame.
@@ -209,7 +215,7 @@ go further:
 <!-- filtrace:begin tools -->
 ### MCP tools
 
-The MCP server exposes the same analysis as fifteen `trace_*` tools over stdio.
+The MCP server exposes the same analysis as sixteen `trace_*` tools over stdio.
 Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-step
 `hints`, and the typed result - and the read-only analysis tools are annotated
 `readOnlyHint`.
@@ -226,6 +232,7 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 | `trace_classify` | `classify` | CPU time by runtime work category |
 | `trace_diff` | `diff` | what changed between two traces |
 | `trace_export` | `export` | write a speedscope / chromium flame graph (write tool) |
+| `trace_timeline` | `timeline` | per-bucket GC / CPU / exception / allocation / JIT activity over time |
 | `trace_gc` | `gcstats` | GC counts, pauses, % time in GC, induced, heap |
 | `trace_jit` | `jitstats` | JIT compile time and sizes |
 | `trace_threadpool` | `threadpool` | worker-thread adjustments and starvation |

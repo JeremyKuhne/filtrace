@@ -673,6 +673,37 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
+    ///  Correlate what a trace was doing over time: per-bucket GC, CPU, exception, allocation, and JIT activity.
+    /// </summary>
+    /// <param name="trace">Path to a .nettrace EventPipe or .etl ETW file (a speedscope export is rejected).</param>
+    /// <param name="lanes">Comma-separated lanes to include: gc, cpu, exceptions, alloc, jit; omit for every lane.</param>
+    /// <param name="buckets">-n, Number of equal time buckets to divide the window into (clamped to 5-200).</param>
+    /// <param name="time">Scope to a time window 'start,end' in ms relative to the trace start; either bound may be omitted (e.g. 1000,5000 or 1000, or ,5000).</param>
+    /// <param name="process">Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.</param>
+    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="format">Render format: text or json.</param>
+    /// <returns>A process exit code.</returns>
+    /// <remarks>
+    ///  An orientation view, not a stack ranking: it shows when activity happened - the
+    ///  busy window - so a ranking can then be scoped to it with --time. The GC lane
+    ///  comes from the runtime's per-collection records; the CPU, exception, allocation,
+    ///  and JIT lanes are counted from the event stream both EventPipe and ETW carry.
+    /// </remarks>
+    [Command("timeline")]
+    public int Timeline(
+        [Argument] string trace,
+        string lanes = "",
+        int buckets = TimelineProvider.DefaultBucketCount,
+        string time = "",
+        string process = "",
+        bool allProcesses = false,
+        OutputFormat format = OutputFormat.Text)
+    {
+        TimelineRequest request = new(trace, time, lanes, buckets, process, allProcesses, format);
+        return TimelineExecutor.Run(request, Console.Out, Console.Error);
+    }
+
+    /// <summary>
     ///  Report just-in-time compilation: method count, compile-time summary, and per-method detail.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe file captured with JIT events.</param>

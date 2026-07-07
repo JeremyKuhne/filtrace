@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using Filtrace.Tracing;
+using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Output;
 
@@ -161,5 +163,110 @@ public static class SteeringHints
 
         string top = diff.Rows[0].Frame;
         return [$"the largest change is {top}; drill into it with: callers {top}"];
+    }
+
+    /// <summary>
+    ///  The next-step hints for a timeline: name the busiest window and the scoped
+    ///  ranking that drills it, turning the orientation view into the next command.
+    /// </summary>
+    /// <param name="timeline">The timeline the hints steer from.</param>
+    /// <returns>The steering hints, never <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="timeline"/> is <see langword="null"/>.</exception>
+    public static IReadOnlyList<string> ForTimeline(TimelineResult timeline)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+
+        // Prefer the CPU lane - the canonical "find the window, then rank it" loop - then
+        // the other rankable lanes, and finally GC activity. A null or all-zero lane has
+        // nothing to point at, so it is skipped.
+        if (TryPeakBucket(timeline.Cpu, static bucket => bucket.SampleCount, out int cpuIndex))
+        {
+            return [DrillWindowHint("CPU", "cpu", timeline, cpuIndex)];
+        }
+
+        if (TryPeakBucket(timeline.Alloc, static bucket => bucket.Count, out int allocIndex))
+        {
+            return [DrillWindowHint("allocation", "alloc", timeline, allocIndex)];
+        }
+
+        if (TryPeakBucket(timeline.Exceptions, static bucket => bucket.Count, out int exceptionIndex))
+        {
+            return [DrillWindowHint("exception", "exceptions", timeline, exceptionIndex)];
+        }
+
+        if (TryPeakBucket(timeline.Gc, static bucket => bucket.Count, out int gcIndex))
+        {
+            (double start, double end) = WindowOf(timeline, gcIndex);
+            return [$"busiest GC window is bucket {gcIndex} ({FormatMs(start)}-{FormatMs(end)} ms); inspect collections with: gcstats"];
+        }
+
+        return ["the timeline is empty in every requested lane; widen the window or check the capture carries these events"];
+    }
+
+    // The index of the highest-weight bucket in a lane, or false when the lane is absent
+    // or every bucket is empty.
+    private static bool TryPeakBucket<T>(IReadOnlyList<T>? lane, Func<T, long> weight, out int index)
+    {
+        index = -1;
+        if (lane is null)
+        {
+            return false;
+        }
+
+        long best = 0;
+        for (int i = 0; i < lane.Count; i++)
+        {
+            long value = weight(lane[i]);
+            if (value > best)
+            {
+                best = value;
+                index = i;
+            }
+        }
+
+        return index >= 0;
+    }
+
+    // The [start, end] millisecond bounds of a bucket. Kept as doubles so a sub-millisecond
+    // bucket (a short capture divided into many buckets) is not rounded to a degenerate or
+    // shifted window in the drill command.
+    private static (double Start, double End) WindowOf(TimelineResult timeline, int index)
+    {
+        double start = timeline.FromMs + (index * timeline.BucketSizeMs);
+        double end = timeline.FromMs + ((index + 1) * timeline.BucketSizeMs);
+        return (start, end);
+    }
+
+    // Formats a millisecond bound for a hint: invariant culture (the form the --time parser
+    // reads back) with trailing zeros trimmed, so a whole-millisecond bound stays "60" while a
+    // sub-millisecond bound keeps its precision.
+    private static string FormatMs(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
+
+    // The drill hint for a rankable lane: name the busy window and the scoped ranking
+    // that continues the investigation into it, carrying the timeline's process scope so
+    // the follow-up ranking stays on the same process tree the timeline was read from.
+    private static string DrillWindowHint(string laneLabel, string metric, TimelineResult timeline, int index)
+    {
+        (double start, double end) = WindowOf(timeline, index);
+        string from = FormatMs(start);
+        string to = FormatMs(end);
+        return $"busiest {laneLabel} window is bucket {index} ({from}-{to} ms); "
+            + $"scope a ranking with: rank --metric {metric} --time {from},{to}{ProcessScope(timeline)}";
+    }
+
+    // The " --process <name>" suffix a scoped timeline's drill hint carries so the
+    // follow-up ranking stays on the same process tree, or empty when the timeline
+    // spanned every process. A name with whitespace is quoted so it survives as one
+    // argument.
+    private static string ProcessScope(TimelineResult timeline)
+    {
+        if (timeline.Process is not { Length: > 0 } process)
+        {
+            return string.Empty;
+        }
+
+        return process.Contains(' ') || process.Contains('\t')
+            ? $" --process \"{process}\""
+            : $" --process {process}";
     }
 }

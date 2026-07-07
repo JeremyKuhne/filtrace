@@ -31,21 +31,21 @@
   The build configuration whose MCP binary to exercise. Defaults to Release.
 
 .PARAMETER MaxSchemaTokens
-  The tool-list token budget. Defaults to 8000. Tokens are estimated by
+  The tool-list token budget. Defaults to 9000. Tokens are estimated by
   tools/Get-TokenEstimate.ps1 (a deterministic, offline pre-tokenizer estimate -
   far more accurate on JSON than the old four-characters-per-token rule, and
   slightly conservative); the check prints the measured characters and estimate so
   a regression is legible. The budget covers each tool's name, description, input
   schema, and (because the tools advertise structured content) its output schema -
   everything the client puts in front of the model from tools/list. The ceiling is
-  a bloat guard, not a cap on legitimate surface: the 13 analysis tools measure
-  ~6,900 tokens (~530 each), so 8000 leaves modest headroom while still tripping on
+  a bloat guard, not a cap on legitimate surface: the 16 analysis tools measure
+  ~8,560 tokens (~530 each), so 9000 leaves modest headroom while still tripping on
   a doubled description or a few unplanned tools.
 #>
 [CmdletBinding()]
 param(
     [string]$Configuration = 'Release',
-    [int]$MaxSchemaTokens = 8000
+    [int]$MaxSchemaTokens = 9000
 )
 
 $ErrorActionPreference = 'Stop'

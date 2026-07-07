@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Tracing;
+using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Output;
 
@@ -143,6 +144,89 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForTimeline_CpuLane_DrillsBusiestWindowWithScopedRanking()
+    {
+        TimelineResult timeline = new(
+            0.0, 100.0, 20.0, 5, null,
+            Gc: null,
+            Cpu:
+            [
+                new CpuBucket(0, null),
+                new CpuBucket(0, null),
+                new CpuBucket(50, "MyApp.Hot"),
+                new CpuBucket(1, null),
+                new CpuBucket(0, null)
+            ],
+            Exceptions: null, Alloc: null, Jit: null);
+
+        IReadOnlyList<string> hints = SteeringHints.ForTimeline(timeline);
+
+        // The busiest CPU bucket names its window and the ranking scoped to it; an
+        // unscoped timeline carries no --process on the drill.
+        hints.Should().ContainSingle().Which.Should()
+            .Be("busiest CPU window is bucket 2 (40-60 ms); scope a ranking with: rank --metric cpu --time 40,60");
+    }
+
+    [TestMethod]
+    public void ForTimeline_ProcessScoped_CarriesProcessIntoDrillHint()
+    {
+        TimelineResult timeline = new(
+            0.0, 100.0, 20.0, 5, "HotLoopBench",
+            Gc: null,
+            Cpu:
+            [
+                new CpuBucket(0, null),
+                new CpuBucket(0, null),
+                new CpuBucket(50, "MyApp.Hot"),
+                new CpuBucket(1, null),
+                new CpuBucket(0, null)
+            ],
+            Exceptions: null, Alloc: null, Jit: null);
+
+        IReadOnlyList<string> hints = SteeringHints.ForTimeline(timeline);
+
+        // A scoped timeline propagates its process into the drill so the follow-up
+        // ranking stays on the same tree rather than re-auto-scoping.
+        hints.Should().ContainSingle().Which.Should().EndWith("--time 40,60 --process HotLoopBench");
+    }
+
+    [TestMethod]
+    public void ForTimeline_SubMillisecondBuckets_KeepsPreciseDrillWindow()
+    {
+        // A short capture divided into many buckets yields sub-millisecond bucket widths;
+        // the drill window must keep its precision rather than rounding to a degenerate or
+        // shifted whole-millisecond range that would select the wrong slice.
+        TimelineResult timeline = new(
+            0.0, 1.5, 0.3, 5, null,
+            Gc: null,
+            Cpu:
+            [
+                new CpuBucket(0, null),
+                new CpuBucket(0, null),
+                new CpuBucket(50, "MyApp.Hot"),
+                new CpuBucket(1, null),
+                new CpuBucket(0, null)
+            ],
+            Exceptions: null, Alloc: null, Jit: null);
+
+        IReadOnlyList<string> hints = SteeringHints.ForTimeline(timeline);
+
+        hints.Should().ContainSingle().Which.Should().Contain("--time 0.6,0.9");
+    }
+
+    [TestMethod]
+    public void ForTimeline_Empty_NudgesToWiden()
+    {
+        TimelineResult timeline = new(
+            0.0, 100.0, 20.0, 5, null,
+            Gc: null, Cpu: null, Exceptions: null, Alloc: null, Jit: null);
+
+        IReadOnlyList<string> hints = SteeringHints.ForTimeline(timeline);
+
+        hints.Should().ContainSingle().Which.Should().Contain("widen the window");
+    }
+
+    [TestMethod]
     public void ForRanking_Null_ThrowsArgumentNull()
     {
         Action act = () => SteeringHints.ForRanking(null!);
@@ -162,6 +246,14 @@ public sealed class SteeringHintsTests
     public void ForDiff_Null_ThrowsArgumentNull()
     {
         Action act = () => SteeringHints.ForDiff(null!);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [TestMethod]
+    public void ForTimeline_Null_ThrowsArgumentNull()
+    {
+        Action act = () => SteeringHints.ForTimeline(null!);
 
         act.Should().Throw<ArgumentNullException>();
     }
