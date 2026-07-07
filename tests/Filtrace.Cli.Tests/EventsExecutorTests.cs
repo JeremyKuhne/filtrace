@@ -125,6 +125,21 @@ public sealed class EventsExecutorTests
     }
 
     [TestMethod]
+    public void Run_TextView_HeaderReflectsActiveFilters()
+    {
+        // The header must name every active filter, not just the name, so a payload/pid
+        // query is not mislabeled "all events" (an unknown pid also proves the header
+        // renders before the empty page).
+        (int exit, string output, _) =
+            Run(Request(Alloc, name: "AllocationTick", payload: "Small", pid: 999999, take: 5));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("name 'AllocationTick'");
+        output.Should().Contain("payload 'Small'");
+        output.Should().Contain("pid 999999");
+    }
+
+    [TestMethod]
     public void Run_MissingFile_ReturnsInputError()
     {
         (int exit, _, string error) = Run(Request(FixturePath("does-not-exist.nettrace")));

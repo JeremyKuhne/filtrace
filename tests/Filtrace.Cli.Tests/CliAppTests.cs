@@ -890,7 +890,7 @@ public sealed class CliAppTests
         (int exit, string output, _) = Run("events", Alloc, "--name", "AllocationTick", "-n", "5");
 
         exit.Should().Be(ExitCodes.Success);
-        output.Should().Contain("filter 'AllocationTick'");
+        output.Should().Contain("name 'AllocationTick'");
     }
 
     [TestMethod]

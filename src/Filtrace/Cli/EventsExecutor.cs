@@ -73,7 +73,7 @@ internal static class EventsExecutor
         }
         else
         {
-            EventsTextRenderer.Render(envelope, request.Path, request.Name, output);
+            EventsTextRenderer.Render(envelope, request, output);
         }
 
         return ExitCodes.Success;

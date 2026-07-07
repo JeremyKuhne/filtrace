@@ -27,15 +27,13 @@ internal static class EventsTextRenderer
     ///  Renders the events envelope to <paramref name="output"/>.
     /// </summary>
     /// <param name="envelope">The events page, with its steering hints.</param>
-    /// <param name="path">The trace path, for the header line.</param>
-    /// <param name="name">The name filter, for the header line.</param>
+    /// <param name="request">The query the page answers, so the header reflects every active filter.</param>
     /// <param name="output">The writer the text is rendered to.</param>
-    public static void Render(AnalysisResult<EventQueryResult> envelope, string path, string name, TextWriter output)
+    public static void Render(AnalysisResult<EventQueryResult> envelope, EventsRequest request, TextWriter output)
     {
         EventQueryResult result = envelope.Result;
-        string filter = name.Length > 0 ? $"filter '{name}'" : "all events";
 
-        output.WriteLine($"events  -  {path}  ({filter})");
+        output.WriteLine($"events  -  {request.Path}  ({DescribeFilters(request)})");
         output.WriteLine();
 
         if (result.Events.Count == 0)
@@ -62,6 +60,35 @@ internal static class EventsTextRenderer
         }
 
         RenderHints(envelope, output);
+    }
+
+    // A human-readable summary of the query's active filters for the header, so the
+    // rendered output reflects the actual inputs rather than only the name filter.
+    // "all events" when nothing narrows the query.
+    private static string DescribeFilters(EventsRequest request)
+    {
+        List<string> parts = [];
+        if (!string.IsNullOrEmpty(request.Name))
+        {
+            parts.Add($"name '{request.Name}'");
+        }
+
+        if (!string.IsNullOrEmpty(request.Payload))
+        {
+            parts.Add($"payload '{request.Payload}'");
+        }
+
+        if (request.Pid is int pid)
+        {
+            parts.Add($"pid {pid}");
+        }
+
+        if (request.Tid is int tid)
+        {
+            parts.Add($"tid {tid}");
+        }
+
+        return parts.Count > 0 ? string.Join(", ", parts) : "all events";
     }
 
     private static void RenderHints(AnalysisResult<EventQueryResult> envelope, TextWriter output)
