@@ -15,7 +15,7 @@ The six planned initiatives:
 | P2 | Multi-lane timeline correlation | `timeline` verb, `trace_timeline` tool | M-L | Med | **Done (v1)** |
 | P3 | Point-in-time snapshot | `snapshot` verb, `trace_snapshot` tool | M | Low | Planned |
 | P4 | Event payload / PID / TID filtering | extend `events` / `trace_query_events` | S | Low | Planned |
-| P5 | Bidirectional caller+callee view | extend `callers` / new focus view | M | Low | Planned |
+| P5 | Bidirectional caller+callee view | extend `callers` / new focus view | M | Low | **Done** |
 | P6 | Per-method temporal buckets | optional field on rankings | M | Med | Planned |
 
 Legend: S = small, M = medium, L = large.
@@ -370,6 +370,16 @@ change with high triage value.
 ---
 
 ## P5 - Bidirectional caller+callee view
+
+> **Status: implemented.** `callers --callees` (CLI) and the `trace_callers` `callees`
+> parameter (MCP) add the focus frame's immediate callees to the existing
+> `CallersResult` as a nullable `Callees` list, computed in the same pass as the callers
+> so both sides partition the same focus-inclusive weight. A folded child (a JIT-helper
+> leaf or the synthetic `CPU_TIME` marker) or a leaf focus is credited to `<self>`
+> (the focus frame's self-time). Callers-only output is unchanged (the list is `null`).
+> The steering hint now nudges both up (to the top caller) and down (into the heaviest
+> real callee). Substring focus stayed the existing per-stack match; single-frame
+> resolution was **not** adopted in v1 to keep the callers output stable.
 
 **Goal.** Return callers *and* callees around a focus frame in one result, with
 substring matching, so an agent inspecting a hot method sees both directions

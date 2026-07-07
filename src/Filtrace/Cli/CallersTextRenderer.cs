@@ -54,6 +54,25 @@ internal static class CallersTextRenderer
             }
         }
 
+        if (callers.Callees is { } callees)
+        {
+            output.WriteLine();
+            output.WriteLine($"{metric.Name} callees of '{callers.Focus}'");
+            if (callees.Count == 0)
+            {
+                output.WriteLine("  (no callees in scope)");
+            }
+            else
+            {
+                output.WriteLine($"  {"weight",WeightColumnWidth}  {"%",PercentColumnWidth}  callee");
+                foreach (CalleeRow row in callees)
+                {
+                    output.WriteLine(
+                        $"  {$"{row.Weight:N2} {unit}",WeightColumnWidth}  {row.PercentOfTarget,PercentColumnWidth:N2}  {row.Callee}");
+                }
+            }
+        }
+
         foreach (string warning in envelope.Warnings)
         {
             output.WriteLine($"! {warning}");

@@ -37,7 +37,7 @@ internal static class CallersExecutor
         }
 
         TraceInfo info = trace.Info;
-        CallersResult callers = trace.Aggregator.CallersOf(request.Frame, request.Root, request.Top);
+        CallersResult callers = trace.Aggregator.CallersOf(request.Frame, request.Root, request.Top, request.Callees);
 
         AnalysisResult<CallersResult> envelope = new(
             callers,

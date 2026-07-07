@@ -18,6 +18,7 @@ namespace Filtrace.Cli;
 /// <param name="Format">The render format.</param>
 /// <param name="Strict">Whether to trip the strict symbol-resolution exit gate.</param>
 /// <param name="Scope">The process scope for a multi-process capture, or <see langword="null"/> for the automatic default.</param>
+/// <param name="Callees">Whether to also report the focus frame's immediate callees (a caller/callee view).</param>
 internal sealed record CallersRequest(
     string Path,
     string Frame,
@@ -26,4 +27,5 @@ internal sealed record CallersRequest(
     string? Symbols,
     OutputFormat Format,
     bool Strict,
-    ScopeRequest? Scope = null);
+    ScopeRequest? Scope = null,
+    bool Callees = false);

@@ -124,7 +124,7 @@ are named for them:
 
 | Verb | Shows |
 |---|---|
-| `callers <frame>` | immediate callers of a frame |
+| `callers <frame>` | immediate callers of a frame, or a caller/callee view with `--callees` |
 | `lines` | hottest source lines of the scoped methods |
 | `heatmap <file>` | per-line heat for one source file |
 | `tree` | top-down call tree from the root |
@@ -224,7 +224,7 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 |---|---|---|
 | `trace_info` | (orient) | format, sample count, symbol-resolution rate, available analyses; call first |
 | `trace_rank` | `rank` / `cpu` / `alloc` / `exceptions` / `threadtime` | rank by `metric` (cpu, threadtime, alloc, exceptions, contention, wait, activity) |
-| `trace_callers` | `callers` | immediate callers of a frame |
+| `trace_callers` | `callers` | immediate callers of a frame, or a caller/callee view (`callees`) |
 | `trace_lines` | `lines` | hottest source lines of the scoped methods |
 | `trace_heatmap` | `heatmap` | per-line heat for one source file |
 | `trace_tree` | `tree` | top-down call tree from the root |

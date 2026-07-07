@@ -3,7 +3,7 @@
   "tasks": {
     "cpu-hotspot": {
       "calls": 2,
-      "tokens": 146
+      "tokens": 151
     },
     "alloc-hotspot": {
       "calls": 1,
@@ -43,7 +43,11 @@
     },
     "timeline-window": {
       "calls": 1,
-      "tokens": 882
+      "tokens": 886
+    },
+    "caller-callee": {
+      "calls": 1,
+      "tokens": 116
     }
   }
 }

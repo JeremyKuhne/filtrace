@@ -101,7 +101,7 @@ filtrace diff before.nettrace after.nettrace # 4. what changed
 
 | Verb | Shows |
 |---|---|
-| `callers <frame>` | immediate callers of a frame |
+| `callers <frame>` | immediate callers of a frame, or a caller/callee view with `--callees` |
 | `lines` | hottest source lines of the scoped methods |
 | `heatmap <file>` | per-line heat for one source file |
 | `tree` | top-down call tree from the root |

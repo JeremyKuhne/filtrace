@@ -191,7 +191,8 @@ public sealed class TraceTools
     [Description(
         "Immediate callers of the frame matching 'frame', with the CPU time each contributes. Use it to learn "
         + "what a JIT-helper or shared-utility frame (e.g. BulkMoveWithWriteBarrier) is really attributable to, "
-        + "or to walk up a hot stack one level at a time. Scope to a subtree with root.")]
+        + "or to walk up a hot stack one level at a time. Set callees for a caller/callee view (what it calls too). "
+        + "Scope to a subtree with root.")]
     public static AnalysisResult<CallersResult> Callers(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -205,12 +206,14 @@ public sealed class TraceTools
         [Description(
             "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
             + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
-        string process = "")
+        string process = "",
+        [Description("Also return the frame's immediate callees (a caller/callee view); off by default.")]
+        bool callees = false)
     {
         RequirePositiveTop(top);
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process));
         TraceInfo info = trace.Info;
-        CallersResult callers = trace.Aggregator.CallersOf(frame, root, top);
+        CallersResult callers = trace.Aggregator.CallersOf(frame, root, top, callees);
 
         return new AnalysisResult<CallersResult>(callers, info.Warnings, SteeringHints.ForCallers(callers));
     }

@@ -358,6 +358,7 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="callees">Also report the focus frame's immediate callees (a caller/callee view).</param>
     /// <returns>A process exit code.</returns>
     [Command("callers")]
     public int Callers(
@@ -369,7 +370,8 @@ internal sealed class TraceCommands
         OutputFormat format = OutputFormat.Text,
         bool strict = false,
         string process = "",
-        bool allProcesses = false)
+        bool allProcesses = false,
+        bool callees = false)
     {
         if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
@@ -377,7 +379,7 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        CallersRequest request = new(trace, frame, root, top, symbols, format, strict, scope);
+        CallersRequest request = new(trace, frame, root, top, symbols, format, strict, scope, callees);
         return CallersExecutor.Run(request, Console.Out, Console.Error);
     }
 
