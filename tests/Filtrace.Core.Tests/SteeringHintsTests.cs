@@ -117,6 +117,46 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForCallers_WithCallees_NudgesUpAndDown()
+    {
+        CallersResult callers = new(
+            "Work",
+            20.0,
+            80.0,
+            25.0,
+            [new CallerRow("Program.Main", 20.0, 100.0)],
+            [
+                new CalleeRow("MyApp.Inner", 16.0, 80.0),
+                new CalleeRow("<self>", 4.0, 20.0)
+            ]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForCallers(callers);
+
+        // Both directions: up to the top caller and down into the heaviest real callee.
+        hints.Should().HaveCount(2);
+        hints[0].Should().Be("continue up the stack with: callers Program.Main");
+        hints[1].Should().Be("continue down into the callee with: callers MyApp.Inner --callees");
+    }
+
+    [TestMethod]
+    public void ForCallers_CalleesAllSelf_OmitsDownNudge()
+    {
+        // A leaf focus whose only callee is <self> has nothing to drill down into, so only
+        // the up-the-stack nudge is emitted.
+        CallersResult callers = new(
+            "Inner",
+            16.0,
+            64.0,
+            25.0,
+            [new CallerRow("MyApp.Work", 16.0, 100.0)],
+            [new CalleeRow("<self>", 16.0, 100.0)]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForCallers(callers);
+
+        hints.Should().ContainSingle().Which.Should().Be("continue up the stack with: callers MyApp.Work");
+    }
+
+    [TestMethod]
     public void ForDiff_WithChanges_NudgesToLargestChange()
     {
         RankingDiffResult diff = new(

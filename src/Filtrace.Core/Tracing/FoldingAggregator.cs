@@ -256,15 +256,34 @@ public sealed partial class FoldingAggregator
 
     /// <summary>
     ///  Reports the immediate callers of the topmost frame matching
-    ///  <paramref name="focus"/>, with the time each caller contributes.
+    ///  <paramref name="focus"/> and, when <paramref name="includeCallees"/> is set, its
+    ///  immediate callees too - a caller/callee view around one frame in a single pass.
     /// </summary>
     /// <param name="focus">Substring identifying the focus frame.</param>
     /// <param name="rootFrame">Substring scoping the analysis to a subtree, or empty for the whole trace.</param>
-    /// <param name="top">Maximum number of caller rows to return.</param>
-    /// <returns>The caller breakdown.</returns>
-    public CallersResult CallersOf(string focus, string rootFrame, int top)
+    /// <param name="top">Maximum number of caller (and callee) rows to return.</param>
+    /// <param name="includeCallees">
+    ///  Whether to also compute the focus frame's immediate callees; when
+    ///  <see langword="false"/> the result's callee list is <see langword="null"/> and the
+    ///  caller breakdown is identical to a callers-only query.
+    /// </param>
+    /// <returns>The caller breakdown, with the callee breakdown when requested.</returns>
+    /// <remarks>
+    ///  <para>
+    ///   Both directions read the same deepest occurrence of the focus frame in each
+    ///   sample, so the caller and callee lists partition the same focus-inclusive weight.
+    ///   The focus frame's own self-time - the sample landing in the focus frame itself, or
+    ///   in the trailing run of folded artifacts below it (a JIT-helper leaf or the
+    ///   synthetic <c>CPU_TIME</c> marker) - is credited to <c>&lt;self&gt;</c>, the same
+    ///   frames the self-time ranking folds. Folding only that trailing run means a real
+    ///   callee whose name merely matches a fold pattern is never hidden as self-time.
+    ///  </para>
+    /// </remarks>
+    public CallersResult CallersOf(string focus, string rootFrame, int top, bool includeCallees = false)
     {
+        Regex[]? fold = includeCallees ? FrameNames.CompileFoldPatterns(FrameNames.DefaultFoldPatterns) : null;
         Dictionary<string, double> callerTime = new(StringComparer.Ordinal);
+        Dictionary<string, double>? calleeTime = includeCallees ? new(StringComparer.Ordinal) : null;
         double targetTotal = 0.0;
         double total = 0.0;
 
@@ -279,6 +298,21 @@ public sealed partial class FoldingAggregator
 
             total += sample.Weight;
 
+            // For the callee side, the real leaf is the deepest non-folded frame; every
+            // frame below it is a folded self-time artifact (the CPU_TIME marker or a
+            // JIT-helper leaf). Folding only this trailing run - the same frames the
+            // self-time ranking folds - keeps a real callee whose name merely matches a
+            // fold pattern (say it contains WriteBarrier or JIT_) from being hidden as
+            // self-time when it has real frames beneath it.
+            int realLeaf = frames.Count - 1;
+            if (includeCallees)
+            {
+                while (realLeaf > startIdx && FrameNames.IsFolded(ShortOf(frames[realLeaf]), fold!))
+                {
+                    realLeaf--;
+                }
+            }
+
             for (int si = frames.Count - 1; si >= startIdx; si--)
             {
                 string name = ShortOf(frames[si]);
@@ -289,32 +323,66 @@ public sealed partial class FoldingAggregator
 
                 targetTotal += sample.Weight;
                 string caller = si > startIdx ? ShortOf(frames[si - 1]) : "<root>";
-                callerTime.TryGetValue(caller, out double current);
-                callerTime[caller] = current + sample.Weight;
+                callerTime.TryGetValue(caller, out double currentCaller);
+                callerTime[caller] = currentCaller + sample.Weight;
+
+                if (includeCallees)
+                {
+                    // At or below the real leaf the focus frame is executing itself - its
+                    // time is self-time; above it, the next frame down is the real callee.
+                    string callee = si >= realLeaf ? "<self>" : ShortOf(frames[si + 1]);
+                    calleeTime!.TryGetValue(callee, out double currentCallee);
+                    calleeTime[callee] = currentCallee + sample.Weight;
+                }
+
                 break;
             }
         }
 
-        List<CallerRow> rows = [];
+        List<CallerRow> callerRows = [];
         foreach (KeyValuePair<string, double> pair in callerTime)
         {
             double pct = targetTotal > 0 ? 100.0 * pair.Value / targetTotal : 0.0;
-            rows.Add(new CallerRow(pair.Key, pair.Value, pct));
+            callerRows.Add(new CallerRow(pair.Key, pair.Value, pct));
         }
 
         // Break ties by caller name so the ordering is deterministic across runs and machines.
-        rows.Sort(static (a, b) =>
+        callerRows.Sort(static (a, b) =>
         {
             int byWeight = b.Weight.CompareTo(a.Weight);
             return byWeight != 0 ? byWeight : string.CompareOrdinal(a.Caller, b.Caller);
         });
-        if (rows.Count > top)
+        if (callerRows.Count > top)
         {
-            rows.RemoveRange(top, rows.Count - top);
+            callerRows.RemoveRange(top, callerRows.Count - top);
+        }
+
+        IReadOnlyList<CalleeRow>? calleeRows = null;
+        if (includeCallees)
+        {
+            List<CalleeRow> callees = [];
+            foreach (KeyValuePair<string, double> pair in calleeTime!)
+            {
+                double pct = targetTotal > 0 ? 100.0 * pair.Value / targetTotal : 0.0;
+                callees.Add(new CalleeRow(pair.Key, pair.Value, pct));
+            }
+
+            // Break ties by callee name so the ordering is deterministic across runs.
+            callees.Sort(static (a, b) =>
+            {
+                int byWeight = b.Weight.CompareTo(a.Weight);
+                return byWeight != 0 ? byWeight : string.CompareOrdinal(a.Callee, b.Callee);
+            });
+            if (callees.Count > top)
+            {
+                callees.RemoveRange(top, callees.Count - top);
+            }
+
+            calleeRows = callees;
         }
 
         double pctOfScope = total > 0 ? 100.0 * targetTotal / total : 0.0;
-        return new CallersResult(focus, targetTotal, pctOfScope, total, rows);
+        return new CallersResult(focus, targetTotal, pctOfScope, total, callerRows, calleeRows);
     }
 
     /// <summary>

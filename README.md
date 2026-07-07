@@ -126,7 +126,7 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 
 | Verb | Purpose | Example |
 |---|---|---|
-| `callers` | Immediate callers of a frame | `filtrace callers app.nettrace MyApp.Parse` |
+| `callers` | Immediate callers of a frame, or a caller/callee view with `--callees` | `filtrace callers app.nettrace MyApp.Parse --callees` |
 | `lines` | Hottest source lines of scoped methods | `filtrace lines app.nettrace --symbols bin/Release/net10.0` |
 | `heatmap` | Per-line heat for one source file | `filtrace heatmap app.nettrace Parser.cs` |
 | `tree` | Top-down call tree from the root | `filtrace tree app.nettrace --max-depth 5` |

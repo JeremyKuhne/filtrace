@@ -137,6 +137,73 @@ public sealed class FoldingAggregatorTests
     }
 
     [TestMethod]
+    public void CallersOf_WithoutCallees_LeavesCalleeListNull()
+    {
+        CallersResult result = LoadFolding().Aggregator.CallersOf("MyApp.Work", "", 25);
+
+        result.Callees.Should().BeNull("callees are only computed when requested");
+    }
+
+    [TestMethod]
+    public void CallersOf_WithCallees_ReportsBothDirectionsFoldingSelfTime()
+    {
+        CallersResult result = LoadFolding().Aggregator.CallersOf("MyApp.Work", "", 25, includeCallees: true);
+
+        // Callers side is unchanged: Work is called only from Main, for its full 20 ms.
+        result.TargetWeight.Should().Be(20.0);
+        result.Callers.Should().ContainSingle();
+        result.Callers[0].Caller.Should().Be("Program.Main");
+        result.Callers[0].Weight.Should().Be(20.0);
+
+        // Callee side: Work calls Inner (10 + 6 = 16 ms); the WriteBarrier leaf (4 ms) is a
+        // folded JIT-helper artifact, so it is credited to Work's own self-time.
+        result.Callees.Should().NotBeNull();
+        Dictionary<string, double> callees = new(StringComparer.Ordinal);
+        foreach (CalleeRow row in result.Callees!)
+        {
+            callees[row.Callee] = row.Weight;
+        }
+
+        callees["MyApp.Inner"].Should().Be(16.0);
+        callees["<self>"].Should().Be(4.0);
+        result.Callees!.Sum(static c => c.Weight).Should().Be(20.0, "callees partition the focus-inclusive weight");
+        result.Callees![0].Callee.Should().Be("MyApp.Inner", "the heaviest callee is first");
+        result.Callees![0].PercentOfTarget.Should().Be(80.0);
+    }
+
+    [TestMethod]
+    public void CallersOf_LeafFocusWithCallees_CreditsAllToSelf()
+    {
+        // MyApp.Inner is either the sample's leaf or its only child is the folded CPU_TIME
+        // marker, so its whole time is self-time with no real callee.
+        CallersResult result = LoadFolding().Aggregator.CallersOf("MyApp.Inner", "", 25, includeCallees: true);
+
+        result.Callees.Should().ContainSingle();
+        result.Callees![0].Callee.Should().Be("<self>");
+        result.Callees![0].Weight.Should().Be(16.0);
+        result.Callees![0].PercentOfTarget.Should().Be(100.0);
+    }
+
+    [TestMethod]
+    public void CallersOf_CalleeNameMatchesFoldPattern_NotHiddenWhenNotALeafArtifact()
+    {
+        // A real callee whose shortened name merely matches a fold pattern (it contains
+        // "WriteBarrier") must still be reported when it has a real frame beneath it: only
+        // the trailing run of folded leaf artifacts is credited to <self>, never a
+        // non-leaf frame that happens to match a pattern.
+        List<SampleStack> samples =
+        [
+            new(["Outer", "App.WriteBarrierHelper", "App.DoWork"], 10.0, "1")
+        ];
+
+        CallersResult result = Engine(samples).CallersOf("Outer", "", 25, includeCallees: true);
+
+        result.Callees.Should().ContainSingle();
+        result.Callees![0].Callee.Should().Be("App.WriteBarrierHelper");
+        result.Callees![0].Weight.Should().Be(10.0);
+    }
+
+    [TestMethod]
     public void SelfTime_RootScoping_ExcludesSamplesWithoutRootFrame()
     {
         RankingResult result = LoadFolding().Aggregator.SelfTime("MyApp.Work", FrameNames.DefaultFoldPatterns, 25);

@@ -227,6 +227,31 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Callers_WithoutCallees_LeavesCalleesNull()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<CallersResult> envelope =
+            TraceTools.Callers(store, FixturePath(Speedscope), frame: "MyApp.Work");
+
+        AssertEnvelope(envelope);
+        envelope.Result.Callees.Should().BeNull("callees are only computed when requested");
+    }
+
+    [TestMethod]
+    public void Callers_WithCallees_ReturnsBothDirections()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<CallersResult> envelope =
+            TraceTools.Callers(store, FixturePath(Speedscope), frame: "MyApp.Work", callees: true);
+
+        AssertEnvelope(envelope);
+        envelope.Result.Callees.Should().NotBeNull();
+        envelope.Result.Callees!.Should().Contain(c => c.Callee == "MyApp.Inner");
+    }
+
+    [TestMethod]
     public void Lines_SpeedscopeWithoutLineData_ReturnsEmptyRanking()
     {
         TraceStore store = new();

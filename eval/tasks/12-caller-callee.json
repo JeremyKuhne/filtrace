@@ -1,0 +1,15 @@
+{
+  "id": "caller-callee",
+  "title": "See both directions around a frame in one call (caller/callee view).",
+  "prompt": "In this CPU profile, for the frame 'MyApp.Work', what method calls it and what method does it call the most?",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json",
+  "os": "any",
+  "steps": [
+    { "args": ["callers", "{fixture}", "MyApp.Work", "--callees"] }
+  ],
+  "assert": [
+    { "field": "result.callers[0].caller", "equals": "Program.Main" },
+    { "field": "result.callees[0].callee", "equals": "MyApp.Inner" }
+  ],
+  "expect": ["Program.Main", "MyApp.Inner"]
+}

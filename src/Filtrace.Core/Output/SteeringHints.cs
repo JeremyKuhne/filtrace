@@ -38,6 +38,12 @@ public static class SteeringHints
     private const string RootFrame = "<root>";
 
     /// <summary>
+    ///  The self-time pseudo-callee in a caller/callee view - the focus frame's own
+    ///  execution, not a frame to drill into.
+    /// </summary>
+    private const string SelfFrame = "<self>";
+
+    /// <summary>
     ///  The nudge emitted when a verb's scope contains no frames to drill into.
     /// </summary>
     private const string EmptyScope = "no frames in scope; widen the filter or check symbol resolution";
@@ -136,13 +142,28 @@ public static class SteeringHints
             return [EmptyScope];
         }
 
-        string top = callers.Callers[0].Caller;
-        if (string.Equals(top, RootFrame, StringComparison.Ordinal))
+        List<string> hints = [];
+
+        string topCaller = callers.Callers[0].Caller;
+        hints.Add(string.Equals(topCaller, RootFrame, StringComparison.Ordinal)
+            ? "the focus frame is called directly from the root; it is a top-level entry point"
+            : $"continue up the stack with: callers {topCaller}");
+
+        // With a caller/callee view, also point down into the heaviest real callee, skipping
+        // the <self> self-time pseudo-callee since it is not a frame to drill into.
+        if (callers.Callees is { } callees)
         {
-            return ["the focus frame is called directly from the root; it is a top-level entry point"];
+            foreach (CalleeRow callee in callees)
+            {
+                if (!string.Equals(callee.Callee, SelfFrame, StringComparison.Ordinal))
+                {
+                    hints.Add($"continue down into the callee with: callers {callee.Callee} --callees");
+                    break;
+                }
+            }
         }
 
-        return [$"continue up the stack with: callers {top}"];
+        return hints;
     }
 
     /// <summary>

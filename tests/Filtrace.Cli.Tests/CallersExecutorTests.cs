@@ -18,8 +18,9 @@ public sealed class CallersExecutorTests
         string root = "",
         int top = 25,
         OutputFormat format = OutputFormat.Text,
-        bool strict = false) =>
-        new(path, frame, root, top, Symbols: null, format, strict);
+        bool strict = false,
+        bool callees = false) =>
+        new(path, frame, root, top, Symbols: null, format, strict, Callees: callees);
 
     private static (int Exit, string Out, string Error) Run(CallersRequest request)
     {
@@ -58,6 +59,40 @@ public sealed class CallersExecutorTests
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("no callers in scope");
+    }
+
+    [TestMethod]
+    public void Run_Callees_TextIncludesCalleeSection()
+    {
+        (int exit, string output, _) = Run(Request(Speedscope, frame: "MyApp.Work", callees: true));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("callers of 'MyApp.Work'");
+        output.Should().Contain("callees of 'MyApp.Work'");
+        output.Should().Contain("MyApp.Inner");
+        output.Should().Contain("<self>");
+    }
+
+    [TestMethod]
+    public void Run_Callees_JsonIncludesCalleesArray()
+    {
+        (int exit, string output, _) =
+            Run(Request(Speedscope, frame: "MyApp.Work", format: OutputFormat.Json, callees: true));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("\"callees\":[");
+        output.Should().Contain("\"callee\":\"MyApp.Inner\"");
+    }
+
+    [TestMethod]
+    public void Run_WithoutCallees_JsonHasNullCallees()
+    {
+        (int exit, string output, _) = Run(Request(Speedscope, format: OutputFormat.Json));
+
+        exit.Should().Be(ExitCodes.Success);
+        // Callers-only: the callee list is absent (null), distinguishing it from an
+        // empty caller/callee view.
+        output.Should().Contain("\"callees\":null");
     }
 
     [TestMethod]
