@@ -63,7 +63,7 @@ filtrace diff before.nettrace after.nettrace   # 4. what changed between runs
 ```
 
 The same analysis is exposed as a stdio MCP server: every analysis verb has a
-matching `trace_*` tool (fifteen in all - `info` -> `trace_info`, `rank` ->
+matching `trace_*` tool (sixteen in all - `info` -> `trace_info`, `rank` ->
 `trace_rank`, `callers` -> `trace_callers`, and so on), returning the same envelope
 shape, so an agent gets identical results either way. Only the capture and
 housekeeping verbs (`collect`, `convert`, `clean`) are CLI-only. See
@@ -91,9 +91,9 @@ config and tool workflow.
 
 Every ranking verb accepts `--root` (scope to a frame subtree) and `--benchmark`
 (scope a BenchmarkDotNet capture to the measured workload, past the harness). The
-verbs that can read a multi-process ETW `.etl` - `cpu`, `threadtime`, and `rank`,
-plus the drill-down `callers`, `lines`, and `heatmap` - also accept `--process` /
-`--all-processes` (the busiest process tree, ranked by CPU sample count, is
+verbs that can read a multi-process ETW `.etl` - `cpu`, `threadtime`, `rank`,
+`callers`, `lines`, `heatmap`, `tree`, `classify`, and the `timeline` overview - also
+accept `--process` / `--all-processes` (the busiest process tree, ranked by CPU sample count, is
 auto-scoped by default); `alloc` and `exceptions` read single-process
 `.nettrace` only, so they have no process options. To see what is in a
 multi-process capture before scoping, run `filtrace processes` (below). The `rank`
@@ -137,6 +137,12 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 |---|---|---|
 | `processes` | List processes by CPU-sample weight, to pick a `--process` target | `filtrace processes machinewide.etl` |
 | `classify` | Summarize CPU time by runtime work category (zeroing / copying / GC / ...) | `filtrace classify app.etl --native-symbols` |
+
+**Temporal** - see what happened when, then scope a ranking to the busy window:
+
+| Verb | Purpose | Example |
+|---|---|---|
+| `timeline` | Per-bucket GC / CPU / exception / allocation / JIT activity over time | `filtrace timeline app.nettrace --lanes gc,cpu` |
 
 **Compare and export:**
 

@@ -1,0 +1,15 @@
+{
+  "id": "timeline-window",
+  "title": "Correlate CPU activity over time and drill into the busiest window.",
+  "prompt": "This is a .NET CPU profile. Use the timeline to find when CPU activity peaked, and say which command drills into that window.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/exceptions.nettrace",
+  "os": "any",
+  "steps": [
+    { "args": ["timeline", "{fixture}", "--lanes", "cpu"] }
+  ],
+  "assert": [
+    { "field": "result.bucketCount", "equals": 50 },
+    { "hintContains": "rank --metric cpu" }
+  ],
+  "expect": ["rank"]
+}
