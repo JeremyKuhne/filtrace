@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using Filtrace.Tracing;
 using Filtrace.Tracing.Providers;
 
@@ -195,8 +196,8 @@ public static class SteeringHints
 
         if (TryPeakBucket(timeline.Gc, static bucket => bucket.Count, out int gcIndex))
         {
-            (long start, long end) = WindowOf(timeline, gcIndex);
-            return [$"busiest GC window is bucket {gcIndex} ({start}-{end} ms); inspect collections with: gcstats"];
+            (double start, double end) = WindowOf(timeline, gcIndex);
+            return [$"busiest GC window is bucket {gcIndex} ({FormatMs(start)}-{FormatMs(end)} ms); inspect collections with: gcstats"];
         }
 
         return ["the timeline is empty in every requested lane; widen the window or check the capture carries these events"];
@@ -226,23 +227,31 @@ public static class SteeringHints
         return index >= 0;
     }
 
-    // The [start, end] millisecond bounds of a bucket, rounded to whole milliseconds for
-    // a readable hint.
-    private static (long Start, long End) WindowOf(TimelineResult timeline, int index)
+    // The [start, end] millisecond bounds of a bucket. Kept as doubles so a sub-millisecond
+    // bucket (a short capture divided into many buckets) is not rounded to a degenerate or
+    // shifted window in the drill command.
+    private static (double Start, double End) WindowOf(TimelineResult timeline, int index)
     {
-        long start = (long)Math.Round(timeline.FromMs + (index * timeline.BucketSizeMs));
-        long end = (long)Math.Round(timeline.FromMs + ((index + 1) * timeline.BucketSizeMs));
+        double start = timeline.FromMs + (index * timeline.BucketSizeMs);
+        double end = timeline.FromMs + ((index + 1) * timeline.BucketSizeMs);
         return (start, end);
     }
+
+    // Formats a millisecond bound for a hint: invariant culture (the form the --time parser
+    // reads back) with trailing zeros trimmed, so a whole-millisecond bound stays "60" while a
+    // sub-millisecond bound keeps its precision.
+    private static string FormatMs(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
 
     // The drill hint for a rankable lane: name the busy window and the scoped ranking
     // that continues the investigation into it, carrying the timeline's process scope so
     // the follow-up ranking stays on the same process tree the timeline was read from.
     private static string DrillWindowHint(string laneLabel, string metric, TimelineResult timeline, int index)
     {
-        (long start, long end) = WindowOf(timeline, index);
-        return $"busiest {laneLabel} window is bucket {index} ({start}-{end} ms); "
-            + $"scope a ranking with: rank --metric {metric} --time {start},{end}{ProcessScope(timeline)}";
+        (double start, double end) = WindowOf(timeline, index);
+        string from = FormatMs(start);
+        string to = FormatMs(end);
+        return $"busiest {laneLabel} window is bucket {index} ({from}-{to} ms); "
+            + $"scope a ranking with: rank --metric {metric} --time {from},{to}{ProcessScope(timeline)}";
     }
 
     // The " --process <name>" suffix a scoped timeline's drill hint carries so the

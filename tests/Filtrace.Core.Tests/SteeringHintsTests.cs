@@ -191,6 +191,30 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForTimeline_SubMillisecondBuckets_KeepsPreciseDrillWindow()
+    {
+        // A short capture divided into many buckets yields sub-millisecond bucket widths;
+        // the drill window must keep its precision rather than rounding to a degenerate or
+        // shifted whole-millisecond range that would select the wrong slice.
+        TimelineResult timeline = new(
+            0.0, 1.5, 0.3, 5, null,
+            Gc: null,
+            Cpu:
+            [
+                new CpuBucket(0, null),
+                new CpuBucket(0, null),
+                new CpuBucket(50, "MyApp.Hot"),
+                new CpuBucket(1, null),
+                new CpuBucket(0, null)
+            ],
+            Exceptions: null, Alloc: null, Jit: null);
+
+        IReadOnlyList<string> hints = SteeringHints.ForTimeline(timeline);
+
+        hints.Should().ContainSingle().Which.Should().Contain("--time 0.6,0.9");
+    }
+
+    [TestMethod]
     public void ForTimeline_Empty_NudgesToWiden()
     {
         TimelineResult timeline = new(

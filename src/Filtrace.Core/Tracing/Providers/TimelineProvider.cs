@@ -84,13 +84,13 @@ public sealed partial class TimelineProvider
     {
         if (requested < MinBucketCount)
         {
-            warning = $"buckets {requested} is below the minimum {MinBucketCount}; using {MinBucketCount}.";
+            warning = $"bucket count {requested} is below the minimum {MinBucketCount}; using {MinBucketCount}.";
             return MinBucketCount;
         }
 
         if (requested > MaxBucketCount)
         {
-            warning = $"buckets {requested} exceeds the maximum {MaxBucketCount}; using {MaxBucketCount}.";
+            warning = $"bucket count {requested} exceeds the maximum {MaxBucketCount}; using {MaxBucketCount}.";
             return MaxBucketCount;
         }
 
