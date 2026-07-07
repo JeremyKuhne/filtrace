@@ -565,6 +565,16 @@ public sealed class TraceTools
             throw new McpException("maxPayload must be 0 or greater.");
         }
 
+        if (pid < -1)
+        {
+            throw new McpException("pid must be -1 (unset) or a non-negative process id.");
+        }
+
+        if (tid < -1)
+        {
+            throw new McpException("tid must be -1 (unset) or a non-negative thread id.");
+        }
+
         // Clamp the page and payload sizes to a ceiling so a caller cannot request a
         // page large enough to exhaust memory or push the response past the token
         // budget; a clamp is a warning rather than an error, so the query still runs.

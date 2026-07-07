@@ -771,8 +771,8 @@ internal sealed class TraceCommands
         [Range(1, int.MaxValue)] int take = 50,
         [Range(0, int.MaxValue)] int maxPayload = EventQueryProvider.DefaultMaxPayloadChars,
         string payload = "",
-        int pid = -1,
-        int tid = -1,
+        [Range(-1, int.MaxValue)] int pid = -1,
+        [Range(-1, int.MaxValue)] int tid = -1,
         OutputFormat format = OutputFormat.Text)
     {
         EventsRequest request = new(

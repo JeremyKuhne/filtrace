@@ -148,6 +148,18 @@ public sealed class EventQueryProviderTests
     }
 
     [TestMethod]
+    public void Query_NullFilters_TreatedAsNoFilter()
+    {
+        // The name and payload filters are public API a caller could pass null to (e.g. via
+        // reflection or JSON binding); null must behave like "no filter", not throw.
+        EventQueryResult result = new EventQueryProvider().Query(
+            AllocTrace, nameFilter: null!, take: 5, payloadFilter: null!);
+
+        result.TotalMatched.Should().BeGreaterThan(0);
+        result.Events.Should().HaveCount(5);
+    }
+
+    [TestMethod]
     public void Query_MissingFile_ThrowsFileNotFound()
     {
         Action act = () => new EventQueryProvider().Query(FixturePath("nope.nettrace"));

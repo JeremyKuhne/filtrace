@@ -77,8 +77,8 @@ public sealed class EventQueryProvider
         foreach (TraceEvent data in traceLog.Events)
         {
             // Only build the qualified name when there is a filter to test it against;
-            // an empty filter matches every event, so the allocation would be wasted.
-            if (nameFilter.Length > 0
+            // an empty or null filter matches every event, so the allocation would be wasted.
+            if (!string.IsNullOrEmpty(nameFilter)
                 && !$"{data.ProviderName}/{data.EventName}".Contains(nameFilter, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
@@ -99,7 +99,7 @@ public sealed class EventQueryProvider
             // The payload search scans the full, untruncated values so a match past the
             // output cap is not missed. It is done last, and only when a payload filter is
             // set, so an unfiltered query never materializes payload values.
-            if (payloadFilter.Length > 0 && !PayloadMatches(data, payloadFilter))
+            if (!string.IsNullOrEmpty(payloadFilter) && !PayloadMatches(data, payloadFilter))
             {
                 continue;
             }

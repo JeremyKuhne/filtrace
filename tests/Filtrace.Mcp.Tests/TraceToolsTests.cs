@@ -984,6 +984,15 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void QueryEvents_PidBelowSentinel_Throws()
+    {
+        // -1 is the "unset" sentinel; anything more negative is an invalid id and fails fast.
+        Action act = () => TraceTools.QueryEvents(FixturePath(Alloc), pid: -2);
+
+        act.Should().Throw<McpException>().WithMessage("*pid must be -1*");
+    }
+
+    [TestMethod]
     public void QueryEvents_TakeAboveMax_ClampsWithWarning()
     {
         // A take past the page ceiling is clamped rather than honored, so a caller cannot
