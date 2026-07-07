@@ -93,6 +93,70 @@ public sealed class EventQueryProviderTests
         first.Provider.Should().Contain("DotNETRuntime");
         first.EventName.Should().Contain("AllocationTick");
         first.TimestampMs.Should().BeGreaterThanOrEqualTo(0);
+        first.ProcessId.Should().BeGreaterThan(0, "the record carries the emitting process id");
+    }
+
+    [TestMethod]
+    public void Query_PayloadFilter_KeepsOnlyEventsWhoseValuesMatch()
+    {
+        EventQueryProvider provider = new();
+
+        EventQueryResult all = provider.Query(AllocTrace, "AllocationTick", take: 1000);
+        EventQueryResult small = provider.Query(AllocTrace, "AllocationTick", take: 1000, payloadFilter: "Small");
+
+        small.TotalMatched.Should().BeGreaterThan(0, "the fixture's allocations carry AllocationKind=Small");
+        small.TotalMatched.Should().BeLessThanOrEqualTo(all.TotalMatched);
+        small.Events.Should().OnlyContain(e => e.Payload.Contains("Small", StringComparison.OrdinalIgnoreCase));
+
+        // A value that appears in no payload narrows to nothing.
+        EventQueryResult none = provider.Query(AllocTrace, "AllocationTick", take: 1000, payloadFilter: "__no_such_value__");
+        none.TotalMatched.Should().Be(0);
+    }
+
+    [TestMethod]
+    public void Query_PayloadFilter_ScansFullValueBeyondTheOutputCap()
+    {
+        // The payload search scans the full untruncated value, so a match past the output
+        // cap is not missed. "Small" (the AllocationKind value) sits well past an 8-char cap.
+        EventQueryResult result = new EventQueryProvider().Query(
+            AllocTrace, "AllocationTick", take: 5, maxPayloadChars: 8, payloadFilter: "Small");
+
+        result.TotalMatched.Should().BeGreaterThan(0);
+        result.Events.Should().OnlyContain(e => e.Payload.Length <= 8, "the output stays capped even though the scan is full");
+        result.Events.Should().OnlyContain(
+            e => !e.Payload.Contains("Small", StringComparison.Ordinal),
+            "the match came from the full value, not the truncated output");
+    }
+
+    [TestMethod]
+    public void Query_ProcessAndThreadFilters_NarrowToOneIdEach()
+    {
+        EventQueryProvider provider = new();
+        EventRecord first = provider.Query(AllocTrace, "AllocationTick", take: 1).Events.Single();
+
+        EventQueryResult byProcess = provider.Query(AllocTrace, "AllocationTick", take: 1000, processId: first.ProcessId);
+        byProcess.TotalMatched.Should().BeGreaterThan(0);
+        byProcess.Events.Should().OnlyContain(e => e.ProcessId == first.ProcessId);
+
+        EventQueryResult byThread = provider.Query(AllocTrace, "AllocationTick", take: 1000, threadId: first.ThreadId);
+        byThread.TotalMatched.Should().BeGreaterThan(0);
+        byThread.Events.Should().OnlyContain(e => e.ThreadId == first.ThreadId);
+
+        // A process id that owns no events narrows to nothing.
+        EventQueryResult none = provider.Query(AllocTrace, "AllocationTick", take: 1000, processId: -12345);
+        none.TotalMatched.Should().Be(0);
+    }
+
+    [TestMethod]
+    public void Query_NullFilters_TreatedAsNoFilter()
+    {
+        // The name and payload filters are public API a caller could pass null to (e.g. via
+        // reflection or JSON binding); null must behave like "no filter", not throw.
+        EventQueryResult result = new EventQueryProvider().Query(
+            AllocTrace, nameFilter: null!, take: 5, payloadFilter: null!);
+
+        result.TotalMatched.Should().BeGreaterThan(0);
+        result.Events.Should().HaveCount(5);
     }
 
     [TestMethod]

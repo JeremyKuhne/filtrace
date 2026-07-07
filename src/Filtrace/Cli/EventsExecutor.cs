@@ -45,7 +45,10 @@ internal static class EventsExecutor
                 request.Name,
                 request.Skip,
                 request.Take,
-                request.MaxPayload),
+                request.MaxPayload,
+                request.Payload,
+                request.Pid,
+                request.Tid),
             error,
             out EventQueryResult? result))
         {
@@ -70,7 +73,7 @@ internal static class EventsExecutor
         }
         else
         {
-            EventsTextRenderer.Render(envelope, request.Path, request.Name, output);
+            EventsTextRenderer.Render(envelope, request, output);
         }
 
         return ExitCodes.Success;

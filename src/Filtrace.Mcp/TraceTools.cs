@@ -535,16 +535,20 @@ public sealed class TraceTools
     /// <returns>The events-page envelope.</returns>
     [McpServerTool(Name = "trace_query_events", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Query the raw events of a .nettrace EventPipe or Windows ETW .etl trace by name - the escape hatch for events the "
+        "Query the raw events of a .nettrace EventPipe or Windows ETW .etl trace - the escape hatch for events the "
         + "structured reports do not cover. 'name' is a case-insensitive substring matched against Provider/EventName "
-        + "(empty matches all). Paged with 'skip'/'take', each payload truncated to 'maxPayload' chars; a hint gives the "
-        + "next page's skip when more remain. A speedscope export is rejected.")]
+        + "(empty matches all); narrow further with 'payload' (a substring of the event's payload values), 'pid', and "
+        + "'tid'. Paged with 'skip'/'take', each payload truncated to 'maxPayload' chars; a hint gives the next page's "
+        + "skip when more remain. A speedscope export is rejected.")]
     public static AnalysisResult<EventQueryResult> QueryEvents(
         [Description("Path to a .nettrace EventPipe or Windows ETW .etl trace file.")] string path,
         [Description("Substring matched against Provider/EventName; omit to match every event.")] string name = "",
         [Description("The number of matches to skip, for paging.")] int skip = 0,
         [Description("The maximum number of matches to return on this page.")] int take = 100,
-        [Description("The per-event payload character cap.")] int maxPayload = 200)
+        [Description("The per-event payload character cap.")] int maxPayload = 200,
+        [Description("Case-insensitive substring matched against payload values; omit for no payload filter.")] string payload = "",
+        [Description("Keep only events from this OS process id; -1 (default) keeps every process.")] int pid = -1,
+        [Description("Keep only events on this OS thread id; -1 (default) keeps every thread.")] int tid = -1)
     {
         if (skip < 0)
         {
@@ -559,6 +563,16 @@ public sealed class TraceTools
         if (maxPayload < 0)
         {
             throw new McpException("maxPayload must be 0 or greater.");
+        }
+
+        if (pid < -1)
+        {
+            throw new McpException("pid must be -1 (unset) or a non-negative process id.");
+        }
+
+        if (tid < -1)
+        {
+            throw new McpException("tid must be -1 (unset) or a non-negative thread id.");
         }
 
         // Clamp the page and payload sizes to a ceiling so a caller cannot request a
@@ -578,7 +592,8 @@ public sealed class TraceTools
             maxPayload = MaxEventPayloadChars;
         }
 
-        EventQueryResult result = ReadEvents(path, name, skip, take, maxPayload);
+        EventQueryResult result = ReadEvents(
+            path, name, skip, take, maxPayload, payload, pid >= 0 ? pid : null, tid >= 0 ? tid : null);
 
         // When matches remain beyond this page, steer toward the next one rather than
         // leaving the agent to work out the skip arithmetic.
@@ -1080,13 +1095,14 @@ public sealed class TraceTools
     ///  format guardrail and mapping the provider's failure modes to a clean
     ///  <see cref="McpException"/>.
     /// </summary>
-    private static EventQueryResult ReadEvents(string path, string name, int skip, int take, int maxPayload)
+    private static EventQueryResult ReadEvents(
+        string path, string name, int skip, int take, int maxPayload, string payload, int? pid, int? tid)
     {
         RequireNetTraceOrEtl(path, "events query");
 
         try
         {
-            return new EventQueryProvider().Query(path, name, skip, take, maxPayload);
+            return new EventQueryProvider().Query(path, name, skip, take, maxPayload, payload, pid, tid);
         }
         catch (Exception ex) when (
             ex is IOException

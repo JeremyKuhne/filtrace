@@ -22,8 +22,11 @@ public sealed class EventsExecutorTests
         int skip = 0,
         int take = 50,
         int maxPayload = 200,
+        string payload = "",
+        int? pid = null,
+        int? tid = null,
         OutputFormat format = OutputFormat.Text) =>
-        new(path, name, skip, take, maxPayload, format);
+        new(path, name, skip, take, maxPayload, payload, pid, tid, format);
 
     private static (int Exit, string Out, string Error) Run(EventsRequest request)
     {
@@ -84,6 +87,56 @@ public sealed class EventsExecutorTests
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("AllocationTick");
+    }
+
+    [TestMethod]
+    public void Run_PayloadFilter_NarrowsToMatchingEvents()
+    {
+        (int exit, string output, _) =
+            Run(Request(Alloc, name: "AllocationTick", take: 1000, payload: "Small", format: OutputFormat.Json));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("Small");
+
+        // A payload value that appears in nothing narrows to zero matches.
+        (int exit2, string output2, _) =
+            Run(Request(Alloc, name: "AllocationTick", payload: "__no_such_value__", format: OutputFormat.Json));
+        exit2.Should().Be(ExitCodes.Success);
+        output2.Should().Contain("\"totalMatched\":0");
+    }
+
+    [TestMethod]
+    public void Run_ProcessFilter_UnknownPid_MatchesNothing()
+    {
+        (int exit, string output, _) =
+            Run(Request(Alloc, name: "AllocationTick", pid: 999999, format: OutputFormat.Json));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("\"totalMatched\":0");
+    }
+
+    [TestMethod]
+    public void Run_TextView_IncludesProcessColumn()
+    {
+        (int exit, string output, _) = Run(Request(Alloc, name: "AllocationTick", take: 1));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("proc");
+    }
+
+    [TestMethod]
+    public void Run_TextView_HeaderReflectsActiveFilters()
+    {
+        // The header must name every active filter, not just the name, so a payload/pid
+        // query is not mislabeled "all events" (an unknown pid also proves the header
+        // renders before the empty page).
+        (int exit, string output, _) =
+            Run(Request(Alloc, name: "AllocationTick", payload: "Small", pid: 999999, take: 5));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("name 'AllocationTick'");
+        output.Should().Contain("payload 'Small'");
+        output.Should().Contain("pid 999999");
     }
 
     [TestMethod]

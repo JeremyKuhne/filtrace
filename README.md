@@ -159,7 +159,7 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 | `jitstats` | JIT method count, compile time, sizes | `filtrace jitstats app.nettrace` |
 | `threadpool` | Worker-thread adjustments and starvation (slow under load, CPU idle) | `filtrace threadpool app.nettrace` |
 | `diskio` | Physical disk I/O by file: bytes and disk service time (ETW) | `filtrace diskio app.etl` |
-| `events` | Query raw events by name, paged | `filtrace events app.nettrace --name GC/AllocationTick` |
+| `events` | Query raw events, filtered by name / payload / pid / tid, paged | `filtrace events app.etl --payload ConnectionReset` |
 
 **Capture** (Windows, elevated) - record an ETW `.etl` yourself, no external recorder:
 

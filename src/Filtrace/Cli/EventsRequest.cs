@@ -20,6 +20,9 @@ namespace Filtrace.Cli;
 /// <param name="Skip">The number of matches to skip (for paging).</param>
 /// <param name="Take">The maximum number of matches to return on this page.</param>
 /// <param name="MaxPayload">The per-event payload character cap.</param>
+/// <param name="Payload">A case-insensitive substring matched against payload values; empty applies no payload filter.</param>
+/// <param name="Pid">Keep only events from this OS process id, or <see langword="null"/> for every process.</param>
+/// <param name="Tid">Keep only events on this OS thread id, or <see langword="null"/> for every thread.</param>
 /// <param name="Format">The render format.</param>
 internal sealed record EventsRequest(
     string Path,
@@ -27,4 +30,7 @@ internal sealed record EventsRequest(
     int Skip,
     int Take,
     int MaxPayload,
+    string Payload,
+    int? Pid,
+    int? Tid,
     OutputFormat Format);
