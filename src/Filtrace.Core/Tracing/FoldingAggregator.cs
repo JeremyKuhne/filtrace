@@ -272,10 +272,11 @@ public sealed partial class FoldingAggregator
     ///  <para>
     ///   Both directions read the same deepest occurrence of the focus frame in each
     ///   sample, so the caller and callee lists partition the same focus-inclusive weight.
-    ///   A callee that is a folded sampling artifact (a JIT-helper leaf or the synthetic
-    ///   <c>CPU_TIME</c> marker), or the focus frame being the sample's own leaf, is
-    ///   credited to <c>&lt;self&gt;</c> - the focus frame's self-time - rather than reported
-    ///   as a called method, matching how the self-time ranking folds those leaves.
+    ///   The focus frame's own self-time - the sample landing in the focus frame itself, or
+    ///   in the trailing run of folded artifacts below it (a JIT-helper leaf or the
+    ///   synthetic <c>CPU_TIME</c> marker) - is credited to <c>&lt;self&gt;</c>, the same
+    ///   frames the self-time ranking folds. Folding only that trailing run means a real
+    ///   callee whose name merely matches a fold pattern is never hidden as self-time.
     ///  </para>
     /// </remarks>
     public CallersResult CallersOf(string focus, string rootFrame, int top, bool includeCallees = false)
@@ -297,6 +298,21 @@ public sealed partial class FoldingAggregator
 
             total += sample.Weight;
 
+            // For the callee side, the real leaf is the deepest non-folded frame; every
+            // frame below it is a folded self-time artifact (the CPU_TIME marker or a
+            // JIT-helper leaf). Folding only this trailing run - the same frames the
+            // self-time ranking folds - keeps a real callee whose name merely matches a
+            // fold pattern (say it contains WriteBarrier or JIT_) from being hidden as
+            // self-time when it has real frames beneath it.
+            int realLeaf = frames.Count - 1;
+            if (includeCallees)
+            {
+                while (realLeaf > startIdx && FrameNames.IsFolded(ShortOf(frames[realLeaf]), fold!))
+                {
+                    realLeaf--;
+                }
+            }
+
             for (int si = frames.Count - 1; si >= startIdx; si--)
             {
                 string name = ShortOf(frames[si]);
@@ -312,20 +328,9 @@ public sealed partial class FoldingAggregator
 
                 if (includeCallees)
                 {
-                    // The immediate callee is the frame one level deeper. When the focus is
-                    // the sample's leaf, or that deeper frame is a folded artifact (a marker
-                    // or a JIT-helper leaf), the weight is the focus frame's own self-time.
-                    string callee;
-                    if (si >= frames.Count - 1)
-                    {
-                        callee = "<self>";
-                    }
-                    else
-                    {
-                        string child = ShortOf(frames[si + 1]);
-                        callee = FrameNames.IsFolded(child, fold!) ? "<self>" : child;
-                    }
-
+                    // At or below the real leaf the focus frame is executing itself - its
+                    // time is self-time; above it, the next frame down is the real callee.
+                    string callee = si >= realLeaf ? "<self>" : ShortOf(frames[si + 1]);
                     calleeTime!.TryGetValue(callee, out double currentCallee);
                     calleeTime[callee] = currentCallee + sample.Weight;
                 }

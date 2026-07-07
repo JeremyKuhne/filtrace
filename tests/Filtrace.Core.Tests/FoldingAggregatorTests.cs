@@ -185,6 +185,25 @@ public sealed class FoldingAggregatorTests
     }
 
     [TestMethod]
+    public void CallersOf_CalleeNameMatchesFoldPattern_NotHiddenWhenNotALeafArtifact()
+    {
+        // A real callee whose shortened name merely matches a fold pattern (it contains
+        // "WriteBarrier") must still be reported when it has a real frame beneath it: only
+        // the trailing run of folded leaf artifacts is credited to <self>, never a
+        // non-leaf frame that happens to match a pattern.
+        List<SampleStack> samples =
+        [
+            new(["Outer", "App.WriteBarrierHelper", "App.DoWork"], 10.0, "1")
+        ];
+
+        CallersResult result = Engine(samples).CallersOf("Outer", "", 25, includeCallees: true);
+
+        result.Callees.Should().ContainSingle();
+        result.Callees![0].Callee.Should().Be("App.WriteBarrierHelper");
+        result.Callees![0].Weight.Should().Be(10.0);
+    }
+
+    [TestMethod]
     public void SelfTime_RootScoping_ExcludesSamplesWithoutRootFrame()
     {
         RankingResult result = LoadFolding().Aggregator.SelfTime("MyApp.Work", FrameNames.DefaultFoldPatterns, 25);
