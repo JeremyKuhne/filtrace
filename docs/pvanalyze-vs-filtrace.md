@@ -8,7 +8,7 @@ questions from a terminal, but they make different bets about scope, platform,
 and how an AI agent should drive them.
 
 > Analysis basis: pvanalyze at commit `208d2b8` (12 commands, single project) and
-> filtrace at `main` (22 verbs, 15 MCP tools, three projects). Both are MIT-licensed,
+> filtrace at `main` (23 verbs, 16 MCP tools, three projects). Both are MIT-licensed,
 > both target .NET 10, both build on `Microsoft.Diagnostics.Tracing.TraceEvent`,
 > and both are distributable as `dnx`-launchable NuGet tools.
 
@@ -31,7 +31,7 @@ drive it by shelling out.
 
 **filtrace** is an agent-shaped analyzer that treats the AI agent as a
 first-class client. It ships two heads over one analysis core: a `filtrace` CLI
-(22 verbs) and an **MCP server** (15 `trace_*` tools) that returns a typed
+(23 verbs) and an **MCP server** (16 `trace_*` tools) that returns a typed
 envelope - `schemaVersion`, `warnings`, next-step `hints`, and the result -
 so an agent gets structured, self-describing results without screen-scraping. It
 reads **both** EventPipe (`.nettrace`, `.speedscope.json`) and **ETW** (`.etl`),
@@ -51,8 +51,9 @@ core, and they even share the same NuGet plumbing (`dnx`, TraceEvent, speedscope
 export, an ETLX cache with a `clean` verb). They diverge on almost everything
 around that core. pvanalyze optimizes for **breadth-per-line-of-code and
 cross-platform reach**: a small, readable, AOT-friendly binary that leans into
-EventPipe and adds two temporal views (timeline, snapshot) and one deep GC
-specialty (DATAS) that filtrace lacks entirely. filtrace optimizes for **depth,
+EventPipe and adds a point-in-time **snapshot** view and one deep GC
+specialty (DATAS) that filtrace still lacks (filtrace has since matched
+pvanalyze's multi-lane **timeline**). filtrace optimizes for **depth,
 provenance, and agent ergonomics**: more metrics (adds threadtime, contention,
 wait, activity), finer drill-down (source lines), more capture formats (ETW +
 capture verb), a two-run diff, and a structured MCP contract with trust gating
@@ -79,7 +80,7 @@ ideas in each are portable to the other.
 | Commands (12) | `info`, `gcstats`, `jitstats`, `cpustacks`, `alloc`, `exceptions`, `events`, `calltree`, `timeline`, `snapshot`, `datas`, `clean` |
 | Agent story | Shell out + `--format json`; **intentionally no** `SKILL.md` / `AGENTS.md` |
 | JSON | Per-command source-generated `JsonSerializerContext`, async serialization |
-| Signature strengths | **DATAS** tuning analysis, **timeline** multi-lane correlation, **snapshot** window, per-method temporal `SampleBuckets`, rich `events` filtering |
+| Signature strengths | **DATAS** tuning analysis, **snapshot** window, per-method temporal `SampleBuckets` |
 
 ### filtrace
 
@@ -90,8 +91,8 @@ ideas in each are portable to the other.
 | Projects | Three: `Filtrace.Core` (engine), `Filtrace` (CLI), `Filtrace.Mcp` (MCP shim) |
 | Dependencies | `TraceEvent`, `KlutzyNinja.Touki` (NuGet) |
 | Structure | ConsoleAppFramework verbs -> executors -> `Filtrace.Core` providers; MCP `TraceTools` -> same core |
-| Verbs (22) | `info`, `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`, `lines`, `heatmap`, `tree`, `processes`, `classify`, `diff`, `export`, `gcstats`, `jitstats`, `threadpool`, `diskio`, `events`, `collect`, `convert`, `clean` |
-| MCP tools (15) | `trace_info`, `trace_rank`, `trace_callers`, `trace_lines`, `trace_heatmap`, `trace_tree`, `trace_processes`, `trace_classify`, `trace_diff`, `trace_export`, `trace_gc`, `trace_jit`, `trace_threadpool`, `trace_diskio`, `trace_query_events` |
+| Verbs (23) | `info`, `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`, `lines`, `heatmap`, `tree`, `processes`, `classify`, `timeline`, `diff`, `export`, `gcstats`, `jitstats`, `threadpool`, `diskio`, `events`, `collect`, `convert`, `clean` |
+| MCP tools (16) | `trace_info`, `trace_rank`, `trace_callers`, `trace_lines`, `trace_heatmap`, `trace_tree`, `trace_processes`, `trace_classify`, `trace_diff`, `trace_export`, `trace_timeline`, `trace_gc`, `trace_jit`, `trace_threadpool`, `trace_diskio`, `trace_query_events` |
 | Agent story | First-class MCP server (typed envelope: `schemaVersion` / `warnings` / `hints`), shipped skill, eval harness |
 | JSON | One `FiltraceJsonContext`, deterministic rounding, `OutputBudget` token budget |
 | Signature strengths | Wall-clock `threadtime`, multi-process ETW, source-line drill, `diff`, `classify` + native symbols, ETW `collect`, symbol-rate trust gate, benchmark/activity/time scoping |
@@ -165,7 +166,7 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 | Call tree (top-down) | Y | Y | pvanalyze `calltree`, filtrace `tree` |
 | Hot-path auto-follow | Y | - | pvanalyze follows child >= 80% of parent |
 | Callers of a frame | Y | Y | Both |
-| Bidirectional caller+callee view | Y | ~ | pvanalyze `--caller-callee`; filtrace splits `callers` / `tree` |
+| Bidirectional caller+callee view | Y | Y | pvanalyze `--caller-callee`; filtrace `callers --callees` |
 | Source-line attribution | - | Y | filtrace `lines` / `heatmap` via PDBs |
 | **Wall-clock / blocking** | | | |
 | Thread-time (running vs. blocked) | - | Y | filtrace `threadtime` (ETW) |
@@ -185,10 +186,10 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 | **Events** | | | |
 | List event types | Y | Y | Both |
 | Filter by name/provider | Y | Y | Both |
-| Filter by PID/TID | Y | ~ | pvanalyze explicit flags |
-| Payload content search | Y | - | pvanalyze `--payload` substring search |
+| Filter by PID/TID | Y | Y | both explicit flags; filtrace `events --pid` / `--tid` |
+| Payload content search | Y | Y | both `--payload` substring search |
 | **Cross-cutting temporal** | | | |
-| Multi-lane timeline correlation | **Y** | **-** | pvanalyze `timeline` |
+| Multi-lane timeline correlation | **Y** | **Y** | both `timeline`; filtrace lanes gc/cpu/exceptions/alloc/jit |
 | Point-in-time snapshot window | **Y** | **-** | pvanalyze `snapshot` |
 | Time-window scoping | Y | Y | pvanalyze `--from/--to`; filtrace `--time` |
 | **Scoping** | | | |
@@ -210,7 +211,7 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 | Built-in ETW capture | - | Y | filtrace `collect` (Windows, elevated) |
 | **Agent integration** | | | |
 | JSON output | Y | Y | Both |
-| MCP server | - | Y | filtrace 15 `trace_*` tools |
+| MCP server | - | Y | filtrace 16 `trace_*` tools |
 | Structured envelope (warnings/hints) | - | Y | filtrace |
 | Shipped skill / agent docs | - (by design) | Y | filtrace ships a skill |
 | Output token budget | - | Y | filtrace `OutputBudget` + CI gate |
@@ -249,7 +250,7 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 
 ### filtrace's distinctive strengths
 
-1. **Two heads over one core, with an MCP server.** 15 `trace_*` tools return a
+1. **Two heads over one core, with an MCP server.** 16 `trace_*` tools return a
    typed `AnalysisResult<T>` envelope (`schemaVersion`, `warnings`, `hints`, result)
    and advertise a per-tool `outputSchema`. An agent binds to a contract instead of
    parsing free-form stdout.
