@@ -8,7 +8,7 @@ questions from a terminal, but they make different bets about scope, platform,
 and how an AI agent should drive them.
 
 > Analysis basis: pvanalyze at commit `208d2b8` (12 commands, single project) and
-> filtrace at `main` (22 verbs, 15 MCP tools, three projects). Both are MIT-licensed,
+> filtrace at `main` (23 verbs, 16 MCP tools, three projects). Both are MIT-licensed,
 > both target .NET 10, both build on `Microsoft.Diagnostics.Tracing.TraceEvent`,
 > and both are distributable as `dnx`-launchable NuGet tools.
 
@@ -31,7 +31,7 @@ drive it by shelling out.
 
 **filtrace** is an agent-shaped analyzer that treats the AI agent as a
 first-class client. It ships two heads over one analysis core: a `filtrace` CLI
-(22 verbs) and an **MCP server** (15 `trace_*` tools) that returns a typed
+(23 verbs) and an **MCP server** (16 `trace_*` tools) that returns a typed
 envelope - `schemaVersion`, `warnings`, next-step `hints`, and the result -
 so an agent gets structured, self-describing results without screen-scraping. It
 reads **both** EventPipe (`.nettrace`, `.speedscope.json`) and **ETW** (`.etl`),
@@ -51,8 +51,9 @@ core, and they even share the same NuGet plumbing (`dnx`, TraceEvent, speedscope
 export, an ETLX cache with a `clean` verb). They diverge on almost everything
 around that core. pvanalyze optimizes for **breadth-per-line-of-code and
 cross-platform reach**: a small, readable, AOT-friendly binary that leans into
-EventPipe and adds two temporal views (timeline, snapshot) and one deep GC
-specialty (DATAS) that filtrace lacks entirely. filtrace optimizes for **depth,
+EventPipe and adds a point-in-time **snapshot** view and one deep GC
+specialty, **DATAS**, that filtrace still lacks - though filtrace has since
+matched pvanalyze's multi-lane **timeline**. filtrace optimizes for **depth,
 provenance, and agent ergonomics**: more metrics (adds threadtime, contention,
 wait, activity), finer drill-down (source lines), more capture formats (ETW +
 capture verb), a two-run diff, and a structured MCP contract with trust gating
@@ -79,7 +80,7 @@ ideas in each are portable to the other.
 | Commands (12) | `info`, `gcstats`, `jitstats`, `cpustacks`, `alloc`, `exceptions`, `events`, `calltree`, `timeline`, `snapshot`, `datas`, `clean` |
 | Agent story | Shell out + `--format json`; **intentionally no** `SKILL.md` / `AGENTS.md` |
 | JSON | Per-command source-generated `JsonSerializerContext`, async serialization |
-| Signature strengths | **DATAS** tuning analysis, **timeline** multi-lane correlation, **snapshot** window, per-method temporal `SampleBuckets`, rich `events` filtering |
+| Signature strengths | **DATAS** tuning analysis, **snapshot** window, per-method temporal `SampleBuckets` |
 
 ### filtrace
 
@@ -90,8 +91,8 @@ ideas in each are portable to the other.
 | Projects | Three: `Filtrace.Core` (engine), `Filtrace` (CLI), `Filtrace.Mcp` (MCP shim) |
 | Dependencies | `TraceEvent`, `KlutzyNinja.Touki` (NuGet) |
 | Structure | ConsoleAppFramework verbs -> executors -> `Filtrace.Core` providers; MCP `TraceTools` -> same core |
-| Verbs (22) | `info`, `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`, `lines`, `heatmap`, `tree`, `processes`, `classify`, `diff`, `export`, `gcstats`, `jitstats`, `threadpool`, `diskio`, `events`, `collect`, `convert`, `clean` |
-| MCP tools (15) | `trace_info`, `trace_rank`, `trace_callers`, `trace_lines`, `trace_heatmap`, `trace_tree`, `trace_processes`, `trace_classify`, `trace_diff`, `trace_export`, `trace_gc`, `trace_jit`, `trace_threadpool`, `trace_diskio`, `trace_query_events` |
+| Verbs (23) | `info`, `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`, `lines`, `heatmap`, `tree`, `processes`, `classify`, `timeline`, `diff`, `export`, `gcstats`, `jitstats`, `threadpool`, `diskio`, `events`, `collect`, `convert`, `clean` |
+| MCP tools (16) | `trace_info`, `trace_rank`, `trace_callers`, `trace_lines`, `trace_heatmap`, `trace_tree`, `trace_processes`, `trace_classify`, `trace_diff`, `trace_export`, `trace_timeline`, `trace_gc`, `trace_jit`, `trace_threadpool`, `trace_diskio`, `trace_query_events` |
 | Agent story | First-class MCP server (typed envelope: `schemaVersion` / `warnings` / `hints`), shipped skill, eval harness |
 | JSON | One `FiltraceJsonContext`, deterministic rounding, `OutputBudget` token budget |
 | Signature strengths | Wall-clock `threadtime`, multi-process ETW, source-line drill, `diff`, `classify` + native symbols, ETW `collect`, symbol-rate trust gate, benchmark/activity/time scoping |
@@ -165,7 +166,7 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 | Call tree (top-down) | Y | Y | pvanalyze `calltree`, filtrace `tree` |
 | Hot-path auto-follow | Y | - | pvanalyze follows child >= 80% of parent |
 | Callers of a frame | Y | Y | Both |
-| Bidirectional caller+callee view | Y | ~ | pvanalyze `--caller-callee`; filtrace splits `callers` / `tree` |
+| Bidirectional caller+callee view | Y | Y | pvanalyze `--caller-callee`; filtrace `callers --callees` |
 | Source-line attribution | - | Y | filtrace `lines` / `heatmap` via PDBs |
 | **Wall-clock / blocking** | | | |
 | Thread-time (running vs. blocked) | - | Y | filtrace `threadtime` (ETW) |
@@ -185,10 +186,10 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 | **Events** | | | |
 | List event types | Y | Y | Both |
 | Filter by name/provider | Y | Y | Both |
-| Filter by PID/TID | Y | ~ | pvanalyze explicit flags |
-| Payload content search | Y | - | pvanalyze `--payload` substring search |
+| Filter by PID/TID | Y | Y | Both explicit flags; filtrace `events --pid` / `--tid` |
+| Payload content search | Y | Y | Both `--payload` substring search |
 | **Cross-cutting temporal** | | | |
-| Multi-lane timeline correlation | **Y** | **-** | pvanalyze `timeline` |
+| Multi-lane timeline correlation | **Y** | **Y** | Both `timeline`; filtrace lanes gc/cpu/exceptions/alloc/jit |
 | Point-in-time snapshot window | **Y** | **-** | pvanalyze `snapshot` |
 | Time-window scoping | Y | Y | pvanalyze `--from/--to`; filtrace `--time` |
 | **Scoping** | | | |
@@ -210,7 +211,7 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 | Built-in ETW capture | - | Y | filtrace `collect` (Windows, elevated) |
 | **Agent integration** | | | |
 | JSON output | Y | Y | Both |
-| MCP server | - | Y | filtrace 15 `trace_*` tools |
+| MCP server | - | Y | filtrace 16 `trace_*` tools |
 | Structured envelope (warnings/hints) | - | Y | filtrace |
 | Shipped skill / agent docs | - (by design) | Y | filtrace ships a skill |
 | Output token budget | - | Y | filtrace `OutputBudget` + CI gate |
@@ -230,26 +231,19 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
    transitions, per-GC budget/TCP/MSL samples, gen2 backstop tuning, and a
    changes-only view "ideal for agents." This is deep, current (.NET 9+), and has
    no equivalent in filtrace or most other tools.
-2. **Timeline correlation (`timeline`).** Buckets the trace over time and emits
-   parallel lanes - GC, CPU (with the top method per bucket), exceptions, alloc,
-   JIT, raw events - so a single call answers "what was happening when?" filtrace
-   can *scope* to a time window but has no correlated multi-lane overview.
-3. **Point-in-time snapshot (`snapshot`).** Given a millisecond and a window,
+2. **Point-in-time snapshot (`snapshot`).** Given a millisecond and a window,
    returns the GC, top CPU methods, exceptions, and event-type counts around that
    instant - a purpose-built "what was going on at the spike?" primitive.
-4. **Per-method temporal sparkline (`SampleBuckets`).** `cpustacks` returns a
+3. **Per-method temporal sparkline (`SampleBuckets`).** `cpustacks` returns a
    time-bucketed sample histogram per method, so a caller can see *when* a hot
    method was hot, not just that it was.
-5. **Event payload search (`events --payload`).** Substring search across payload
-   *values* (e.g. `ConnectionReset`) plus PID/TID filters - a genuinely useful
-   forensic filter filtrace's `events` does not offer.
-6. **Lean, AOT-friendly, single-file.** One project, `IsAotCompatible`,
+4. **Lean, AOT-friendly, single-file.** One project, `IsAotCompatible`,
    self-contained publish per RID. Easy to read, fork, and drop onto a box with no
    SDK.
 
 ### filtrace's distinctive strengths
 
-1. **Two heads over one core, with an MCP server.** 15 `trace_*` tools return a
+1. **Two heads over one core, with an MCP server.** 16 `trace_*` tools return a
    typed `AnalysisResult<T>` envelope (`schemaVersion`, `warnings`, `hints`, result)
    and advertise a per-tool `outputSchema`. An agent binds to a contract instead of
    parsing free-form stdout.
@@ -282,7 +276,7 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 | Core bet | Breadth per line of code; cross-platform reach | Depth + provenance + agent contract |
 | Platform center of gravity | EventPipe, any OS | EventPipe **and** ETW, Windows-forward for ETW-only features |
 | Agent interface | Shell + `--format json`; trust the model to read `--help` | MCP tools + typed envelope + shipped skill |
-| Temporal analysis | First-class (timeline, snapshot, buckets) | Scoping-based (`--time`, `--activity`) |
+| Temporal analysis | First-class (timeline, snapshot, buckets) | Timeline verb + scoping (`--time`, `--activity`) |
 | GC specialization | Deep (DATAS) | Broad (gcstats, classify, threadpool) |
 | Trust signal | Implicit (author trusts frontier models) | Explicit (symbol-rate gate, warnings, hints) |
 | Extensibility | Fork the single project | Add a provider behind a stable contract |
@@ -313,7 +307,7 @@ Priority order reflects value-to-effort given filtrace's existing provider model
    filtrace already has `gcstats`; DATAS is the natural .NET 9+ extension and is the
    single biggest capability gap. Add parity coverage against a captured
    DATAS-enabled `.nettrace` fixture.
-2. **Add a `timeline` verb and `trace_timeline` tool.** *(High agent value.)* A
+2. **`timeline` verb and `trace_timeline` tool - shipped (#35).** A
    correlated multi-lane, time-bucketed overview (GC / CPU-top-method / exceptions /
    alloc / JIT) gives the orient step a *temporal* dimension to complement the
    metric dimension. It composes cleanly with the existing providers and with
@@ -322,13 +316,12 @@ Priority order reflects value-to-effort given filtrace's existing provider model
    providers.)* "What was happening at T ms?" - GC, top CPU frames, exceptions, and
    event counts in a window. filtrace already has every underlying provider and
    `--time` scoping; snapshot is a cross-provider aggregation plus a steering hint.
-4. **Bidirectional caller/callee view.** Extend `callers` (or add
-   `trace_callercallee`) to return callers *and* callees around a focus frame in one
-   result, with pvanalyze-style substring matching so an agent need not pass an exact
-   signature.
-5. **Payload content search in `events` / `trace_query_events`.** Add a `--payload`
-   substring filter across payload values plus explicit `--pid` / `--tid` flags. Low
-   cost, high forensic value.
+4. **Bidirectional caller/callee view - shipped (#36).** `callers --callees`
+   returns callers *and* callees around a focus frame in one result, with substring
+   matching so an agent need not pass an exact signature.
+5. **Payload content search in `events` / `trace_query_events` - shipped (#37).** A
+   `--payload` substring filter across payload values plus explicit `--pid` / `--tid`
+   flags.
 6. **Per-method temporal buckets in rankings.** Optionally attach a small
    `SampleBuckets` sparkline to `rank`/`cpu` rows so a ranking reveals *when* a frame
    was hot without a second query. Keep it behind a flag to respect the token budget.
@@ -378,9 +371,9 @@ Priority order reflects value to pvanalyze's cross-platform, agent-driven audien
   `{ schemaVersion, warnings, hints, result }` shape, an agent could consume either
   interchangeably and switch tools by capability rather than by output format.
 - **Complementary positioning rather than duplication.** pvanalyze as the lean,
-  cross-platform GC/DATAS/timeline specialist; filtrace as the agent-native,
+  cross-platform GC/DATAS specialist; filtrace as the agent-native,
   ETW-capable, source-line + capture + diff workhorse. An agent could legitimately
-  install both and route by question: DATAS/timeline/snapshot -> pvanalyze;
+  install both and route by question: DATAS/snapshot -> pvanalyze;
   threadtime/source-line/multi-process/diff -> filtrace. Aligning their JSON and
   hint conventions would make that routing seamless.
 - **Cross-pollinate fixtures.** filtrace's oracle/parity fixtures and pvanalyze's
@@ -393,13 +386,13 @@ Priority order reflects value to pvanalyze's cross-platform, agent-driven audien
 
 pvanalyze and filtrace solve the same *category* of problem with opposite instincts.
 pvanalyze proves how much analytical value fits in one small, cross-platform,
-AOT-friendly binary, and it owns three areas outright - **DATAS**, **timeline**
-correlation, and **snapshot**. filtrace proves how far the agent-native, contract-first
+AOT-friendly binary, and it owns two areas outright - **DATAS** and
+**snapshot**. filtrace proves how far the agent-native, contract-first
 approach goes - an **MCP server** with typed envelopes, **trust gating**,
 **source-line** drill, **wall-clock/blocking** metrics, **ETW** breadth, **capture**,
 and **diff** - at the cost of more moving parts. Each tool's signature strengths map
 almost perfectly onto the other's gaps, so the most productive path for both is
-mutual borrowing: filtrace gaining DATAS/timeline/snapshot, pvanalyze gaining an MCP
+mutual borrowing: filtrace gaining DATAS/snapshot, pvanalyze gaining an MCP
 head, a trust signal, hints, and source-line drill - ideally over a shared envelope
 so the .NET diagnostics ecosystem gets two complementary, interoperable analyzers
 rather than two overlapping ones.

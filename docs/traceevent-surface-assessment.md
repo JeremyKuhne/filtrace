@@ -29,7 +29,7 @@ Every proposal below is judged against the intents the plan already commits to:
    / `lines` / `diff` / `export` for free. A new family is a *provider*, not new
    engine code.
 2. **Agent-shaped.** Smallest relevant slice, deterministic compact output, a
-   next-step nudge, and a deliberately small tool surface (13 `trace_*` tools).
+   next-step nudge, and a deliberately small tool surface (16 `trace_*` tools).
 3. **The capture axis is the value axis.** EventPipe (`.nettrace`) is no-elevation
    and cross-platform; ETW (`.etl`) is Windows plus Administrator. Extending the
    *default* EventPipe loop is worth more than an ETW-only addition.
@@ -40,11 +40,13 @@ Every proposal below is judged against the intents the plan already commits to:
 
 ## Baseline: the current surface
 
-Eight families over 19 verbs / 13 MCP tools:
+Fourteen families over 20 analysis verbs (the 23 CLI verbs less `collect` /
+`convert` / `clean`) / 16 MCP tools:
 
 - **Stack families** (ranked by the engine): CPU, ThreadTime (ETW), Alloc,
-  Exceptions.
-- **Structured reports:** GcStats, JitStats, EventQuery.
+  Exceptions, Contention, Wait, Activity.
+- **Structured reports:** GcStats, JitStats, ThreadPool, DiskIo, EventQuery.
+- **Temporal correlation:** Timeline.
 - **Engine and inventory:** rank, callers, lines, heatmap, tree, diff, export,
   processes, classify, info.
 
