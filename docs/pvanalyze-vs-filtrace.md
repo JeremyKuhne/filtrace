@@ -52,8 +52,8 @@ export, an ETLX cache with a `clean` verb). They diverge on almost everything
 around that core. pvanalyze optimizes for **breadth-per-line-of-code and
 cross-platform reach**: a small, readable, AOT-friendly binary that leans into
 EventPipe and adds a point-in-time **snapshot** view and one deep GC
-specialty (DATAS) that filtrace still lacks (filtrace has since matched
-pvanalyze's multi-lane **timeline**). filtrace optimizes for **depth,
+specialty, **DATAS**, that filtrace still lacks - though filtrace has since
+matched pvanalyze's multi-lane **timeline**. filtrace optimizes for **depth,
 provenance, and agent ergonomics**: more metrics (adds threadtime, contention,
 wait, activity), finer drill-down (source lines), more capture formats (ETW +
 capture verb), a two-run diff, and a structured MCP contract with trust gating

@@ -40,7 +40,8 @@ Every proposal below is judged against the intents the plan already commits to:
 
 ## Baseline: the current surface
 
-Fourteen families over 20 verbs / 16 MCP tools:
+Fourteen families over 20 analysis verbs (the 23 CLI verbs less `collect` /
+`convert` / `clean`) / 16 MCP tools:
 
 - **Stack families** (ranked by the engine): CPU, ThreadTime (ETW), Alloc,
   Exceptions, Contention, Wait, Activity.
