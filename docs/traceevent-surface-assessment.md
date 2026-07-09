@@ -47,7 +47,7 @@ Fourteen families over 20 verbs / 16 MCP tools:
 - **Structured reports:** GcStats, JitStats, ThreadPool, DiskIo, EventQuery.
 - **Temporal correlation:** Timeline.
 - **Engine and inventory:** rank, callers, lines, heatmap, tree, diff, export,
-  processes, classify, info, timeline.
+  processes, classify, info.
 
 Already-catalogued gaps (Addendum A / backlog): net surviving heap
 (`GCHeapSimulator` lift), retention / leak, PMC / CPU counters, any-event (partial
