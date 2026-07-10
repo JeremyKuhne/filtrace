@@ -88,7 +88,7 @@ public sealed class SpeedscopeReaderTests
 
         Action action = () => Read(json);
 
-        action.Should().Throw<KeyNotFoundException>();
+        action.Should().Throw<KeyNotFoundException>().WithMessage("*missing*required 'type' property*");
     }
 
     [TestMethod]
