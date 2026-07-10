@@ -45,8 +45,9 @@ workflow blocks, skill links, command/tool coverage, and packaged skill contents
 The deterministic eval runs the canonical trace-analysis tasks and enforces answer,
 call-count, and output-token baselines without invoking an LLM.
 The agent-skill check validates the v0.10.0 commons pins and overlays, compares
-vendored cores with fresh upstream installs, runs the reference validator, and
-checks repository-relative links.
+vendored cores with fresh upstream installs (including recorded pending-upstream
+entity fixes), runs the reference validator, and checks readability and
+repository-relative links.
 
 ## Conventions
 

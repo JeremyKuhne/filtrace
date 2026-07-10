@@ -40,8 +40,8 @@ CI also runs five contract and evaluation checks that must stay green:
 - `eval/Invoke-Eval.ps1 -Configuration Release` - canonical trace tasks keep
   their answers, call counts, and output budgets.
 - `tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation` - commons
-  cores match the v0.10.0 artifacts and their overlays, metadata, and links are
-  valid.
+  cores match the v0.10.0 artifacts except for recorded pending-upstream entity
+  fixes, and their overlays, metadata, readability, and links are valid.
 
 ## Frozen contracts - do not rename
 
@@ -70,8 +70,8 @@ the repo build standalone.
 - Use `is null` / `is not null`, not `== null` / `!= null`.
 - Write XML doc comments on public methods, properties, and types; indent XML by
   one space per nesting level.
-- Use plain ASCII (`-`, `"`, `...`) in comments and docs, not typographic Unicode
-  (no em-dashes) and not HTML entities.
+- Do not use HTML entities in comments or docs. Write the character directly or
+  use plain words so the source remains readable.
 - Use this header on every C# file:
 
 ```c#

@@ -14,8 +14,9 @@
   relative Markdown link under .agents.
 
   -VerifyUpstream installs each commons core into an isolated temporary repository
-  at the expected pin and compares every core file byte-for-byte (overlay.md is the
-  only allowed local addition).
+    at the expected pin and compares every core file byte-for-byte, except for the
+    recorded pending-upstream HTML-entity substitutions. overlay.md is the only
+    allowed local addition.
 
   -ReferenceValidation also runs the pinned agentskills.io reference validator.
 #>
@@ -40,6 +41,11 @@ $expectedCommons = @(
     'performance-testing',
     'pre-pr-self-review',
     'security-review'
+)
+$pendingUpstreamEntityFixes = @(
+    'pre-pr-self-review/SKILL.md',
+    'security-review/checklist.md',
+    'security-review/unsafe-apis.md'
 )
 $failures = [System.Collections.Generic.List[string]]::new()
 
@@ -159,6 +165,27 @@ function Test-Links([string]$directory) {
     }
 }
 
+function Test-MarkdownReadability([string]$directory) {
+    foreach ($file in Get-ChildItem -LiteralPath $directory -Recurse -File -Filter '*.md') {
+        [int] $lineNumber = 0
+        foreach ($line in Get-Content -LiteralPath $file.FullName) {
+            $lineNumber++
+            foreach ($match in [regex]::Matches($line, '&(?:#[0-9]+|#[xX][0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);')) {
+                Add-Failure "$([System.IO.Path]::GetRelativePath($root, $file.FullName)):$lineNumber contains HTML entity '$($match.Value)'; write the character directly or use plain words."
+            }
+        }
+    }
+}
+
+function Convert-PendingEntityFixes([string]$text) {
+    return $text.Replace('&sect;1, &sect;4', 'sections 1 and 4').
+        Replace('&sect;2, &sect;5, &sect;9', 'sections 2, 5, and 9').
+        Replace('O(n&middot;m)', 'O(n * m)').
+        Replace('&sect;', 'section ').
+        Replace('&le;', '<=').
+        Replace('&middot;', '*')
+}
+
 function Test-UpstreamMirror {
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
         Add-Failure "Cannot verify upstream skill mirrors: 'gh' is not available."
@@ -166,6 +193,7 @@ function Test-UpstreamMirror {
     }
 
     [string] $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace-skills-$([guid]::NewGuid().ToString('N'))"
+    [System.Collections.Generic.HashSet[string]] $observedPendingFixes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
     try {
         Push-Location $temporaryRoot
@@ -204,11 +232,32 @@ function Test-UpstreamMirror {
             }
 
             foreach ($relativePath in $upstreamFiles) {
-                [string] $localHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $localDirectory $relativePath)).Hash
-                [string] $upstreamHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $upstreamDirectory $relativePath)).Hash
+                [string] $localPath = Join-Path $localDirectory $relativePath
+                [string] $upstreamPath = Join-Path $upstreamDirectory $relativePath
+                [string] $localHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $localPath).Hash
+                [string] $upstreamHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $upstreamPath).Hash
                 if ($localHash -cne $upstreamHash) {
-                    Add-Failure "$skillName/$relativePath differs from the $ExpectedPin artifact."
+                    [string] $artifactPath = "$skillName/$($relativePath -replace '\\', '/')"
+                    if ($pendingUpstreamEntityFixes -ccontains $artifactPath) {
+                        [string] $localText = (Get-Content -LiteralPath $localPath -Raw) -replace "`r`n", "`n"
+                        [string] $expectedText = Convert-PendingEntityFixes ((Get-Content -LiteralPath $upstreamPath -Raw) -replace "`r`n", "`n")
+                        if ($localText -cne $expectedText) {
+                            Add-Failure "$artifactPath differs from $ExpectedPin beyond its recorded HTML-entity substitutions."
+                        }
+                        else {
+                            [void]$observedPendingFixes.Add($artifactPath)
+                        }
+                    }
+                    else {
+                        Add-Failure "$artifactPath differs from the $ExpectedPin artifact."
+                    }
                 }
+            }
+        }
+
+        foreach ($artifactPath in $pendingUpstreamEntityFixes) {
+            if (-not $observedPendingFixes.Contains($artifactPath)) {
+                Add-Failure "Pending upstream divergence '$artifactPath' is stale or was not verified; remove or update its allowance."
             }
         }
     }
@@ -265,6 +314,7 @@ Test-PortfolioValue $filtraceMetadata 'filtrace' 'maturity' 'stable'
 Test-PortfolioValue $filtraceMetadata 'filtrace' 'requires' 'none'
 Test-PortfolioValue $filtraceMetadata 'filtrace' 'related' 'performance-testing'
 
+Test-MarkdownReadability (Join-Path $root '.agents')
 Test-Links (Join-Path $root '.agents')
 
 if ($ReferenceValidation) {

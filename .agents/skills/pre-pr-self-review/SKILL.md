@@ -109,7 +109,7 @@ patterns in a `polyfill-correctness` overlay companion):
 - Performance claims name the JIT (net481 RyuJIT vs modern .NET RyuJIT)
   and are measured or explicitly marked unmeasured.
 
-If the change is not in the Framework-only tree, skip to &sect;3.
+If the change is not in the Framework-only tree, skip to section 3.
 
 ## 3. PR description matches reality
 

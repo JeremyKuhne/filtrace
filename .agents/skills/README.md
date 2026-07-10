@@ -3,7 +3,9 @@
 Filtrace carries one tool-shipped local skill and seven portable cores vendored
 from the [agent-skills commons](https://github.com/JeremyKuhne/agent-skills).
 Commons cores are immutable mirrors carrying provenance metadata; repository paths
-and conventions belong in each sibling `overlay.md`.
+and conventions belong in each sibling `overlay.md`. Three no-HTML-entity fixes
+are recorded as pending-upstream divergences until the next reviewed commons
+release.
 
 | Skill | Source | Pin | Local binding |
 | --- | --- | --- | --- |
