@@ -53,8 +53,9 @@ repository-relative links.
 
 - Latest C# (C# 14). Use C# keyword types (`int`, not `Int32`); prefer explicit
   types with target-typed `new` over `var`; use `is null` / `is not null`.
-- Write XML doc comments on public members. Use plain ASCII (`-`) in comments and
-  docs, not em-dashes or HTML entities.
+- Write XML doc comments on public members. Do not use HTML entities in comments
+  or docs; write the character directly or use plain words so the source remains
+  readable.
 - File header on every C# file:
 
   ```c#
