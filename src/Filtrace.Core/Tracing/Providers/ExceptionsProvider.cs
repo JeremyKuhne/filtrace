@@ -23,9 +23,9 @@ namespace Filtrace.Tracing.Providers;
 ///   the existing <see cref="FoldingAggregator"/> ranks it without change - only
 ///   the metric (<see cref="MetricInfo.Exceptions"/>, measured in counts) differs.
 ///   The thrown exception's type is appended as a synthetic leaf frame, so self-time
-///   ranks by exception type (the type thrown most rises to the top) while the
-///   throw-site methods remain its callers, reached by inclusive time or
-///   <c>callers &lt;type&gt;</c>.
+///   ranks by exception type (the type thrown most rises to the top) while an
+///   inclusive ranking surfaces the throw-site paths. The public callers drill reads
+///   CPU stacks only and is not a same-metric exception drill.
 ///  </para>
 ///  <para>
 ///   This is a provider, not a format reader: it is a different view of the same
@@ -102,8 +102,8 @@ public sealed class ExceptionsProvider
 
             // Append the thrown exception's type as a synthetic leaf so self-time ranks
             // by exception type - which type is thrown most, the first question a throw
-            // profile answers - while the throw-site methods remain its callers, reached
-            // by inclusive time or `callers <type>`. Without it the self-time leaf is the
+            // profile answers - while an inclusive ranking surfaces the throw-site paths.
+            // Without it the self-time leaf is the
             // runtime's exception-dispatch frame, common to every throw and useless as a
             // ranking.
             string typeName = string.IsNullOrEmpty(exception.ExceptionType)

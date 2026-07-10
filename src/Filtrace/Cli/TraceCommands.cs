@@ -21,7 +21,7 @@ internal sealed class TraceCommands
     ///  Report a trace's identity and quality signals - the orientation step to run first.
     /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
-    /// <param name="symbols">-s, Build-output directory whose embedded PDBs resolve managed frames to source lines.</param>
+    /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="process">Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <returns>A process exit code.</returns>
@@ -29,8 +29,9 @@ internal sealed class TraceCommands
     ///  Reports the format, sample count, total weight, symbol-resolution rate, the
     ///  busiest threads, the analyses the trace's format can answer, and quality
     ///  warnings. It is the CLI counterpart of the <c>trace_info</c> tool - run it
-    ///  first, and trust the rankings only when the symbol-resolution rate is at or
-    ///  above 0.8. Like that tool it takes an optional <c>--process</c> selector (no
+    ///  first, and inspect the warning and unresolved frames when the rate is below
+    ///  0.8 before supplying managed or native symbols as needed. Like that tool it
+    ///  takes an optional <c>--process</c> selector (no
     ///  <c>--all-processes</c> opt-out); use the <c>processes</c> verb to see every
     ///  process in a machine-wide capture.
     /// </remarks>
@@ -50,7 +51,7 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Rank the hottest frames in a trace by self- or inclusive-time.
+    ///  Rank the hottest frames in a trace by self or inclusive metric weight.
     /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="metric">
@@ -62,13 +63,13 @@ internal sealed class TraceCommands
     /// <param name="root">Substring scoping the ranking to the subtree under a frame.</param>
     /// <param name="top">-n, Maximum number of rows to return.</param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
-    /// <param name="symbols">-s, Build-output directory whose embedded PDBs resolve managed frames.</param>
+    /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
     /// <param name="activity">Scope the ranking to one start-stop activity by task name - the CPU samples taken inside that request/job (cpu metric only); omit for the whole trace.</param>
-    /// <param name="time">Scope to a time window 'start,end' in ms relative to the trace start; either bound may be omitted (e.g. 1000,5000 or 1000, or ,5000). Applies to every metric.</param>
+    /// <param name="time">Scope to a time window 'start,end' in ms relative to the trace start; either bound may be omitted (e.g. 1000,5000 or 1000, or ,5000). Applies to every metric on .nettrace/.etl; speedscope warns and ignores it.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl CPU captures only.</param>
     /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
@@ -162,7 +163,7 @@ internal sealed class TraceCommands
     /// <param name="root">Substring scoping the ranking to the subtree under a frame.</param>
     /// <param name="top">-n, Maximum number of rows to return.</param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
-    /// <param name="symbols">-s, Build-output directory whose embedded PDBs resolve managed frames.</param>
+    /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
@@ -258,7 +259,7 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Rank exceptions by type (throw sites via callers) by count; the shortcut for 'rank --metric exceptions'.
+    ///  Rank exceptions by type (self) or throw path (inclusive) by count; the shortcut for 'rank --metric exceptions'.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe file carrying exception-throw events.</param>
     /// <param name="measure">-m, Which measure to report: self (the exception type) or inclusive (the throw sites and their callers).</param>
@@ -347,17 +348,18 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Report the immediate callers of a frame; the drill-down after 'rank' finds a hot frame.
+    ///  Report the immediate CPU callers of a frame; the drill-down after a CPU ranking.
     /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="frame">Substring of the focus frame whose callers are reported.</param>
     /// <param name="root">Substring scoping the analysis to the subtree under a frame.</param>
     /// <param name="top">-n, Maximum number of caller rows to return.</param>
-    /// <param name="symbols">-s, Build-output directory whose embedded PDBs resolve managed frames.</param>
+    /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
     /// <param name="callees">Also report the focus frame's immediate callees (a caller/callee view).</param>
     /// <returns>A process exit code.</returns>
     [Command("callers")]
@@ -371,6 +373,7 @@ internal sealed class TraceCommands
         bool strict = false,
         string process = "",
         bool allProcesses = false,
+        bool benchmark = false,
         bool callees = false)
     {
         if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
@@ -379,18 +382,24 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        CallersRequest request = new(trace, frame, root, top, symbols, format, strict, scope, callees);
+        if (!RankRequestFactory.TryResolveRoot(root, benchmark, out string resolvedRoot, out string? rootError))
+        {
+            Console.Error.WriteLine(rootError);
+            return ExitCodes.UsageError;
+        }
+
+        CallersRequest request = new(trace, frame, resolvedRoot, top, symbols, format, strict, scope, callees);
         return CallersExecutor.Run(request, Console.Out, Console.Error);
     }
 
     /// <summary>
-    ///  Rank the hottest source lines of the scoped methods.
+    ///  Rank the hottest CPU source lines of the scoped methods.
     /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="method">Substring scoping the ranking to matching methods; omit for every method.</param>
     /// <param name="top">-n, Maximum number of rows to return.</param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
-    /// <param name="symbols">-s, Build-output directory whose embedded PDBs resolve managed frames.</param>
+    /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
@@ -420,12 +429,12 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Build a per-line heat map for a source file.
+    ///  Build a per-line CPU heat map for a source file.
     /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="file">Source file to map; a full on-disk path also overlays the heat onto the source.</param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
-    /// <param name="symbols">-s, Build-output directory whose embedded PDBs resolve managed frames.</param>
+    /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
@@ -478,7 +487,7 @@ internal sealed class TraceCommands
     /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="root">Substring scoping the classification to the subtree under a frame.</param>
-    /// <param name="symbols">-s, Build-output directory whose embedded PDBs resolve managed frames.</param>
+    /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
@@ -545,7 +554,7 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Compare two traces and report what got slower or faster between them.
+    ///  Compare two like-for-like CPU traces by absolute sampled-time change.
     /// </summary>
     /// <param name="before">Path to the baseline .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="after">Path to the current .speedscope.json, .nettrace, or .etl file.</param>
@@ -553,7 +562,7 @@ internal sealed class TraceCommands
     /// <param name="root">Substring scoping both rankings to the subtree under a frame.</param>
     /// <param name="top">-n, Maximum number of changed rows to return.</param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
-    /// <param name="symbols">-s, Build-output directory whose embedded PDBs resolve managed frames.</param>
+    /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when either trace's symbol resolution is below the trusted threshold.</param>
     /// <returns>A process exit code.</returns>
@@ -575,16 +584,19 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Show the top-down call tree, following the hot path from the root into its callees.
+    ///  Show the top-down CPU call tree, following the hot path from the root into its callees.
     /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="root">Substring scoping the tree to the subtree under a frame.</param>
     /// <param name="maxDepth">-d, Maximum number of frame levels to expand below the root.</param>
     /// <param name="minPct">Minimum share of the scoped total (percent) a node must have to appear; 0 shows all.</param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
-    /// <param name="symbols">-s, Build-output directory whose embedded PDBs resolve managed frames.</param>
+    /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
+    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
+    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
     /// <returns>A process exit code.</returns>
     [Command("tree")]
     public int Tree(
@@ -595,10 +607,25 @@ internal sealed class TraceCommands
         string[]? fold = null,
         string? symbols = null,
         OutputFormat format = OutputFormat.Text,
-        bool strict = false)
+        bool strict = false,
+        string process = "",
+        bool allProcesses = false,
+        bool benchmark = false)
     {
+        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        {
+            Console.Error.WriteLine(scopeError);
+            return ExitCodes.UsageError;
+        }
+
+        if (!RankRequestFactory.TryResolveRoot(root, benchmark, out string resolvedRoot, out string? rootError))
+        {
+            Console.Error.WriteLine(rootError);
+            return ExitCodes.UsageError;
+        }
+
         IReadOnlyList<string> foldPatterns = fold is { Length: > 0 } ? fold : FrameNames.DefaultFoldPatterns;
-        TreeRequest request = new(trace, root, foldPatterns, maxDepth, minPct, symbols, format, strict);
+        TreeRequest request = new(trace, resolvedRoot, foldPatterns, maxDepth, minPct, symbols, format, strict, scope);
         return TreeExecutor.Run(request, Console.Out, Console.Error);
     }
 
@@ -608,7 +635,7 @@ internal sealed class TraceCommands
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="format">Flame-graph format: speedscope or chromium.</param>
     /// <param name="output">-o, Output file path; omit to write to standard output.</param>
-    /// <param name="symbols">-s, Build-output directory whose embedded PDBs resolve managed frames.</param>
+    /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="name">Profile name shown in the viewer.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>

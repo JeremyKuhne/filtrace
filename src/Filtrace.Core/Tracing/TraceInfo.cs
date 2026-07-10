@@ -59,8 +59,9 @@ public sealed class TraceInfo
 
     /// <summary>
     ///  Fraction in <c>[0, 1]</c> of stack frames whose symbol resolved to a
-    ///  managed method name. A value below <c>0.8</c> usually means symbols are
-    ///  missing and the rankings should not be trusted.
+    ///  method name. A value below <c>0.8</c> fires a quality warning; unresolved
+    ///  native frames can lower the aggregate even when managed-method rankings
+    ///  remain usable.
     /// </summary>
     public double SymbolResolutionRate { get; }
 

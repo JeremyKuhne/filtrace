@@ -26,7 +26,7 @@ namespace Filtrace.Cli;
 /// <param name="Fold">The leaf-frame fold patterns.</param>
 /// <param name="Measure">Which measure to report.</param>
 /// <param name="Format">The render format.</param>
-/// <param name="Symbols">Optional build-output directory whose embedded PDBs resolve managed frames.</param>
+/// <param name="Symbols">Optional build-output directory whose PDBs map managed code to source lines.</param>
 /// <param name="Strict">Whether to trip the strict symbol-resolution exit gate.</param>
 /// <param name="Scope">The process scope (explicit name, automatic default, or all processes).</param>
 /// <param name="SymbolOptions">Native-symbol resolution, or <see langword="null"/> for managed-only (the offline default).</param>

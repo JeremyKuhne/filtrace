@@ -24,8 +24,9 @@ namespace Filtrace.Output;
 /// </param>
 /// <param name="SampleCount">Number of weighted samples in the normalized model.</param>
 /// <param name="SymbolResolutionRate">
-///  Fraction in <c>[0, 1]</c> of frames that resolved to a managed method name; below
-///  <c>0.8</c> usually means symbols are missing and the rankings are unreliable.
+///  Fraction in <c>[0, 1]</c> of frames that resolved to a method name. Below
+///  <c>0.8</c> fires a quality warning; unresolved native frames can lower the
+///  aggregate even when managed-method rankings remain usable.
 /// </param>
 /// <param name="Threads">Per-thread sample counts, highest first.</param>
 /// <param name="AvailableAnalyses">

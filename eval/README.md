@@ -54,8 +54,12 @@ A task is one JSON file in [tasks/](tasks/):
 - `os: "windows"` guards tasks that read an `.etl` (the ETW conversion is
   Windows-only); they skip cleanly on the Linux CI leg.
 - `steps` + `assert` drive the deterministic gate; `prompt` + `expect` drive the
-  live agent arm (below). The gate ignores `prompt`/`expect`; the arm ignores
-  `steps`/`assert`.
+  live agent arm (below). The gate does not grade `prompt`/`expect` (it only checks
+  their mirrored MCP QA fields); the live arm ignores `steps`/`assert`.
+- Before running, the gate verifies every task has a matching [mcp-qa.jsonl](mcp-qa.jsonl)
+  row with the same prompt, fixture, OS guard, and expected answer, and that every
+  referenced `trace_*` tool exists. This keeps the deterministic/live/MCP task
+  representations from drifting silently.
 - `assert` checks run against a step's parsed JSON (default: the last step).
   Supported: `topFrame` (result.rows[0].frame), `field` + `equals` (a dotted path
   like `result.gcCount`), `hintContains`, and `jsonContains`.
@@ -65,10 +69,12 @@ A task is one JSON file in [tasks/](tasks/):
 [Invoke-AgentEval.ps1](Invoke-AgentEval.ps1) is the **LLM arm**: it gives a real
 agent only a task's natural-language `prompt` and lets the model choose which
 filtrace commands to run, then scores whether it reached the right answer and at
-what cost. That is what catches a description, help text, or skill that reads well
-to a human but steers a model wrong - the surfaces the deterministic gate cannot
-see. It is non-deterministic and needs a model host, so it runs locally /
-occasionally, never in CI; the deterministic gate stays the regression net.
+what cost. That catches MCP descriptions/server instructions and CLI command,
+error, output, and hint regressions - surfaces the deterministic gate cannot see.
+It does **not** currently evaluate the shipped `SKILL.md`; that needs a separate arm
+with repository customizations enabled. It is non-deterministic and needs a model
+host, so it runs locally / occasionally, never in CI; the deterministic gate stays
+the regression net.
 
 **Two host/arm combinations are wired:**
 
@@ -76,14 +82,18 @@ occasionally, never in CI; the deterministic gate stays the regression net.
   loop: the model emits one action per turn (`RUN: <args>` or `ANSWER: <text>`),
   the harness runs `filtrace <args>` on its behalf (only the allowlisted analysis
   verbs, never a shell) and feeds back the JSON (including error text, so the
-  model can self-correct). This exercises the CLI help and verbs.
+  model can self-correct). The system prompt supplies the verb names; this exercises
+  argument selection, errors, result envelopes, and hints, not automatic skill or
+  top-level CLI-help discovery.
 - **`copilot` -> mcp arm** (the GitHub Copilot CLI - the production target;
   metered, needs `copilot login`). The runner hands Copilot the task and the
   locally built filtrace MCP server (via `--additional-mcp-config`) and lets the
   agent drive the `trace_*` tools itself, then parses its JSONL transcript. This
   exercises the **MCP tool descriptions** the cli arm never touches, on the real
-  production agent. By default it uses Copilot's own model (the result records the
-  actual model, e.g. `claude-opus-4.6`); pass `-Model` to pin one.
+  production agent. It deliberately passes `--no-custom-instructions`, isolating
+  the MCP contract from `AGENTS.md` and the filtrace skill. By default it uses
+  Copilot's own model (the result records the actual model, e.g.
+  `claude-opus-4.6`); pass `-Model` to pin one.
 
 `claude` is recognized but not yet wired. The trace path is masked back to
 `<TRACE>` in transcripts and answers so it does not leak.
@@ -101,15 +111,35 @@ occasionally, never in CI; the deterministic gate stays the regression net.
 ```
 
 Each (task, iteration) records **success** (the answer contains every `expect`
-substring), **calls** (filtrace invocations), **tokens** (the offline estimate of
+substring; transcript review remains necessary), **calls** (filtrace invocations), **tokens** (the offline estimate of
 the tool output the agent consumed - the same accounting the gate uses), and
 **wall-time**, plus a per-command transcript. Results land under `eval/results/`
 (git-ignored) as JSON with a median summary.
 
 **MCP QA file.** [mcp-qa.jsonl](mcp-qa.jsonl) maps each task to the `trace_*` tool
 an ideal MCP run should call and the expected answer (mcp-builder style). The
-`copilot` arm above already drives the tools live; this file is the tool-selection
-reference and the seed for a future host-less MCP-client runner.
+`copilot` arm requires every listed tool to appear as a successful call (extra
+orientation calls are allowed), so a lucky answer substring without the intended
+trace evidence does not pass. The file is also the seed for a future host-less
+MCP-client runner.
+
+### Coverage boundary
+
+The corpus is a focused regression suite, not complete proof of investigative
+quality. Its tasks cover orientation, ranking/measure choice, callers/callees,
+process inventory, trees, timelines, raw events, GC, and JIT. They do not yet cover
+`trace_lines`, `trace_heatmap`, `trace_classify`, `trace_diff`, `trace_export`,
+`trace_threadpool`, or `trace_diskio`, and they do not exercise a full
+orient -> rank -> drill -> compare run on one realistic capture.
+
+Live success means the final answer contains each task's expected substring; on the
+Copilot arm, every expected MCP tool must also succeed. That is deterministic enough
+for baseline/candidate comparison, but it is not semantic grading: review transcripts
+before accepting a surface change, especially when an answer can still be correct for
+the wrong reason. The current arms also cannot establish
+that a `SKILL.md` edit helped, because neither loads it. Measure skill revisions in a
+separate run with customizations enabled rather than attributing an MCP-only result
+to the skill.
 
 ### Example local run
 
@@ -138,12 +168,13 @@ the right tool straight from the MCP descriptions:
 
 See [docs/implementation-plan.md](../docs/implementation-plan.md), milestone **M5**.
 
-## Tuning the surfaces (the loop)
+## Tuning the measured surfaces (the loop)
 
-The point of the live arm is to **improve the surfaces an agent reads** - the MCP
-tool descriptions, the CLI help, the skill - and prove a change helped without
-regressing. Those surfaces are compiled in, so a "candidate" is just a rebuilt
-working tree. The loop:
+The point of the live arm is to improve the surfaces it actually presents to an
+agent - MCP tool descriptions/server instructions, or CLI arguments, errors,
+results, and hints - and test whether a change helped without regressing. These
+surfaces are compiled in, so a candidate is a rebuilt working tree. `SKILL.md` is
+outside this loop until a customization-enabled arm is added. The measured loop:
 
 ```pwsh
 # 1. Baseline at HEAD, across a couple of models (evaluator diversity).

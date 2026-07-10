@@ -18,7 +18,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>filtrace</ToolCommandName>
     <PackageId>KlutzyNinja.Filtrace</PackageId>
-    <Description>Agent-shaped CLI for analyzing .NET CPU, allocation, thread-time, GC, JIT, and event traces.</Description>
+    <Description>Agent-shaped CLI for .NET CPU, allocation, blocking, thread-time, GC, JIT, exception, disk, and event trace analysis.</Description>
     <PackageTags>trace;profiling;diagnostics;performance;cpu;allocation;gc;nettrace;etl;speedscope;dotnet-tool;cli</PackageTags>
   </PropertyGroup>
 

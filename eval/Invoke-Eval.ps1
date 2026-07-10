@@ -56,6 +56,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $cliDll = Join-Path $root "src/Filtrace/bin/$Configuration/net10.0/filtrace.dll"
 $tasksDir = Join-Path $PSScriptRoot 'tasks'
 $baselinePath = Join-Path $PSScriptRoot 'baselines.json'
+$mcpQaPath = Join-Path $PSScriptRoot 'mcp-qa.jsonl'
+$toolsFile = Join-Path $root 'src/Filtrace.Mcp/TraceTools.cs'
 
 # G1: an agent investigation should reach its answer in a handful of tool calls.
 $MaxCalls = 6
@@ -120,6 +122,50 @@ function Test-Assertion {
 
 $taskFiles = Get-ChildItem -Path $tasksDir -Filter '*.json' | Sort-Object Name
 if ($taskFiles.Count -eq 0) { throw "No task files found in $tasksDir." }
+
+# The MCP QA seed duplicates each task's agent-facing fields. Keep it executable as a
+# reference rather than letting its question/answer drift silently from tasks/*.json.
+if (-not (Test-Path $mcpQaPath)) { throw "MCP QA file not found at '$mcpQaPath'." }
+$knownTools = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+Select-String -Path $toolsFile -Pattern 'Name = "(trace_[a-z_]+)"' -AllMatches |
+    ForEach-Object { $_.Matches } |
+    ForEach-Object { [void]$knownTools.Add($_.Groups[1].Value) }
+
+$mcpTaskById = @{}
+foreach ($line in Get-Content -LiteralPath $mcpQaPath) {
+    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+    $mcpTask = $line | ConvertFrom-Json
+    if ($mcpTaskById.ContainsKey($mcpTask.id)) { throw "Duplicate MCP QA task id '$($mcpTask.id)'." }
+    foreach ($toolName in @($mcpTask.expectTools)) {
+        if (-not $knownTools.Contains($toolName)) {
+            throw "MCP QA task '$($mcpTask.id)' references unknown tool '$toolName'."
+        }
+    }
+    $mcpTaskById[$mcpTask.id] = $mcpTask
+}
+
+$taskIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($taskFile in $taskFiles) {
+    $task = Get-Content $taskFile.FullName -Raw | ConvertFrom-Json
+    if (-not $taskIds.Add($task.id)) { throw "Duplicate deterministic task id '$($task.id)'." }
+    if (-not $mcpTaskById.ContainsKey($task.id)) { throw "Task '$($task.id)' is missing from eval/mcp-qa.jsonl." }
+
+    $mcpTask = $mcpTaskById[$task.id]
+    $taskOs = if ($task.os) { $task.os } else { 'any' }
+    $mcpTaskOs = if ($mcpTask.os) { $mcpTask.os } else { 'any' }
+    $taskExpected = @($task.expect) -join "`0"
+    $mcpExpected = @($mcpTask.answerContains) -join "`0"
+    if ($mcpTask.question -ne $task.prompt -or
+        $mcpTask.fixture -ne $task.fixture -or
+        $mcpTaskOs -ne $taskOs -or
+        $mcpExpected -ne $taskExpected) {
+        throw "MCP QA task '$($task.id)' has drifted from its tasks/*.json prompt, fixture, OS, or expected answer."
+    }
+}
+
+foreach ($mcpTaskId in $mcpTaskById.Keys) {
+    if (-not $taskIds.Contains($mcpTaskId)) { throw "MCP QA task '$mcpTaskId' has no matching tasks/*.json file." }
+}
 
 $baseline = if (Test-Path $baselinePath) { Get-Content $baselinePath -Raw | ConvertFrom-Json } else { $null }
 $newBaseline = [ordered]@{}

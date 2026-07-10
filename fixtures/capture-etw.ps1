@@ -6,7 +6,7 @@
     Runs the HotLoopBench `EtwLoop` benchmark under BenchmarkDotNet's ETW
     profiler (net481, with the context-switch kernel keywords the ThreadTime
     view needs), copies the resulting `.etl` into the core test fixtures, and
-    pre-converts it to `.etlx` for the cross-machine hand-off (O1) spike.
+    pre-converts it to an ignored `.etlx` cache for manual conversion checks.
 
     This is split out from make-fixtures.ps1 on purpose: ETW kernel tracing
     needs an elevated session, whereas the EventPipe half does not, and the
@@ -16,8 +16,8 @@
 
 .NOTES
     Run from an administrator terminal on a Windows machine with the .NET 10
-    SDK and the net481 targeting pack. The committed `.etl` / `.etlx` are the
-    in-repo smoke fixtures; larger captures are regenerated on demand.
+    SDK and the net481 targeting pack. The `.etl` is the committed in-repo smoke;
+    the generated `.etlx` is ignored. Larger captures are regenerated on demand.
 #>
 [CmdletBinding()]
 param()
@@ -65,8 +65,8 @@ $fixtureEtl = Join-Path $coreFixtures 'etw.etl'
 Copy-Item $etlTrace.FullName $fixtureEtl -Force
 Write-Host "ETW fixture -> $fixtureEtl ($([math]::Round($etlTrace.Length / 1KB)) KB)"
 
-# Pre-convert the .etl to .etlx on Windows; the O1 spike commits this .etlx and
-# reads it off Windows to settle whether the cross-machine hand-off holds.
+# Pre-convert the .etl to .etlx on Windows for manual conversion/cache checks. The
+# public CLI/MCP input surface accepts the raw .etl, and the .etlx is ignored.
 $fixtureEtlx = Join-Path $coreFixtures 'etw.etlx'
 Push-Location $benchProject
 try

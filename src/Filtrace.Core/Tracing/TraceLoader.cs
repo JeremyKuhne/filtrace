@@ -276,8 +276,7 @@ public sealed class TraceLoader
             warnings,
             scope?.Window,
             source.Samples.Count,
-            "No start-stop activities were found. Activities come from EventSource Start/Stop events "
-                + "(ASP.NET requests, HttpClient calls, the TPL, or a custom source); did the workload emit any?");
+            "No start-stop activities were found. Activities come from EventSource Start/Stop events (ASP.NET requests, HttpClient calls, the TPL, or a custom source), and that provider must be enabled during capture; did the trace record completed pairs?");
 
         // Activity frames are the activity names from the event stream, not resolved
         // symbols, so - as with the other stack-source families - resolution is reported

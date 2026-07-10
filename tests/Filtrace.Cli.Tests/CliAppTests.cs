@@ -458,6 +458,30 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_TreeProcessAndAllProcesses_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run("tree", Speedscope, "--process", "MyApp", "--all-processes");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("only one of --process and --all-processes");
+    }
+
+    [TestMethod]
+    [DataRow("callers")]
+    [DataRow("tree")]
+    public void Run_CpuDrillRootAndBenchmark_ReturnsUsageError(string verb)
+    {
+        string[] arguments = verb == "callers"
+            ? [verb, Speedscope, "Frame", "--root", "Foo", "--benchmark"]
+            : [verb, Speedscope, "--root", "Foo", "--benchmark"];
+
+        (int exit, _, string error) = Run(arguments);
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("only one of --root and --benchmark");
+    }
+
+    [TestMethod]
     public void Run_HeatmapProcessAndAllProcesses_ReturnsUsageError()
     {
         (int exit, _, string error) = Run("heatmap", Speedscope, "Foo.cs", "--process", "MyApp", "--all-processes");

@@ -280,10 +280,11 @@ else {
     # A single-process EventPipe trace ranks the whole app; there is no harness.
     if ($Metric -eq 'alloc') {
         Write-Host "  filtrace alloc `"$Output`" --top $Top"
+        Write-Host "  filtrace gcstats `"$Output`""
     }
     else {
         Write-Host "  filtrace cpu `"$Output`" --top $Top"
+        Write-Host "  filtrace lines `"$Output`" --symbols `"$symbols`""
+        Write-Host "  # scope past runtime startup with --root <Type>.<Method> once you see the ranking"
     }
-    Write-Host "  filtrace lines `"$Output`" --symbols `"$symbols`""
-    Write-Host "  # scope past runtime startup with --root <Type>.<Method> once you see the ranking"
 }

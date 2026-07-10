@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
-  "description": "CLI and MCP .NET trace analyzer: ranks, drills into, diffs, and exports CPU, allocation, exception, and thread-time profiles from .nettrace, .etl, and speedscope captures.",
+  "description": "Agent-facing .NET trace analyzer: ranks CPU, allocation, exception, blocking, activity, and thread-time data; reports runtime events; drills, diffs, and exports CPU profiles.",
   "name": "io.github.JeremyKuhne/filtrace",
   "version": "0.0.0-local",
   "packages": [

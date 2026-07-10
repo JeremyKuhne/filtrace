@@ -17,11 +17,11 @@ namespace Filtrace.Output;
 ///  <para>
 ///   The output contract reserves a hints channel; this is what fills it for the
 ///   ranking-family verbs. Each helper turns a verb's result into the one drill
-///   that most naturally continues the investigation: a ranking points at the
-///   hottest frame's callers, a callers report points further up the stack, and a
-///   diff points at the frame that changed most. The nudges name the engine verb
-///   and the frame to pass it, matching the hint pinned by the output-contract
-///   golden.
+///   that most naturally continues the investigation: an unwindowed CPU ranking
+///   points at the hottest frame's callers, a non-CPU or windowed ranking stays in
+///   the same metric/scope, a callers report points further up the stack, and a diff
+///   points at the frame that changed most. The nudges name the engine verb and the
+///   frame to pass it, matching the hint pinned by the output-contract golden.
 ///  </para>
 ///  <para>
 ///   The hints are advisory text, not commands; the CLI and MCP heads render them
@@ -82,7 +82,7 @@ public static class SteeringHints
         if (analyses.Contains("gcstats")) { memory.Add("gcstats"); }
         if (memory.Count > 0)
         {
-            routes.Add($"growing memory or GC pauses -> {string.Join(", ", memory)}");
+            routes.Add($"high allocation rate or GC pauses -> {string.Join(", ", memory)}");
         }
 
         if (analyses.Contains("diskio"))
@@ -114,16 +114,51 @@ public static class SteeringHints
     /// <param name="ranking">The ranking the hints steer from.</param>
     /// <returns>The steering hints, never <see langword="null"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="ranking"/> is <see langword="null"/>.</exception>
-    public static IReadOnlyList<string> ForRanking(RankingResult ranking)
+    public static IReadOnlyList<string> ForRanking(RankingResult ranking) =>
+        ForRanking(ranking, MetricInfo.Cpu);
+
+    /// <summary>
+    ///  The next-step hints for a ranking, constrained to follow-ups that preserve
+    ///  the ranking's metric and scope.
+    /// </summary>
+    /// <param name="ranking">The ranking the hints steer from.</param>
+    /// <param name="metric">The metric the ranking carries.</param>
+    /// <param name="scope">Optional process, activity, and time scope used to build the ranking.</param>
+    /// <returns>The steering hints, never <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException">
+    ///  <paramref name="ranking"/> or <paramref name="metric"/> is <see langword="null"/>.
+    /// </exception>
+    public static IReadOnlyList<string> ForRanking(
+        RankingResult ranking,
+        MetricInfo metric,
+        ScopeRequest? scope = null)
     {
         ArgumentNullException.ThrowIfNull(ranking);
+        ArgumentNullException.ThrowIfNull(metric);
 
         if (ranking.Rows.Count == 0)
         {
             return [EmptyScope];
         }
 
-        return [$"drill into the hot frame with: callers {ranking.Rows[0].Frame}"];
+        if (metric != MetricInfo.Cpu)
+        {
+            return
+            [
+                $"refine the {metric.Name} ranking with self/inclusive measure, root, or time; callers, lines, heatmap, and tree analyze CPU only"
+            ];
+        }
+
+        if (scope?.ActivityName is not null || scope?.Window is not null)
+        {
+            return
+            [
+                "this CPU ranking is activity/time-scoped; callers, lines, heatmap, and tree cannot preserve that slice - refine it with self/inclusive measure or root in rank"
+            ];
+        }
+
+        string hint = $"drill into the hot frame with: callers {ranking.Rows[0].Frame}";
+        return [PreserveCpuScope(hint, ranking.RootFrame, scope)];
     }
 
     /// <summary>
@@ -133,7 +168,22 @@ public static class SteeringHints
     /// <param name="callers">The callers report the hints steer from.</param>
     /// <returns>The steering hints, never <see langword="null"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="callers"/> is <see langword="null"/>.</exception>
-    public static IReadOnlyList<string> ForCallers(CallersResult callers)
+    public static IReadOnlyList<string> ForCallers(CallersResult callers) =>
+        ForCallers(callers, "");
+
+    /// <summary>
+    ///  The next-step hints for a callers report, preserving its root and process
+    ///  scope on every actionable follow-up.
+    /// </summary>
+    /// <param name="callers">The callers report the hints steer from.</param>
+    /// <param name="root">The root frame the callers analysis was scoped to, or empty for none.</param>
+    /// <param name="scope">Optional process scope used to build the callers report.</param>
+    /// <returns>The steering hints, never <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="callers"/> is <see langword="null"/>.</exception>
+    public static IReadOnlyList<string> ForCallers(
+        CallersResult callers,
+        string root,
+        ScopeRequest? scope = null)
     {
         ArgumentNullException.ThrowIfNull(callers);
 
@@ -145,9 +195,14 @@ public static class SteeringHints
         List<string> hints = [];
 
         string topCaller = callers.Callers[0].Caller;
-        hints.Add(string.Equals(topCaller, RootFrame, StringComparison.Ordinal)
-            ? "the focus frame is called directly from the root; it is a top-level entry point"
-            : $"continue up the stack with: callers {topCaller}");
+        if (string.Equals(topCaller, RootFrame, StringComparison.Ordinal))
+        {
+            hints.Add("the focus frame is called directly from the root; it is a top-level entry point");
+        }
+        else
+        {
+            hints.Add(PreserveCpuScope($"continue up the stack with: callers {topCaller}", root, scope));
+        }
 
         // With a caller/callee view, also point down into the heaviest real callee, skipping
         // the <self> self-time pseudo-callee since it is not a frame to drill into.
@@ -157,7 +212,10 @@ public static class SteeringHints
             {
                 if (!string.Equals(callee.Callee, SelfFrame, StringComparison.Ordinal))
                 {
-                    hints.Add($"continue down into the callee with: callers {callee.Callee} --callees");
+                    hints.Add(PreserveCpuScope(
+                        $"continue down into the callee with: callers {callee.Callee} --callees",
+                        root,
+                        scope));
                     break;
                 }
             }
@@ -165,6 +223,26 @@ public static class SteeringHints
 
         return hints;
     }
+
+    private static string PreserveCpuScope(string hint, string root, ScopeRequest? scope)
+    {
+        if (!string.IsNullOrEmpty(root))
+        {
+            hint = $"{hint} --root {QuotePowerShellArgument(root)}";
+        }
+
+        if (scope?.ProcessName is string processName)
+        {
+            return $"{hint} --process {QuotePowerShellArgument(processName)}";
+        }
+
+        return scope?.IncludeAll == true ? $"{hint} --all-processes" : hint;
+    }
+
+    // Hints use PowerShell command syntax throughout the shipped Windows-first docs.
+    // Single-quoted arguments preserve whitespace, double quotes, dollar signs, and
+    // backticks; PowerShell represents an embedded apostrophe by doubling it.
+    private static string QuotePowerShellArgument(string value) => $"'{value.Replace("'", "''", StringComparison.Ordinal)}'";
 
     /// <summary>
     ///  The next-step hints for a ranking diff: drill into the frame whose weight

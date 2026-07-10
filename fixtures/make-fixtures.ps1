@@ -1,14 +1,16 @@
 <#
 .SYNOPSIS
-    Regenerates the filtrace EventPipe fixture corpus and its frozen parity oracle.
+    Regenerates the filtrace EventPipe fixture corpus and frozen CPU parity oracle.
 
 .DESCRIPTION
-    Captures a net10 EventPipe CPU profile of the HotLoopBench benchmark, copies
-    the speedscope export into the parity-test fixtures, and freezes the legacy
-    oracle's (Get-TraceHotspots.ps1) self- and inclusive-time rankings as a JSON
-    golden the parity tests compare against. Run this on a Windows machine with
-    the .NET 10 SDK when the benchmark, TraceEvent, or BenchmarkDotNet version
-    moves; it is not part of the build/test loop.
+    Captures bounded net10 EventPipe profiles for CPU, allocation/GC, JIT,
+    exceptions, contention, .NET 9+ wait handles, start-stop activities, and
+    thread-pool starvation. It copies those smokes into the core-test fixtures,
+    copies the CPU speedscope export into the parity fixtures, and freezes the
+    legacy oracle's (Get-TraceHotspots.ps1) self- and inclusive-time rankings as
+    the matched JSON golden. Run with the .NET 10 SDK when the workloads,
+    TraceEvent, BenchmarkDotNet, or capture profiles move; it is not part of the
+    normal build/test loop.
 
     The net481 ETW (.etl) half of the corpus is captured separately by the
     sibling capture-etw.ps1, which needs an elevated session (ETW kernel tracing

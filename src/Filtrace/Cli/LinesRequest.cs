@@ -14,7 +14,7 @@ namespace Filtrace.Cli;
 /// <param name="Method">Substring scoping the ranking to matching methods, or empty for every method.</param>
 /// <param name="Fold">The leaf-frame fold patterns.</param>
 /// <param name="Top">Maximum number of ranked lines to return.</param>
-/// <param name="Symbols">Optional build-output directory whose embedded PDBs resolve managed frames.</param>
+/// <param name="Symbols">Optional build-output directory whose PDBs map managed code to source lines.</param>
 /// <param name="Format">The render format.</param>
 /// <param name="Strict">Whether to trip the strict symbol-resolution exit gate.</param>
 /// <param name="Scope">The process scope for a multi-process capture, or <see langword="null"/> for the automatic default.</param>

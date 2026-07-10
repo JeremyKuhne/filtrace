@@ -8,8 +8,8 @@ namespace Filtrace.Tracing;
 
 /// <summary>
 ///  The symbol-resolution quality gate: the single policy deciding when a trace's
-///  frames are too poorly resolved to trust managed-method rankings, and the
-///  standardized warning - with remediation - that surfaces it.
+///  aggregate resolution requires inspection, and the standardized warning - with
+///  managed and native remediation - that surfaces it.
 /// </summary>
 /// <remarks>
 ///  <para>
@@ -23,8 +23,8 @@ namespace Filtrace.Tracing;
 public static class SymbolGate
 {
     /// <summary>
-    ///  The minimum fraction of frames, in <c>[0, 1]</c>, that must resolve to a
-    ///  method name before rankings are trusted. Resolution below this fires the gate.
+    ///  The minimum fraction of frames, in <c>[0, 1]</c>, expected to resolve to a
+    ///  method name before a quality warning fires.
     /// </summary>
     public const double MinimumResolutionRate = 0.8;
 
@@ -66,8 +66,8 @@ public static class SymbolGate
         int thresholdPct = (int)(MinimumResolutionRate * 100);
         warning =
             $"Only {resolvedPct}% of frames resolved to a method name (< {thresholdPct}%); native frames may be unresolved. "
-            + "Managed frames resolve from CLR rundown, so managed-method rankings remain usable. "
-            + "Pass --symbols <build-output-dir> to resolve more frames from local PDBs.";
+            + "Managed method names normally come from CLR rundown; inspect unresolved rows before trusting names. "
+            + "For CPU .etl analysis, --native-symbols can name runtime frames; --symbols supplies local PDBs for source lines.";
         return true;
     }
 }

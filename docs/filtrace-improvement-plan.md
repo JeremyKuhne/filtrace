@@ -23,7 +23,8 @@ Legend: S = small, M = medium, L = large.
 > **Current focus.** P1 (DATAS) is **backlogged**. **P2 (timeline) is implemented**
 > (v1) - `timeline` verb and `trace_timeline` tool, five lanes (gc, cpu, exceptions,
 > alloc, jit), `--lanes` / `--time` / `--buckets`, text sparklines + JSON, steering
-> hints, and Core/CLI/MCP tests; all contract checks green.
+> hints, automatic/named process scope (plus CLI `--all-processes`), and
+> Core/CLI/MCP tests; all contract checks green.
 
 ### P2 implementation notes (v1, as shipped)
 
@@ -31,16 +32,22 @@ Legend: S = small, M = medium, L = large.
 - **CPU top-method** walks to the innermost *resolved* managed frame (skipping
   unresolved native leaves) rather than the literal leaf, so the timeline names a
   real method instead of `?`.
-- **Whole-trace scope in v1.** The lanes cover every process; the
-  auto-scope-to-busiest `--process` option described below is **deferred** to a
-  follow-up (the CPU lane blends processes on a multi-process `.etl` for now).
-- **MCP token budget raised 8000 -> 9000.** `trace_timeline` is the planned 16th
-  tool; at ~530 tokens/tool the 16-tool surface measures ~8,560, over the old
-  8,000 ceiling that was calibrated for 13 tools. Per that check's own note ("a
-  bloat guard, not a cap on legitimate surface"), the budget was raised rather than
-  trimming 15 tools' descriptions. **P3 must revisit**: a 17th tool (`trace_snapshot`)
-  will exceed 9000, so consolidating `timeline` + `snapshot` behind one tool with a
-  `mode` parameter (already floated below) is now the likely path.
+- **Process scope shipped.** Every lane follows the same process tree: a
+  multi-process `.etl` auto-scopes to the busiest tree, `--process` / MCP `process`
+  select one explicitly, and CLI `--all-processes` restores the aggregate capture.
+- **MCP token budget raised 8000 -> 9000, then analyzed (2026-07-09).** `trace_timeline`
+  is the 16th tool; the surface measures **~8,770 tokens** (~548/tool) - input schemas
+  ~38%, output schemas ~34%, descriptions ~20%, JSON structure ~8%. Two findings set the
+  path (see the token-budget constraint below): (1) **output schemas are not cheaply
+  reclaimable** - they are pure structure (the `AnalysisResult<T>` envelope repeated per
+  tool), carry no prose, and ModelContextProtocol 1.3.0 couples the advertised
+  `outputSchema` to the `structuredContent` result (the only override replaces it with a
+  *smaller* schema), so trimming them hollows the self-describing typed contract filtrace
+  markets - keep them. (2) **the ceiling is not ratcheted per tool** - a tool that would
+  breach 9000 consolidates behind a `mode`/`kind` parameter (as `trace_rank` unifies seven
+  metrics into one tool) rather than raising the ceiling. **P3** folds `snapshot` into
+  `trace_timeline` (`mode=timeline|snapshot`); **P1** `datas` rides an existing GC tool or
+  mode, not new surface.
 
 ---
 
@@ -61,10 +68,15 @@ Every initiative must respect the invariants that already hold in the repo:
 - **Token budget.** The MCP tool-list schema and each response are budgeted and
   CI-gated ([Test-McpServer.ps1](../tools/Test-McpServer.ps1),
   [OutputBudget.cs](../src/Filtrace.Core/Output/OutputBudget.cs)). New tool
-  `[Description]` text must stay tight; new reports must cap their detail lists.
-  **Before starting P1**, run [Get-TokenEstimate.ps1](../tools/Get-TokenEstimate.ps1)
-  to record the current tool-list headroom - P1 through P3 each add a tool, so
-  knowing the starting budget up front avoids discovering the ceiling mid-P3.
+  `[Description]` text must stay tight; new reports must cap their detail lists. The
+  25,000-token *response* ceiling matches Anthropic's Claude Code default and stays.
+  The 9,000-token *schema* ceiling is a bloat guard, not a per-tool allowance: a new
+  tool that would breach it consolidates behind a `mode`/`kind` parameter (as
+  `trace_rank` unifies metrics) rather than raising the ceiling; description trimming,
+  if pursued, is gated by the `eval/` harness because tool-description wording measurably
+  affects tool selection. **Before starting P1**, run
+  [Get-TokenEstimate.ps1](../tools/Get-TokenEstimate.ps1) to record current headroom
+  (16 tools measure ~8,770).
 - **Docs are single-source.** Verb/tool tables live in
   [docs/workflow.md](workflow.md) marked blocks and are embedded into the
   skill and README; [Test-Docs.ps1](../tools/Test-Docs.ps1) fails CI on drift, and its

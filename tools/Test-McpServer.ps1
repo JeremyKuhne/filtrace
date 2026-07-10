@@ -37,10 +37,15 @@
   slightly conservative); the check prints the measured characters and estimate so
   a regression is legible. The budget covers each tool's name, description, input
   schema, and (because the tools advertise structured content) its output schema -
-  everything the client puts in front of the model from tools/list. The ceiling is
-  a bloat guard, not a cap on legitimate surface: the 16 analysis tools measure
-  ~8,560 tokens (~530 each), so 9000 leaves modest headroom while still tripping on
-  a doubled description or a few unplanned tools.
+  everything the client puts in front of the model from tools/list, on every request.
+  The ceiling is a bloat guard, not a per-tool allowance: the 16 analysis tools measure
+    ~8,770 tokens (~548 each; roughly 38% input schemas, 34% output schemas, 20%
+  descriptions). It is deliberately NOT ratcheted up per new tool - a tool that would
+    breach it should consolidate behind a mode/kind parameter (the way trace_rank unifies
+    seven metrics into one tool) rather than raise the ceiling. The output schemas are
+  structural (the shared AnalysisResult<T> envelope) and intentionally kept: they are the
+  self-describing typed contract, and ModelContextProtocol couples them to structured
+  content, so they are not a place to reclaim tokens.
 #>
 [CmdletBinding()]
 param(

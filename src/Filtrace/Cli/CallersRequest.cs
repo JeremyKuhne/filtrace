@@ -14,7 +14,7 @@ namespace Filtrace.Cli;
 /// <param name="Frame">Substring identifying the focus frame whose callers are reported.</param>
 /// <param name="Root">Substring scoping the analysis to a subtree, or empty for the whole trace.</param>
 /// <param name="Top">Maximum number of caller rows to return.</param>
-/// <param name="Symbols">Optional build-output directory whose embedded PDBs resolve managed frames.</param>
+/// <param name="Symbols">Optional build-output directory whose PDBs map managed code to source lines.</param>
 /// <param name="Format">The render format.</param>
 /// <param name="Strict">Whether to trip the strict symbol-resolution exit gate.</param>
 /// <param name="Scope">The process scope for a multi-process capture, or <see langword="null"/> for the automatic default.</param>

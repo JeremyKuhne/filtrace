@@ -12,9 +12,11 @@
   sequence directly - no model - and is the cheap CI regression net. This runner
   is the other arm: it gives a real agent only the task's natural-language
   `prompt` and lets the model decide which filtrace commands to run, then scores
-  whether it reached the right answer and at what cost. That is what catches a
-  description, help text, or skill that reads well to a human but steers a model
-  wrong - the surfaces the deterministic gate cannot see.
+    whether it reached the right answer and at what cost. That catches MCP
+    descriptions/server instructions and CLI command/output regressions - surfaces
+    the deterministic gate cannot see. It does not evaluate SKILL.md: the Copilot arm
+    deliberately disables custom instructions, and the Ollama arm receives a generated
+    command protocol rather than repository customizations.
 
   It is meant to run locally / occasionally (it needs a model host and is
   non-deterministic), never in CI. The design's regression net stays the
@@ -32,8 +34,9 @@
   production target; metered, needs `copilot login`). claude is recognized but not
   yet wired - the runner reports that and exits cleanly.
 
-  METRICS per (task, iteration): success (the final answer contains every
-  `expect` substring, case-insensitive), calls (filtrace invocations), tokens
+    METRICS per (task, iteration): success (the final answer contains every
+    `expect` substring, case-insensitive; on the Copilot arm every expected MCP tool
+    also completed successfully), calls (filtrace invocations), tokens
   (offline estimate of the tool output the agent consumed, via
   tools/Get-TokenEstimate.ps1 - the same accounting the deterministic gate
   uses), and wall-time. Results are written under eval/results/ and summarized
@@ -104,6 +107,7 @@ trap { if ($script:mcpConfigPath -and (Test-Path $script:mcpConfigPath)) { Remov
 $root = Split-Path -Parent $PSScriptRoot
 $cliDll = Join-Path $root "src/Filtrace/bin/$Configuration/net10.0/filtrace.dll"
 $tasksDir = Join-Path $PSScriptRoot 'tasks'
+$mcpQaPath = Join-Path $PSScriptRoot 'mcp-qa.jsonl'
 $commandsFile = Join-Path $root 'src/Filtrace/Cli/TraceCommands.cs'
 if (-not $OutDir) { $OutDir = Join-Path $PSScriptRoot 'results' }
 
@@ -123,12 +127,13 @@ if ($Tasks) {
 
 # The verb allowlist: the single-trace, JSON-envelope analysis verbs the agent may
 # invoke. Derived from the CLI's [Command("name")] set, then filtered to the verbs
-# that take one <TRACE> and render the JSON envelope. Excluded: the file-op verbs
-# (convert, clean), the two-trace diff, and export (whose --format selects a
-# flamegraph writer, not the JSON envelope) - the harness forces --format json,
-# which those verbs would reject or misread. A model can only ever invoke one of
-# these as the first token, so a response can never reach a shell.
-$nonAnalysisVerbs = @('convert', 'clean', 'diff', 'export')
+# that take one <TRACE> and render the JSON envelope. Excluded: capture (collect,
+# which launches a process), the file-op verbs (convert, clean), the two-trace diff,
+# and export (whose --format selects a flamegraph writer, not the JSON envelope) -
+# the harness forces --format json, which those verbs would reject or misread. A
+# model can only ever invoke one of the remaining verbs as the first token, so a
+# response cannot launch a process or reach a shell.
+$nonAnalysisVerbs = @('collect', 'convert', 'clean', 'diff', 'export')
 $verbs = @(Select-String -Path $commandsFile -Pattern '\[Command\("([^"]+)"\)\]' -AllMatches |
         ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } |
         Where-Object { $nonAnalysisVerbs -notcontains $_ } | Sort-Object -Unique)
@@ -363,6 +368,14 @@ function Invoke-CopilotIteration {
 
 # --- Task selection -----------------------------------------------------------
 
+$mcpQaById = @{}
+foreach ($line in Get-Content -LiteralPath $mcpQaPath) {
+    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+    $mcpQaTask = $line | ConvertFrom-Json
+    if ($mcpQaById.ContainsKey($mcpQaTask.id)) { throw "Duplicate MCP QA task id '$($mcpQaTask.id)'." }
+    $mcpQaById[$mcpQaTask.id] = $mcpQaTask
+}
+
 $allTaskFiles = Get-ChildItem -Path $tasksDir -Filter '*.json' | Sort-Object Name
 $selected = [System.Collections.Generic.List[object]]::new()
 foreach ($file in $allTaskFiles) {
@@ -370,6 +383,8 @@ foreach ($file in $allTaskFiles) {
     if ($Tasks -and ($Tasks -notcontains $task.id)) { continue }
     $os = if ($task.os) { $task.os } else { 'any' }
     if ($os -eq 'windows' -and -not $onWindows) { continue }
+    if (-not $mcpQaById.ContainsKey($task.id)) { throw "Task '$($task.id)' is missing from eval/mcp-qa.jsonl." }
+    $task | Add-Member -NotePropertyName expectTools -NotePropertyValue @($mcpQaById[$task.id].expectTools)
     $selected.Add($task)
 }
 if ($selected.Count -eq 0) { throw "No matching tasks (filter: $($Tasks -join ', '))." }
@@ -438,6 +453,20 @@ function Invoke-EvalRun {
                 if (-not $ok -and -not $note) { $note = 'answer missing expected content' }
             }
             elseif (-not $note) { $note = 'no answer produced' }
+
+            # A correct-looking MCP answer must be grounded in the tools the task is
+            # designed to exercise. Extra calls (for example trace_info first) are fine;
+            # every expected tool must appear at least once as a successful call.
+            if ($ok -and $AgentHost -eq 'copilot') {
+                $successfulTools = @($transcript |
+                    Where-Object { $_.ok } |
+                    ForEach-Object { ($_.cmd -split '\s+', 2)[0] })
+                $missingTools = @($task.expectTools | Where-Object { $successfulTools -notcontains $_ })
+                if ($missingTools.Count -gt 0) {
+                    $ok = $false
+                    $note = "missing expected successful MCP tool(s): $($missingTools -join ', ')"
+                }
+            }
 
             if ($ok) { $successes++ }
             $callsList.Add($calls); $tokensList.Add($tokens); $msList.Add($wallMs)

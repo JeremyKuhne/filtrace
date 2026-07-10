@@ -12,8 +12,9 @@ refresh the embedded copies.
 
 filtrace is a command-line and MCP trace analyzer. It reads EventPipe
 (`.nettrace`, `.speedscope.json`) and ETW (`.etl`) captures from both modern .NET
-and .NET Framework, ranks where a metric goes, drills into one frame, and diffs
-two runs. There is no GUI; output is dense text by default, or compact JSON.
+and .NET Framework, ranks several metrics, reports structured runtime activity,
+and drills into, diffs, or exports CPU profiles. There is no GUI; output is dense
+text by default, or compact JSON.
 
 ## Getting a trace to analyze
 
@@ -25,15 +26,15 @@ analyzes whatever a recorder produces. Record or produce one, then point filtrac
 
 | Capture | Records | Elevation | Scope | Recorded by |
 |---|---|---|---|---|
-| EventPipe (`.nettrace`; a `.speedscope.json` export is cpu-only) | cpu, alloc, exceptions, contention, wait, activity, gc, jit | none | one process | `dotnet-trace collect`, BenchmarkDotNet `-p EP` |
+| EventPipe (`.nettrace`; a `.speedscope.json` export is cpu-only) | cpu, alloc, exceptions, contention, gc, jit, threadpool; wait/activity with capture opt-ins below | none | one process | `dotnet-trace collect`, BenchmarkDotNet `-p EP` |
 | ETW (`.etl`) | cpu, threadtime, native frames | Administrator | machine-wide | `filtrace collect`, BenchmarkDotNet `-p ETW`, PerfView, `wpr` |
 
 Only an ETW `.etl` carries wall-clock (`threadtime`), the native GC / JIT / `memcpy`
 split (`--native-symbols` + `classify`), and multi-process scoping (`processes` +
 `--process`); reach for it when the question is "CPU-bound or blocked?", "GC versus
 my code?", or "which process is this?" - otherwise an EventPipe trace is the
-lighter, no-elevation choice. Reading an `.etl` is itself Windows-only (the
-ETW -> ETLX conversion), though the resulting `.etlx` then analyzes on any OS.
+lighter, no-elevation choice. Reading an `.etl` through filtrace is Windows-only;
+direct `.etlx` input is not part of the current CLI or MCP surface.
 
 A machine-wide `.etl` also grows fast, so keep the capture lean. `filtrace collect`
 enables only the CPU (and, for `threadtime`, context-switch) keywords and stacks only
@@ -43,22 +44,48 @@ that dominate the trace no matter how short the window. Bound an open-ended run 
 `--duration` (by time) or `--max-size-mb` (a circular buffer that keeps the last N MB).
 Only a `diskio` capture needs those File/Disk keywords, and `collect` has
 no switch for them: that capture comes from another recorder (PerfView, `wpr`, or
-BenchmarkDotNet ETW), so expect the rundown there and trim it down afterward. Narrow
+a custom BenchmarkDotNet `EtwProfilerConfig` enabling `DiskIO` / `DiskFileIO`;
+plain `-p ETW` is CPU-only), so expect the rundown there and trim it down afterward. Narrow
 the analysis to your code with `--process` (lossless, so managed stacks survive) rather
 than physically shrinking the file (see
 [filtrace-etl-trimming.md](filtrace-etl-trimming.md)).
 
-One EventPipe caveat: the `wait` family needs the non-default `WaitHandle` keyword
-enabled at capture, so a plain `dotnet-trace collect` records the other families but
-not waits (`rank --metric wait` then warns it found none).
+One EventPipe caveat: the `wait` family is .NET 9+ and needs the non-default
+`WaitHandle` keyword (`0x40000000000`) enabled at capture. Preserve the default
+runtime keywords and add it; for the runtime used here the combined mask is
+`0x414C14FCCBD`:
 
-For a BenchmarkDotNet capture, add `--keepFiles` so the kept build output supplies
-the PDBs that resolve source lines, and **default every analysis to `--benchmark`**
-to scope past the harness - not just the ranking verbs, `export` too, and not just
-when the result looks noisy. `--benchmark` presets the root to the generated
-`WorkloadAction*` wrapper, isolating the measured `[Benchmark]` code from the
-bootstrap and warmup/overhead iterations a raw BDN trace otherwise dumps into the
-same call tree. The bundled
+```pwsh
+dotnet-trace collect --profile cpu-sampling `
+  --providers Microsoft-Windows-DotNETRuntime:0x414C14FCCBD:5 -- <app> <args>
+```
+
+A plain `dotnet-trace collect` records the default runtime families but not waits
+(`rank --metric wait` then warns it found none).
+
+Activity ranking and `--activity` CPU scope need completed EventSource Start/Stop
+pairs **and that application provider enabled during capture**. Use matching
+`OperationStart` / `OperationStop` events (or explicit Start/Stop opcodes) and add
+the provider alongside CPU sampling, for example:
+
+```pwsh
+dotnet-trace collect --profile cpu-sampling `
+  --providers MyCompany-RequestSource:0xFFFFFFFFFFFFFFFF:5 -- <app> <args>
+```
+
+Replace the provider name; level `5` is Verbose and the mask enables all keywords.
+
+For a BenchmarkDotNet capture, add `--keepFiles` to retain its generated build output
+and point `--symbols` at build output containing matching PDBs. Scope every
+**root-aware stack analysis** to the generated `WorkloadAction*` wrapper - not just
+rankings, export too, and not just when the result looks noisy. In the CLI,
+`--benchmark` supplies that preset to every verb that offers it. In MCP, pass
+`root: "WorkloadAction"` to `trace_rank`, `trace_callers`, `trace_tree`, and
+`trace_classify`; `trace_export` has its own `benchmark: true` preset. `lines` and
+`heatmap` have no root scope in either head: narrow them with their method/file filter
+and remember their percentages still describe the process-scoped whole trace. The
+workload wrapper includes warmup and actual iterations; it isolates the `[Benchmark]`
+code from bootstrap and overhead scaffolding, not warmup from measurement. The bundled
 [scripts/Capture-BenchmarkTrace.ps1](../.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1)
 wraps the whole loop: it runs the benchmark under the chosen profiler
 (self-elevating for ETW, with visible progress), finds the newest trace, and prints
@@ -79,8 +106,8 @@ profile already loaded, no manual upload:
 serves a `--format speedscope` profile to speedscope.app (defaulting to the Left Heavy
 hotspot view), and
 [scripts/Open-PerfettoTrace.ps1](../.agents/skills/filtrace/scripts/Open-PerfettoTrace.ps1)
-serves a `--format chromium` trace to the Perfetto UI. Each hosts the file on a one-shot
-loopback listener, so nothing is uploaded.
+serves a `--format chromium` synthetic flame-graph trace to the Perfetto UI. Each
+hosts the file on a one-shot loopback listener, so nothing is uploaded.
 
 ## The canonical investigation: orient -> rank -> drill -> compare
 
@@ -88,18 +115,40 @@ Almost every investigation is the same four moves, and the verbs and MCP tools
 are named for them:
 
 1. **Orient.** Read the trace's format, sample count, and symbol-resolution rate
-   first (`filtrace info` / `trace_info`). A symbol-resolution rate below
-   **0.8** means managed frames are missing and the rankings cannot be trusted -
-   pass a `--symbols <build-output-dir>` before reading further. `trace_info` also
-   reports which analyses the trace's format can answer and hints the metric that
-   matches the symptom, so a vague "why is this slow?" reaches an applicable view.
+  first (`filtrace info` / `trace_info`). A rate below **0.8** fires a quality
+  warning: inspect the unresolved rows before trusting frame names. Managed method
+  names normally come from CLR rundown; `--symbols <build-output-dir>` supplies
+  matching PDBs for source lines, not a replacement for missing rundown. Unresolved
+  native ETW frames can also depress the aggregate rate while managed-method
+  rankings remain usable; use `--native-symbols` when the native runtime split
+  matters. `trace_info` also reports which analyses the trace's
+  format can answer and hints the metric that matches the symptom, so a vague
+  "why is this slow?" reaches an applicable view.
 2. **Rank.** Find the hottest frames by a metric (`filtrace cpu|alloc|exceptions|threadtime`,
    or `rank --metric`). Self-time finds the leaf that burns the resource;
    inclusive time finds the subtree that drives it.
-3. **Drill.** Follow the hot frame into detail: who calls it (`callers`), which
-   source lines (`lines`, `heatmap`), or what it calls (`tree`).
+3. **Drill CPU.** For an unwindowed CPU ranking, follow the hot frame into detail:
+  who calls it (`callers`), which source lines (`lines`, `heatmap`), or what it
+  calls (`tree`). These tools read CPU stacks only. For alloc, exceptions,
+  contention, wait, activity, or threadtime, compare self/inclusive rankings or
+  refine `root` / `time` instead of crossing into a CPU drill.
 4. **Compare.** Diff a run against a baseline (`diff`) to see what regressed or
    improved, or `export` a flame graph for a human.
+
+### Route by symptom
+
+Choose the analysis from the symptom, then confirm it appears in `availableAnalyses`:
+
+| Symptom / question | Start with | What it establishes |
+|---|---|---|
+| CPU saturated or a hot loop | `cpu` self, then inclusive / callers | executing leaf, then the subtree or caller driving it |
+| Slow with low CPU | `threadtime` (`.etl`), or `contention` / `wait` / `threadpool` (`.nettrace`) | broad on/off-CPU split, lock/handle waits, or pool starvation |
+| High allocation rate or GC pauses | `alloc`, then `gcstats` | sampled allocation volume by site, then collection/pause cost |
+| Startup or first-call delay | `jitstats` | JIT count and compile cost |
+| Repeated exceptions | `exceptions` self, then inclusive | thrown types, then the paths that throw them |
+| One captured request or job is slow | metric `activity`, then CPU scoped with `activity` | completed activity paths, then CPU inside the named operation |
+| A spike occurs at an unknown time | `timeline`, then `rank --time` | the busy window, then its stacks |
+| Physical disk pressure | `diskio` (`.etl` with disk keywords) | files ranked by physical disk service time |
 
 <!-- filtrace:begin verbs -->
 ### CLI verbs
@@ -120,14 +169,14 @@ are named for them:
 | `exceptions` | exception types, by count | `.nettrace` |
 | `threadtime` | wall-clock (running + blocked) | `.etl` (Windows) |
 
-**Drill** - follow a ranking into detail:
+**CPU drill** - follow a CPU ranking into detail:
 
 | Verb | Shows |
 |---|---|
-| `callers <frame>` | immediate callers of a frame, or a caller/callee view with `--callees` |
-| `lines` | hottest source lines of the scoped methods |
-| `heatmap <file>` | per-line heat for one source file |
-| `tree` | top-down call tree from the root |
+| `callers <frame>` | immediate CPU callers of a frame, or a caller/callee view with `--callees` |
+| `lines` | hottest CPU source lines of the scoped methods |
+| `heatmap <file>` | per-line CPU heat for one source file |
+| `tree` | top-down CPU call tree from the root |
 
 **Inventory** - see what a (possibly machine-wide) capture holds:
 
@@ -146,7 +195,7 @@ are named for them:
 
 | Verb | Does |
 |---|---|
-| `diff <before> <after>` | what got slower/faster between two traces |
+| `diff <before> <after>` | absolute CPU sampled-time changes between comparable traces |
 | `export --format <fmt>` | write a flame graph for a viewer - `speedscope` or `chromium` |
 
 **Structured reports:**
@@ -178,24 +227,33 @@ are named for them:
 An agent wants the smallest relevant slice, not a machine-wide firehose. filtrace
 defaults to scenario scope and lets you tighten further:
 
-- **`--process <name>` / `--all-processes`** - the verbs that read a
+- **Process scope** - the verbs that read a
   multi-process `.etl` (`cpu`, `threadtime`, `rank`, `callers`, `lines`,
   `heatmap`, `tree`, `classify`, `timeline`) auto-scope to the busiest process tree
   (ranked by CPU-sample count) unless told otherwise. `alloc` and `exceptions` read a
   single-process `.nettrace`, so they have no process options. Run `processes`
-  first to see what is in a capture.
+  first to see what is in a capture. Both heads accept a named process (`--process
+  <name>` in the CLI, `process` in MCP); only the CLI accepts `--all-processes` to
+  widen an analysis to the aggregate capture.
 - **`--root <frame>`** - scope a ranking to the subtree under a frame.
-- **`--benchmark`** - preset the root to the BenchmarkDotNet measured-workload
-  wrapper, isolating the `[Benchmark]` code from the harness and warmup. Mutually
-  exclusive with `--root`.
+- **BenchmarkDotNet workload scope** - preset the root to the measured-workload
+  wrapper, isolating the `[Benchmark]` code from harness and overhead scaffolding.
+  Use `--benchmark` in CLI verbs that offer it; in MCP use `root: "WorkloadAction"`
+  on `trace_rank`, `trace_callers`, `trace_tree`, or `trace_classify`, and
+  `benchmark: true` on `trace_export`. The wrapper includes warmup and actual
+  iterations. `lines` / `heatmap` are not root-aware; use their method/file filter
+  and treat percentages as whole-trace. A benchmark preset is mutually exclusive
+  with an explicit root.
 - **`--activity <name>`** (`rank`, cpu metric) - scope the CPU view to the samples
   taken inside one start-stop activity - a request, job, or operation - or a child
   of it. Answers "why is *this* request slow?".
 - **`--time <start>,<end>`** (`rank`, any metric) - scope to a time window in
   milliseconds relative to the trace start, keeping only the samples anchored inside
   it. Either bound may be omitted (`1000,5000`, `1000,`, or `,5000`). Zooms every
-  metric to the slice around a latency spike or one slow request. (A `.speedscope.json`
-  timeline is in its own unit, not milliseconds, so `--time` does not apply there.)
+  metric to the slice around a latency spike or one slow request for `.nettrace` /
+  `.etl`. Speedscope evented/sampled time units are normalized to milliseconds for
+  ranking, but speedscope is aggregate-only for this option and warns that the window
+  was ignored.
 
 ## Symbols
 
@@ -203,9 +261,10 @@ Managed frames - including NGEN (`.NET Framework`) and ReadyToRun (modern .NET)
 framework methods - resolve for free from the trace's own CLR rundown. Two opt-ins
 go further:
 
-- **`--symbols <build-output-dir>`** - resolve your own managed frames and source
-  lines from the portable PDBs in a build-output directory. Needed for `lines` /
-  `heatmap`, and to lift a low symbol-resolution rate.
+- **`--symbols <build-output-dir>`** - map managed code to source lines using
+  matching portable PDBs in a build-output directory. Needed for `lines` /
+  `heatmap`; managed method names normally come from CLR rundown, so this is not a
+  general repair for a low aggregate name-resolution rate.
 - **`--native-symbols`** (CPU `.etl` only) - resolve the *unmanaged* runtime
   frames (GC, JIT, `memset` / `memcpy`, write barriers) from the Microsoft public
   symbol server. Off by default so analysis stays offline and deterministic; the
@@ -215,7 +274,7 @@ go further:
 <!-- filtrace:begin tools -->
 ### MCP tools
 
-The MCP server exposes the same analysis as sixteen `trace_*` tools over stdio.
+The MCP server exposes the same analysis core as sixteen `trace_*` tools over stdio.
 Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-step
 `hints`, and the typed result - and the read-only analysis tools are annotated
 `readOnlyHint`.
@@ -224,10 +283,10 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 |---|---|---|
 | `trace_info` | (orient) | format, sample count, symbol-resolution rate, available analyses; call first |
 | `trace_rank` | `rank` / `cpu` / `alloc` / `exceptions` / `threadtime` | rank by `metric` (cpu, threadtime, alloc, exceptions, contention, wait, activity) |
-| `trace_callers` | `callers` | immediate callers of a frame, or a caller/callee view (`callees`) |
-| `trace_lines` | `lines` | hottest source lines of the scoped methods |
-| `trace_heatmap` | `heatmap` | per-line heat for one source file |
-| `trace_tree` | `tree` | top-down call tree from the root |
+| `trace_callers` | `callers` | immediate CPU callers of a frame, or a caller/callee view (`callees`) |
+| `trace_lines` | `lines` | hottest CPU source lines of the scoped methods |
+| `trace_heatmap` | `heatmap` | per-line CPU heat for one source file |
+| `trace_tree` | `tree` | top-down CPU call tree from the root |
 | `trace_processes` | `processes` | processes by weight, to pick a scope |
 | `trace_classify` | `classify` | CPU time by runtime work category |
 | `trace_diff` | `diff` | what changed between two traces |
@@ -239,8 +298,9 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 | `trace_diskio` | `diskio` | physical disk I/O by file (bytes, disk time) |
 | `trace_query_events` | `events` | raw events, filtered by name / payload / pid / tid, paged |
 
-The file-management verbs (`convert`, `clean`) stay CLI-only - they manage the
-on-disk ETLX cache rather than return an analysis.
+The capture and file-management verbs (`collect`, `convert`, `clean`) stay CLI-only.
+MCP also omits the CLI's `--all-processes` widening switch; its ETW analyses use the
+automatic busiest-process scope or an explicit `process` name.
 <!-- filtrace:end tools -->
 
 ## Output contract
@@ -257,6 +317,34 @@ Both heads share one envelope so an agent parses one shape:
 Text mode renders the same data as dense fixed-width tables; `--format json`
 emits the envelope compact (single line, deterministically rounded) so it diffs
 cleanly and stays cheap in tokens.
+
+## Interpret and report the evidence
+
+- Read `warnings` before the payload and use `hints` as candidate next steps. An
+  empty or poorly resolved result is a reason to fix scope/symbols, not evidence
+  that the behavior does not exist.
+- State the trace format, selected process/root/time window, metric, and
+  self-versus-inclusive measure with the finding. Percentages are relative to that
+  scope; CPU milliseconds are sampled estimates, not exact elapsed duration.
+- `alloc` attributes `GCAllocationTick` volume to allocation sites. It does **not**
+  report retained bytes, object reachability, or GC-root paths, so it cannot prove a
+  memory leak; use a heap snapshot/dump tool for retention.
+- `threadtime` aggregates running and blocked intervals across threads. Do not call
+  its total a request's latency unless the scope isolates that request/thread.
+- `contention`, `wait`, and `activity` pair Start/Stop events. An operation still
+  open at trace end may be absent; an empty ranking does not rule out an active
+  hang. Use ETW threadtime or a dump/current-state tool when the unfinished state
+  itself is the question.
+- `diff` compares absolute CPU sampled weights, not normalized percentages. Compare
+  equivalent workloads, capture lengths, runtime/configuration, symbols, root, fold,
+  and measure. It has no process selector and auto-scopes each ETW input separately,
+  so first confirm the same workload is busiest in both captures.
+- Chromium export reconstructs one aggregate synthetic track whose widths preserve
+  sample weight. Its axis is not the capture's original timestamps, thread
+  concurrency, or idle gaps; use `timeline` / `--time` for temporal conclusions.
+- Report observations separately from hypotheses. A hot frame, high allocation
+  site, or positive diff identifies where recorded cost landed; it does not by itself
+  establish root cause or prove that a code change caused the difference.
 
 <!-- filtrace:begin agents-snippet -->
 ## Using filtrace from an AI agent
@@ -282,8 +370,9 @@ filtrace is built for an agent mid-investigation. Two ways to wire it in:
   and let the agent shell out to `filtrace <verb>`.
 
 Either way, the canonical loop is **orient -> rank -> drill -> compare**: read
-`trace_info` (CLI: `filtrace info`) first and trust the rankings only when the
-symbol-resolution rate is at or above 0.8; rank by the metric that matches the
-question (cpu, alloc, exceptions, threadtime, contention, wait, activity); drill the
-hot frame with callers / lines / tree; diff against a baseline to see what changed.
+`trace_info` (CLI: `filtrace info`) first; when symbol resolution is below 0.8,
+inspect its warning and unresolved rows; use local PDBs for source lines or native
+symbols for CPU ETW runtime frames as applicable. Rank by the metric that matches the question (cpu, alloc, exceptions,
+threadtime, contention, wait, activity); for an unwindowed CPU ranking, drill the
+hot frame with callers / lines / tree; diff comparable CPU traces against a baseline.
 <!-- filtrace:end agents-snippet -->
