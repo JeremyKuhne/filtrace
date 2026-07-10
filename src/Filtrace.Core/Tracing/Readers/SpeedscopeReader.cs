@@ -49,17 +49,19 @@ internal sealed class SpeedscopeReader : ITraceReader
         {
             foreach (JsonElement profile in profiles.EnumerateArray())
             {
-                double millisecondsPerUnit = ResolveMillisecondsPerUnit(profile);
-                string type = profile.TryGetProperty("type", out JsonElement profileType)
-                    ? profileType.GetString() ?? ""
-                    : "";
+                // Every speedscope profile requires a type. Unknown explicit types are
+                // extensions we can ignore, but a missing type is malformed input rather
+                // than an extension profile and should retain the clean input-error path.
+                string type = profile.GetProperty("type").GetString() ?? "";
 
                 if (string.Equals(type, "evented", StringComparison.Ordinal))
                 {
+                    double millisecondsPerUnit = ResolveMillisecondsPerUnit(profile);
                     ReadEventedProfile(profile, frameNames, samples, millisecondsPerUnit);
                 }
                 else if (string.Equals(type, "sampled", StringComparison.Ordinal))
                 {
+                    double millisecondsPerUnit = ResolveMillisecondsPerUnit(profile);
                     ReadSampledProfile(profile, frameNames, samples, millisecondsPerUnit);
                 }
             }

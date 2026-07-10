@@ -66,6 +66,31 @@ public sealed class SpeedscopeReaderTests
         action.Should().Throw<NotSupportedException>().WithMessage("*requires a time unit*");
     }
 
+    [TestMethod]
+    public void Read_UnknownProfiles_DoNotInvalidateSupportedCpuProfile()
+    {
+        const string json = """
+            {"shared":{"frames":[{"name":"Work"}]},"profiles":[{"type":"extension","name":"bytes","unit":"bytes"},{"type":"extension","name":"missing-unit"},{"type":"sampled","name":"cpu","unit":"milliseconds","startValue":0,"endValue":2,"samples":[[0]],"weights":[2]}]}
+            """;
+
+        LoadedTrace trace = Read(json);
+
+        trace.Info.TotalWeight.Should().Be(2.0);
+        trace.Aggregator.SelfTime("", FrameNames.DefaultFoldPatterns, 5).Rows[0].Frame.Should().Be("Work");
+    }
+
+    [TestMethod]
+    public void Read_ProfileMissingType_RejectsMalformedInput()
+    {
+        const string json = """
+            {"shared":{"frames":[]},"profiles":[{"name":"missing-type"}]}
+            """;
+
+        Action action = () => Read(json);
+
+        action.Should().Throw<KeyNotFoundException>();
+    }
+
     private static LoadedTrace Read(string json)
     {
         string path = Path.Combine(Path.GetTempPath(), $"filtrace-{Guid.NewGuid():N}.speedscope.json");

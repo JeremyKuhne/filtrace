@@ -71,7 +71,19 @@ public sealed class SteeringHintsTests
         IReadOnlyList<string> hints = SteeringHints.ForRanking(ranking, MetricInfo.Cpu, scope);
 
         hints.Should().ContainSingle().Which.Should().Be(
-            "drill into the hot frame with: callers MyApp.Inner --root \"WorkloadAction\" --process \"MyApp\"");
+            "drill into the hot frame with: callers MyApp.Inner --root 'WorkloadAction' --process 'MyApp'");
+    }
+
+    [TestMethod]
+    public void ForRanking_QuotedScopeValues_ArePowerShellSafe()
+    {
+        RankingResult ranking = new(25.0, "Work\"load", [new RankRow("MyApp.Inner", 16.0, 64.0)]);
+        ScopeRequest scope = ScopeRequest.ForProcess("Jeremy's App");
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(ranking, MetricInfo.Cpu, scope);
+
+        hints.Should().ContainSingle().Which.Should().Be(
+            "drill into the hot frame with: callers MyApp.Inner --root 'Work\"load' --process 'Jeremy''s App'");
     }
 
     [TestMethod]
@@ -194,9 +206,9 @@ public sealed class SteeringHintsTests
 
         hints.Should().HaveCount(2);
         hints[0].Should().Be(
-            "continue up the stack with: callers Program.Main --root \"WorkloadAction\" --process \"MyApp\"");
+            "continue up the stack with: callers Program.Main --root 'WorkloadAction' --process 'MyApp'");
         hints[1].Should().Be(
-            "continue down into the callee with: callers MyApp.Inner --callees --root \"WorkloadAction\" --process \"MyApp\"");
+            "continue down into the callee with: callers MyApp.Inner --callees --root 'WorkloadAction' --process 'MyApp'");
     }
 
     [TestMethod]

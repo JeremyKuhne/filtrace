@@ -228,16 +228,21 @@ public static class SteeringHints
     {
         if (!string.IsNullOrEmpty(root))
         {
-            hint = $"{hint} --root \"{root}\"";
+            hint = $"{hint} --root {QuotePowerShellArgument(root)}";
         }
 
         if (scope?.ProcessName is string processName)
         {
-            return $"{hint} --process \"{processName}\"";
+            return $"{hint} --process {QuotePowerShellArgument(processName)}";
         }
 
         return scope?.IncludeAll == true ? $"{hint} --all-processes" : hint;
     }
+
+    // Hints use PowerShell command syntax throughout the shipped Windows-first docs.
+    // Single-quoted arguments preserve whitespace, double quotes, dollar signs, and
+    // backticks; PowerShell represents an embedded apostrophe by doubling it.
+    private static string QuotePowerShellArgument(string value) => $"'{value.Replace("'", "''", StringComparison.Ordinal)}'";
 
     /// <summary>
     ///  The next-step hints for a ranking diff: drill into the frame whose weight

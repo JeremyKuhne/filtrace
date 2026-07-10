@@ -104,7 +104,7 @@ public sealed class TraceTools
         + "(JIT helpers folded in); measure=inclusive credits a frame and all it calls. One tool spans every "
         + "family - metric=cpu (sampled ms, any format), threadtime (wall-clock, .etl only), alloc (bytes), "
         + "exceptions (throws by type), contention (ms on locks), wait (ms on a handle), or activity (ms per "
-        + "completed captured request); all but cpu and threadtime need a .nettrace. Scope with root; for a BenchmarkDotNet "
+        + "completed activity); all but cpu and threadtime need a .nettrace. Scope with root; for a BenchmarkDotNet "
         + "capture set root to the workload to skip the harness.")]
     public static AnalysisResult<RankingResult> Rank(
         TraceStore store,
