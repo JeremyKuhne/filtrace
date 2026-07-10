@@ -11,8 +11,8 @@
 
       - EventPipe (-Profiler EP, the default): cross-platform, no elevation, single
         process. Runs `dotnet run -c Release -f <Tfm> --project <Project> --
-        --filter <Filter> -p EP`, which writes a raw .nettrace and (today) also
-        a derived .speedscope.json from the same capture. The raw .nettrace is
+                --filter <Filter> -p EP --keepFiles`, which writes a raw .nettrace and
+                (today) also a derived .speedscope.json from the same capture. The raw .nettrace is
         preferred when both exist - it is the only one of the two that carries
         allocation events and per-frame source locations, which the printed
         `alloc` / `lines` commands need; a .speedscope.json is CPU-self-time
@@ -160,9 +160,10 @@ if ($Profiler -eq 'ETW' -and -not (Select-String -Path $projFile.FullName -Patte
     exit 1
 }
 
-# Both branches are multi-element arrays, so they stay arrays (a single-element
-# if-expression would unwrap to a scalar under Set-StrictMode).
-$profArg = if ($Profiler -eq 'ETW') { @('-p', 'ETW', '--keepFiles') } else { @('-p', 'EP') }
+# Preserve the BenchmarkDotNet build output for source-symbol resolution under both
+# profilers. Both branches are multi-element arrays, so they stay arrays (a
+# single-element if-expression would unwrap to a scalar under Set-StrictMode).
+$profArg = @('-p', $Profiler, '--keepFiles')
 
 Write-Host "Capturing $Profiler trace: $Filter ($Tfm)..." -ForegroundColor Cyan
 # Tee, do not redirect: an elevated window shows BenchmarkDotNet's live progress
@@ -214,33 +215,33 @@ else {
     if ($null -eq $trace) { Write-Error "No *.nettrace or *.speedscope.json found in $artifacts. Did the capture run?" -ErrorAction Continue ; exit 1 }
 }
 
-# The build output BenchmarkDotNet kept (EventPipe) or --keepFiles preserved (ETW);
-# its embedded PDBs resolve managed frames to source lines for lines/heatmap.
+# The project build output carries matching PDBs for source lines; --keepFiles also
+# preserves BenchmarkDotNet's generated build output for manual follow-up.
 $symbols = Join-Path (Split-Path -Parent $projFile.FullName) "bin/Release/$Tfm"
+$methodFilter = $Filter.Trim('*')
+if ([string]::IsNullOrWhiteSpace($methodFilter)) { $methodFilter = 'BenchmarkMethod' }
 
 Write-Host "`nCaptured: $($trace.FullName)" -ForegroundColor Green
 Write-Host "`nNext-step filtrace commands:" -ForegroundColor Green
 if ($Profiler -eq 'ETW') {
-    # An .etl is machine-wide: scope every query to the benchmark process AND to
-    # the measured workload with --benchmark - both, every time, not just when a
-    # ranking looks noisy. --process narrows the OS process; --benchmark is what
-    # excludes the harness/warmup subtree so a ranking or export's proportions
-    # actually reflect the measured [Benchmark] code.
+    # An .etl is machine-wide: narrow it to the benchmark process. Root-aware
+    # rankings/exports also use --benchmark to exclude harness/overhead scaffolding;
+    # the WorkloadAction wrapper still includes warmup and actual iterations. Lines
+    # has no root preset, so print its supported method filter explicitly.
     Write-Host "  filtrace processes `"$($trace.FullName)`""
-    Write-Host "  filtrace cpu `"$($trace.FullName)`" --process $Process --benchmark --top $Top"
-    Write-Host "  filtrace threadtime `"$($trace.FullName)`" --process $Process --benchmark --top $Top"
-    Write-Host "  filtrace lines `"$($trace.FullName)`" --process $Process --benchmark --symbols `"$symbols`""
-    Write-Host "  filtrace classify `"$($trace.FullName)`" --process $Process --benchmark --native-symbols"
-    Write-Host "  filtrace export `"$($trace.FullName)`" --process $Process --benchmark --native-symbols --symbols `"$symbols`" -o flame.speedscope.json"
+    Write-Host "  filtrace cpu `"$($trace.FullName)`" --process `"$Process`" --benchmark --top $Top"
+    Write-Host "  filtrace threadtime `"$($trace.FullName)`" --process `"$Process`" --benchmark --top $Top"
+    Write-Host "  filtrace lines `"$($trace.FullName)`" --process `"$Process`" --method `"$methodFilter`" --symbols `"$symbols`""
+    Write-Host "  filtrace classify `"$($trace.FullName)`" --process `"$Process`" --benchmark --native-symbols"
+    Write-Host "  filtrace export `"$($trace.FullName)`" --process `"$Process`" --benchmark --native-symbols --symbols `"$symbols`" -o flame.speedscope.json"
 }
 elseif ($trace.Name -like '*.nettrace') {
     # A raw .nettrace carries CPU, allocations, and per-frame source locations -
-    # every verb below works against it. Scope past the BenchmarkDotNet harness
-    # with --benchmark - every verb here, export included, not just the ones that
-    # print a ranking.
+    # every verb below works against it. Root-aware rankings/exports use --benchmark;
+    # lines has no root preset, so narrow it with the benchmark method name.
     Write-Host "  filtrace cpu `"$($trace.FullName)`" --benchmark --top $Top"
     Write-Host "  filtrace alloc `"$($trace.FullName)`" --benchmark --top $Top"
-    Write-Host "  filtrace lines `"$($trace.FullName)`" --benchmark --symbols `"$symbols`""
+    Write-Host "  filtrace lines `"$($trace.FullName)`" --method `"$methodFilter`" --symbols `"$symbols`""
     Write-Host "  filtrace export `"$($trace.FullName)`" --benchmark --symbols `"$symbols`" -o flame.speedscope.json"
 }
 else {

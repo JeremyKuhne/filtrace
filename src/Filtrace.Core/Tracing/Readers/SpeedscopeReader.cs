@@ -7,16 +7,15 @@ using System.Text.Json;
 namespace Filtrace.Tracing.Readers;
 
 /// <summary>
-///  Reads a BenchmarkDotNet EventPipe speedscope export
-///  (<c>.speedscope.json</c>) into weighted samples.
+///  Reads standard evented or sampled time-based speedscope profiles
+///  (<c>.speedscope.json</c>) into CPU samples weighted in milliseconds.
 /// </summary>
 /// <remarks>
 ///  <para>
-///   The evented speedscope format records frame open (<c>O</c>) and close
-///   (<c>C</c>) events with timestamps. The wall-clock delta between consecutive
-///   events is attributed to whatever frames are open at that moment - exactly
-///   the model the aggregator consumes. Each profile maps to one thread, and
-///   frame names are already symbol-resolved.
+///   Evented profiles record frame open (<c>O</c>) and close (<c>C</c>) events;
+///   sampled profiles record stacks and weights directly. Both normalize their
+///   declared time unit to milliseconds, the CPU metric the aggregator consumes.
+///   Each profile maps to one thread, and frame names are already symbol-resolved.
 ///  </para>
 /// </remarks>
 internal sealed class SpeedscopeReader : ITraceReader
@@ -50,7 +49,19 @@ internal sealed class SpeedscopeReader : ITraceReader
         {
             foreach (JsonElement profile in profiles.EnumerateArray())
             {
-                ReadProfile(profile, frameNames, samples);
+                double millisecondsPerUnit = ResolveMillisecondsPerUnit(profile);
+                string type = profile.TryGetProperty("type", out JsonElement profileType)
+                    ? profileType.GetString() ?? ""
+                    : "";
+
+                if (string.Equals(type, "evented", StringComparison.Ordinal))
+                {
+                    ReadEventedProfile(profile, frameNames, samples, millisecondsPerUnit);
+                }
+                else if (string.Equals(type, "sampled", StringComparison.Ordinal))
+                {
+                    ReadSampledProfile(profile, frameNames, samples, millisecondsPerUnit);
+                }
             }
         }
 
@@ -60,16 +71,13 @@ internal sealed class SpeedscopeReader : ITraceReader
             warnings.Add("No timed samples were found in the speedscope file.");
         }
 
-        // A speedscope timeline is in the profile's own unit (nanoseconds, microseconds,
-        // ...), not the milliseconds a TimeWindow is measured in, so a time-window scope
-        // cannot be applied consistently here. Ignore it, but say so rather than silently
-        // returning the whole trace when the caller asked for a slice.
+        // Speedscope is currently an aggregate CPU input; this reader does not expose
+        // profile positions as the trace-relative anchors rank --time consumes. Ignore a
+        // requested window, but say so rather than silently returning the whole profile.
         if (scope?.Window is TimeWindow window && window.IsBounded)
         {
             warnings.Add(
-                "Time-window scoping is not applied to a speedscope trace (its timeline is in the profile's "
-                + "own unit, not milliseconds); the requested time window was ignored. Use a .nettrace or .etl "
-                + "capture to scope by time.");
+                "Time-window scoping is not applied to a speedscope trace; the requested window was ignored. Use a .nettrace or .etl capture to scope by trace-relative time.");
         }
 
         return new TraceReadResult(samples, 1.0, warnings);
@@ -96,7 +104,11 @@ internal sealed class SpeedscopeReader : ITraceReader
         return names;
     }
 
-    private static void ReadProfile(JsonElement profile, string[] frameNames, List<SampleStack> samples)
+    private static void ReadEventedProfile(
+        JsonElement profile,
+        string[] frameNames,
+        List<SampleStack> samples,
+        double millisecondsPerUnit)
     {
         if (!profile.TryGetProperty("events", out JsonElement events)
             || events.ValueKind != JsonValueKind.Array)
@@ -117,7 +129,7 @@ internal sealed class SpeedscopeReader : ITraceReader
 
             if (lastAt is double previous && stack.Count > 0)
             {
-                double delta = at - previous;
+                double delta = (at - previous) * millisecondsPerUnit;
                 if (delta > 0)
                 {
                     string[] frames = new string[stack.Count];
@@ -152,5 +164,75 @@ internal sealed class SpeedscopeReader : ITraceReader
 
             lastAt = at;
         }
+    }
+
+    private static void ReadSampledProfile(
+        JsonElement profile,
+        string[] frameNames,
+        List<SampleStack> samples,
+        double millisecondsPerUnit)
+    {
+        if (!profile.TryGetProperty("samples", out JsonElement profileSamples)
+            || profileSamples.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        bool hasWeights = profile.TryGetProperty("weights", out JsonElement weights)
+            && weights.ValueKind == JsonValueKind.Array;
+        string thread = profile.TryGetProperty("name", out JsonElement profileName)
+            ? profileName.GetString() ?? ""
+            : "";
+
+        int sampleIndex = 0;
+        foreach (JsonElement profileSample in profileSamples.EnumerateArray())
+        {
+            if (profileSample.ValueKind != JsonValueKind.Array)
+            {
+                sampleIndex++;
+                continue;
+            }
+
+            double weight = hasWeights && sampleIndex < weights.GetArrayLength()
+                ? weights[sampleIndex].GetDouble() * millisecondsPerUnit
+                : millisecondsPerUnit;
+            sampleIndex++;
+            if (weight <= 0.0)
+            {
+                continue;
+            }
+
+            string[] frames = new string[profileSample.GetArrayLength()];
+            int framePosition = 0;
+            foreach (JsonElement frame in profileSample.EnumerateArray())
+            {
+                int frameIndex = frame.GetInt32();
+                frames[framePosition++] = (uint)frameIndex < (uint)frameNames.Length
+                    ? frameNames[frameIndex]
+                    : "?";
+            }
+
+            if (frames.Length > 0)
+            {
+                samples.Add(new SampleStack(frames, weight, thread));
+            }
+        }
+    }
+
+    private static double ResolveMillisecondsPerUnit(JsonElement profile)
+    {
+        string unit = profile.TryGetProperty("unit", out JsonElement profileUnit)
+            ? profileUnit.GetString() ?? ""
+            : "";
+
+        return unit switch
+        {
+            "nanoseconds" => 0.000001,
+            "microseconds" => 0.001,
+            "milliseconds" => 1.0,
+            "seconds" => 1000.0,
+            _ => throw new NotSupportedException(
+                $"Speedscope CPU input requires a time unit (nanoseconds, microseconds, milliseconds, or seconds); found '{unit}'.")
+        };
     }
 }

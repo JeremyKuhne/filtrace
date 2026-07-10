@@ -42,7 +42,7 @@ internal static class CallersExecutor
         AnalysisResult<CallersResult> envelope = new(
             callers,
             TraceExecution.ResultWarnings(info),
-            SteeringHints.ForCallers(callers));
+            SteeringHints.ForCallers(callers, request.Root, request.Scope));
 
         if (request.Format == OutputFormat.Json)
         {

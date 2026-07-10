@@ -35,6 +35,8 @@ public sealed class SymbolGateTests
         fired.Should().BeTrue();
         warning.Should().NotBeNull();
         warning.Should().Contain("--symbols");
+        warning.Should().Contain("--native-symbols");
+        warning.Should().Contain("source lines");
         warning.Should().Contain("50%");
         warning.Should().Contain("80%");
     }

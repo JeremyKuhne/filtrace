@@ -1,0 +1,15 @@
+{
+  "id": "trace-info-orientation",
+  "title": "Orient on an unfamiliar trace before choosing an analysis.",
+  "prompt": "This is an unfamiliar trace. Before choosing a ranking, identify its format and which analysis family it can answer.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json",
+  "os": "any",
+  "steps": [
+    { "args": ["info", "{fixture}"] }
+  ],
+  "assert": [
+    { "field": "result.format", "equals": "Speedscope" },
+    { "jsonContains": "\"availableAnalyses\":[\"cpu\"]" }
+  ],
+  "expect": ["Speedscope", "cpu"]
+}

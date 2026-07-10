@@ -10,7 +10,7 @@ namespace Filtrace.Tracing;
 public enum TraceFormat
 {
     /// <summary>
-    ///  BenchmarkDotNet EventPipe speedscope export (<c>.speedscope.json</c>).
+    ///  Evented or sampled time-based speedscope profile (<c>.speedscope.json</c>).
     /// </summary>
     Speedscope,
 

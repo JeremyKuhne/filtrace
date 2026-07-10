@@ -21,7 +21,7 @@ namespace Filtrace.Cli;
 /// </remarks>
 /// <param name="Path">The trace file path.</param>
 /// <param name="Root">Substring scoping the classification to a subtree, or empty for the whole trace.</param>
-/// <param name="Symbols">Optional build-output directory whose embedded PDBs resolve managed frames.</param>
+/// <param name="Symbols">Optional build-output directory whose PDBs map managed code to source lines.</param>
 /// <param name="Format">The render format.</param>
 /// <param name="Strict">Whether to trip the strict symbol-resolution exit gate.</param>
 /// <param name="Scope">The process scope, or <see langword="null"/> for the automatic default.</param>

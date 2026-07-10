@@ -13,7 +13,7 @@ namespace Filtrace.Cli;
 /// <param name="Path">The trace file path.</param>
 /// <param name="Format">The flame-graph format to write.</param>
 /// <param name="Output">The output file path, or <see langword="null"/> to write to standard output.</param>
-/// <param name="Symbols">Optional build-output directory whose embedded PDBs resolve managed frames.</param>
+/// <param name="Symbols">Optional build-output directory whose PDBs map managed code to source lines.</param>
 /// <param name="Name">The profile name shown in the viewer.</param>
 /// <param name="Scope">
 ///  The process scope: an explicit process tree, every process, or the automatic

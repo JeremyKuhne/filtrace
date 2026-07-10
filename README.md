@@ -5,8 +5,8 @@
 [![KlutzyNinja.Filtrace.Mcp](https://img.shields.io/nuget/v/KlutzyNinja.Filtrace.Mcp?logo=nuget&label=KlutzyNinja.Filtrace.Mcp)](https://www.nuget.org/packages/KlutzyNinja.Filtrace.Mcp)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A small, agent-shaped CLI and MCP server for analyzing .NET CPU/memory/wall-clock
-traces. Built on the
+A small, agent-shaped CLI and MCP server for analyzing .NET CPU, allocation,
+blocking, and wall-clock traces. Built on the
 `Microsoft.Diagnostics.Tracing.TraceEvent` library; reads EventPipe
 (`.nettrace` / `.speedscope.json`) and ETW (`.etl`) captures from both .NET and
 .NET Framework runs.
@@ -49,9 +49,11 @@ dotnet tool install --global --add-source ./artifacts/packages KlutzyNinja.Filtr
 
 ## Using filtrace
 
-Every verb takes a trace path and prints a dense text report (or compact JSON
-with `--format json`). The canonical investigation is **rank -> drill -> compare**:
-find the hot frames, drill into one, then diff against a baseline.
+Every analysis verb takes a trace path and prints a dense text report (or compact
+JSON with `--format json`); `collect` instead launches the executable it records.
+The canonical investigation is **orient -> rank -> drill ->
+compare**: inspect the capture, rank the matching metric, drill an unwindowed CPU
+ranking when needed, then diff comparable CPU traces against a baseline.
 
 ```pwsh
 # Workflow: orient, rank the hottest frames, drill into one, then diff two runs.
@@ -62,11 +64,12 @@ filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source line
 filtrace diff before.nettrace after.nettrace   # 4. what changed between runs
 ```
 
-The same analysis is exposed as a stdio MCP server: every analysis verb has a
+The same analysis core is exposed as a stdio MCP server: every analysis verb has a
 matching `trace_*` tool (sixteen in all - `info` -> `trace_info`, `rank` ->
 `trace_rank`, `callers` -> `trace_callers`, and so on), returning the same envelope
-shape, so an agent gets identical results either way. Only the capture and
-housekeeping verbs (`collect`, `convert`, `clean`) are CLI-only. See
+shape and results. The capture and housekeeping verbs (`collect`, `convert`,
+`clean`) are CLI-only, as is widening an ETW analysis with `--all-processes`; MCP
+supports automatic or named-process scope. See
 [Using filtrace from an AI agent](#using-filtrace-from-an-ai-agent) for the client
 config and tool workflow.
 
@@ -86,7 +89,7 @@ config and tool workflow.
 | `rank` | Any metric (`cpu`, `alloc`, `exceptions`, `threadtime`, `contention`, `wait`, `activity`) | `filtrace rank app.nettrace --metric contention` |
 | `cpu` | CPU self-/inclusive-time | `filtrace cpu app.nettrace --measure inclusive` |
 | `alloc` | Bytes allocated, by site | `filtrace alloc app.nettrace --top 10` |
-| `exceptions` | Throw sites, by count | `filtrace exceptions app.nettrace` |
+| `exceptions` | Exception types by count; inclusive view reveals throw paths | `filtrace exceptions app.nettrace` |
 | `threadtime` | Wall-clock (running + blocked), Windows `.etl` | `filtrace threadtime app.etl` |
 
 Every ranking verb accepts `--root` (scope to a frame subtree) and `--benchmark`
@@ -99,8 +102,9 @@ auto-scoped by default); `alloc` and `exceptions` read single-process
 multi-process capture before scoping, run `filtrace processes` (below). The `rank`
 verb adds two more scopes: `--activity <name>` (the CPU samples taken inside one
 start-stop request/job) and `--time <start>,<end>` (milliseconds from the trace
-start, either bound optional; any metric), to zoom in on one request or the slice
-around a latency spike.
+start, either bound optional; any metric on `.nettrace` / `.etl`), to zoom in on one
+request or the slice around a latency spike. Speedscope input is aggregate-only for
+`--time` and warns that the window was ignored.
 
 ```pwsh
 filtrace cpu bdn.nettrace --benchmark          # just the [Benchmark] code
@@ -122,14 +126,14 @@ run downloads, later runs hit the cache.
 filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy frames
 ```
 
-**Drill-down** - follow a ranking into detail:
+**CPU drill-down** - follow an unwindowed CPU ranking into detail:
 
 | Verb | Purpose | Example |
 |---|---|---|
-| `callers` | Immediate callers of a frame, or a caller/callee view with `--callees` | `filtrace callers app.nettrace MyApp.Parse --callees` |
-| `lines` | Hottest source lines of scoped methods | `filtrace lines app.nettrace --symbols bin/Release/net10.0` |
-| `heatmap` | Per-line heat for one source file | `filtrace heatmap app.nettrace Parser.cs` |
-| `tree` | Top-down call tree from the root | `filtrace tree app.nettrace --max-depth 5` |
+| `callers` | Immediate CPU callers of a frame, or a caller/callee view with `--callees` | `filtrace callers app.nettrace MyApp.Parse --callees` |
+| `lines` | Hottest CPU source lines of scoped methods | `filtrace lines app.nettrace --symbols bin/Release/net10.0` |
+| `heatmap` | Per-line CPU heat for one source file | `filtrace heatmap app.nettrace Parser.cs` |
+| `tree` | Top-down CPU call tree from the root | `filtrace tree app.nettrace --max-depth 5` |
 
 **Inventory** - see what a (possibly machine-wide) capture contains:
 
@@ -148,7 +152,7 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 
 | Verb | Purpose | Example |
 |---|---|---|
-| `diff` | What got slower/faster between two traces | `filtrace diff before.nettrace after.nettrace` |
+| `diff` | Absolute CPU sampled-time changes between comparable traces | `filtrace diff before.nettrace after.nettrace` |
 | `export` | Write a flame graph (speedscope / chromium) | `filtrace export app.nettrace --format speedscope -o app.json` |
 
 **Structured reports:**
@@ -210,10 +214,11 @@ filtrace is built for an agent mid-investigation. Two ways to wire it in:
   and let the agent shell out to `filtrace <verb>`.
 
 Either way, the canonical loop is **orient -> rank -> drill -> compare**: read
-`trace_info` (CLI: `filtrace info`) first and trust the rankings only when the
-symbol-resolution rate is at or above 0.8; rank by the metric that matches the
-question (cpu, alloc, exceptions, threadtime, contention, wait, activity); drill the
-hot frame with callers / lines / tree; diff against a baseline to see what changed.
+`trace_info` (CLI: `filtrace info`) first; when symbol resolution is below 0.8,
+inspect its warning and unresolved rows; use local PDBs for source lines or native
+symbols for CPU ETW runtime frames as applicable. Rank by the metric that matches the question (cpu, alloc, exceptions,
+threadtime, contention, wait, activity); for an unwindowed CPU ranking, drill the
+hot frame with callers / lines / tree; diff comparable CPU traces against a baseline.
 <!-- filtrace:end agents-snippet -->
 
 ## Layout
@@ -221,8 +226,8 @@ hot frame with callers / lines / tree; diff against a baseline to see what chang
 | Path | Purpose |
 |---|---|
 | `src/Filtrace.Core/` | Analysis core: trace readers, stack-source providers, the provider-agnostic question-service engine. The only place logic lives. |
-| `src/Filtrace/` | CLI host (`filtrace`); the `filtrace mcp` verb hosts the server. |
-| `src/Filtrace.Mcp/` | Thin shim package over the same core assembly. |
+| `src/Filtrace/` | CLI host, packaged as the `filtrace` .NET global tool. |
+| `src/Filtrace.Mcp/` | Stdio MCP host, packaged separately for `dnx KlutzyNinja.Filtrace.Mcp`. |
 | `tests/Filtrace.Core.Tests/` | Unit + golden-file contract tests. |
 | `tests/Filtrace.Parity.Tests/` | Numeric parity against the frozen legacy oracles. |
 | `eval/` | Headless-agent eval harness, tasks, baselines (M5). |

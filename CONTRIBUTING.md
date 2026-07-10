@@ -24,17 +24,22 @@ dotnet build filtrace.slnx -c Release
 dotnet test filtrace.slnx -c Release
 ```
 
-CI also runs two contract checks that must stay green; run them locally before
+CI also runs four contract/eval checks that must stay green; run them locally before
 opening a PR:
 
 ```pwsh
 ./tools/Test-CliHelp.ps1 -Configuration Release
 ./tools/Test-McpServer.ps1 -Configuration Release
+./tools/Test-Docs.ps1
+./eval/Invoke-Eval.ps1
 ```
 
 The first asserts every CLI verb is documented and within the help budget; the
 second drives the MCP server over stdio and checks stdout purity, the tool-list
-schema budget, and a real `tools/call` round-trip.
+schema budget, and a real `tools/call` round-trip. The docs check guards shared
+workflow blocks, skill links, command/tool coverage, and packaged skill contents.
+The deterministic eval runs the canonical trace-analysis tasks and enforces answer,
+call-count, and output-token baselines without invoking an LLM.
 
 ## Conventions
 

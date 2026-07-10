@@ -15,12 +15,14 @@ embeds the marked block below verbatim and
    trace can be 56% on the ETW (`.etl`) capture of the same workload. Capture
    net481 under ETW (`threadtime` / `cpu` over an `.etl`) and rank that.
 
-2. **Trust the symbol-resolution rate before the rankings.** A rate below **0.8**
-   (surfaced by `trace_info` / the load warning) means managed frames are missing
-   and the names are unreliable - pass `--symbols <build-output-dir>`. Caveat: the
-   aggregate rate conflates managed and native frames, so a net481 ETW capture can
-   read low while every *managed* leaf resolves correctly; the warning hedges this
-   ("managed-method rankings remain usable").
+2. **Treat low symbol resolution as a quality gate, not an automatic rejection.**
+   A rate below **0.8** (surfaced by `trace_info` / the load warning) means unresolved
+   frames need inspection. Managed method names normally come from CLR rundown;
+   `--symbols <build-output-dir>` supplies matching PDBs for source lines, not a
+   replacement for missing rundown. The aggregate rate conflates managed and native
+   frames, so a net481 ETW capture can read low while every *managed* leaf resolves
+   correctly; in that case managed-method rankings remain usable, and
+   `--native-symbols` is the relevant opt-in when the native runtime split matters.
 
 3. **On a machine-wide `.etl`, confirm the process before scoping.** filtrace
    auto-scopes to the busiest process tree ranked by **CPU-sample count** (a
@@ -30,19 +32,19 @@ embeds the marked block below verbatim and
 
 4. **BenchmarkDotNet captures include the harness - scope with `--benchmark` by
    default, not as an afterthought.** A raw ranking (or export) of a BDN trace is
-   dominated by the orchestrator and warmup iterations, not your `[Benchmark]`.
-   Pass `--benchmark` to preset the root to the measured-workload wrapper so only
-   the measured code is analyzed. This applies to **every** verb that takes
-   `--root`, including `export` - a flame graph with the harness left in is not
-   just noisy, its proportions are wrong (the workload's own share of time reads
-   too small). `export` is the easiest verb to forget this on: it writes a file
-   and prints no "scoped to X" summary, so there is no output to notice the
-   omission in - check the command before running it, not the graph after.
+   mixed with orchestrator and overhead scaffolding outside your `[Benchmark]`.
+   In the CLI, pass `--benchmark` to every verb that offers it; in MCP, pass
+   `root: "WorkloadAction"` to root-aware stack tools and `benchmark: true` to
+   `trace_export`. The wrapper includes warmup and actual workload iterations; it
+   excludes harness/overhead scaffolding, not warmup. This applies especially to
+   export - a flame graph with the harness left in is not just noisy, its proportions
+   are wrong. `lines` / `heatmap` cannot preserve root scope; narrow them with their
+   method/file filter and treat percentages as whole-trace.
 
 5. **Native runtime frames need `--native-symbols`.** Without it, the unmanaged
-   ~10% of a trace - GC, JIT, `memset` / `memcpy`, write barriers - shows as an
-   unresolved `?` leaf. Opt in (CPU `.etl` only; fetches PDBs from the Microsoft
-   public symbol server, cached locally) to name it, then `classify` to get the
+   share of a trace - GC, JIT, `memset` / `memcpy`, write barriers - shows as
+   unresolved `?` leaves. Opt in (CPU `.etl` only; fetches PDBs from the Microsoft
+   public symbol server, cached locally) to name them, then `classify` to get the
    zeroing-vs-copying-vs-GC-vs-JIT split. It is off by default so analysis stays
    offline and deterministic.
 
@@ -51,10 +53,9 @@ embeds the marked block below verbatim and
    it. Ranking by the wrong measure hides the frame you want - start with self for
    "what is hot", switch to inclusive for "what is responsible".
 
-7. **Reading an `.etl` is Windows-only.** The ETW -> ETLX conversion needs
-   Windows; once converted, the `.etlx` resolves managed frames and analyzes
-   identically on any OS ("convert on Windows, analyze anywhere"). The CLI/MCP
-   `.etl` paths are guarded and report a clean error off Windows.
+7. **Reading an `.etl` through filtrace is Windows-only.** The ETW -> ETLX
+   conversion needs Windows, and direct `.etlx` input is not part of the current
+   CLI or MCP surface. The `.etl` paths report a clean error off Windows.
 
 8. **The default fold list hides runtime leaves on purpose.** It folds
    `memmove`, write-barriers, and GC-poll helpers into their managed caller -
@@ -65,9 +66,9 @@ embeds the marked block below verbatim and
    your program into a separate child process, so a single-process EventPipe
    session launched with `dotnet-trace collect -- dotnet run ...` records the
    build/run host, not your code, and the hot frames never appear. Build first,
-   then launch the built output directly (`dotnet-trace collect -- <app>.dll`, or
-   the apphost `<app>.exe`); the bundled `Capture-ProjectTrace.ps1` resolves that
-   run target for you.
+   then launch the built output directly (`dotnet-trace collect -- dotnet
+   <app>.dll`, or `dotnet-trace collect -- <apphost>`); the bundled
+   `Capture-ProjectTrace.ps1` resolves that run target for you.
 
 10. **A machine-wide `.etl` can be huge - capture lean, then scope at analysis.**
    ETW kernel tracing is machine-wide, so the wrong keywords balloon the file: the
@@ -78,8 +79,9 @@ embeds the marked block below verbatim and
    File/Disk rundown - so prefer it and bound open-ended runs with `--duration` or
    `--max-size-mb` (a circular buffer that keeps the last N MB). Only a `diskio` capture
    needs the File/Disk keywords, and `filtrace collect` has no switch for them: that
-   capture comes from another recorder (PerfView, `wpr`, or BenchmarkDotNet ETW), so
-   expect the system-wide rundown there and trim it down afterward. To focus a big
+   capture comes from another recorder (PerfView, `wpr`, or a custom BenchmarkDotNet
+   `EtwProfilerConfig` enabling `DiskIO` / `DiskFileIO`; plain `-p ETW` is CPU-only),
+   so expect the system-wide rundown there and trim it down afterward. To focus a big
    capture on your code, scope at *analysis* time with `--process` (lossless - it keeps
    managed stacks); physically trimming the file by relogging is a transport-only
    optimization that currently drops JITted managed frames.

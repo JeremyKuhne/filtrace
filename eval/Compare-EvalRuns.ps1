@@ -8,10 +8,12 @@
   Compare two labeled agent-eval runs (baseline vs candidate) and report the delta.
 
 .DESCRIPTION
-  The tuning loop (M5) changes a filtrace surface - an MCP tool description, CLI
-  help, or the skill - and asks whether the change helped without regressing. The
-  workflow is: score a baseline, edit the surface, rebuild, score a candidate,
-  then run this to compare:
+  The tuning loop (M5) changes a surface the live runner presents - an MCP tool
+  description/server instruction or CLI command/output behavior - and asks whether
+  the change helped without regressing. SKILL.md is not measured by the current
+  runner because its Copilot arm disables custom instructions and its Ollama arm
+  supplies a generated command protocol. The workflow is: score a baseline, edit
+  a measured surface, rebuild, score a candidate, then run this to compare:
 
     ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models claude-opus-4.6,gpt-5.2 -N 5 -Label baseline
     # ... edit a [Description] in TraceTools.cs; dotnet build src/Filtrace.Mcp -c Release ...

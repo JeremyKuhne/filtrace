@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Tracing;
+
 namespace Filtrace.Cli;
 
 /// <summary>
@@ -13,9 +15,10 @@ namespace Filtrace.Cli;
 /// <param name="Fold">The leaf-frame fold patterns; folded frames are skipped.</param>
 /// <param name="MaxDepth">The maximum number of frame levels below the root to expand.</param>
 /// <param name="MinPercent">The minimum share of the scoped total, in percent, a node must have to appear.</param>
-/// <param name="Symbols">Optional build-output directory whose embedded PDBs resolve managed frames.</param>
+/// <param name="Symbols">Optional build-output directory whose PDBs map managed code to source lines.</param>
 /// <param name="Format">The render format.</param>
 /// <param name="Strict">Whether to trip the strict symbol-resolution exit gate.</param>
+/// <param name="Scope">The process scope (explicit name, automatic default, or all processes).</param>
 internal sealed record TreeRequest(
     string Path,
     string Root,
@@ -24,7 +27,8 @@ internal sealed record TreeRequest(
     double MinPercent,
     string? Symbols,
     OutputFormat Format,
-    bool Strict)
+    bool Strict,
+    ScopeRequest? Scope = null)
 {
     /// <summary>
     ///  The default maximum number of frame levels expanded below the root.

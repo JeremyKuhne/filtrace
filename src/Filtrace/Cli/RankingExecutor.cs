@@ -9,7 +9,7 @@ namespace Filtrace.Cli;
 
 /// <summary>
 ///  Runs a ranking request against the analysis core: load the trace, compute the
-///  self- or inclusive-time ranking, wrap it in the output contract, and render it
+///  self- or inclusive-weight ranking, wrap it in the output contract, and render it
 ///  as text or JSON.
 /// </summary>
 /// <remarks>
@@ -50,7 +50,7 @@ internal static class RankingExecutor
         AnalysisResult<RankingResult> envelope = new(
             ranking,
             TraceExecution.ResultWarnings(info),
-            SteeringHints.ForRanking(ranking));
+            SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, request.Scope));
 
         if (request.Format == OutputFormat.Json)
         {

@@ -155,26 +155,26 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 | `.etl` (ETW) | ~ | Y | pvanalyze can via `TraceLog` on Windows, but not positioned/scoped for it |
 | .NET Framework traces | ~ | Y | filtrace explicitly supports NGEN/.NET Framework |
 | **Orientation** | | | |
-| `info` metadata | Y | Y | Duration, events, processes |
+| `info` metadata | Y | Y | pvanalyze: duration/events/processes; filtrace: format/weight/samples/threads/capabilities |
 | Symbol-resolution rate + trust gate | - | Y | filtrace's 0.8 threshold + warnings |
 | Available-analyses routing hint | - | Y | filtrace `info` routes a symptom to a metric |
 | **CPU** | | | |
 | Self / exclusive ranking | Y | Y | Both |
 | Inclusive ranking | Y | Y | Both |
-| Group by module / namespace | Y | ~ | pvanalyze `cpustacks --group-by`; filtrace folds helpers |
+| Group by module / namespace | Y | - | pvanalyze `cpustacks --group-by` |
 | Per-method temporal buckets | Y | ~ | pvanalyze `SampleBuckets`; filtrace uses `--time` windows |
 | Call tree (top-down) | Y | Y | pvanalyze `calltree`, filtrace `tree` |
 | Hot-path auto-follow | Y | - | pvanalyze follows child >= 80% of parent |
 | Callers of a frame | Y | Y | Both |
 | Bidirectional caller+callee view | Y | Y | pvanalyze `--caller-callee`; filtrace `callers --callees` |
-| Source-line attribution | - | Y | filtrace `lines` / `heatmap` via PDBs |
+| Source-line attribution | - | Y | filtrace CPU `lines` / `heatmap` via PDBs |
 | **Wall-clock / blocking** | | | |
 | Thread-time (running vs. blocked) | - | Y | filtrace `threadtime` (ETW) |
 | Lock contention metric | - | Y | filtrace `rank --metric contention` |
 | Wait / `WaitHandle` metric | - | Y | filtrace `rank --metric wait` |
 | **Memory** | | | |
-| Allocation by type/site | Y | Y | Both use `GC/AllocationTick` |
-| LOH breakout | Y | ~ | pvanalyze flags large-object count/bytes |
+| Allocation by type/site | Y | ~ | Both use `GC/AllocationTick`; filtrace ranks sites, not types |
+| LOH breakout | Y | - | pvanalyze flags large-object count/bytes |
 | **GC** | | | |
 | GC summary stats | Y | Y | Both |
 | Per-GC timeline / longest pauses | Y | ~ | pvanalyze `--timeline` / `--longest` |
@@ -198,15 +198,15 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 | BenchmarkDotNet scoping | - | Y | filtrace `--benchmark` |
 | Activity (request/job) scoping | - | Y | filtrace `--activity` |
 | **Compare** | | | |
-| Two-trace diff | - | Y | filtrace `diff` |
+| Two-trace diff | - | Y | filtrace CPU `diff` (absolute sampled-time deltas) |
 | **Runtime internals** | | | |
 | Native symbols (GC/JIT/memcpy) | - | Y | filtrace `--native-symbols` |
 | Work-category classification | - | Y | filtrace `classify` |
 | Thread-pool starvation report | - | Y | filtrace `threadpool` |
 | Physical disk I/O by file | - | Y | filtrace `diskio` (ETW) |
 | **Export** | | | |
-| speedscope | Y | Y | Both |
-| chromium / Perfetto | - | Y | filtrace `export --format chromium` |
+| speedscope | Y | Y | filtrace exports CPU profiles |
+| chromium / Perfetto | - | Y | filtrace CPU export uses a synthetic weight axis, not original chronology |
 | **Capture** | | | |
 | Built-in ETW capture | - | Y | filtrace `collect` (Windows, elevated) |
 | **Agent integration** | | | |
@@ -248,18 +248,18 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
    and advertise a per-tool `outputSchema`. An agent binds to a contract instead of
    parsing free-form stdout.
 2. **Trust gating.** `info` reports a **symbol-resolution rate** and warns when it
-   is below 0.8, so an agent knows when CPU rankings are not to be believed - a
+   is below 0.8, so an agent knows to inspect unresolved frames before trusting names - a
    provenance signal pvanalyze lacks.
 3. **Wall-clock and blocking metrics.** `threadtime` (running vs. blocked),
    `contention`, and `wait` answer "slow but the CPU is idle - what is it waiting
    on?" - the question EventPipe-CPU-only tools cannot.
-4. **Source-line drill.** `lines` and `heatmap` extract embedded PDBs and attribute
+4. **Source-line drill.** CPU `lines` and `heatmap` extract embedded PDBs and attribute
    cost to source lines and files - the last mile from "hot method" to "fix this
    line."
 5. **ETW breadth.** Multi-process scoping (auto-scope to the busiest tree +
    `--process`), native GC/JIT/`memcpy` frames (`--native-symbols`), work-category
    `classify`, physical `diskio`, and a built-in `collect` capture verb.
-6. **Compare.** `diff` turns two traces into a regression report - the fourth move
+6. **Compare.** CPU `diff` turns two like-for-like traces into an absolute sampled-time regression report - the fourth move
    of its orient -> rank -> drill -> compare loop.
 7. **Scoping vocabulary.** `--root`, `--benchmark` (BDN workload), `--activity`
    (one request/job), and `--time` let an agent zoom to exactly the relevant slice.

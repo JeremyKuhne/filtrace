@@ -12,8 +12,8 @@ namespace Filtrace.Cli;
 /// </summary>
 /// <param name="Path">The trace file path.</param>
 /// <param name="Symbols">
-///  Optional build-output directory whose embedded PDBs resolve managed frames to
-///  source lines. <see langword="null"/> when not given.
+///  Optional build-output directory whose PDBs map managed code to source lines.
+///  <see langword="null"/> when not given.
 /// </param>
 /// <param name="Format">The render format.</param>
 /// <param name="Scope">

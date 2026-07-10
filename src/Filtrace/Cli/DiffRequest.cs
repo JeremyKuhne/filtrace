@@ -15,7 +15,7 @@ namespace Filtrace.Cli;
 /// <param name="Fold">The leaf-frame fold patterns applied to both rankings.</param>
 /// <param name="Measure">Which measure to compare.</param>
 /// <param name="Format">The render format.</param>
-/// <param name="Symbols">Optional build-output directory whose embedded PDBs resolve managed frames.</param>
+/// <param name="Symbols">Optional build-output directory whose PDBs map managed code to source lines.</param>
 /// <param name="Strict">Whether to trip the strict symbol-resolution exit gate.</param>
 internal sealed record DiffRequest(
     string BeforePath,

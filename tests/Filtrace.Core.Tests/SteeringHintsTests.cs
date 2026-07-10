@@ -39,6 +39,42 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForRanking_NonCpu_StaysInTheRankedMetric()
+    {
+        RankingResult ranking = new(100.0, "", [new RankRow("Allocate", 75.0, 75.0)]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(ranking, MetricInfo.Allocations);
+
+        hints.Should().ContainSingle().Which.Should().Contain("Allocations ranking");
+        hints.Should().ContainSingle().Which.Should().Contain("analyze CPU only");
+        hints.Should().NotContain(hint => hint.StartsWith("drill into", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ForRanking_TimeScopedCpu_DoesNotDropTheWindow()
+    {
+        RankingResult ranking = new(25.0, "", [new RankRow("MyApp.Inner", 16.0, 64.0)]);
+        ScopeRequest scope = ScopeRequest.Auto.WithTimeWindow(1000.0, 2000.0);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(ranking, MetricInfo.Cpu, scope);
+
+        hints.Should().ContainSingle().Which.Should().Contain("cannot preserve that slice");
+        hints.Should().NotContain(hint => hint.StartsWith("drill into", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ForRanking_RootAndProcessScopedCpu_PreservesBoth()
+    {
+        RankingResult ranking = new(25.0, "WorkloadAction", [new RankRow("MyApp.Inner", 16.0, 64.0)]);
+        ScopeRequest scope = ScopeRequest.ForProcess("MyApp");
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(ranking, MetricInfo.Cpu, scope);
+
+        hints.Should().ContainSingle().Which.Should().Be(
+            "drill into the hot frame with: callers MyApp.Inner --root \"WorkloadAction\" --process \"MyApp\"");
+    }
+
+    [TestMethod]
     public void ForTraceInfo_NetTrace_RoutesSymptomsToSupportedAnalyses()
     {
         TraceInfo info = new(
@@ -54,6 +90,10 @@ public sealed class SteeringHintsTests
             && h.Contains("contention", StringComparison.Ordinal)
             && h.Contains("wait", StringComparison.Ordinal)
             && h.Contains("threadpool", StringComparison.Ordinal));
+        hints.Should().Contain(h => h.Contains("high allocation rate or GC pauses", StringComparison.Ordinal)
+            && h.Contains("alloc", StringComparison.Ordinal)
+            && h.Contains("gcstats", StringComparison.Ordinal));
+        hints.Should().NotContain(h => h.Contains("growing memory", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -136,6 +176,43 @@ public sealed class SteeringHintsTests
         hints.Should().HaveCount(2);
         hints[0].Should().Be("continue up the stack with: callers Program.Main");
         hints[1].Should().Be("continue down into the callee with: callers MyApp.Inner --callees");
+    }
+
+    [TestMethod]
+    public void ForCallers_WithRootAndProcess_PreservesScopeInBothDirections()
+    {
+        CallersResult callers = new(
+            "Work",
+            20.0,
+            80.0,
+            25.0,
+            [new CallerRow("Program.Main", 20.0, 100.0)],
+            [new CalleeRow("MyApp.Inner", 16.0, 80.0)]);
+        ScopeRequest scope = ScopeRequest.ForProcess("MyApp");
+
+        IReadOnlyList<string> hints = SteeringHints.ForCallers(callers, "WorkloadAction", scope);
+
+        hints.Should().HaveCount(2);
+        hints[0].Should().Be(
+            "continue up the stack with: callers Program.Main --root \"WorkloadAction\" --process \"MyApp\"");
+        hints[1].Should().Be(
+            "continue down into the callee with: callers MyApp.Inner --callees --root \"WorkloadAction\" --process \"MyApp\"");
+    }
+
+    [TestMethod]
+    public void ForCallers_AllProcesses_PreservesWidenedScope()
+    {
+        CallersResult callers = new(
+            "Inner",
+            16.0,
+            64.0,
+            25.0,
+            [new CallerRow("MyApp.Work", 16.0, 100.0)]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForCallers(callers, "", ScopeRequest.AllProcesses);
+
+        hints.Should().ContainSingle().Which.Should().Be(
+            "continue up the stack with: callers MyApp.Work --all-processes");
     }
 
     [TestMethod]

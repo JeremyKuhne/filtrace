@@ -7,11 +7,11 @@
     },
     "alloc-hotspot": {
       "calls": 1,
-      "tokens": 181
+      "tokens": 192
     },
     "exception-sites": {
       "calls": 1,
-      "tokens": 83
+      "tokens": 99
     },
     "gc-report": {
       "calls": 1,
@@ -23,7 +23,7 @@
     },
     "etl-processes": {
       "calls": 1,
-      "tokens": 183
+      "tokens": 194
     },
     "cpu-tree": {
       "calls": 1,
@@ -39,7 +39,7 @@
     },
     "threadtime-hotpath": {
       "calls": 1,
-      "tokens": 527
+      "tokens": 547
     },
     "timeline-window": {
       "calls": 1,
@@ -48,6 +48,10 @@
     "caller-callee": {
       "calls": 1,
       "tokens": 116
+    },
+    "trace-info-orientation": {
+      "calls": 1,
+      "tokens": 105
     }
   }
 }

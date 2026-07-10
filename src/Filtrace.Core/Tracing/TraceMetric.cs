@@ -43,7 +43,7 @@ public enum TraceMetric
     Allocations,
 
     /// <summary>
-    ///  The exception throw sites, weighted by one count per throw
+    ///  Exception types and throw paths, weighted by one count per throw
     ///  (<see cref="MetricInfo.Exceptions"/>). Read from a <c>.nettrace</c>
     ///  EventPipe trace carrying <c>Exception/Start</c> events.
     /// </summary>

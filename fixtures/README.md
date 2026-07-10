@@ -1,53 +1,64 @@
 # filtrace fixtures
 
-The trace corpus the tests read, and the tooling that regenerates it.
+The committed trace corpus the tests read and the manual tools that regenerate it.
+Binary captures are test contracts: regenerate them only with the matching script,
+then run the full test/eval suite and review every changed assertion or baseline.
 
 ## Layout
 
-- `HotLoopBench/` - a small, dedicated BenchmarkDotNet project that seeds the
-  corpus. It is **not** part of `filtrace.slnx`, so the subtree CI and the
-  extraction rehearsal stay light; it is a manual regeneration tool. It carries
-  two benchmarks and an `inspect` verb:
-  - `HotLoop` - a hot string-building loop captured under `[EventPipeProfiler]`
-    CPU sampling; its speedscope export seeds the CPU parity fixture.
-  - `AllocLoop` - an allocation-heavy loop captured under the GC-verbose profile
-    so its `.nettrace` carries the `GCAllocationTick` events the allocation
-    provider reads. A single bounded invocation keeps the trace small.
-  - `inspect <trace>` - prints a captured trace's event-type counts (and how many
-    allocation ticks carry a call stack), used to confirm a capture is usable.
-- `oracles/Get-TraceHotspots.ps1` - a frozen copy of the repo's parity oracle, so
-  the fixture pipeline stays self-contained through promotion. Treated as a
-  process whose output is compared, never referenced as code.
-- `make-fixtures.ps1` - captures the profile, copies the speedscope export into
-  the parity-test fixtures, and freezes the oracle's self / inclusive rankings as
-  a golden the parity tests compare against.
+- `HotLoopBench/` - a dedicated BenchmarkDotNet and capture-utility project. It is
+  intentionally outside `filtrace.slnx`; fixture regeneration is manual. Its bounded
+  workloads cover CPU (`HotLoop`), allocation/GC (`AllocLoop`), exceptions
+  (`ExceptionLoop`), JIT (`JitLoop`), lock contention (`ContentionLoop`), .NET 9+
+  wait handles (`WaitLoop`), start-stop activities (`ActivityLoop`), thread-pool
+  starvation (`ThreadPoolStarveLoop`), and net481 ETW CPU/thread time (`EtwLoop`).
+  Utility commands count or inspect events, convert ETL to ETLX, capture disk I/O,
+  and relog a capture to one process tree.
+- `oracles/Get-TraceHotspots.ps1` - the frozen legacy CPU-ranking oracle. The
+  parity pipeline executes it as a process and compares output; production code
+  never references it.
+- `make-fixtures.ps1` - cross-platform EventPipe generator.
+- `capture-etw.ps1` - elevated Windows generator for the net481 CPU/thread-time ETW
+  fixture.
+- `capture-diskio.ps1` - elevated Windows generator for the trimmed disk-I/O ETW
+  fixture.
 
 ## Regenerating
 
-On a Windows machine with the .NET 10 SDK:
+From the repository root with the .NET 10 SDK:
 
-```powershell
-pwsh filtrace/fixtures/make-fixtures.ps1
+```pwsh
+# EventPipe corpus; no elevation.
+./fixtures/make-fixtures.ps1
+
+# ETW corpus; Windows Administrator terminal.
+./fixtures/capture-etw.ps1
+./fixtures/capture-diskio.ps1
 ```
 
-This refreshes `tests/Filtrace.Parity.Tests/Fixtures/hotloop.speedscope.json` and
-`hotloop.oracle.json` **together**, as a matched pair (each capture produces
-different absolute timings; the parity test compares filtrace against the oracle on
-the same committed file, so the pair stays consistent). Run it when the benchmark,
-TraceEvent, or BenchmarkDotNet version moves.
+`make-fixtures.ps1` refreshes the parity
+`hotloop.speedscope.json` / `hotloop.oracle.json` pair together and writes the
+allocation, JIT, exception, contention, wait, activity, and thread-pool `.nettrace`
+smokes under `tests/Filtrace.Core.Tests/Fixtures/`. Keep the parity pair together:
+absolute sample counts vary by capture, while the oracle and filtrace must read the
+same committed file.
 
-## What is committed vs regenerated
+`capture-etw.ps1` writes `etw.etl` using a custom BenchmarkDotNet ETW profile with
+CPU and context-switch stacks. `capture-diskio.ps1` writes `diskio.etl`: it captures
+the required DiskIO/DiskFileIO keywords, then relogs to the workload process tree so
+the machine-wide file-name rundown is small enough to commit. See
+[../docs/filtrace-etl-trimming.md](../docs/filtrace-etl-trimming.md) for the relog
+limitation.
 
-The committed in-repo fixtures are the CPU speedscope export and its oracle
-golden (a few hundred KB), and the allocation smoke `.nettrace` (well under
-1 MB - a single bounded `AllocLoop` invocation). The full `.nettrace` for the CPU
-benchmark, and any larger/richer captures, are left under
-`HotLoopBench/BenchmarkDotNet.Artifacts/` (gitignored) - they are too large for
-the repo, are regenerated on demand, and the full corpus is destined for a
-release asset.
+## Tracked files and caches
 
-## Deferred: the net481 ETW half
+Git tracks the raw `.nettrace` / `.etl` smokes and the speedscope/oracle pair. ETLX
+files beside them are generated TraceEvent caches and are ignored; `capture-etw.ps1`
+also writes `etw.etlx` for manual conversion checks, but it is not part of the
+committed public input corpus. The full HotLoop CPU `.nettrace` and other large
+BenchmarkDotNet captures remain under the ignored
+`HotLoopBench/BenchmarkDotNet.Artifacts/` directory.
 
-The `.etl` / `.etlx` half of the corpus (captured with `[EtwProfiler]` on .NET
-Framework) needs an elevated Windows session and is added here when captured. It
-is also the O1 cross-OS ETLX spike fixture.
+Do not rename the `TraceQ.Fixtures.HotLoopBench` namespace: it is embedded in the
+committed stacks, and regenerating the ETW goldens requires an elevated Windows
+capture.

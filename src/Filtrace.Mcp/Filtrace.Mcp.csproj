@@ -18,7 +18,7 @@
     <PackageType>McpServer</PackageType>
     <PackageId>KlutzyNinja.Filtrace.Mcp</PackageId>
     <ToolCommandName>filtrace-mcp</ToolCommandName>
-    <Description>MCP (Model Context Protocol) server exposing filtrace's .NET trace analysis - CPU, allocation, thread-time, GC, JIT, and exception profiling - as agent tools over stdio.</Description>
+    <Description>MCP server exposing filtrace's .NET CPU, allocation, blocking, thread-time, GC, JIT, exception, and event analysis as agent tools over stdio.</Description>
     <PackageTags>trace;profiling;diagnostics;performance;mcp;mcp-server;ai;agent;dotnet</PackageTags>
 
     <!--

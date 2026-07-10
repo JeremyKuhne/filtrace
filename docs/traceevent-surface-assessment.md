@@ -24,10 +24,11 @@ never told about.
 
 Every proposal below is judged against the intents the plan already commits to:
 
-1. **One engine, many providers.** Every analysis is `{stack, weight}` rolled into
-   a call tree, so the shared `FoldingAggregator` gives `rank` / `callers` / `tree`
-   / `lines` / `diff` / `export` for free. A new family is a *provider*, not new
-   engine code.
+1. **One engine, many providers.** Stack families normalize to `{stack, weight}`
+  and share `FoldingAggregator`. The public heads currently expose every stack
+  family through `rank`; callers/tree/lines/heatmap/diff/export are wired to CPU
+  only. A new family reuses the engine, but each public operation still needs an
+  explicit metric-aware contract before it is agent-safe.
 2. **Agent-shaped.** Smallest relevant slice, deterministic compact output, a
    next-step nudge, and a deliberately small tool surface (16 `trace_*` tools).
 3. **The capture axis is the value axis.** EventPipe (`.nettrace`) is no-elevation
@@ -107,19 +108,20 @@ and a family. Every row is a routine .NET situation, not an exotic one.
 | "It maxes out a CPU core" | CPU-bound | CPU (shipping) | `rank cpu` (self time) |
 | "It's slow but the CPU is idle" | blocked / waiting | contention (TE-1), wait (TE-2), threadtime | `rank metric=contention` |
 | "It doesn't scale on more cores / threads fight" | lock contention | contention (TE-1) | `rank metric=contention` |
-| "An await never comes back / it just stalls" | waiting on a handle or task | wait (TE-2), threadtime | `rank metric=wait` |
-| "Memory climbs and it pauses" | allocation / GC | alloc (shipping), GC depth (TE-3) | `alloc`; `gcstats` |
+| "Blocking waits accumulate / it stalls" | completed waits on a handle or task | wait (TE-2), threadtime | `rank metric=wait` |
+| "Allocation rate climbs and it pauses" | allocation / GC | alloc (shipping), GC depth (TE-3) | `alloc`; `gcstats` |
 | "It garbage-collects constantly" | alloc rate / gen-2 | GC depth (TE-3) | `gcstats` (reason, %GC) |
 | "The logs are full of exceptions" | exception throughput | exceptions by type (TE-4) | `rank metric=exceptions` |
 | "Fine on my machine, piles up under load" | threadpool starvation | threadpool report (TE-5) | `threadpool` |
-| "It waits on the disk / database / network" | I/O | disk/file I/O (TE-7), blocked-leaf (TE-6) | `rank metric=diskio` |
+| "It waits on the disk / database / network" | I/O | disk I/O (TE-7), blocked-leaf (TE-6) | `diskio`; `threadtime` |
 | "Just this one endpoint is slow" | per-request | activity scoping (TE-8) | `--activity` |
 | "Only the seconds around the spike matter" | a time slice | time-window scoping (TE-15) | `--time` |
 
-That map is also the argument for the P0 items: today the "CPU is idle but it's
-slow" row - one of the most common real complaints - has no cross-platform answer
-(only ETW threadtime, which needs Windows and admin). TE-1 and TE-2 fill it on a
-plain `.nettrace`.
+That map was also the argument for the P0 items: before TE-1 and TE-2, the "CPU is
+idle but it's slow" row had only ETW threadtime (Windows plus Administrator).
+Contention and completed wait-handle views now cover important blocking cases from a
+plain `.nettrace`; an uncompleted async operation that never blocks a thread still
+needs application/activity evidence rather than a wait event.
 
 ### How the agent discovers and recommends a feature
 
@@ -158,15 +160,15 @@ surface the option. Four mechanisms, in increasing order of leverage:
 
 ### The two loops
 
-- **"Why is this slow?" (diagnose):** orient (content-aware `trace_info`) -> triage
-  (TE-11, or rank the dominant metric) -> confirm with the family the symptom map
-  names -> drill (`callers` / `lines` / `tree`) to the responsible code. The agent
-  narrows from resource to method without the user knowing any profiler vocabulary.
+- **"Why is this slow?" (diagnose):** orient (`trace_info` plus its symptom hints) ->
+  rank the matching metric -> confirm with the family the map names. For an
+  unwindowed CPU ranking, drill with `callers` / `lines` / `tree`; for other metrics,
+  compare self/inclusive views or refine root/time without crossing into CPU data.
 - **"How can I make this faster?" (optimize):** rank *inclusive* to find the biggest
-  subtree worth cutting -> change the code -> `diff` against the baseline capture to
-  prove the win (or catch a regression) -> `export` a flame graph for the human. The
-  `diff` step is what turns a guess into a measured improvement, and it works on any
-  family (reduce allocations, then diff the `alloc` profile).
+  subtree worth cutting -> change the code -> for CPU, `diff` a like-for-like baseline
+  and export a flame graph for the human. Public `diff` / `export` are CPU-only; for
+  allocation, contention, wait, activity, exceptions, or threadtime, compare the two
+  scoped ranking envelopes directly.
 
 ## Prioritized proposals
 
@@ -180,7 +182,7 @@ Stable IDs (TE-n) so items can be tracked and referenced as they move.
 | TE-4 | Exception grouping by type | `.nettrace` | Trivial | extend `exceptions` | P0 | Landed (`.nettrace`) |
 | TE-5 | ThreadPool starvation report | `.nettrace` | Med | new structured verb / tool | P1 | Landed |
 | TE-6 | Thread-time blocked-leaf split (disk / net / lock / paging) | `.etl` | Low-Med | enrich `threadtime` | P1 | Landed (`.etl`) |
-| TE-7 | Disk-I/O and File-I/O families | `.etl` | Med | new `metric`(s) | P1 | Landed (disk) |
+| TE-7 | Disk-I/O and File-I/O families | `.etl` | Med | structured `diskio` report | P1 | Landed (disk) |
 | TE-8 | Request / activity scoping (`--activity`) | both | Med-High | scope grammar + family | P2 | Landed (`.nettrace`) |
 | TE-9 | PMC / CPU-counter ranking | `.etl` capture | Med | new `metric` | P2 | Proposed |
 | TE-10 | Retention / leak (`.gcdump`) - re-scope | read a `.gcdump` | High: vendored PerfView source (~173 KB) + new analysis engine | new object model + `retention` verb / tool | P2 | Proposed (dependency-gated) |
@@ -245,8 +247,9 @@ it matters here:* "which exception dominates" is usually the first question;
 near-zero cost and consistent with the allocation UX. *Status:* landed - the thrown
 type is a synthetic leaf, so `exceptions` / `rank metric=exceptions` self-time now
 ranks exception types (the fixture's `System.InvalidOperationException` about 2:1 over
-`ArgumentException`) rather than the runtime dispatch frame; throw sites are one
-`callers <type>` away, and the exceptions eval task was re-pointed to the type.
+`ArgumentException`) rather than the runtime dispatch frame; an inclusive exceptions
+ranking surfaces the throw paths (`callers` is CPU-only), and the exceptions eval task
+is pointed at the type.
 
 **TE-11. Agentic discoverability (cross-cutting).** *A developer asks:* "Why is this
 slow?" - with no idea which view to use. *Applicability to .NET:* universal; it is
@@ -260,7 +263,7 @@ prompt reach any of TE-1..TE-10 without naming it - the core of the agentic flow
 above. Foundational, so it is P0 despite the high ID. *Status:* landed - `trace_info`
 now returns `availableAnalyses` (the analyses the trace's format can answer) and a
 format-honest symptom-routing hint (CPU-bound -> cpu; slow / low-CPU -> contention /
-wait / threadtime; memory or GC -> alloc / gcstats; exceptions -> exceptions), each
+wait / threadtime; high allocation rate or GC pauses -> alloc / gcstats; exceptions -> exceptions), each
 route filtered to what the format supports. The `trace_triage` tool was intentionally
 deferred: the hints deliver the routing with no new tool and no MCP token-budget cost.
 

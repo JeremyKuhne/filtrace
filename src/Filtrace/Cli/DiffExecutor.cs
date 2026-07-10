@@ -67,7 +67,7 @@ internal static class DiffExecutor
             DiffTextRenderer.Render(envelope, before.Info, after.Info, before.Aggregator.Metric, request.Measure, output);
         }
 
-        // The strict gate trips when either trace is too poorly resolved to trust.
+        // The strict gate trips when either trace crosses the symbol-quality threshold.
         bool belowThreshold =
             SymbolGate.IsBelowThreshold(before.Info.SymbolResolutionRate, before.Info.SampleCount)
             || SymbolGate.IsBelowThreshold(after.Info.SymbolResolutionRate, after.Info.SampleCount);
