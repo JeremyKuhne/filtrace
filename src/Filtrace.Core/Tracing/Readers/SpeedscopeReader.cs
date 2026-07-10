@@ -52,7 +52,11 @@ internal sealed class SpeedscopeReader : ITraceReader
                 // Every speedscope profile requires a type. Unknown explicit types are
                 // extensions we can ignore, but a missing type is malformed input rather
                 // than an extension profile and should retain the clean input-error path.
-                string type = profile.GetProperty("type").GetString() ?? "";
+                string? type = profile.GetProperty("type").GetString();
+                if (string.IsNullOrEmpty(type))
+                {
+                    throw new FormatException("Speedscope profile 'type' must be a non-empty string.");
+                }
 
                 if (string.Equals(type, "evented", StringComparison.Ordinal))
                 {

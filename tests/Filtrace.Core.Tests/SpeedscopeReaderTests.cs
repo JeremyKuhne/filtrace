@@ -91,6 +91,20 @@ public sealed class SpeedscopeReaderTests
         action.Should().Throw<KeyNotFoundException>();
     }
 
+    [TestMethod]
+    [DataRow("null")]
+    [DataRow("\"\"")]
+    public void Read_ProfileWithNullOrEmptyType_RejectsMalformedInput(string typeValue)
+    {
+        string json = $$"""
+            {"shared":{"frames":[]},"profiles":[{"type":{{typeValue}},"name":"invalid-type"}]}
+            """;
+
+        Action action = () => Read(json);
+
+        action.Should().Throw<FormatException>().WithMessage("*type*non-empty string*");
+    }
+
     private static LoadedTrace Read(string json)
     {
         string path = Path.Combine(Path.GetTempPath(), $"filtrace-{Guid.NewGuid():N}.speedscope.json");
