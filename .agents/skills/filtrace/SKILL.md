@@ -1,9 +1,16 @@
 ---
 name: filtrace
 description: Analyze .NET CPU, allocation, exception, GC, JIT, and wall-clock (thread-time) data in .nettrace, .etl, and speedscope files with the filtrace CLI or MCP server. Use when a user asks where time or allocation volume goes in a trace or benchmark, which method or source line is hot, why a run regressed against a baseline, what a captured .nettrace / .etl contains, or to rank / drill / diff / export a profile - including profiling .NET Framework (net481) via ETW, where an EventPipe ranking would mislead. Also covers capturing the trace first - choosing EventPipe vs ETW, elevation, and the recording tool (dotnet-trace, BenchmarkDotNet, PerfView, wpr).
+license: MIT
 compatibility: Pairs with the filtrace MCP server (the KlutzyNinja.Filtrace.Mcp package, run via `dnx`) for in-agent tool calls; otherwise shells out to the filtrace CLI (the KlutzyNinja.Filtrace global tool). Both heads share the analysis core; capture, cache operations, and all-process ETW widening are CLI-only.
 metadata:
-  portability: repo-specific
+   portability: repo-specific
+   applicability: tool-shipped
+   binding: none
+   risk: local-write
+   maturity: stable
+   requires: none
+   related: performance-testing
 ---
 
 # Analyzing .NET traces with filtrace

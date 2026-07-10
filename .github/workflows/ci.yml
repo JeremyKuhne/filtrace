@@ -6,10 +6,8 @@
 # inside the tests, so the same suite runs on both OSes and skips what an OS
 # cannot do.
 #
-# Two contract checks run after the suite: the CLI help lint (every verb appears
-# in help and stays within budget) and the MCP server check (stdout is pure
-# JSON-RPC, the tool-list schema stays within the token budget, and a real
-# tools/call round-trips).
+# Product contract checks run after the suite, and a separate agent-files job
+# verifies the pinned commons skill artifacts and repository overlays.
 name: ci
 
 on:
@@ -26,6 +24,20 @@ permissions:
   contents: read
 
 jobs:
+  agent-files:
+    name: agent files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate pinned skills, overlays, and links
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation
+
   build-test:
     name: "build (${{ matrix.os }})"
     runs-on: ${{ matrix.os }}
@@ -85,7 +97,7 @@ jobs:
   # would otherwise leave a PR mergeable on a red matrix.
   ci:
     name: ci
-    needs: build-test
+    needs: [build-test, agent-files]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -95,5 +107,9 @@ jobs:
             echo "build-test result: ${{ needs.build-test.result }}"
             exit 1
           fi
-          echo "All build-test legs succeeded."
+          if [ "${{ needs.agent-files.result }}" != "success" ]; then
+            echo "agent-files result: ${{ needs.agent-files.result }}"
+            exit 1
+          fi
+          echo "Build-test and agent-file gates succeeded."
 
