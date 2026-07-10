@@ -24,6 +24,9 @@
        resolves to a path inside the skill directory - so no link dangles once
        the skill is packed into the NuGet package or vendored via
        `gh skill install`, both of which carry only the skill directory (issue #10).
+    5. Packing every packable project produces only the CLI and MCP packages, and no
+         repository workflow skill enters either archive. Only skills/filtrace/
+         may ship, and only in KlutzyNinja.Filtrace.Mcp.
 
   Run from the filtrace subtree root (the directory holding filtrace.slnx).
 
@@ -244,7 +247,130 @@ if ($requiredInPackage.Count -gt 0) {
     }
 }
 
-Write-Host "Checked $($blocks.Count) shared block(s), $($verbs.Count) verb(s), $($tools.Count) tool(s), $linkCount skill link(s), $packedCount packed skill file(s)."
+# 6. Package isolation: discover and inspect every packable project, not only
+# evaluated MSBuild items or projects currently in the solution. This catches future
+# broad content globs, new item types, and new packages that would otherwise pick up
+# repository workflow skills.
+$packageCount = 0
+if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+    Write-Host "  (package-isolation check skipped: 'dotnet' not on PATH)" -ForegroundColor Yellow
+}
+else {
+    $packageOutput = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace-packages-$([guid]::NewGuid().ToString('N'))"
+    [System.Collections.Generic.Dictionary[string, string]] $vendoredFilesByHash = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($vendoredSkillDirectory in Get-ChildItem -LiteralPath (Join-Path $root '.agents/skills') -Directory | Where-Object Name -cne 'filtrace') {
+        foreach ($vendoredFile in Get-ChildItem -LiteralPath $vendoredSkillDirectory.FullName -Recurse -File) {
+            [string] $vendoredHash = (Get-FileHash -LiteralPath $vendoredFile.FullName -Algorithm SHA256).Hash
+            if (-not $vendoredFilesByHash.ContainsKey($vendoredHash)) {
+                $vendoredFilesByHash.Add($vendoredHash, [System.IO.Path]::GetRelativePath($root, $vendoredFile.FullName))
+            }
+        }
+    }
+
+    New-Item -ItemType Directory -Path $packageOutput | Out-Null
+    try {
+        [System.Collections.Generic.List[System.IO.FileInfo]] $packableProjects = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+        foreach ($project in Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.csproj') {
+            $propertiesText = & dotnet msbuild $project.FullName '-getProperty:IsPackable,PackageId' 2>$null | Out-String
+            try {
+                $properties = $propertiesText | ConvertFrom-Json
+            }
+            catch {
+                Add-Failure "Cannot read packability for '$([System.IO.Path]::GetRelativePath($root, $project.FullName))'."
+                continue
+            }
+
+            if ($properties.Properties.IsPackable -eq 'true') {
+                $packableProjects.Add($project)
+            }
+        }
+
+        foreach ($project in $packableProjects) {
+            $packText = & dotnet pack $project.FullName --configuration Release --no-restore --output $packageOutput /p:IncludeSymbols=false 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+                Add-Failure "Cannot verify package isolation because packing '$([System.IO.Path]::GetRelativePath($root, $project.FullName))' failed:`n$packText"
+            }
+        }
+
+        if ($packableProjects.Count -eq 0) {
+            Add-Failure 'Package isolation found no packable projects; expected the CLI and MCP projects.'
+        }
+        else {
+            [System.IO.FileInfo[]] $packages = @(Get-ChildItem -LiteralPath $packageOutput -File -Filter '*.nupkg')
+            $packageCount = $packages.Count
+            [System.Collections.Generic.HashSet[string]] $expectedPackageIds = [System.Collections.Generic.HashSet[string]]::new(
+                [string[]]@('KlutzyNinja.Filtrace', 'KlutzyNinja.Filtrace.Mcp'),
+                [System.StringComparer]::OrdinalIgnoreCase)
+            [System.Collections.Generic.HashSet[string]] $actualPackageIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+            foreach ($package in $packages) {
+                $archive = [System.IO.Compression.ZipFile]::OpenRead($package.FullName)
+                try {
+                    $nuspecEntries = @($archive.Entries | Where-Object FullName -Like '*.nuspec')
+                    if ($nuspecEntries.Count -ne 1) {
+                        Add-Failure "Package '$($package.Name)' contains $($nuspecEntries.Count) nuspec files; expected one."
+                        continue
+                    }
+
+                    $nuspecStream = $nuspecEntries[0].Open()
+                    $nuspecReader = [System.IO.StreamReader]::new($nuspecStream)
+                    try {
+                        [xml] $nuspec = $nuspecReader.ReadToEnd()
+                    }
+                    finally {
+                        $nuspecReader.Dispose()
+                        $nuspecStream.Dispose()
+                    }
+
+                    [string] $packageId = $nuspec.package.metadata.id
+                    [void]$actualPackageIds.Add($packageId)
+                    foreach ($entry in $archive.Entries) {
+                        [string] $entryPath = $entry.FullName -replace '\\', '/'
+                        $skillMatch = [regex]::Match($entryPath, '(?i)(?:^|/)(?:\.agents/)?skills/([^/]+)(?:/|$)')
+                        if ($skillMatch.Success) {
+                            [string] $packagedSkillName = $skillMatch.Groups[1].Value
+                            if ($packagedSkillName -cne 'filtrace') {
+                                Add-Failure "Package '$packageId' contains repository workflow skill path '$entryPath'. Only the tool-shipped filtrace skill may be packaged."
+                            }
+                            elseif ($packageId -cne 'KlutzyNinja.Filtrace.Mcp') {
+                                Add-Failure "Package '$packageId' contains '$entryPath'; the filtrace skill may ship only in KlutzyNinja.Filtrace.Mcp."
+                            }
+                        }
+
+                        if ([string]::IsNullOrEmpty($entry.Name)) { continue }
+                        $entryStream = $entry.Open()
+                        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+                        try {
+                            [string] $entryHash = [System.Convert]::ToHexString($sha256.ComputeHash($entryStream))
+                        }
+                        finally {
+                            $sha256.Dispose()
+                            $entryStream.Dispose()
+                        }
+
+                        if ($vendoredFilesByHash.ContainsKey($entryHash)) {
+                            Add-Failure "Package '$packageId' entry '$entryPath' matches vendored workflow file '$($vendoredFilesByHash[$entryHash])'. Vendored skills must never be packaged."
+                        }
+                    }
+                }
+                finally {
+                    $archive.Dispose()
+                }
+            }
+
+            if ($actualPackageIds.Count -ne $expectedPackageIds.Count -or
+                $actualPackageIds.Where({ -not $expectedPackageIds.Contains($_) }).Count -gt 0 -or
+                $expectedPackageIds.Where({ -not $actualPackageIds.Contains($_) }).Count -gt 0) {
+                Add-Failure "Packed package IDs are '$($actualPackageIds -join ', ')'; expected exactly '$($expectedPackageIds -join ', ')'."
+            }
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $packageOutput -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Write-Host "Checked $($blocks.Count) shared block(s), $($verbs.Count) verb(s), $($tools.Count) tool(s), $linkCount skill link(s), $packedCount packed skill file(s), $packageCount package archive(s)."
 
 if ($failures.Count -gt 0) {
     Write-Host ''

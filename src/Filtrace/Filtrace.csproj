@@ -22,6 +22,12 @@
     <PackageTags>trace;profiling;diagnostics;performance;cpu;allocation;gc;nettrace;etl;speedscope;dotnet-tool;cli</PackageTags>
   </PropertyGroup>
 
+  <!-- Agent skills are repository tooling, not CLI package content. -->
+  <ItemGroup>
+    <None Remove="..\..\.agents\skills\**\*" />
+    <Content Remove="..\..\.agents\skills\**\*" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Filtrace.Core\Filtrace.Core.csproj" />
   </ItemGroup>

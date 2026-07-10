@@ -147,7 +147,11 @@ function Test-Links([string]$directory) {
                 }
 
                 [string] $resolved = [System.IO.Path]::GetFullPath((Join-Path $file.DirectoryName $pathPart))
-                if (-not (Test-Path -LiteralPath $resolved)) {
+                [string] $fromRoot = [System.IO.Path]::GetRelativePath($root, $resolved)
+                if ($fromRoot -match '^\.\.([\\/]|$)' -or [System.IO.Path]::IsPathRooted($fromRoot)) {
+                    Add-Failure "$([System.IO.Path]::GetRelativePath($root, $file.FullName)):$lineNumber has link '$target' that escapes the repository root."
+                }
+                elseif (-not (Test-Path -LiteralPath $resolved)) {
                     Add-Failure "$([System.IO.Path]::GetRelativePath($root, $file.FullName)):$lineNumber has broken link '$target'."
                 }
             }
