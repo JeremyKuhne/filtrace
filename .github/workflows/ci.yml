@@ -1,24 +1,20 @@
 # Build and test filtrace on Windows and Linux.
 #
-# filtrace runs on .NET 10 only and reads traces produced by both modern .NET
-# and .NET Framework. The capability matrix is cross-platform: most analysis
-# works everywhere, while the Windows-only ETW (.etl) thread-time path is gated
-# inside the tests, so the same suite runs on both OSes and skips what an OS
-# cannot do.
-#
-# Product contract checks run after the suite, and a separate agent-files job
-# verifies the pinned commons skill artifacts and repository overlays.
+# Linux ARM64 owns the cross-platform product and contract checks. Windows runs
+# the full test suite plus the deterministic eval so Windows-only ETL and
+# thread-time paths stay in the automatic gate without duplicating every
+# cross-platform contract. A separate job verifies the pinned agent skills. The
+# stable `ci` aggregator preserves the required status-check name while running
+# on the cheapest hosted runner.
 name: ci
 
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -38,13 +34,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: ./tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation
 
-  build-test:
-    name: "build (${{ matrix.os }})"
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest]
+  build-linux:
+    name: build (Linux ARM64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
     env:
       NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     steps:
@@ -56,9 +49,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ env.NUGET_PACKAGES }}
-          key: ${{ runner.os }}-filtrace-nuget-${{ hashFiles('**/*.csproj', 'Directory.Packages.props', 'Directory.Build.props', 'Directory.Build.targets', 'global.json') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-filtrace-nuget-${{ hashFiles('**/*.csproj', 'Directory.Packages.props', 'Directory.Build.props', 'Directory.Build.targets', 'global.json') }}
           restore-keys: |
-            ${{ runner.os }}-filtrace-nuget-
+            ${{ runner.os }}-${{ runner.arch }}-filtrace-nuget-
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -86,30 +79,70 @@ jobs:
         shell: pwsh
         run: ./tools/Test-Docs.ps1
 
+  build-windows:
+    name: build (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # MinVer derives the build version from git history and tags
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: ${{ runner.os }}-${{ runner.arch }}-filtrace-nuget-${{ hashFiles('**/*.csproj', 'Directory.Packages.props', 'Directory.Build.props', 'Directory.Build.targets', 'global.json') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-filtrace-nuget-
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore filtrace.slnx
+
+      - name: Build
+        run: dotnet build filtrace.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test filtrace.slnx --configuration Release --no-build
+
       - name: Eval gate
         shell: pwsh
         run: ./eval/Invoke-Eval.ps1 -Configuration Release
 
-  # Single stable gate over the OS matrix. The `main` ruleset requires the `ci`
-  # check; this job provides it, so adding or removing a matrix leg never needs a
-  # ruleset edit. `if: always()` plus the explicit result test makes it fail (not
-  # skip) when any build-test leg fails or is cancelled - a skipped required check
-  # would otherwise leave a PR mergeable on a red matrix.
+  # The main ruleset requires this stable check name. `if: always()` and the
+  # explicit result checks turn upstream failures or cancellations into a red
+  # required check rather than a skipped one.
   ci:
     name: ci
-    needs: [build-test, agent-files]
+    needs: [agent-files, build-linux, build-windows]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
     steps:
-      - name: Verify the build matrix succeeded
+      - name: Verify CI jobs succeeded
+        shell: bash
         run: |
-          if [ "${{ needs.build-test.result }}" != "success" ]; then
-            echo "build-test result: ${{ needs.build-test.result }}"
+          results=(
+            "agent-files=${{ needs.agent-files.result }}"
+            "build-linux=${{ needs.build-linux.result }}"
+            "build-windows=${{ needs.build-windows.result }}"
+          )
+          failed=0
+          for result in "${results[@]}"; do
+            echo "$result"
+            case "$result" in
+              *=success) ;;
+              *) failed=1 ;;
+            esac
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::One or more CI jobs did not succeed."
             exit 1
           fi
-          if [ "${{ needs.agent-files.result }}" != "success" ]; then
-            echo "agent-files result: ${{ needs.agent-files.result }}"
-            exit 1
-          fi
-          echo "Build-test and agent-file gates succeeded."
-
