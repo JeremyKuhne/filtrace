@@ -76,6 +76,9 @@
     dangling link.
   -->
   <ItemGroup>
+    <!-- Exclude repository workflow skills before deliberately adding the tool-shipped skill. -->
+    <None Remove="..\..\.agents\skills\**\*" />
+    <Content Remove="..\..\.agents\skills\**\*" />
     <None Include="..\..\.agents\skills\filtrace\**\*" Pack="true" PackagePath="\skills\filtrace\%(RecursiveDir)%(Filename)%(Extension)" Visible="false" />
   </ItemGroup>
 

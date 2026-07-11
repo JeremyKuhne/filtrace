@@ -24,7 +24,7 @@ dotnet build filtrace.slnx -c Release
 dotnet test filtrace.slnx -c Release
 ```
 
-CI also runs four contract/eval checks that must stay green; run them locally before
+CI also runs five contract/eval checks that must stay green; run them locally before
 opening a PR:
 
 ```pwsh
@@ -32,7 +32,11 @@ opening a PR:
 ./tools/Test-McpServer.ps1 -Configuration Release
 ./tools/Test-Docs.ps1
 ./eval/Invoke-Eval.ps1
+./tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation
 ```
+
+The full agent-skill check requires GitHub CLI with `gh skill` support and
+Node.js with `npx`.
 
 The first asserts every CLI verb is documented and within the help budget; the
 second drives the MCP server over stdio and checks stdout purity, the tool-list
@@ -40,13 +44,18 @@ schema budget, and a real `tools/call` round-trip. The docs check guards shared
 workflow blocks, skill links, command/tool coverage, and packaged skill contents.
 The deterministic eval runs the canonical trace-analysis tasks and enforces answer,
 call-count, and output-token baselines without invoking an LLM.
+The agent-skill check validates the v0.10.0 commons pins and overlays, compares
+vendored cores with fresh upstream installs (including recorded pending-upstream
+entity fixes), runs the reference validator, and checks readability and
+repository-relative links.
 
 ## Conventions
 
 - Latest C# (C# 14). Use C# keyword types (`int`, not `Int32`); prefer explicit
   types with target-typed `new` over `var`; use `is null` / `is not null`.
-- Write XML doc comments on public members. Use plain ASCII (`-`) in comments and
-  docs, not em-dashes or HTML entities.
+- Write XML doc comments on public members. Do not use HTML entities in comments
+  or docs; write the character directly or use plain words so the source remains
+  readable.
 - File header on every C# file:
 
   ```c#
