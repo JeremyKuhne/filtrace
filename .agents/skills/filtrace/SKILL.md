@@ -219,11 +219,14 @@ Run `filtrace <verb> --help` for the full option set of any verb.
 - **Scope to the benchmark.** For every root-aware stack analysis of a
    BenchmarkDotNet capture, scope to its `WorkloadAction` wrapper. In the CLI, pass
    `--benchmark` to every verb that offers it. In MCP, pass
-   `root: "WorkloadAction"` to `trace_rank`, `trace_callers`, `trace_tree`, and
-   `trace_classify`; `trace_export` has `benchmark: true`. The wrapper includes
-   warmup and actual iterations and excludes harness/overhead scaffolding. `lines` /
-   `heatmap` have no root scope; narrow them by method/file and treat percentages as
-   whole-trace.
+   `benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`,
+   `trace_classify`, and `trace_export`. The wrapper includes warmup and actual
+   iterations and excludes harness/overhead scaffolding. Do not guess a benchmark
+   method substring: root/frame warnings report the total match count, then list up to
+   25 full definitions and 10 depths per definition with omitted-count markers, plus
+   which outermost/deepest definition was selected. Narrow an ambiguous selector before
+   trusting percentages. `lines` / `heatmap` have no root scope; narrow them by
+   method/file and treat percentages as whole-trace.
 - **Scope to a time window.** `rank --time <start>,<end>` (milliseconds relative to
   the trace start, either bound optional: `1000,5000`, `1000,`, or `,5000`) keeps
   only the samples anchored in the window. It applies to every metric, so it zooms
@@ -296,12 +299,14 @@ The recurring ways a .NET trace investigation goes wrong:
    default, not as an afterthought.** A raw ranking (or export) of a BDN trace is
    mixed with orchestrator and overhead scaffolding outside your `[Benchmark]`.
    In the CLI, pass `--benchmark` to every verb that offers it; in MCP, pass
-   `root: "WorkloadAction"` to root-aware stack tools and `benchmark: true` to
-   `trace_export`. The wrapper includes warmup and actual workload iterations; it
-   excludes harness/overhead scaffolding, not warmup. This applies especially to
-   export - a flame graph with the harness left in is not just noisy, its proportions
-   are wrong. `lines` / `heatmap` cannot preserve root scope; narrow them with their
-   method/file filter and treat percentages as whole-trace.
+   `benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`,
+   `trace_classify`, and `trace_export`. The wrapper includes warmup and actual
+   workload iterations; it excludes harness/overhead scaffolding, not warmup. This
+   applies especially to export - a flame graph with the harness left in is not just
+   noisy, its proportions are wrong. Do not substitute a benchmark method substring:
+   if root/frame warnings report multiple definitions or depths, narrow the selector
+   before trusting the result. `lines` / `heatmap` cannot preserve root scope; narrow
+   them with their method/file filter and treat percentages as whole-trace.
 
 5. **Native runtime frames need `--native-symbols`.** Without it, the unmanaged
    share of a trace - GC, JIT, `memset` / `memcpy`, write barriers - shows as

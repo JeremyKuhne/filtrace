@@ -97,6 +97,7 @@ public sealed class TraceTools
     /// <param name="activity">Optional start-stop activity task name scoping the CPU ranking to that request/job.</param>
     /// <param name="time">Optional time window 'start,end' in ms scoping the ranking to that slice; any metric.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.</param>
+    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
     /// <returns>The ranking envelope.</returns>
     [McpServerTool(Name = "trace_rank", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description(
@@ -104,8 +105,8 @@ public sealed class TraceTools
         + "(JIT helpers folded in); measure=inclusive credits a frame and all it calls. One tool spans every "
         + "family - metric=cpu (sampled ms, any format), threadtime (wall-clock, .etl only), alloc (bytes), "
         + "exceptions (throws by type), contention (ms on locks), wait (ms on a handle), or activity (ms per "
-        + "completed activity); all but cpu and threadtime need a .nettrace. Scope with root; for a BenchmarkDotNet "
-        + "capture set root to the workload to skip the harness.")]
+        + "completed activity); all but cpu and threadtime need a .nettrace. Scope with root, or set benchmark=true "
+        + "for a BenchmarkDotNet capture to select its measured-workload subtree and skip the harness.")]
     public static AnalysisResult<RankingResult> Rank(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -130,12 +131,15 @@ public sealed class TraceTools
         [Description(
             "Resolve native runtime frames (GC, JIT, memcpy) from the Microsoft public symbol server; opt-in "
             + "(network, cached); cpu over .etl only.")]
-        bool nativeSymbols = false)
+        bool nativeSymbols = false,
+        [Description("Use the BenchmarkDotNet measured-workload root; mutually exclusive with 'root'.")]
+        bool benchmark = false)
     {
         TraceMetric resolved = ResolveMetric(metric);
         bool inclusive = ResolveMeasure(measure);
         RequirePositiveTop(top);
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
+        string resolvedRoot = ResolveRoot(root, benchmark);
 
         // The activity scope filters CPU samples by the request/job they were taken in, so
         // it applies to the cpu metric only; reject the combination rather than ignore it.
@@ -166,12 +170,19 @@ public sealed class TraceTools
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), resolved, scope, ResolveSymbols(nativeSymbols));
         TraceInfo info = trace.Info;
         RankingResult ranking = inclusive
-            ? trace.Aggregator.InclusiveTime(root, foldPatterns, top)
-            : trace.Aggregator.SelfTime(root, foldPatterns, top);
+            ? trace.Aggregator.InclusiveTime(resolvedRoot, foldPatterns, top)
+            : trace.Aggregator.SelfTime(resolvedRoot, foldPatterns, top);
+        List<string> warnings = [.. info.Warnings];
+        AddFrameMatchWarnings(
+            warnings,
+            trace.Source,
+            resolvedRoot,
+            benchmark ? "benchmark root" : "root",
+            FrameMatchSelection.Outermost);
 
         return new AnalysisResult<RankingResult>(
             ranking,
-            info.Warnings,
+            warnings,
             SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, scope));
     }
 
@@ -186,13 +197,14 @@ public sealed class TraceTools
     /// <param name="top">Maximum caller rows to return.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
+    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
     /// <returns>The caller-breakdown envelope.</returns>
     [McpServerTool(Name = "trace_callers", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
         "Immediate callers of the frame matching 'frame', with the CPU time each contributes. Use it to learn "
         + "what a JIT-helper or shared-utility frame (e.g. BulkMoveWithWriteBarrier) is really attributable to, "
         + "or to walk up a hot stack one level at a time. Set callees for a caller/callee view (what it calls too). "
-        + "Scope to a subtree with root.")]
+        + "Scope with root, or set benchmark=true for a BenchmarkDotNet measured workload.")]
     public static AnalysisResult<CallersResult> Callers(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -206,18 +218,29 @@ public sealed class TraceTools
             + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
         string process = "",
         [Description("Also return the frame's immediate callees (a caller/callee view); off by default.")]
-        bool callees = false)
+        bool callees = false,
+        [Description("Use the BenchmarkDotNet measured-workload root; mutually exclusive with 'root'.")]
+        bool benchmark = false)
     {
         RequirePositiveTop(top);
+        string resolvedRoot = ResolveRoot(root, benchmark);
         ScopeRequest? scope = ResolveScope(process);
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: scope);
         TraceInfo info = trace.Info;
-        CallersResult callers = trace.Aggregator.CallersOf(frame, root, top, callees);
+        CallersResult callers = trace.Aggregator.CallersOf(frame, resolvedRoot, top, callees);
+        List<string> warnings = [.. info.Warnings];
+        AddFrameMatchWarnings(
+            warnings,
+            trace.Source,
+            resolvedRoot,
+            benchmark ? "benchmark root" : "root",
+            FrameMatchSelection.Outermost);
+        AddFrameMatchWarnings(warnings, trace.Source, frame, "frame", FrameMatchSelection.Deepest);
 
         return new AnalysisResult<CallersResult>(
             callers,
-            info.Warnings,
-            SteeringHints.ForCallers(callers, root, scope));
+            warnings,
+            SteeringHints.ForCallers(callers, resolvedRoot, scope));
     }
 
     /// <summary>
@@ -679,8 +702,15 @@ public sealed class TraceTools
         string hint = chromium
             ? $"open {outputPath} in chrome://tracing or the Perfetto UI (https://ui.perfetto.dev)"
             : $"open {outputPath} at https://speedscope.app";
+        List<string> warnings = [.. info.Warnings];
+        AddFrameMatchWarnings(
+            warnings,
+            trace.Source,
+            resolvedRoot,
+            benchmark ? "benchmark root" : "root",
+            FrameMatchSelection.Outermost);
 
-        return new AnalysisResult<ExportResult>(result, info.Warnings, [hint]);
+        return new AnalysisResult<ExportResult>(result, warnings, [hint]);
     }
 
     /// <summary>
@@ -721,14 +751,15 @@ public sealed class TraceTools
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
+    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
     /// <returns>The call-tree envelope.</returns>
     [McpServerTool(Name = "trace_tree", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
         "Top-down CPU call tree from a root frame into its callees, following the hot path down to the work that "
         + "dominates it - the complement to trace_callers, which walks up. Each node carries its inclusive share; "
         + "maxDepth caps how far below the root it expands and minPercent prunes nodes below a share of the scoped "
-        + "total so the tree stays to the meaningful paths. Scope to a subtree with root; omit it for the whole "
-        + "trace. JIT-helper leaves are folded into their caller.")]
+        + "total so the tree stays to the meaningful paths. Scope with root, or set benchmark=true for a "
+        + "BenchmarkDotNet measured workload. JIT-helper leaves are folded into their caller.")]
     public static AnalysisResult<CallTreeResult> Tree(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -741,7 +772,9 @@ public sealed class TraceTools
         [Description(
             "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
             + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
-        string process = "")
+        string process = "",
+        [Description("Use the BenchmarkDotNet measured-workload root; mutually exclusive with 'root'.")]
+        bool benchmark = false)
     {
         if (maxDepth < 0 || maxDepth > FoldingAggregator.MaxTreeDepth)
         {
@@ -754,11 +787,19 @@ public sealed class TraceTools
         }
 
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
+        string resolvedRoot = ResolveRoot(root, benchmark);
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process));
         TraceInfo info = trace.Info;
-        CallTreeResult tree = trace.Aggregator.CallTree(root, foldPatterns, maxDepth, minPercent);
+        CallTreeResult tree = trace.Aggregator.CallTree(resolvedRoot, foldPatterns, maxDepth, minPercent);
+        List<string> warnings = [.. info.Warnings];
+        AddFrameMatchWarnings(
+            warnings,
+            trace.Source,
+            resolvedRoot,
+            benchmark ? "benchmark root" : "root",
+            FrameMatchSelection.Outermost);
 
-        return new AnalysisResult<CallTreeResult>(tree, info.Warnings);
+        return new AnalysisResult<CallTreeResult>(tree, warnings);
     }
 
     /// <summary>
@@ -771,14 +812,15 @@ public sealed class TraceTools
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.</param>
+    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
     /// <returns>The classification envelope.</returns>
     [McpServerTool(Name = "trace_classify", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description(
         "Bucket CPU self-time by runtime work category - zeroing, copying, write-barrier, GC, JIT, or other - to "
         + "answer 'where did the time go: zeroing memory? copying? in the GC?'. The categories are recognized from "
         + "native runtime frames, so pair this with nativeSymbols=true on an .etl capture; without resolved native "
-        + "symbols the runtime leaves fall in 'other' and the breakdown understates the real cost. Scope to a "
-        + "subtree with root.")]
+        + "symbols the runtime leaves fall in 'other' and the breakdown understates the real cost. Scope with "
+        + "root, or set benchmark=true for a BenchmarkDotNet measured workload.")]
     public static AnalysisResult<ClassifyResult> Classify(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -793,13 +835,23 @@ public sealed class TraceTools
             "Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server so "
             + "they classify instead of falling in 'other'. Opt-in - it fetches over the network and caches "
             + "locally. cpu over an .etl capture only.")]
-        bool nativeSymbols = false)
+        bool nativeSymbols = false,
+        [Description("Use the BenchmarkDotNet measured-workload root; mutually exclusive with 'root'.")]
+        bool benchmark = false)
     {
+        string resolvedRoot = ResolveRoot(root, benchmark);
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), TraceMetric.Cpu, ResolveScope(process), ResolveSymbols(nativeSymbols));
         TraceInfo info = trace.Info;
-        ClassifyResult classification = trace.Aggregator.Classify(root);
+        ClassifyResult classification = trace.Aggregator.Classify(resolvedRoot);
+        List<string> warnings = [.. info.Warnings];
+        AddFrameMatchWarnings(
+            warnings,
+            trace.Source,
+            resolvedRoot,
+            benchmark ? "benchmark root" : "root",
+            FrameMatchSelection.Outermost);
 
-        return new AnalysisResult<ClassifyResult>(classification, info.Warnings);
+        return new AnalysisResult<ClassifyResult>(classification, warnings);
     }
 
     /// <summary>
@@ -1204,6 +1256,58 @@ public sealed class TraceTools
         }
 
         return warnings;
+    }
+
+    private static void AddFrameMatchWarnings(
+        List<string> warnings,
+        StackSampleSource source,
+        string selector,
+        string role,
+        FrameMatchSelection selection)
+    {
+        if (string.IsNullOrEmpty(selector))
+        {
+            return;
+        }
+
+        FrameMatchReport report = FrameMatchAnalyzer.Analyze(source, selector, selection);
+        string selectionText = selection == FrameMatchSelection.Outermost ? "outermost" : "deepest";
+        if (report.Matches.Count == 0)
+        {
+            warnings.Add($"{role} '{selector}' matched no frame definitions.");
+            return;
+        }
+
+        string summary =
+            $"matched {report.Matches.Count} frame definition(s) across {report.MatchingStackCount} stack(s); "
+            + $"the {selectionText} match is selected per stack.";
+        warnings.Add(report.IsAmbiguous
+            ? $"{role} '{selector}' is ambiguous: {summary}"
+            : $"{role} '{selector}' {summary}");
+
+        const int maxReportedMatches = 25;
+        foreach (FrameMatch match in report.Matches.Take(maxReportedMatches))
+        {
+            warnings.Add(
+                $"{role} match: selected on {match.SelectedStackCount}/{match.MatchingStackCount} matching stack(s); "
+                + $"zero-based depths [{FormatDepths(match.Depths)}]; {match.Frame}");
+        }
+
+        if (report.Matches.Count > maxReportedMatches)
+        {
+            warnings.Add(
+                $"{role} '{selector}' has {report.Matches.Count - maxReportedMatches} additional frame definition(s); "
+                + "use a narrower selector.");
+        }
+    }
+
+    private static string FormatDepths(IReadOnlyList<int> depths)
+    {
+        const int maxReportedDepths = 10;
+        string shown = string.Join(", ", depths.Take(maxReportedDepths));
+        return depths.Count > maxReportedDepths
+            ? $"{shown}, ... ({depths.Count - maxReportedDepths} more)"
+            : shown;
     }
 
     private static string? NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
