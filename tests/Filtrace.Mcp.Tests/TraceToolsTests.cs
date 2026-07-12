@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json.Nodes;
 using ModelContextProtocol;
 using Filtrace.Output;
 using Filtrace.Server;
@@ -83,7 +84,7 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
-    public void Rank_BenchmarkPreset_ScopesToWorkloadActionFrame()
+    public void Rank_BenchmarkPresetWithoutWorkloadFrame_DropsAllSamples()
     {
         TraceStore store = new();
 
@@ -126,6 +127,71 @@ public sealed class TraceToolsTests
         envelope.Warnings.Should().Contain(
             warning => warning.Contains("MyApp.Other", StringComparison.Ordinal)
                 && warning.Contains("depth", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Rank_AmbiguousRoot_CapsReportedDepths()
+    {
+        const int recursiveDepth = 12;
+        string tracePath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+        JsonArray events = [];
+        for (int depth = 0; depth < recursiveDepth; depth++)
+        {
+            events.Add(new JsonObject { ["type"] = "O", ["frame"] = 0, ["at"] = 0 });
+        }
+
+        events.Add(new JsonObject { ["type"] = "O", ["frame"] = 1, ["at"] = 0 });
+        events.Add(new JsonObject { ["type"] = "C", ["frame"] = 1, ["at"] = 1 });
+        for (int depth = 0; depth < recursiveDepth; depth++)
+        {
+            events.Add(new JsonObject { ["type"] = "C", ["frame"] = 0, ["at"] = 1 });
+        }
+
+        JsonObject speedscope = new()
+        {
+            ["$schema"] = "https://www.speedscope.app/file-format-schema.json",
+            ["shared"] = new JsonObject
+            {
+                ["frames"] = new JsonArray
+                {
+                    new JsonObject { ["name"] = "Recursive.Frame" },
+                    new JsonObject { ["name"] = "CPU_TIME" }
+                }
+            },
+            ["profiles"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["type"] = "evented",
+                    ["name"] = "Worker",
+                    ["unit"] = "milliseconds",
+                    ["startValue"] = 0,
+                    ["endValue"] = 1,
+                    ["events"] = events
+                }
+            }
+        };
+
+        try
+        {
+            File.WriteAllText(tracePath, speedscope.ToJsonString());
+            TraceStore store = new();
+
+            AnalysisResult<RankingResult> envelope =
+                TraceTools.Rank(store, tracePath, root: "Recursive.Frame");
+
+            envelope.Warnings.Should().Contain(
+                warning => warning.Contains(
+                    "zero-based depths [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, ... (2 more)]",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            if (File.Exists(tracePath))
+            {
+                File.Delete(tracePath);
+            }
+        }
     }
 
     [TestMethod]
@@ -274,7 +340,7 @@ public sealed class TraceToolsTests
 
 
     [TestMethod]
-    public void Callers_BenchmarkPreset_ScopesToWorkloadActionFrame()
+    public void Callers_BenchmarkPresetWithoutWorkloadFrame_DropsAllSamples()
     {
         TraceStore store = new();
 
@@ -651,7 +717,7 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
-    public void Tree_BenchmarkPreset_ScopesToWorkloadActionFrame()
+    public void Tree_BenchmarkPresetWithoutWorkloadFrame_DropsAllSamples()
     {
         TraceStore store = new();
 
@@ -695,7 +761,7 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
-    public void Classify_BenchmarkPreset_ScopesToWorkloadActionFrame()
+    public void Classify_BenchmarkPresetWithoutWorkloadFrame_DropsAllSamples()
     {
         TraceStore store = new();
 
@@ -931,7 +997,7 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
-    public void Export_BenchmarkPreset_ScopesToWorkloadActionFrame()
+    public void Export_BenchmarkPresetWithoutWorkloadFrame_DropsAllSamples()
     {
         // The folding fixture has no WorkloadAction frame, so this proves 'benchmark'
         // resolves to FrameNames.BenchmarkWorkloadFrame and gets applied (every sample

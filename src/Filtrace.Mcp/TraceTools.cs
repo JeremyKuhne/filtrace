@@ -787,10 +787,10 @@ public sealed class TraceTools
         }
 
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
-    string resolvedRoot = ResolveRoot(root, benchmark);
+        string resolvedRoot = ResolveRoot(root, benchmark);
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process));
         TraceInfo info = trace.Info;
-    CallTreeResult tree = trace.Aggregator.CallTree(resolvedRoot, foldPatterns, maxDepth, minPercent);
+        CallTreeResult tree = trace.Aggregator.CallTree(resolvedRoot, foldPatterns, maxDepth, minPercent);
         List<string> warnings = [.. info.Warnings];
         AddFrameMatchWarnings(
             warnings,
@@ -1290,7 +1290,7 @@ public sealed class TraceTools
         {
             warnings.Add(
                 $"{role} match: selected on {match.SelectedStackCount}/{match.MatchingStackCount} matching stack(s); "
-                + $"zero-based depths [{string.Join(", ", match.Depths)}]; {match.Frame}");
+                + $"zero-based depths [{FormatDepths(match.Depths)}]; {match.Frame}");
         }
 
         if (report.Matches.Count > maxReportedMatches)
@@ -1299,6 +1299,15 @@ public sealed class TraceTools
                 $"{role} '{selector}' has {report.Matches.Count - maxReportedMatches} additional frame definition(s); "
                 + "use a narrower selector.");
         }
+    }
+
+    private static string FormatDepths(IReadOnlyList<int> depths)
+    {
+        const int maxReportedDepths = 10;
+        string shown = string.Join(", ", depths.Take(maxReportedDepths));
+        return depths.Count > maxReportedDepths
+            ? $"{shown}, ... ({depths.Count - maxReportedDepths} more)"
+            : shown;
     }
 
     private static string? NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
