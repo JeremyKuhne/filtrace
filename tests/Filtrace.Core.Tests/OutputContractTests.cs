@@ -126,8 +126,8 @@ public sealed class OutputContractTests
         {
             Analyses = new Dictionary<string, AnalysisAvailabilityView>
             {
-                ["cpu"] = new(true, "enabled", 42),
-                ["alloc"] = new(true, "disabled", null)
+                ["cpu"] = new("enabled", 42),
+                ["alloc"] = new("disabled", null)
             }
         };
         AnalysisResult<TraceInfoView> envelope = new(view);
@@ -141,6 +141,8 @@ public sealed class OutputContractTests
         result.GetProperty("symbolResolutionRate").GetDouble().Should().Be(0.91);
         result.GetProperty("threads")[0].GetProperty("thread").GetString().Should().Be("tid-1");
         result.GetProperty("availableAnalyses")[0].GetString().Should().Be("cpu");
+        result.GetProperty("analyses").GetProperty("cpu").TryGetProperty("formatSupported", out _)
+            .Should().BeFalse();
         result.GetProperty("analyses").GetProperty("cpu").GetProperty("eventCount").GetInt32().Should().Be(42);
         result.GetProperty("analyses").GetProperty("alloc").GetProperty("captureStatus").GetString()
             .Should().Be("disabled");

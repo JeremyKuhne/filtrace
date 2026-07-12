@@ -63,8 +63,8 @@ public sealed class TraceTools
     /// <returns>The trace summary envelope.</returns>
     [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Load a trace and return format, weight, sample/thread counts, symbol resolution, and per-analysis "
-        + "formatSupported/captureStatus/eventCount. captureStatus is enabled, disabled, or unknown; zero is "
+        "Load a trace and return format, weight, sample/thread counts, symbol resolution, available analyses, "
+        + "and per-analysis captureStatus/eventCount. captureStatus is enabled, disabled, or unknown; zero is "
         + "reported only when enablement is known. Also returns etlxCacheState. Call this first.")]
     public static async Task<AnalysisResult<TraceInfoView>> InfoAsync(
         TraceStore store,
@@ -1468,7 +1468,6 @@ public sealed class TraceTools
             }
 
             views[name] = new AnalysisAvailabilityView(
-                availability.FormatSupported,
                 CaptureStatusText(availability.CaptureStatus),
                 availability.EventCount);
         }

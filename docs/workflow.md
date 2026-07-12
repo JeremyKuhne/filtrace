@@ -63,11 +63,11 @@ dotnet-trace collect --profile cpu-sampling `
 A plain `dotnet-trace collect` records the default runtime families but not waits
 (`rank --metric wait` then warns it found none).
 
-`trace_info.analyses` separates three questions for every selector:
+`trace_info` separates the format constraint from capture evidence:
 
-- `formatSupported` says filtrace knows how to run it for this file format;
-- `captureStatus` is `enabled`, `disabled`, or `unknown`;
-- `eventCount` is the capture-wide source-record count when enabled, including zero.
+- `availableAnalyses` lists the selectors filtrace supports for this file format;
+- `analyses.<name>.captureStatus` is `enabled`, `disabled`, or `unknown` for each listed selector;
+- `analyses.<name>.eventCount` is the capture-wide source-record count when enabled, including zero.
 
 Observed source events always establish `enabled`. A zero is reported only when
 recorder metadata proves the provider/keyword was enabled; without that metadata,
@@ -155,8 +155,9 @@ are named for them:
 
 ### Route by symptom
 
-Choose the analysis from the symptom, confirm `formatSupported`, then require
-`captureStatus: enabled` before treating an empty result as a meaningful zero:
+Choose the analysis from the symptom, confirm it appears in `availableAnalyses`,
+then require `captureStatus: enabled` before treating an empty result as a
+meaningful zero:
 
 | Symptom / question | Start with | What it establishes |
 |---|---|---|

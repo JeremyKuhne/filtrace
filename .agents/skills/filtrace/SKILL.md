@@ -101,9 +101,9 @@ Almost every investigation is the same four moves:
    supplies matching PDBs for source lines, not a replacement for missing rundown.
    Unresolved native ETW frames can depress the aggregate while managed-method
    rankings remain usable; use `--native-symbols` when the native runtime split matters.
-   Read `analyses.<name>` before selecting a metric: `formatSupported` is only the
-   file-format constraint, while `captureStatus` and `eventCount` distinguish
-   enabled-zero, disabled, observed, and unknown provider state.
+   Check `availableAnalyses` before selecting a metric, then read
+   `analyses.<name>`: `captureStatus` and `eventCount` distinguish enabled-zero,
+   disabled, observed, and unknown provider state.
 2. **Rank.** Find the hottest frames by the metric that matches the question -
    `cpu`, `alloc`, `exceptions`, or `threadtime` (or `rank --metric <m>`).
    Self-time finds the leaf that burns the resource; inclusive-time finds the
@@ -124,8 +124,9 @@ filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source line
 filtrace diff before.nettrace after.nettrace # 4. what changed
 ```
 
-Choose the analysis from the symptom, confirm `formatSupported`, then require
-`captureStatus: enabled` before interpreting a zero as an empty workload:
+Choose the analysis from the symptom, confirm it appears in `availableAnalyses`,
+then require `captureStatus: enabled` before interpreting a zero as an empty
+workload:
 
 | Symptom / question | Start with | What it establishes |
 |---|---|---|

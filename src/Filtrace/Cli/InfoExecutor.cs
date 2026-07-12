@@ -96,7 +96,6 @@ internal static class InfoExecutor
             }
 
             views[name] = new AnalysisAvailabilityView(
-                availability.FormatSupported,
                 CaptureStatusText(availability.CaptureStatus),
                 availability.EventCount);
         }

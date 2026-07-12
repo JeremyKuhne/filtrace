@@ -62,7 +62,7 @@ public sealed class TraceToolsTests
         result.SymbolResolutionRate.Should().BeInRange(0.0, 1.0);
         result.Threads.Should().NotBeEmpty();
         result.EtlxCacheState.Should().BeNull();
-        result.Analyses!["cpu"].Should().Be(new AnalysisAvailabilityView(true, "enabled", 4));
+        result.Analyses!["cpu"].Should().Be(new AnalysisAvailabilityView("enabled", 4));
         result.Analyses.Should().NotContainKey("alloc");
     }
 
@@ -74,11 +74,10 @@ public sealed class TraceToolsTests
         AnalysisResult<TraceInfoView> envelope = TraceTools.Info(store, FixturePath(Alloc));
 
         AnalysisAvailabilityView allocation = envelope.Result.Analyses!["alloc"];
-        allocation.FormatSupported.Should().BeTrue();
         allocation.CaptureStatus.Should().Be("enabled");
         allocation.EventCount.Should().BeGreaterThan(0);
         envelope.Result.Analyses["wait"].Should().Be(
-            new AnalysisAvailabilityView(true, "unknown", null));
+            new AnalysisAvailabilityView("unknown", null));
     }
 
     [TestMethod]
@@ -95,9 +94,9 @@ public sealed class TraceToolsTests
             AnalysisResult<TraceInfoView> envelope = TraceTools.Info(store, path);
 
             envelope.Result.Analyses!["exceptions"].Should().Be(
-                new AnalysisAvailabilityView(true, "enabled", 0));
+                new AnalysisAvailabilityView("enabled", 0));
             envelope.Result.Analyses["wait"].Should().Be(
-                new AnalysisAvailabilityView(true, "disabled", null));
+                new AnalysisAvailabilityView("disabled", null));
             envelope.Result.Analyses["alloc"].CaptureStatus.Should().Be("enabled");
             envelope.Result.Analyses["alloc"].EventCount.Should().BeGreaterThan(0);
         }

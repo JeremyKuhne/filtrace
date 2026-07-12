@@ -85,10 +85,9 @@ internal sealed class AnalysisEventCounter
         }
     }
 
-    private static bool IsApplicationProvider(string providerName) =>
+    internal static bool IsApplicationProvider(string providerName) =>
         !providerName.StartsWith("Microsoft-Windows-DotNETRuntime", StringComparison.Ordinal)
-        && !providerName.StartsWith("Microsoft-DotNETCore-", StringComparison.Ordinal)
-        && !providerName.StartsWith("System.Threading.Tasks.", StringComparison.Ordinal);
+        && !providerName.StartsWith("Microsoft-DotNETCore-", StringComparison.Ordinal);
 
     private void Increment(string analysis)
     {

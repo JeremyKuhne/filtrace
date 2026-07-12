@@ -48,8 +48,7 @@ internal static class InfoTextRenderer
                     ? $", {observed} events"
                     : string.Empty;
                 output.WriteLine(
-                    $"  {name}: format={availability.FormatSupported.ToString().ToLowerInvariant()}, "
-                    + $"capture={availability.CaptureStatus}{count}");
+                    $"  {name}: capture={availability.CaptureStatus}{count}");
             }
         }
 

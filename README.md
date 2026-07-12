@@ -80,7 +80,7 @@ config and tool workflow.
 
 | Verb | Purpose | Example |
 |---|---|---|
-| `info` | Format, sample count, symbol-resolution rate, and per-analysis format/capture/event state | `filtrace info app.nettrace` |
+| `info` | Format, sample count, symbol-resolution rate, supported analyses, and per-analysis capture/event state | `filtrace info app.nettrace` |
 
 **Ranking** - rank stacks by a metric (`--metric` on `rank`, or a shortcut verb):
 
