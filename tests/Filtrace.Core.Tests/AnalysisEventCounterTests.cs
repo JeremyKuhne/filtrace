@@ -22,4 +22,12 @@ public sealed class AnalysisEventCounterTests
     {
         AnalysisEventCounter.IsApplicationProvider(providerName).Should().BeFalse();
     }
+
+    [TestMethod]
+    [DataRow(int.MaxValue - 1, int.MaxValue)]
+    [DataRow(int.MaxValue, int.MaxValue)]
+    public void SaturatingIncrement_AtUpperBoundary_DoesNotOverflow(int count, int expected)
+    {
+        AnalysisEventCounter.SaturatingIncrement(count).Should().Be(expected);
+    }
 }

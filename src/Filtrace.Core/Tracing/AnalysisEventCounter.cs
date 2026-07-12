@@ -106,6 +106,9 @@ internal sealed class AnalysisEventCounter
     private void Increment(string analysis)
     {
         _counts.TryGetValue(analysis, out int count);
-        _counts[analysis] = checked(count + 1);
+        _counts[analysis] = SaturatingIncrement(count);
     }
+
+    internal static int SaturatingIncrement(int count) =>
+        count == int.MaxValue ? int.MaxValue : count + 1;
 }

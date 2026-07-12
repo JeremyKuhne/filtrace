@@ -264,11 +264,10 @@ if ($Profiler -eq 'EP') {
     if ($LASTEXITCODE -ne 0) { Write-Error "dotnet-trace failed (exit $LASTEXITCODE)." -ErrorAction Continue ; exit $LASTEXITCODE }
 
     if ($Metric -eq 'alloc') {
+        # gc-verbose establishes allocation and GC events, but dotnet-trace profile
+        # composition varies across tool versions; leave other families unknown.
         Write-CaptureMetadata $Output ([ordered]@{
-            cpu = 'disabled'; alloc = 'enabled'; exceptions = 'enabled';
-            contention = 'disabled'; wait = 'disabled'; activity = 'disabled';
-            gcstats = 'enabled'; jitstats = 'disabled'; threadpool = 'disabled';
-            events = 'enabled'
+            alloc = 'enabled'; gcstats = 'enabled'; events = 'enabled'
         })
     }
     else {
