@@ -52,6 +52,12 @@ public sealed class TraceInfo
         IReadOnlyDictionary<string, AnalysisAvailability> analyses,
         EtlxCacheState? etlxCacheState = null)
     {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(threads);
+        ArgumentNullException.ThrowIfNull(warnings);
+        ArgumentNullException.ThrowIfNull(availableAnalyses);
+        ArgumentNullException.ThrowIfNull(analyses);
+
         Path = path;
         Format = format;
         TotalWeight = totalWeight;

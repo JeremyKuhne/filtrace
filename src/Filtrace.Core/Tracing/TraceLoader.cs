@@ -417,10 +417,12 @@ public sealed class TraceLoader
         List<string> combinedWarnings = [.. warnings];
         IReadOnlyDictionary<string, CaptureStatus>? captureStatuses =
             CaptureMetadataReader.Read(fullPath, combinedWarnings);
+        IReadOnlyDictionary<string, int> eventCounts =
+            analysisEventCounts ?? AnalysisEventCounter.Count(fullPath);
         IReadOnlyDictionary<string, AnalysisAvailability> analyses =
             TraceCapabilities.AvailabilityFor(
                 format,
-                analysisEventCounts ?? new Dictionary<string, int>(),
+                eventCounts,
                 captureStatuses);
 
         return new TraceInfo(

@@ -4,6 +4,7 @@
 
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.EventPipe;
+using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 
@@ -18,6 +19,19 @@ internal sealed class AnalysisEventCounter
     private readonly Dictionary<string, int> _counts = new(StringComparer.Ordinal);
 
     public IReadOnlyDictionary<string, int> Counts => _counts;
+
+    public static IReadOnlyDictionary<string, int> Count(string path)
+    {
+        using TraceLog traceLog = TraceConverter.OpenTraceLog(path, out _);
+        AnalysisEventCounter counter = new();
+        foreach (TraceEvent data in traceLog.Events)
+        {
+            counter.Observe(data);
+        }
+
+        counter.AddProcesses(traceLog.Processes.Count);
+        return counter.Counts;
+    }
 
     public void Observe(TraceEvent data)
     {

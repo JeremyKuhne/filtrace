@@ -37,4 +37,36 @@ public sealed class TraceLoaderAvailabilityTests
         info.Analyses["wait"].Should().Be(
             new AnalysisAvailability(true, CaptureStatus.Unknown, null));
     }
+
+    [TestMethod]
+    [DataRow((int)TraceMetric.Allocations, "alloc.nettrace", "alloc")]
+    [DataRow((int)TraceMetric.Exceptions, "exceptions.nettrace", "exceptions")]
+    [DataRow((int)TraceMetric.Contention, "contention.nettrace", "contention")]
+    [DataRow((int)TraceMetric.Wait, "wait.nettrace", "wait")]
+    [DataRow((int)TraceMetric.Activity, "activity.nettrace", "activity")]
+    public void Load_MetricView_ReportsCaptureWideAvailability(
+        int metricValue,
+        string fixture,
+        string analysis)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture);
+
+        TraceInfo info = new TraceLoader().Load(path, (TraceMetric)metricValue).Info;
+
+        info.Analyses[analysis].CaptureStatus.Should().Be(CaptureStatus.Enabled);
+        info.Analyses[analysis].EventCount.Should().BeGreaterThan(0);
+    }
+
+    [TestMethod]
+    public void Load_WindowedMetricView_ReportsCaptureWideEventCount()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "alloc.nettrace");
+        ScopeRequest future = ScopeRequest.Auto.WithTimeWindow(1e9, 1e9 + 1.0);
+
+        TraceInfo info = new TraceLoader().Load(path, TraceMetric.Allocations, scope: future).Info;
+
+        info.SampleCount.Should().Be(0);
+        info.Analyses["alloc"].CaptureStatus.Should().Be(CaptureStatus.Enabled);
+        info.Analyses["alloc"].EventCount.Should().BeGreaterThan(0);
+    }
 }
