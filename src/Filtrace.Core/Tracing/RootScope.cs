@@ -74,7 +74,7 @@ public static class RootScope
                     sample.Process));
         }
 
-        return new StackSampleSource(source.Metric, scoped);
+        return new StackSampleSource(source.Metric, scoped, source.RecordSemantics);
     }
 
     /// <summary>

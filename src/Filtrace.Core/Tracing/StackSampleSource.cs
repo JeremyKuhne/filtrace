@@ -29,10 +29,15 @@ public sealed class StackSampleSource
     /// </summary>
     /// <param name="metric">The metric the sample weights are measured in.</param>
     /// <param name="samples">The normalized weighted sample stacks.</param>
-    public StackSampleSource(MetricInfo metric, IReadOnlyList<SampleStack> samples)
+    /// <param name="recordSemantics">What each normalized record represents.</param>
+    public StackSampleSource(
+        MetricInfo metric,
+        IReadOnlyList<SampleStack> samples,
+        StackRecordSemantics recordSemantics = StackRecordSemantics.Unavailable)
     {
         Metric = metric;
         Samples = samples;
+        RecordSemantics = recordSemantics;
     }
 
     /// <summary>
@@ -44,4 +49,10 @@ public sealed class StackSampleSource
     ///  The normalized weighted sample stacks.
     /// </summary>
     public IReadOnlyList<SampleStack> Samples { get; }
+
+    /// <summary>
+    ///  What one entry in <see cref="Samples"/> represents for count and quality
+    ///  interpretation. This is separate from its metric weight.
+    /// </summary>
+    public StackRecordSemantics RecordSemantics { get; }
 }

@@ -101,38 +101,28 @@ public sealed class TraceTools
     /// <returns>The ranking envelope.</returns>
     [McpServerTool(Name = "trace_rank", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description(
-        "Rank the hottest frames over a chosen provider metric. measure=self credits the executing leaf "
-        + "(JIT helpers folded in); measure=inclusive credits a frame and all it calls. One tool spans every "
-        + "family - metric=cpu (sampled ms, any format), threadtime (wall-clock, .etl only), alloc (bytes), "
-        + "exceptions (throws by type), contention (ms on locks), wait (ms on a handle), or activity (ms per "
-        + "completed activity); all but cpu and threadtime need a .nettrace. Scope with root, or set benchmark=true "
-        + "for a BenchmarkDotNet capture to select its measured-workload subtree and skip the harness.")]
+        "Rank frames by self or inclusive metric weight. Metrics: cpu, threadtime, alloc, exceptions, "
+        + "contention, wait, or activity; all but cpu and threadtime need .nettrace. Scope with root or "
+        + "benchmark=true (BenchmarkDotNet measured workload).")]
     public static AnalysisResult<RankingResult> Rank(
         TraceStore store,
-        [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
-        [Description("Provider view to rank: cpu, threadtime, alloc, exceptions, contention, wait, or activity.")] string metric = "cpu",
-        [Description("Which measure to report: self or inclusive.")] string measure = "self",
-        [Description("Optional substring of a frame name to scope the ranking to its subtree.")] string root = "",
-        [Description("Maximum number of ranked rows to return.")] int top = 25,
-        [Description("Optional regex fold patterns; omit to use the built-in JIT-helper defaults.")] string[]? fold = null,
-        [Description("Optional build-output directory whose PDBs map managed code to source lines (cpu metric only).")]
+        [Description("Trace path (.speedscope.json, .nettrace, or .etl).")] string path,
+        [Description("Metric: cpu, threadtime, alloc, exceptions, contention, wait, or activity.")] string metric = "cpu",
+        [Description("Measure: self or inclusive.")] string measure = "self",
+        [Description("Frame substring that roots the ranking.")] string root = "",
+        [Description("Maximum rows.")] int top = 25,
+        [Description("Regex fold patterns; omit for defaults.")] string[]? fold = null,
+        [Description("Build-output directory containing PDBs (cpu only).")]
         string symbols = "",
-        [Description(
-            "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
-            + "to auto-scope to the busiest.")]
+        [Description("Process substring for .etl; omit to auto-scope to the busiest.")]
         string process = "",
-        [Description(
-            "Optional activity task name scoping the CPU ranking to that request/job (cpu only).")]
+        [Description("Activity task name (cpu only).")]
         string activity = "",
-        [Description(
-            "Optional time window 'start,end' in ms scoping the ranking to that slice; either bound optional "
-            + "(e.g. 1000, or ,5000). Any metric on .nettrace/.etl; speedscope ignores it with a warning.")]
+        [Description("Time window 'start,end' ms; either bound optional. Speedscope ignores it.")]
         string time = "",
-        [Description(
-            "Resolve native runtime frames (GC, JIT, memcpy) from the Microsoft public symbol server; opt-in "
-            + "(network, cached); cpu over .etl only.")]
+        [Description("Resolve native runtime frames via network/cache; cpu .etl only.")]
         bool nativeSymbols = false,
-        [Description("Use the BenchmarkDotNet measured-workload root; mutually exclusive with 'root'.")]
+        [Description("BenchmarkDotNet workload root; conflicts with 'root'.")]
         bool benchmark = false)
     {
         TraceMetric resolved = ResolveMetric(metric);
@@ -179,6 +169,7 @@ public sealed class TraceTools
             resolvedRoot,
             benchmark ? "benchmark root" : "root",
             FrameMatchSelection.Outermost);
+        AddMethodRecordWarning(warnings, trace.Source, ranking.ContributingRecordCount);
 
         return new AnalysisResult<RankingResult>(
             ranking,
@@ -236,6 +227,7 @@ public sealed class TraceTools
             benchmark ? "benchmark root" : "root",
             FrameMatchSelection.Outermost);
         AddFrameMatchWarnings(warnings, trace.Source, frame, "frame", FrameMatchSelection.Deepest);
+        AddMethodRecordWarning(warnings, trace.Source, callers.ContributingRecordCount);
 
         return new AnalysisResult<CallersResult>(
             callers,
@@ -280,8 +272,10 @@ public sealed class TraceTools
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process));
         TraceInfo info = trace.Info;
         LineRankingResult lines = trace.Aggregator.HotLines(method, foldPatterns, top);
+        List<string> warnings = [.. info.Warnings];
+        AddLineRecordWarning(warnings, trace.Source, lines.AttributedRecordCount);
 
-        return new AnalysisResult<LineRankingResult>(lines, info.Warnings);
+        return new AnalysisResult<LineRankingResult>(lines, warnings);
     }
 
     /// <summary>
@@ -320,8 +314,10 @@ public sealed class TraceTools
         // The trace records the build-time file name, not its full path, so match on the file name.
         string fileName = Path.GetFileName(file);
         SourceHeatmapResult heatmap = trace.Aggregator.SourceHeatmap(fileName, foldPatterns);
+        List<string> warnings = [.. info.Warnings];
+        AddLineRecordWarning(warnings, trace.Source, heatmap.AttributedRecordCount);
 
-        return new AnalysisResult<SourceHeatmapResult>(heatmap, info.Warnings);
+        return new AnalysisResult<SourceHeatmapResult>(heatmap, warnings);
     }
 
     /// <summary>
@@ -1308,6 +1304,34 @@ public sealed class TraceTools
         return depths.Count > maxReportedDepths
             ? $"{shown}, ... ({depths.Count - maxReportedDepths} more)"
             : shown;
+    }
+
+    private static void AddMethodRecordWarning(
+        List<string> warnings,
+        StackSampleSource source,
+        int? contributingRecordCount)
+    {
+        if (ContributingRecordQuality.TryGetMethodWarning(
+            source.RecordSemantics,
+            contributingRecordCount,
+            out string? warning))
+        {
+            warnings.Add(warning!);
+        }
+    }
+
+    private static void AddLineRecordWarning(
+        List<string> warnings,
+        StackSampleSource source,
+        int? attributedRecordCount)
+    {
+        if (ContributingRecordQuality.TryGetLineWarning(
+            source.RecordSemantics,
+            attributedRecordCount,
+            out string? warning))
+        {
+            warnings.Add(warning!);
+        }
     }
 
     private static string? NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;

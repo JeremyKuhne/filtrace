@@ -37,8 +37,12 @@ public sealed class AnalysisResult<T>
     ///   the metric-neutral <c>*Weight</c> (so allocation rankings no longer report
     ///   bytes under a millisecond name).
     ///  </para>
+    ///  <para>
+    ///   Version 3 added query-specific contributing-record counts, distinct from
+    ///   metric weight, to ranking, callers, lines, and heat-map payloads.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.

@@ -14,6 +14,8 @@ public sealed class RankingExecutorTests
 
     private static string Speedscope => FixturePath("folding.speedscope.json");
 
+    private static string Activity => FixturePath("activity.nettrace");
+
     private static string Alloc => FixturePath("alloc.nettrace");
 
     private static string ExceptionsTrace => FixturePath("exceptions.nettrace");
@@ -57,6 +59,17 @@ public sealed class RankingExecutorTests
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("CPU inclusive-time");
+    }
+
+    [TestMethod]
+    public void Run_ThinPeriodicCpuRoot_ReportsCountAndWarning()
+    {
+        (int exit, string output, _) = Run(Request(Activity, root: "ActivityLoop.EmitActivities"));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("records 179");
+        output.Should().Contain("Only 179 periodic CPU records");
+        output.Should().Contain("at least 200");
     }
 
     [TestMethod]

@@ -18,7 +18,8 @@ public sealed class OutputContractTests
             [
                 new RankRow("MyApp.Inner", 16.0, 64.0),
                 new RankRow("MyApp.Work", 4.0, 16.0)
-            ]);
+            ],
+            4);
 
         return new AnalysisResult<RankingResult>(
             payload,

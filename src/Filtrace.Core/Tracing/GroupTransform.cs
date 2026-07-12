@@ -104,7 +104,7 @@ public sealed class GroupTransform
             grouped.Add(new SampleStack([.. rewritten], sample.Weight, sample.Thread));
         }
 
-        return new StackSampleSource(source.Metric, grouped);
+        return new StackSampleSource(source.Metric, grouped, source.RecordSemantics);
     }
 
     // Collapses a frame to "module!" when its module matches any pattern, otherwise

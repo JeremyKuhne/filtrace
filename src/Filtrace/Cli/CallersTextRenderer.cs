@@ -39,6 +39,10 @@ internal static class CallersTextRenderer
         output.WriteLine(
             $"{metric.Name} callers of '{callers.Focus}'  -  {callers.TargetWeight:N2} {unit} "
             + $"({callers.PercentOfScope:N2}% of scope)");
+        if (callers.ContributingRecordCount is int contributingRecordCount)
+        {
+            output.WriteLine($"  contributing records {contributingRecordCount}");
+        }
 
         if (callers.Callers.Count == 0)
         {

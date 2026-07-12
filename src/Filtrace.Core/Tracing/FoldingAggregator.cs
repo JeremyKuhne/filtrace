@@ -123,6 +123,7 @@ public sealed partial class FoldingAggregator
         Regex[] fold = FrameNames.CompileFoldPatterns(foldPatterns);
         Dictionary<string, double> selfTime = new(StringComparer.Ordinal);
         double total = 0.0;
+        int contributingRecordCount = 0;
 
         foreach (SampleStack sample in _samples)
         {
@@ -134,6 +135,7 @@ public sealed partial class FoldingAggregator
             }
 
             total += sample.Weight;
+            contributingRecordCount++;
 
             int leafIdx = frames.Count - 1;
             while (leafIdx > startIdx && FrameNames.IsFolded(ShortOf(frames[leafIdx]), fold))
@@ -146,7 +148,11 @@ public sealed partial class FoldingAggregator
             selfTime[leaf] = current + sample.Weight;
         }
 
-        return new RankingResult(total, rootFrame, RankRows(selfTime, total, top));
+        return new RankingResult(
+            total,
+            rootFrame,
+            RankRows(selfTime, total, top),
+            AvailableRecordCount(contributingRecordCount));
     }
 
     /// <summary>
@@ -222,6 +228,7 @@ public sealed partial class FoldingAggregator
         Dictionary<string, double> inclTime = new(StringComparer.Ordinal);
         HashSet<string> seen = new(StringComparer.Ordinal);
         double total = 0.0;
+        int contributingRecordCount = 0;
 
         foreach (SampleStack sample in _samples)
         {
@@ -233,6 +240,7 @@ public sealed partial class FoldingAggregator
             }
 
             total += sample.Weight;
+            contributingRecordCount++;
             seen.Clear();
 
             for (int fi = startIdx; fi < frames.Count; fi++)
@@ -251,7 +259,11 @@ public sealed partial class FoldingAggregator
             }
         }
 
-        return new RankingResult(total, rootFrame, RankRows(inclTime, total, top));
+        return new RankingResult(
+            total,
+            rootFrame,
+            RankRows(inclTime, total, top),
+            AvailableRecordCount(contributingRecordCount));
     }
 
     /// <summary>
@@ -286,6 +298,7 @@ public sealed partial class FoldingAggregator
         Dictionary<string, double>? calleeTime = includeCallees ? new(StringComparer.Ordinal) : null;
         double targetTotal = 0.0;
         double total = 0.0;
+        int contributingRecordCount = 0;
 
         foreach (SampleStack sample in _samples)
         {
@@ -322,6 +335,7 @@ public sealed partial class FoldingAggregator
                 }
 
                 targetTotal += sample.Weight;
+                contributingRecordCount++;
                 string caller = si > startIdx ? ShortOf(frames[si - 1]) : "<root>";
                 callerTime.TryGetValue(caller, out double currentCaller);
                 callerTime[caller] = currentCaller + sample.Weight;
@@ -382,7 +396,14 @@ public sealed partial class FoldingAggregator
         }
 
         double pctOfScope = total > 0 ? 100.0 * targetTotal / total : 0.0;
-        return new CallersResult(focus, targetTotal, pctOfScope, total, callerRows, calleeRows);
+        return new CallersResult(
+            focus,
+            targetTotal,
+            pctOfScope,
+            total,
+            callerRows,
+            calleeRows,
+            AvailableRecordCount(contributingRecordCount));
     }
 
     /// <summary>
@@ -407,12 +428,13 @@ public sealed partial class FoldingAggregator
         Regex[] fold = FrameNames.CompileFoldPatterns(foldPatterns);
         Dictionary<string, (double Ms, string Method, string Location)> lineTime = new(StringComparer.Ordinal);
         double total = 0.0;
+        int attributedRecordCount = 0;
+        int unattributedRecordCount = 0;
 
         foreach (SampleStack sample in _samples)
         {
-            IReadOnlyList<string>? locations = sample.FrameLocations;
             IReadOnlyList<string> frames = sample.Frames;
-            if (locations is null || frames.Count == 0)
+            if (frames.Count == 0)
             {
                 continue;
             }
@@ -429,11 +451,25 @@ public sealed partial class FoldingAggregator
                 continue;
             }
 
+            IReadOnlyList<string>? locations = sample.FrameLocations;
+            if (locations is null)
+            {
+                unattributedRecordCount++;
+                continue;
+            }
+
             total += sample.Weight;
 
-            string location = leafIdx < locations.Count && locations[leafIdx].Length > 0
-                ? locations[leafIdx]
-                : "<no source>";
+            bool attributed = leafIdx < locations.Count && locations[leafIdx].Length > 0;
+            string location = attributed ? locations[leafIdx] : "<no source>";
+            if (attributed)
+            {
+                attributedRecordCount++;
+            }
+            else
+            {
+                unattributedRecordCount++;
+            }
 
             string key = $"{method}\u0000{location}";
             lineTime.TryGetValue(key, out (double Ms, string Method, string Location) current);
@@ -465,7 +501,12 @@ public sealed partial class FoldingAggregator
             rows.RemoveRange(top, rows.Count - top);
         }
 
-        return new LineRankingResult(total, methodFilter, rows);
+        return new LineRankingResult(
+            total,
+            methodFilter,
+            rows,
+            AvailableRecordCount(attributedRecordCount),
+            AvailableRecordCount(unattributedRecordCount));
     }
 
     /// <summary>
@@ -492,6 +533,8 @@ public sealed partial class FoldingAggregator
         double traceTotal = 0.0;
         double fileTotal = 0.0;
         string matchedFile = fileName;
+        int attributedRecordCount = 0;
+        int unattributedRecordCount = 0;
 
         foreach (SampleStack sample in _samples)
         {
@@ -506,6 +549,7 @@ public sealed partial class FoldingAggregator
             IReadOnlyList<string>? locations = sample.FrameLocations;
             if (locations is null)
             {
+                unattributedRecordCount++;
                 continue;
             }
 
@@ -516,8 +560,13 @@ public sealed partial class FoldingAggregator
             }
 
             if (leafIdx >= locations.Count
-                || !TrySplitLocation(locations[leafIdx], out string leafFile, out int line)
-                || !string.Equals(leafFile, fileName, StringComparison.OrdinalIgnoreCase))
+                || !TrySplitLocation(locations[leafIdx], out string leafFile, out int line))
+            {
+                unattributedRecordCount++;
+                continue;
+            }
+
+            if (!string.Equals(leafFile, fileName, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -525,6 +574,7 @@ public sealed partial class FoldingAggregator
             // Preserve the file name's casing as recorded in the trace.
             matchedFile = leafFile;
             fileTotal += sample.Weight;
+            attributedRecordCount++;
 
             if (!lines.TryGetValue(line, out LineAccumulator? accumulator))
             {
@@ -544,7 +594,13 @@ public sealed partial class FoldingAggregator
         }
 
         rows.Sort(static (a, b) => a.Line.CompareTo(b.Line));
-        return new SourceHeatmapResult(traceTotal, matchedFile, fileTotal, rows);
+        return new SourceHeatmapResult(
+            traceTotal,
+            matchedFile,
+            fileTotal,
+            rows,
+            AvailableRecordCount(attributedRecordCount),
+            AvailableRecordCount(unattributedRecordCount));
     }
 
     /// <summary>
@@ -706,5 +762,8 @@ public sealed partial class FoldingAggregator
 
         return rows;
     }
+
+    private int? AvailableRecordCount(int count) =>
+        _source.RecordSemantics == StackRecordSemantics.Unavailable ? null : count;
 }
 

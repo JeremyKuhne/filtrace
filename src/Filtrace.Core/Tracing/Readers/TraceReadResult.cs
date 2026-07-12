@@ -11,7 +11,9 @@ namespace Filtrace.Tracing.Readers;
 /// <param name="Samples">The weighted samples, each ordered outermost-first.</param>
 /// <param name="SymbolResolutionRate">Fraction in <c>[0, 1]</c> of frames that resolved to a method name.</param>
 /// <param name="Warnings">Format-specific quality warnings.</param>
+/// <param name="RecordSemantics">What each normalized record represents.</param>
 internal sealed record TraceReadResult(
     IReadOnlyList<SampleStack> Samples,
     double SymbolResolutionRate,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    StackRecordSemantics RecordSemantics);

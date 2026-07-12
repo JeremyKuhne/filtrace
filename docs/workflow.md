@@ -333,6 +333,18 @@ cleanly and stays cheap in tokens.
 - State the trace format, selected process/root/time window, metric, and
   self-versus-inclusive measure with the finding. Percentages are relative to that
   scope; CPU milliseconds are sampled estimates, not exact elapsed duration.
+- Keep counts separate from weight. `trace_info.sampleCount` describes the loaded
+  whole trace after process/activity/time filters; it does not establish that a
+  narrower root/method/file query is well sampled. Stack rankings and callers expose
+  `contributingRecordCount`; lines and heat maps expose `attributedRecordCount` and
+  `unattributedRecordCount`. `scopeWeight` remains metric weight (CPU milliseconds,
+  allocation bytes, event counts, or elapsed interval milliseconds), never a generic
+  record count.
+- The default 200-record method and 1,000-record line warnings apply only when the
+  reader establishes periodic CPU sampling. Evented speedscope records are duration
+  intervals: report their count separately from weight, but do not apply periodic
+  sample thresholds. A `null` count means the source cannot establish a
+  meaningful record count.
 - `alloc` attributes `GCAllocationTick` volume to allocation sites. It does **not**
   report retained bytes, object reachability, or GC-root paths, so it cannot prove a
   memory leak; use a heap snapshot/dump tool for retention.

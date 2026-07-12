@@ -47,8 +47,16 @@ internal static class HeatmapExecutor
         // the file name; the original path is kept for the source overlay in text mode.
         string fileName = System.IO.Path.GetFileName(request.File);
         SourceHeatmapResult heatmap = trace.Aggregator.SourceHeatmap(fileName, request.Fold);
+        List<string> warnings = [.. TraceExecution.ResultWarnings(info)];
+        if (ContributingRecordQuality.TryGetLineWarning(
+            trace.Source.RecordSemantics,
+            heatmap.AttributedRecordCount,
+            out string? recordWarning))
+        {
+            warnings.Add(recordWarning!);
+        }
 
-        AnalysisResult<SourceHeatmapResult> envelope = new(heatmap, TraceExecution.ResultWarnings(info));
+        AnalysisResult<SourceHeatmapResult> envelope = new(heatmap, warnings);
 
         if (request.Format == OutputFormat.Json)
         {

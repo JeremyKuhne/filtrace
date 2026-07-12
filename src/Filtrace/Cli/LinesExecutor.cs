@@ -43,8 +43,16 @@ internal static class LinesExecutor
 
         TraceInfo info = trace.Info;
         LineRankingResult lines = trace.Aggregator.HotLines(request.Method, request.Fold, request.Top);
+        List<string> warnings = [.. TraceExecution.ResultWarnings(info)];
+        if (ContributingRecordQuality.TryGetLineWarning(
+            trace.Source.RecordSemantics,
+            lines.AttributedRecordCount,
+            out string? recordWarning))
+        {
+            warnings.Add(recordWarning!);
+        }
 
-        AnalysisResult<LineRankingResult> envelope = new(lines, TraceExecution.ResultWarnings(info));
+        AnalysisResult<LineRankingResult> envelope = new(lines, warnings);
 
         if (request.Format == OutputFormat.Json)
         {
