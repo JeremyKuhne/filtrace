@@ -222,9 +222,10 @@ Run `filtrace <verb> --help` for the full option set of any verb.
    `benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`,
    `trace_classify`, and `trace_export`. The wrapper includes warmup and actual
    iterations and excludes harness/overhead scaffolding. Do not guess a benchmark
-   method substring: root/frame warnings list matching full definitions, stack depths,
-   and which outermost/deepest definition was selected. Narrow an ambiguous selector
-   before trusting percentages. `lines` / `heatmap` have no root scope; narrow them by
+   method substring: root/frame warnings report the total match count, then list up to
+   25 full definitions and 10 depths per definition with omitted-count markers, plus
+   which outermost/deepest definition was selected. Narrow an ambiguous selector before
+   trusting percentages. `lines` / `heatmap` have no root scope; narrow them by
    method/file and treat percentages as whole-trace.
 - **Scope to a time window.** `rank --time <start>,<end>` (milliseconds relative to
   the trace start, either bound optional: `1000,5000`, `1000,`, or `,5000`) keeps

@@ -82,10 +82,11 @@ rankings, export too, and not just when the result looks noisy. In the CLI,
 `--benchmark` supplies that preset to every verb that offers it. In MCP, pass
 `benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`,
 and `trace_export`. Do not guess a benchmark method substring: root/frame warnings
-list every matching full frame definition, its observed stack depths, and which
-outermost/deepest definition the query selected. Narrow an ambiguous selector before
-trusting percentages. `lines` and `heatmap` have no root scope in either head: narrow
-them with their method/file filter and remember their percentages still describe the
+report the total match count and list up to 25 full frame definitions with up to 10
+observed depths each, marking omitted definitions/depths, plus which outermost/deepest
+definition the query selected. Narrow an ambiguous selector before trusting
+percentages. `lines` and `heatmap` have no root scope in either head: narrow them with
+their method/file filter and remember their percentages still describe the
 process-scoped whole trace. The workload wrapper includes warmup and actual iterations;
 it isolates the `[Benchmark]` code from bootstrap and overhead scaffolding, not warmup
 from measurement. The bundled
@@ -246,9 +247,10 @@ defaults to scenario scope and lets you tighten further:
   The wrapper includes warmup and actual iterations. `lines` / `heatmap` are not
   root-aware; use their method/file filter and treat percentages as whole-trace. A
   benchmark preset is mutually exclusive with an explicit root. When using a root or
-  frame substring, inspect warnings: they enumerate matching full frame definitions,
-  stack depths, and the per-stack selection rule. Narrow an ambiguous selector before
-  treating its percentages as evidence.
+  frame substring, inspect warnings: they report the total match count, then list up
+  to 25 full definitions and 10 depths per definition with omitted-count markers, plus
+  the per-stack selection rule. Narrow an ambiguous selector before treating its
+  percentages as evidence.
 - **`--activity <name>`** (`rank`, cpu metric) - scope the CPU view to the samples
   taken inside one start-stop activity - a request, job, or operation - or a child
   of it. Answers "why is *this* request slow?".
