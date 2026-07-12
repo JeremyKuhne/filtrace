@@ -45,7 +45,7 @@ public sealed record TraceInfoView(
     string? EtlxCacheState = null)
 {
     /// <summary>
-    ///  Capture status and observed event count for each selector in
+    ///  Capture status and observed source-record count for each selector in
     ///  <see cref="AvailableAnalyses"/>. Loader-produced views populate this;
     ///  manually constructed legacy views may leave it <see langword="null"/>.
     /// </summary>

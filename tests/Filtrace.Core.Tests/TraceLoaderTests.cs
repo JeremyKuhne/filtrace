@@ -215,6 +215,18 @@ public sealed class TraceLoaderThreadTimeTests
     }
 
     [TestMethod]
+    public void Load_ThreadTimeMetric_AvailabilityMatchesCpuOrientation()
+    {
+        string path = FixturePath("etw.etl");
+        TraceLoader loader = new();
+
+        AnalysisAvailability oriented = loader.Load(path).Info.Analyses["threadtime"];
+        AnalysisAvailability metricFirst = loader.Load(path, TraceMetric.ThreadTime).Info.Analyses["threadtime"];
+
+        metricFirst.Should().Be(oriented);
+    }
+
+    [TestMethod]
     public void Load_ThreadTimeScopeMatchingNoProcess_WarnsAboutTheScopeNotTheCapture()
     {
         TraceLoader loader = new();

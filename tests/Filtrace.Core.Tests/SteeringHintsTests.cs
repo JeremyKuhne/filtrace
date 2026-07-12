@@ -87,7 +87,7 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
-    public void ForTraceInfo_NetTrace_RoutesSymptomsToSupportedAnalyses()
+    public void ForTraceInfo_LegacyNetTrace_LabelsRoutesAsFormatSupported()
     {
         TraceInfo info = new(
             "/t.nettrace", TraceFormat.NetTrace, 100.0, 10, 1.0, [], [],
@@ -95,8 +95,9 @@ public sealed class SteeringHintsTests
 
         IReadOnlyList<string> hints = SteeringHints.ForTraceInfo(info);
 
-        hints.Should().Contain(h => h.Contains("known-enabled symptom routes", StringComparison.Ordinal)
+        hints.Should().Contain(h => h.Contains("format-supported symptom routes", StringComparison.Ordinal)
             && h.Contains("contention", StringComparison.Ordinal));
+        hints.Should().NotContain(h => h.Contains("known-enabled symptom routes", StringComparison.Ordinal));
         hints.Should().Contain(h => h.Contains("frequent exceptions -> exceptions", StringComparison.Ordinal));
         hints.Should().Contain(h => h.Contains("slow but low CPU", StringComparison.Ordinal)
             && h.Contains("contention", StringComparison.Ordinal)
@@ -126,6 +127,7 @@ public sealed class SteeringHintsTests
 
         IReadOnlyList<string> hints = SteeringHints.ForTraceInfo(info);
 
+        hints.Should().Contain(h => h.Contains("known-enabled symptom routes", StringComparison.Ordinal));
         hints.Should().Contain(h => h.Contains("frequent exceptions -> exceptions", StringComparison.Ordinal));
         hints.Should().NotContain(h => h.Contains("high allocation rate", StringComparison.Ordinal));
         hints.Should().NotContain(h => h.Contains("slow but low CPU", StringComparison.Ordinal));

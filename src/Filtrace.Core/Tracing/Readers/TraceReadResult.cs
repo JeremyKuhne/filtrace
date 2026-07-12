@@ -13,7 +13,7 @@ namespace Filtrace.Tracing.Readers;
 /// <param name="Warnings">Format-specific quality warnings.</param>
 /// <param name="RecordSemantics">What each normalized record represents.</param>
 /// <param name="EtlxCacheState">How the ETLX cache request was satisfied, or <see langword="null"/> when no ETLX is used.</param>
-/// <param name="AnalysisEventCounts">Capture-wide source-event counts keyed by analysis selector.</param>
+/// <param name="AnalysisEventCounts">Capture-wide source-record counts keyed by analysis selector.</param>
 internal sealed record TraceReadResult(
     IReadOnlyList<SampleStack> Samples,
     double SymbolResolutionRate,

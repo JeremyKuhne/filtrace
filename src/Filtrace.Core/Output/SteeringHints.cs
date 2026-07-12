@@ -60,8 +60,9 @@ public static class SteeringHints
     {
         ArgumentNullException.ThrowIfNull(info);
 
+        bool hasAvailability = info.Analyses.Count > 0;
         HashSet<string> formatSupported = new(info.AvailableAnalyses, StringComparer.Ordinal);
-        HashSet<string> analyses = info.Analyses.Count == 0
+        HashSet<string> analyses = !hasAvailability
             ? formatSupported
             : new HashSet<string>(
                 info.Analyses
@@ -69,9 +70,9 @@ public static class SteeringHints
                     .Select(static pair => pair.Key),
                 StringComparer.Ordinal);
 
-        // Route each symptom only to analyses known enabled. The fallback above keeps
-        // manually constructed legacy TraceInfo objects useful, but loader-produced
-        // objects always carry the full availability map.
+        // Loader-produced objects route only to analyses known enabled. The fallback
+        // keeps manually constructed legacy TraceInfo objects useful, but labels those
+        // routes as format-supported because they carry no capture evidence.
         List<string> routes = [];
         if (analyses.Contains("cpu")) { routes.Add("CPU-bound -> cpu"); }
 
@@ -112,10 +113,11 @@ public static class SteeringHints
 
         if (routes.Count > 0)
         {
-            hints.Add($"known-enabled symptom routes - {string.Join("; ", routes)}");
+            string evidence = hasAvailability ? "known-enabled" : "format-supported";
+            hints.Add($"{evidence} symptom routes - {string.Join("; ", routes)}");
         }
 
-        if (info.Analyses.Count > 0)
+        if (hasAvailability)
         {
             string[] unknown =
             [

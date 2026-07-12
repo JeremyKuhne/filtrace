@@ -121,7 +121,7 @@ public sealed class TraceInfo
     public IReadOnlyList<string> AvailableAnalyses { get; }
 
     /// <summary>
-    ///  Per-analysis format support, capture enablement, and observed source-event
+    ///  Per-analysis format support, capture enablement, and observed source-record
     ///  count. Unlike <see cref="AvailableAnalyses"/>, this does not infer provider
     ///  availability from the file extension alone.
     /// </summary>

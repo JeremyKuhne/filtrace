@@ -18,7 +18,7 @@ namespace Filtrace.Tracing;
 ///   inventory, and the disk-I/O report are ETW-only; a speedscope export carries CPU
 ///   stacks alone. The raw event query is the one analysis that spans both EventPipe
 ///   and ETW. <see cref="AvailabilityFor"/> combines this format inventory with
-///   observed source events and optional recorder metadata; absence alone remains
+///   observed source records and optional recorder metadata; absence alone remains
 ///   unknown because some analyses need non-default keywords.
 ///  </para>
 /// </remarks>
@@ -49,11 +49,11 @@ public static class TraceCapabilities
         Array.IndexOf(AllAnalyses, analysis) >= 0;
 
     /// <summary>
-    ///  Combines format support, observed source events, and optional recorder
+    ///  Combines format support, observed source records, and optional recorder
     ///  metadata into per-analysis availability.
     /// </summary>
     /// <param name="format">The trace's on-disk format.</param>
-    /// <param name="eventCounts">Observed source-event counts keyed by analysis name.</param>
+    /// <param name="eventCounts">Observed source-record counts keyed by analysis name.</param>
     /// <param name="captureStatuses">
     ///  Recorder-established enablement keyed by analysis name, or
     ///  <see langword="null"/> when the trace has no capture metadata.

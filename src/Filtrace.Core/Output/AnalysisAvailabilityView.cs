@@ -8,7 +8,7 @@ namespace Filtrace.Output;
 ///  Agent-facing availability state for one analysis.
 /// </summary>
 /// <param name="CaptureStatus">Provider/keyword state: enabled, disabled, or unknown.</param>
-/// <param name="EventCount">Observed source events, including zero when enabled; otherwise null.</param>
+/// <param name="EventCount">Observed source records, including zero when enabled; otherwise null.</param>
 public sealed record AnalysisAvailabilityView(
     string CaptureStatus,
     int? EventCount);

@@ -50,11 +50,12 @@ public sealed class TraceLoaderAvailabilityTests
         string analysis)
     {
         string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture);
+        TraceLoader loader = new();
 
-        TraceInfo info = new TraceLoader().Load(path, (TraceMetric)metricValue).Info;
+        AnalysisAvailability oriented = loader.Load(path).Info.Analyses[analysis];
+        AnalysisAvailability metricFirst = loader.Load(path, (TraceMetric)metricValue).Info.Analyses[analysis];
 
-        info.Analyses[analysis].CaptureStatus.Should().Be(CaptureStatus.Enabled);
-        info.Analyses[analysis].EventCount.Should().BeGreaterThan(0);
+        metricFirst.Should().Be(oriented);
     }
 
     [TestMethod]
