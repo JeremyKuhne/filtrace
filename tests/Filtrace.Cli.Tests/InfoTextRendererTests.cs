@@ -26,4 +26,31 @@ public sealed class InfoTextRendererTests
 
         output.ToString().Should().Contain("analyses:").And.Contain("  cpu");
     }
+
+    [TestMethod]
+    public void Render_Analyses_UsesAvailableAnalysisOrder()
+    {
+        TraceInfoView view = new(
+            "/trace.nettrace",
+            "NetTrace",
+            10.0,
+            10,
+            1.0,
+            [],
+            ["cpu", "alloc"])
+        {
+            Analyses = new Dictionary<string, AnalysisAvailabilityView>
+            {
+                ["alloc"] = new("enabled", 2),
+                ["cpu"] = new("enabled", 4)
+            }
+        };
+        StringWriter output = new();
+
+        InfoTextRenderer.Render(new AnalysisResult<TraceInfoView>(view), output);
+
+        string text = output.ToString();
+        text.IndexOf("  cpu:", StringComparison.Ordinal).Should().BeLessThan(
+            text.IndexOf("  alloc:", StringComparison.Ordinal));
+    }
 }

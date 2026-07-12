@@ -42,8 +42,13 @@ internal static class InfoTextRenderer
         }
         else
         {
-            foreach ((string name, AnalysisAvailabilityView availability) in view.Analyses)
+            foreach (string name in view.AvailableAnalyses)
             {
+                if (!view.Analyses.TryGetValue(name, out AnalysisAvailabilityView? availability))
+                {
+                    continue;
+                }
+
                 string count = availability.EventCount is int observed
                     ? $", {observed} events"
                     : string.Empty;

@@ -45,9 +45,9 @@ public sealed record TraceInfoView(
     string? EtlxCacheState = null)
 {
     /// <summary>
-    ///  Per-analysis format support, capture status, and observed event count.
-    ///  Loader-produced views populate this; manually constructed legacy views may
-    ///  leave it <see langword="null"/>.
+    ///  Capture status and observed event count for each selector in
+    ///  <see cref="AvailableAnalyses"/>. Loader-produced views populate this;
+    ///  manually constructed legacy views may leave it <see langword="null"/>.
     /// </summary>
     public IReadOnlyDictionary<string, AnalysisAvailabilityView>? Analyses { get; init; }
 }
