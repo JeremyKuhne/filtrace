@@ -9,6 +9,8 @@ namespace Filtrace.Tracing;
 [TestClass]
 public sealed class TraceConverterTests
 {
+    private static readonly TimeSpan SynchronizationTimeout = TimeSpan.FromSeconds(10);
+
     private static string FixturePath(string name) =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
@@ -114,6 +116,32 @@ public sealed class TraceConverterTests
     }
 
     [TestMethod]
+    public void ConvertWithState_LockedStaleTemporaryFile_StillConverts()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        string staleTemporary = $"{trace}.etlx.new";
+        try
+        {
+            using FileStream locked = new(
+                staleTemporary,
+                FileMode.Create,
+                FileAccess.ReadWrite,
+                FileShare.None);
+
+            EtlxCacheResult result = TraceConverter.ConvertWithState(trace);
+
+            File.Exists(result.Path).Should().BeTrue();
+            using TraceLog traceLog = new(result.Path);
+            traceLog.EventCount.Should().BeGreaterThan(0);
+        }
+        finally
+        {
+            File.Delete(staleTemporary);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void ConvertWithState_CanceledWhileWaiting_ThrowsOperationCanceled()
     {
         string trace = CopyToTemp("alloc.nettrace", out string tempDir);
@@ -121,7 +149,7 @@ public sealed class TraceConverterTests
         using CancellationTokenSource cancellation = new();
         try
         {
-            conversionMutex.WaitOne().Should().BeTrue();
+            conversionMutex.WaitOne(SynchronizationTimeout).Should().BeTrue();
             Task<EtlxCacheResult> conversion = Task.Run(() =>
                 TraceConverter.ConvertWithState(trace, cancellation.Token));
             cancellation.CancelAfter(TimeSpan.FromMilliseconds(100));

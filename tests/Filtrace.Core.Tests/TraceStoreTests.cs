@@ -9,6 +9,8 @@ namespace Filtrace.Server;
 [TestClass]
 public sealed class TraceStoreTests
 {
+    private static readonly TimeSpan SynchronizationTimeout = TimeSpan.FromSeconds(10);
+
     private static string FixturePath(string name) =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
@@ -69,11 +71,18 @@ public sealed class TraceStoreTests
         Task mutexOwner = Task.Run(() =>
         {
             using Mutex conversionMutex = new(initiallyOwned: false, TraceConverter.LockNameFor(path));
-            conversionMutex.WaitOne();
+            if (!conversionMutex.WaitOne(SynchronizationTimeout))
+            {
+                throw new TimeoutException("Timed out acquiring the ETLX conversion mutex.");
+            }
+
             try
             {
                 mutexHeld.Set();
-                releaseMutex.Wait();
+                if (!releaseMutex.Wait(SynchronizationTimeout))
+                {
+                    throw new TimeoutException("Timed out waiting to release the ETLX conversion mutex.");
+                }
             }
             finally
             {
@@ -82,7 +91,7 @@ public sealed class TraceStoreTests
         });
         try
         {
-            mutexHeld.Wait();
+            mutexHeld.Wait(SynchronizationTimeout).Should().BeTrue();
             Task<TraceStoreLoadResult> load = store.GetAsync(path, cancellationToken: cancellation.Token);
             cancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
 

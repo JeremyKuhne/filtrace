@@ -30,6 +30,7 @@ namespace Filtrace.Tracing;
 /// </remarks>
 public static class TraceConverter
 {
+    private const int LockWaitSliceMilliseconds = 100;
     private const int MaxTemporaryFilesToClean = 100;
 
     /// <summary>
@@ -76,13 +77,11 @@ public static class TraceConverter
                 if (!lockAcquired)
                 {
                     waited = true;
-                    int signaled = WaitHandle.WaitAny([conversionMutex, cancellationToken.WaitHandle]);
-                    if (signaled == 1)
+                    while (!lockAcquired)
                     {
-                        throw new OperationCanceledException(cancellationToken);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        lockAcquired = conversionMutex.WaitOne(LockWaitSliceMilliseconds);
                     }
-
-                    lockAcquired = true;
                 }
             }
             catch (AbandonedMutexException)
@@ -216,14 +215,25 @@ public static class TraceConverter
 
         // Bound work in an attacker-controlled trace directory. A later request resumes
         // cleanup if a pathological directory contains more than this many stale files.
-        foreach (string candidate in Directory.EnumerateFiles(directory, $"{prefix}*.tmp*"))
+        try
         {
-            recovered |= TryDelete(candidate);
-            examined++;
-            if (examined == MaxTemporaryFilesToClean)
+            foreach (string candidate in Directory.EnumerateFiles(directory, $"{prefix}*.tmp*"))
             {
-                break;
+                recovered |= TryDelete(candidate);
+                examined++;
+                if (examined == MaxTemporaryFilesToClean)
+                {
+                    break;
+                }
             }
+        }
+        catch (IOException)
+        {
+            // Stale-file cleanup is best-effort; conversion uses its own unique path.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Stale-file cleanup is best-effort; conversion uses its own unique path.
         }
 
         return recovered;
@@ -266,11 +276,11 @@ public static class TraceConverter
             File.Delete(path);
             return true;
         }
-        catch (FileNotFoundException)
+        catch (IOException)
         {
             return false;
         }
-        catch (DirectoryNotFoundException)
+        catch (UnauthorizedAccessException)
         {
             return false;
         }
