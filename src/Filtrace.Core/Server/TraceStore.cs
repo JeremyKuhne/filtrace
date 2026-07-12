@@ -28,6 +28,8 @@ public sealed class TraceStore
     public const int DefaultCapacity = 16;
 
     private readonly TraceLoader _loader = new();
+    private readonly Lock _conversionGatesLock = new();
+    private readonly Dictionary<string, ConversionGate> _conversionGates;
 
     // Match the cache's path comparison to the host file system: Windows and macOS
     // are case-insensitive, Linux is case-sensitive, so distinct-by-case paths must
@@ -48,10 +50,57 @@ public sealed class TraceStore
     ///  <paramref name="capacity"/> traces.
     /// </summary>
     /// <param name="capacity">The maximum number of parsed traces to retain. Must be positive.</param>
-    internal TraceStore(int capacity) =>
-        _cache = new LruCache<string, LoadedTrace>(
-            capacity,
-            OperatingSystem.IsLinux() ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase);
+    internal TraceStore(int capacity)
+    {
+        StringComparer pathComparer = OperatingSystem.IsLinux()
+            ? StringComparer.Ordinal
+            : StringComparer.OrdinalIgnoreCase;
+        _cache = new LruCache<string, LoadedTrace>(capacity, pathComparer);
+        _conversionGates = new Dictionary<string, ConversionGate>(pathComparer);
+    }
+
+    /// <summary>
+    ///  Asynchronously coordinates the first ETLX conversion for a canonical trace
+    ///  path, then loads and caches the selected view.
+    /// </summary>
+    /// <param name="path">The trace file path.</param>
+    /// <param name="symbolsDirectory">Optional build-output directory for source symbols.</param>
+    /// <param name="metric">The provider view to load.</param>
+    /// <param name="scope">Optional process, activity, and time scope.</param>
+    /// <param name="symbolOptions">Optional native-symbol resolution.</param>
+    /// <param name="cancellationToken">Cancels while waiting for same-trace work.</param>
+    /// <returns>The loaded trace and request-specific ETLX cache state.</returns>
+    public async Task<TraceStoreLoadResult> GetAsync(
+        string path,
+        string? symbolsDirectory = null,
+        TraceMetric metric = TraceMetric.Cpu,
+        ScopeRequest? scope = null,
+        SymbolOptions? symbolOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        string fullPath = Path.GetFullPath(path);
+        if (!IsConvertible(fullPath))
+        {
+            LoadedTrace unconverted = await Task.Run(
+                () => Get(fullPath, symbolsDirectory, metric, scope, symbolOptions),
+                cancellationToken).ConfigureAwait(false);
+            return new TraceStoreLoadResult(unconverted, null);
+        }
+
+        using ConversionGateLease lease = await AcquireConversionGateAsync(
+            fullPath,
+            cancellationToken).ConfigureAwait(false);
+
+        return await Task.Run(() =>
+        {
+            EtlxCacheResult cache = TraceConverter.ConvertWithState(fullPath, cancellationToken);
+            EtlxCacheState state = lease.Waited && cache.State == EtlxCacheState.Hit
+                ? EtlxCacheState.Waited
+                : cache.State;
+            LoadedTrace trace = Get(fullPath, symbolsDirectory, metric, scope, symbolOptions);
+            return new TraceStoreLoadResult(trace, state);
+        }, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>
     ///  Returns the loaded trace for <paramref name="path"/>, loading and caching
@@ -181,5 +230,101 @@ public sealed class TraceStore
         string start = bounded.StartMSec is double lower ? lower.ToString("R", CultureInfo.InvariantCulture) : "*";
         string end = bounded.EndMSec is double upper ? upper.ToString("R", CultureInfo.InvariantCulture) : "*";
         return $"t{start},{end}";
+    }
+
+    private async ValueTask<ConversionGateLease> AcquireConversionGateAsync(
+        string fullPath,
+        CancellationToken cancellationToken)
+    {
+        ConversionGate gate;
+        lock (_conversionGatesLock)
+        {
+            if (!_conversionGates.TryGetValue(fullPath, out gate!))
+            {
+                gate = new ConversionGate();
+                _conversionGates.Add(fullPath, gate);
+            }
+
+            gate.References++;
+        }
+
+        bool waited = !gate.Semaphore.Wait(0);
+        if (waited)
+        {
+            try
+            {
+                await gate.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                ReleaseConversionGateReference(fullPath, gate);
+                throw;
+            }
+        }
+
+        return new ConversionGateLease(this, fullPath, gate, waited);
+    }
+
+    private void ReleaseConversionGate(string fullPath, ConversionGate gate)
+    {
+        gate.Semaphore.Release();
+        ReleaseConversionGateReference(fullPath, gate);
+    }
+
+    private void ReleaseConversionGateReference(string fullPath, ConversionGate gate)
+    {
+        lock (_conversionGatesLock)
+        {
+            gate.References--;
+            if (gate.References == 0)
+            {
+                _conversionGates.Remove(fullPath);
+                gate.Semaphore.Dispose();
+            }
+        }
+    }
+
+    private static bool IsConvertible(string fullPath) =>
+        fullPath.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase)
+        || fullPath.EndsWith(".etl", StringComparison.OrdinalIgnoreCase);
+
+    private sealed class ConversionGate
+    {
+        public SemaphoreSlim Semaphore { get; } = new(initialCount: 1, maxCount: 1);
+
+        public int References { get; set; }
+    }
+
+    private sealed class ConversionGateLease : IDisposable
+    {
+        private readonly TraceStore _owner;
+        private readonly string _fullPath;
+        private readonly ConversionGate _gate;
+        private bool _disposed;
+
+        public ConversionGateLease(
+            TraceStore owner,
+            string fullPath,
+            ConversionGate gate,
+            bool waited)
+        {
+            _owner = owner;
+            _fullPath = fullPath;
+            _gate = gate;
+            Waited = waited;
+        }
+
+        public bool Waited { get; }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _owner.ReleaseConversionGate(_fullPath, _gate);
+        }
     }
 }

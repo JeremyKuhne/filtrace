@@ -137,7 +137,8 @@ public sealed class TraceLoader
             reader.Format,
             result.Samples,
             result.SymbolResolutionRate,
-            result.Warnings);
+            result.Warnings,
+            result.EtlxCacheState);
 
         StackSampleSource source = new(MetricInfo.Cpu, result.Samples, result.RecordSemantics);
         return new LoadedTrace(info, source);
@@ -391,7 +392,8 @@ public sealed class TraceLoader
         TraceFormat format,
         IReadOnlyList<SampleStack> samples,
         double symbolResolutionRate,
-        IReadOnlyList<string> warnings)
+        IReadOnlyList<string> warnings,
+        EtlxCacheState? etlxCacheState = null)
     {
         double totalWeight = 0.0;
         Dictionary<string, int> threadCounts = new(StringComparer.Ordinal);
@@ -418,7 +420,8 @@ public sealed class TraceLoader
             symbolResolutionRate,
             threads,
             warnings,
-            TraceCapabilities.AnalysesFor(format));
+            TraceCapabilities.AnalysesFor(format),
+            etlxCacheState);
     }
 
     private ITraceReader? ResolveReader(string path)

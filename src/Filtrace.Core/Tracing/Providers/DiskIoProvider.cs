@@ -49,9 +49,7 @@ public sealed partial class DiskIoProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceLog.OpenOrConvert(
-            fullPath,
-            new TraceLogOptions { ContinueOnError = true });
+        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
 
         Dictionary<string, FileTally> byFile = new(StringComparer.OrdinalIgnoreCase);
         int readCount = 0;

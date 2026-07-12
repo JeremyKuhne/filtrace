@@ -14,8 +14,8 @@ namespace Filtrace.Tracing;
 /// <param name="AttributedRecordCount">Matching records with a source location, or <see langword="null"/> when unavailable.</param>
 /// <param name="UnattributedRecordCount">Matching records without a source location, or <see langword="null"/> when unavailable.</param>
 public sealed record LineRankingResult(
-	double ScopeWeight,
-	string MethodFilter,
-	IReadOnlyList<LineRow> Rows,
-	int? AttributedRecordCount = null,
-	int? UnattributedRecordCount = null);
+    double ScopeWeight,
+    string MethodFilter,
+    IReadOnlyList<LineRow> Rows,
+    int? AttributedRecordCount = null,
+    int? UnattributedRecordCount = null);

@@ -12,8 +12,10 @@ namespace Filtrace.Tracing.Readers;
 /// <param name="SymbolResolutionRate">Fraction in <c>[0, 1]</c> of frames that resolved to a method name.</param>
 /// <param name="Warnings">Format-specific quality warnings.</param>
 /// <param name="RecordSemantics">What each normalized record represents.</param>
+/// <param name="EtlxCacheState">How the ETLX cache request was satisfied, or <see langword="null"/> when no ETLX is used.</param>
 internal sealed record TraceReadResult(
     IReadOnlyList<SampleStack> Samples,
     double SymbolResolutionRate,
     IReadOnlyList<string> Warnings,
-    StackRecordSemantics RecordSemantics);
+    StackRecordSemantics RecordSemantics,
+    EtlxCacheState? EtlxCacheState = null);

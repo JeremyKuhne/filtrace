@@ -45,12 +45,7 @@ public sealed class ThreadPoolProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        string etlxPath = TraceLog.CreateFromEventPipeDataFile(
-            fullPath,
-            null,
-            new TraceLogOptions { ContinueOnError = true });
-
-        using TraceLog traceLog = new(etlxPath);
+        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
 
         Dictionary<string, int> reasonCounts = new(StringComparer.Ordinal);
         int adjustmentCount = 0;

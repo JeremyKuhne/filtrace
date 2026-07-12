@@ -44,8 +44,9 @@ internal abstract class TraceLogReader : ITraceReader
     ///  <see cref="TraceLog"/> the caller then reads.
     /// </summary>
     /// <param name="path">The trace file path.</param>
+    /// <param name="cacheState">How the ETLX cache request was satisfied.</param>
     /// <returns>The opened trace log.</returns>
-    protected abstract TraceLog OpenTraceLog(string path);
+    protected abstract TraceLog OpenTraceLog(string path, out EtlxCacheState cacheState);
 
     /// <inheritdoc/>
     public TraceReadResult Read(
@@ -54,7 +55,8 @@ internal abstract class TraceLogReader : ITraceReader
         ScopeRequest? scope = null,
         SymbolOptions? symbolOptions = null)
     {
-        using TraceLog traceLog = OpenTraceLog(path);
+        EtlxCacheState cacheState;
+        using TraceLog traceLog = OpenTraceLog(path, out cacheState);
 
         // Local-only symbol reader: an empty symbol path never reaches a symbol
         // server, but portable PDBs sitting next to a traced module still
@@ -116,7 +118,15 @@ internal abstract class TraceLogReader : ITraceReader
                 ? null
                 : ComputeActivitySampleFilter(traceLog, symbolReader, activityName);
 
-            return ReadCore(traceLog, symbolReader, scopePids, appliedScopeName, activitySamples, activityName, scope?.Window);
+            return ReadCore(
+                traceLog,
+                symbolReader,
+                scopePids,
+                appliedScopeName,
+                activitySamples,
+                activityName,
+                scope?.Window,
+                cacheState);
         }
         finally
         {
@@ -191,7 +201,8 @@ internal abstract class TraceLogReader : ITraceReader
         string? appliedScopeName,
         HashSet<EventIndex>? activitySamples,
         string? activityName,
-        TimeWindow? window)
+        TimeWindow? window,
+        EtlxCacheState cacheState)
     {
         Dictionary<int, string> locationCache = [];
 
@@ -376,7 +387,8 @@ internal abstract class TraceLogReader : ITraceReader
             samples,
             resolutionRate,
             warnings,
-            StackRecordSemantics.PeriodicCpuSamples);
+            StackRecordSemantics.PeriodicCpuSamples,
+            cacheState);
     }
 
     // Joins the applied-scope phrases into one clause: "A" for one, "A and B" for two,

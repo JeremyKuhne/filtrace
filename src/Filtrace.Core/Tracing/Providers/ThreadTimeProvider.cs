@@ -79,9 +79,7 @@ public sealed class ThreadTimeProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceLog.OpenOrConvert(
-            fullPath,
-            new TraceLogOptions { ContinueOnError = true });
+        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
 
         using SymbolReader symbolReader = new(TextWriter.Null, "", null);
 

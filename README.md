@@ -188,6 +188,11 @@ first-party `dotnet-trace` (`dotnet tool install -g dotnet-trace`, then
 | `convert` | Build the ETLX cache up front | `filtrace convert app.nettrace` |
 | `clean` | Remove the ETLX cache to force a rebuild | `filtrace clean app.nettrace` |
 
+ETLX conversion is coordinated per canonical trace path across threads and
+processes, with unique temporary files and atomic publication. Same-trace MCP
+queries may run in parallel; `trace_info.etlxCacheState` and `convert` report
+`hit`, `waited`, `converted`, or `recovered`.
+
 Run `filtrace <verb> --help` for the full option set of any verb.
 
 <!-- filtrace:begin agents-snippet -->

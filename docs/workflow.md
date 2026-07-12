@@ -224,6 +224,13 @@ Choose the analysis from the symptom, then confirm it appears in `availableAnaly
 |---|---|
 | `convert` | build the ETLX cache up front |
 | `clean` | remove the ETLX cache to force a rebuild |
+
+Same-trace conversions are coordinated by canonical path across threads and
+processes. filtrace converts to a unique sibling temporary file and atomically
+publishes the completed cache, so MCP calls against one trace may run in parallel;
+different traces remain independent. `trace_info.etlxCacheState` and the `convert`
+verb report `hit`, `waited`, `converted`, or `recovered` (`null` for speedscope).
+`clean` waits for an active conversion before removing its cache.
 <!-- filtrace:end verbs -->
 
 ## Scope to the relevant slice

@@ -33,6 +33,7 @@ namespace Filtrace.Output;
 ///  The analyses this trace's format can answer (rank metrics and report verbs) - the
 ///  inventory that routes a question to an analysis the capture supports.
 /// </param>
+/// <param name="EtlxCacheState">How this request obtained the ETLX cache, or <see langword="null"/> when ETLX is not used.</param>
 public sealed record TraceInfoView(
     string Path,
     string Format,
@@ -40,4 +41,5 @@ public sealed record TraceInfoView(
     int SampleCount,
     double SymbolResolutionRate,
     IReadOnlyList<ThreadSampleInfo> Threads,
-    IReadOnlyList<string> AvailableAnalyses);
+    IReadOnlyList<string> AvailableAnalyses,
+    string? EtlxCacheState = null);

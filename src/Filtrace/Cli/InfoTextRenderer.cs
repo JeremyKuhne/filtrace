@@ -36,6 +36,11 @@ internal static class InfoTextRenderer
         output.WriteLine();
 
         output.WriteLine($"analyses: {string.Join(", ", view.AvailableAnalyses)}");
+        if (view.EtlxCacheState is not null)
+        {
+            output.WriteLine($"etlx cache: {view.EtlxCacheState}");
+        }
+
         output.WriteLine("threads:");
         if (view.Threads.Count == 0)
         {

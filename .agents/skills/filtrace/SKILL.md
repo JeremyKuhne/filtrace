@@ -202,6 +202,13 @@ Choose the analysis from the symptom, then confirm it appears in `availableAnaly
 |---|---|
 | `convert` | build the ETLX cache up front |
 | `clean` | remove the ETLX cache to force a rebuild |
+
+Same-trace conversions are coordinated by canonical path across threads and
+processes. filtrace converts to a unique sibling temporary file and atomically
+publishes the completed cache, so MCP calls against one trace may run in parallel;
+different traces remain independent. `trace_info.etlxCacheState` and the `convert`
+verb report `hit`, `waited`, `converted`, or `recovered` (`null` for speedscope).
+`clean` waits for an active conversion before removing its cache.
 <!-- filtrace:end verbs -->
 
 Run `filtrace <verb> --help` for the full option set of any verb.
@@ -340,7 +347,10 @@ The recurring ways a .NET trace investigation goes wrong:
 
 8. **Reading an `.etl` through filtrace is Windows-only.** The ETW -> ETLX
    conversion needs Windows, and direct `.etlx` input is not part of the current
-   CLI or MCP surface. The `.etl` paths report a clean error off Windows.
+   CLI or MCP surface. The `.etl` paths report a clean error off Windows. Do not
+   serialize same-trace MCP calls as a workaround: filtrace now coordinates ETLX
+   conversion across threads and processes, publishes atomically, and reports
+   `hit`, `waited`, `converted`, or `recovered` in `trace_info.etlxCacheState`.
 
 9. **The default fold list hides runtime leaves on purpose.** It folds
    `memmove`, write-barriers, and GC-poll helpers into their managed caller -

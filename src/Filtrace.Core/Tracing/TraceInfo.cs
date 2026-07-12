@@ -21,7 +21,8 @@ public sealed class TraceInfo
         double symbolResolutionRate,
         IReadOnlyList<ThreadSampleInfo> threads,
         IReadOnlyList<string> warnings,
-        IReadOnlyList<string> availableAnalyses)
+        IReadOnlyList<string> availableAnalyses,
+        EtlxCacheState? etlxCacheState = null)
     {
         Path = path;
         Format = format;
@@ -31,6 +32,7 @@ public sealed class TraceInfo
         Threads = threads;
         Warnings = warnings;
         AvailableAnalyses = availableAnalyses;
+        EtlxCacheState = etlxCacheState;
     }
 
     /// <summary>
@@ -83,4 +85,10 @@ public sealed class TraceInfo
     ///  answer instead of trying one the format cannot support.
     /// </summary>
     public IReadOnlyList<string> AvailableAnalyses { get; }
+
+    /// <summary>
+    ///  How this request obtained the ETLX cache, or <see langword="null"/> for
+    ///  formats such as speedscope that do not use ETLX.
+    /// </summary>
+    public EtlxCacheState? EtlxCacheState { get; }
 }

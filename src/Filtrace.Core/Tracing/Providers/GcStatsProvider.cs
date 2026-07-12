@@ -43,12 +43,7 @@ public sealed class GcStatsProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        string etlxPath = TraceLog.CreateFromEventPipeDataFile(
-            fullPath,
-            null,
-            new TraceLogOptions { ContinueOnError = true });
-
-        using TraceLog traceLog = new(etlxPath);
+        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
 
         // The GC analysis layer reconstructs per-collection records from the raw GC
         // events as the source is processed; request it before draining the events.

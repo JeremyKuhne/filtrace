@@ -37,9 +37,10 @@ internal static class FileOpsExecutor
     {
         try
         {
-            string etlxPath = TraceConverter.Convert(path);
-            long bytes = new FileInfo(etlxPath).Length;
-            output.WriteLine($"Converted to {etlxPath} ({bytes:N0} bytes).");
+            EtlxCacheResult result = TraceConverter.ConvertWithState(path);
+            long bytes = new FileInfo(result.Path).Length;
+            string state = CacheStateText(result.State);
+            output.WriteLine($"ETLX cache {state}: {result.Path} ({bytes:N0} bytes).");
             return ExitCodes.Success;
         }
         catch (Exception ex) when (
@@ -80,4 +81,13 @@ internal static class FileOpsExecutor
             return ExitCodes.InputError;
         }
     }
+
+    private static string CacheStateText(EtlxCacheState state) => state switch
+    {
+        EtlxCacheState.Hit => "hit",
+        EtlxCacheState.Waited => "waited",
+        EtlxCacheState.Converted => "converted",
+        EtlxCacheState.Recovered => "recovered",
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown ETLX cache state.")
+    };
 }
