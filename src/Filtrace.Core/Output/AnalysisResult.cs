@@ -44,8 +44,12 @@ public sealed class AnalysisResult<T>
     ///  <para>
     ///   Version 4 added the request-specific ETLX cache state to trace-info payloads.
     ///  </para>
+    ///  <para>
+    ///   Version 5 added per-analysis format support, capture status, and observed
+    ///   source-event counts to trace-info payloads.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 4;
+    public const int CurrentSchemaVersion = 5;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.

@@ -23,6 +23,34 @@ public sealed class TraceInfo
         IReadOnlyList<string> warnings,
         IReadOnlyList<string> availableAnalyses,
         EtlxCacheState? etlxCacheState = null)
+        : this(
+            path,
+            format,
+            totalWeight,
+            sampleCount,
+            symbolResolutionRate,
+            threads,
+            warnings,
+            availableAnalyses,
+            new Dictionary<string, AnalysisAvailability>(),
+            etlxCacheState)
+    {
+    }
+
+    /// <summary>
+    ///  Initializes a new <see cref="TraceInfo"/> with per-analysis availability.
+    /// </summary>
+    public TraceInfo(
+        string path,
+        TraceFormat format,
+        double totalWeight,
+        int sampleCount,
+        double symbolResolutionRate,
+        IReadOnlyList<ThreadSampleInfo> threads,
+        IReadOnlyList<string> warnings,
+        IReadOnlyList<string> availableAnalyses,
+        IReadOnlyDictionary<string, AnalysisAvailability> analyses,
+        EtlxCacheState? etlxCacheState = null)
     {
         Path = path;
         Format = format;
@@ -32,6 +60,7 @@ public sealed class TraceInfo
         Threads = threads;
         Warnings = warnings;
         AvailableAnalyses = availableAnalyses;
+        Analyses = analyses;
         EtlxCacheState = etlxCacheState;
     }
 
@@ -79,12 +108,18 @@ public sealed class TraceInfo
     public IReadOnlyList<string> Warnings { get; }
 
     /// <summary>
-    ///  The analyses filtrace can run against this trace given its format - the rank
-    ///  metrics and report verbs the format supports (see <see cref="TraceCapabilities"/>).
-    ///  An agent reads it to route a question to an analysis the capture can actually
-    ///  answer instead of trying one the format cannot support.
+    ///  The analyses filtrace can run against this trace format. This is a format
+    ///  constraint only; use <see cref="Analyses"/> for capture enablement and event
+    ///  counts.
     /// </summary>
     public IReadOnlyList<string> AvailableAnalyses { get; }
+
+    /// <summary>
+    ///  Per-analysis format support, capture enablement, and observed source-event
+    ///  count. Unlike <see cref="AvailableAnalyses"/>, this does not infer provider
+    ///  availability from the file extension alone.
+    /// </summary>
+    public IReadOnlyDictionary<string, AnalysisAvailability> Analyses { get; }
 
     /// <summary>
     ///  How this request obtained the ETLX cache, or <see langword="null"/> for

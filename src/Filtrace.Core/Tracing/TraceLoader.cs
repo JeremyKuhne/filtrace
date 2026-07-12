@@ -138,6 +138,7 @@ public sealed class TraceLoader
             result.Samples,
             result.SymbolResolutionRate,
             result.Warnings,
+            result.AnalysisEventCounts,
             result.EtlxCacheState);
 
         StackSampleSource source = new(MetricInfo.Cpu, result.Samples, result.RecordSemantics);
@@ -393,6 +394,7 @@ public sealed class TraceLoader
         IReadOnlyList<SampleStack> samples,
         double symbolResolutionRate,
         IReadOnlyList<string> warnings,
+        IReadOnlyDictionary<string, int>? analysisEventCounts = null,
         EtlxCacheState? etlxCacheState = null)
     {
         double totalWeight = 0.0;
@@ -412,6 +414,15 @@ public sealed class TraceLoader
 
         threads.Sort(static (a, b) => b.SampleCount.CompareTo(a.SampleCount));
 
+        List<string> combinedWarnings = [.. warnings];
+        IReadOnlyDictionary<string, CaptureStatus>? captureStatuses =
+            CaptureMetadataReader.Read(fullPath, combinedWarnings);
+        IReadOnlyDictionary<string, AnalysisAvailability> analyses =
+            TraceCapabilities.AvailabilityFor(
+                format,
+                analysisEventCounts ?? new Dictionary<string, int>(),
+                captureStatuses);
+
         return new TraceInfo(
             fullPath,
             format,
@@ -419,8 +430,9 @@ public sealed class TraceLoader
             samples.Count,
             symbolResolutionRate,
             threads,
-            warnings,
+            combinedWarnings,
             TraceCapabilities.AnalysesFor(format),
+            analyses,
             etlxCacheState);
     }
 

@@ -103,7 +103,12 @@ internal sealed class SpeedscopeReader : ITraceReader
             _ => StackRecordSemantics.Unavailable
         };
 
-        return new TraceReadResult(samples, 1.0, warnings, recordSemantics);
+        return new TraceReadResult(
+            samples,
+            1.0,
+            warnings,
+            recordSemantics,
+            AnalysisEventCounts: new Dictionary<string, int> { ["cpu"] = samples.Count });
     }
 
     private static string[] ReadFrameNames(JsonElement root)

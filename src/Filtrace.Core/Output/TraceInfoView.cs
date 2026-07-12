@@ -30,8 +30,8 @@ namespace Filtrace.Output;
 /// </param>
 /// <param name="Threads">Per-thread sample counts, highest first.</param>
 /// <param name="AvailableAnalyses">
-///  The analyses this trace's format can answer (rank metrics and report verbs) - the
-///  inventory that routes a question to an analysis the capture supports.
+///  The analyses this trace format supports. This does not establish capture
+///  enablement; use <see cref="Analyses"/> for that.
 /// </param>
 /// <param name="EtlxCacheState">How this request obtained the ETLX cache, or <see langword="null"/> when ETLX is not used.</param>
 public sealed record TraceInfoView(
@@ -42,4 +42,12 @@ public sealed record TraceInfoView(
     double SymbolResolutionRate,
     IReadOnlyList<ThreadSampleInfo> Threads,
     IReadOnlyList<string> AvailableAnalyses,
-    string? EtlxCacheState = null);
+    string? EtlxCacheState = null)
+{
+    /// <summary>
+    ///  Per-analysis format support, capture status, and observed event count.
+    ///  Loader-produced views populate this; manually constructed legacy views may
+    ///  leave it <see langword="null"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, AnalysisAvailabilityView>? Analyses { get; init; }
+}

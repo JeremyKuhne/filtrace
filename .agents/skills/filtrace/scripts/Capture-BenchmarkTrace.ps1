@@ -77,6 +77,20 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Write-CaptureMetadata([string]$TracePath, [System.Collections.IDictionary]$Analyses) {
+    $metadata = [ordered]@{
+        schemaVersion = 1
+        analyses = $Analyses
+    } | ConvertTo-Json -Depth 3 -Compress
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    try {
+        [System.IO.File]::WriteAllText("$TracePath.filtrace.json", $metadata, $encoding)
+    }
+    catch {
+        Write-Warning "Capture succeeded, but metadata could not be written: $($_.Exception.Message). Provider enablement will be unknown during analysis."
+    }
+}
+
 # Resolve the project file (accept either a .csproj or a directory holding one).
 $projItem = Get-Item -LiteralPath $Project
 if ($projItem.PSIsContainer) {
@@ -221,6 +235,23 @@ $symbols = Join-Path (Split-Path -Parent $projFile.FullName) "bin/Release/$Tfm"
 $methodFilter = $Filter.Trim('*')
 if ([string]::IsNullOrWhiteSpace($methodFilter)) { $methodFilter = 'BenchmarkMethod' }
 
+if ($Profiler -eq 'ETW') {
+    Write-CaptureMetadata $trace.FullName ([ordered]@{
+        cpu = 'enabled'; threadtime = 'enabled'; classify = 'enabled';
+        processes = 'enabled'; diskio = 'disabled'; events = 'enabled'
+    })
+}
+elseif ($trace.Name -like '*.nettrace') {
+    # BenchmarkDotNet's default EventPipeProfile.CpuSampling enables the sample
+    # profiler, CLR Default keywords, and its benchmark Engine provider.
+    Write-CaptureMetadata $trace.FullName ([ordered]@{
+        cpu = 'enabled'; alloc = 'disabled'; exceptions = 'enabled';
+        contention = 'enabled'; wait = 'disabled'; activity = 'enabled';
+        gcstats = 'enabled'; jitstats = 'enabled'; threadpool = 'enabled';
+        events = 'enabled'
+    })
+}
+
 Write-Host "`nCaptured: $($trace.FullName)" -ForegroundColor Green
 Write-Host "`nNext-step filtrace commands:" -ForegroundColor Green
 if ($Profiler -eq 'ETW') {
@@ -236,13 +267,13 @@ if ($Profiler -eq 'ETW') {
     Write-Host "  filtrace export `"$($trace.FullName)`" --process `"$Process`" --benchmark --native-symbols --symbols `"$symbols`" -o flame.speedscope.json"
 }
 elseif ($trace.Name -like '*.nettrace') {
-    # A raw .nettrace carries CPU, allocations, and per-frame source locations -
-    # every verb below works against it. Root-aware rankings/exports use --benchmark;
-    # lines has no root preset, so narrow it with the benchmark method name.
+    # The default BenchmarkDotNet EventPipe profile carries CPU and source locations,
+    # but not allocation ticks. Root-aware rankings/exports use --benchmark; lines
+    # has no root preset, so narrow it with the benchmark method name.
     Write-Host "  filtrace cpu `"$($trace.FullName)`" --benchmark --top $Top"
-    Write-Host "  filtrace alloc `"$($trace.FullName)`" --benchmark --top $Top"
     Write-Host "  filtrace lines `"$($trace.FullName)`" --method `"$methodFilter`" --symbols `"$symbols`""
     Write-Host "  filtrace export `"$($trace.FullName)`" --benchmark --symbols `"$symbols`" -o flame.speedscope.json"
+    Write-Host "  # alloc disabled by BenchmarkDotNet's default CpuSampling profile; recapture with EventPipeProfile.GcVerbose"
 }
 else {
     # A derived .speedscope.json carries CPU self-time only: no allocation events

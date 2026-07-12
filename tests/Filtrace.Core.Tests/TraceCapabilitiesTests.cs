@@ -58,4 +58,77 @@ public sealed class TraceCapabilitiesTests
     {
         TraceCapabilities.AnalysesFor(TraceFormat.Speedscope).Should().Equal("cpu");
     }
+
+    [TestMethod]
+    public void AvailabilityFor_ObservedEvents_ReportsEnabledNonzero()
+    {
+        IReadOnlyDictionary<string, AnalysisAvailability> availability =
+            TraceCapabilities.AvailabilityFor(
+                TraceFormat.NetTrace,
+                new Dictionary<string, int> { ["alloc"] = 12 });
+
+        availability["alloc"].Should().Be(
+            new AnalysisAvailability(true, CaptureStatus.Enabled, 12));
+    }
+
+    [TestMethod]
+    public void AvailabilityFor_ExplicitEnabledWithoutEvents_ReportsEnabledZero()
+    {
+        IReadOnlyDictionary<string, AnalysisAvailability> availability =
+            TraceCapabilities.AvailabilityFor(
+                TraceFormat.NetTrace,
+                new Dictionary<string, int>(),
+                new Dictionary<string, CaptureStatus> { ["exceptions"] = CaptureStatus.Enabled });
+
+        availability["exceptions"].Should().Be(
+            new AnalysisAvailability(true, CaptureStatus.Enabled, 0));
+    }
+
+    [TestMethod]
+    public void AvailabilityFor_ExplicitDisabled_ReportsNoEventCount()
+    {
+        IReadOnlyDictionary<string, AnalysisAvailability> availability =
+            TraceCapabilities.AvailabilityFor(
+                TraceFormat.NetTrace,
+                new Dictionary<string, int>(),
+                new Dictionary<string, CaptureStatus> { ["wait"] = CaptureStatus.Disabled });
+
+        availability["wait"].Should().Be(
+            new AnalysisAvailability(true, CaptureStatus.Disabled, null));
+    }
+
+    [TestMethod]
+    public void AvailabilityFor_ZeroWithoutMetadata_ReportsUnknown()
+    {
+        IReadOnlyDictionary<string, AnalysisAvailability> availability =
+            TraceCapabilities.AvailabilityFor(TraceFormat.NetTrace, new Dictionary<string, int>());
+
+        availability["threadpool"].Should().Be(
+            new AnalysisAvailability(true, CaptureStatus.Unknown, null));
+    }
+
+    [TestMethod]
+    public void AvailabilityFor_EmptySpeedscope_ReportsCpuEnabledZero()
+    {
+        IReadOnlyDictionary<string, AnalysisAvailability> availability =
+            TraceCapabilities.AvailabilityFor(
+                TraceFormat.Speedscope,
+                new Dictionary<string, int> { ["cpu"] = 0 });
+
+        availability["cpu"].Should().Be(
+            new AnalysisAvailability(true, CaptureStatus.Enabled, 0));
+    }
+
+    [TestMethod]
+    public void AvailabilityFor_UnsupportedFormat_RemainsSeparateFromCaptureStatus()
+    {
+        IReadOnlyDictionary<string, AnalysisAvailability> availability =
+            TraceCapabilities.AvailabilityFor(
+                TraceFormat.Etl,
+                new Dictionary<string, int> { ["alloc"] = 12 },
+                new Dictionary<string, CaptureStatus> { ["alloc"] = CaptureStatus.Enabled });
+
+        availability["alloc"].Should().Be(
+            new AnalysisAvailability(false, CaptureStatus.Unknown, null));
+    }
 }

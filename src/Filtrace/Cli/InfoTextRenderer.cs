@@ -35,7 +35,24 @@ internal static class InfoTextRenderer
             $"{view.Format}  {view.SampleCount} samples  {view.TotalWeight:N1} ms  symbols {view.SymbolResolutionRate:P0}");
         output.WriteLine();
 
-        output.WriteLine($"analyses: {string.Join(", ", view.AvailableAnalyses)}");
+        output.WriteLine("analyses:");
+        if (view.Analyses is null)
+        {
+            output.WriteLine($"  {string.Join(", ", view.AvailableAnalyses)}");
+        }
+        else
+        {
+            foreach ((string name, AnalysisAvailabilityView availability) in view.Analyses)
+            {
+                string count = availability.EventCount is int observed
+                    ? $", {observed} events"
+                    : string.Empty;
+                output.WriteLine(
+                    $"  {name}: format={availability.FormatSupported.ToString().ToLowerInvariant()}, "
+                    + $"capture={availability.CaptureStatus}{count}");
+            }
+        }
+
         if (view.EtlxCacheState is not null)
         {
             output.WriteLine($"etlx cache: {view.EtlxCacheState}");

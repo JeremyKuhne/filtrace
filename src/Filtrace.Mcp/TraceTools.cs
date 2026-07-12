@@ -63,9 +63,9 @@ public sealed class TraceTools
     /// <returns>The trace summary envelope.</returns>
     [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Load a trace and return format, weight, sample/thread counts, symbol resolution, available analyses, "
-        + "quality warnings, and etlxCacheState (hit, waited, converted, or recovered; null for speedscope). Call "
-        + "this first. Managed names come from CLR rundown; 'symbols' supplies PDBs for source lines.")]
+        "Load a trace and return format, weight, sample/thread counts, symbol resolution, and per-analysis "
+        + "formatSupported/captureStatus/eventCount. captureStatus is enabled, disabled, or unknown; zero is "
+        + "reported only when enablement is known. Also returns etlxCacheState. Call this first.")]
     public static async Task<AnalysisResult<TraceInfoView>> InfoAsync(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -92,7 +92,10 @@ public sealed class TraceTools
             info.SymbolResolutionRate,
             info.Threads,
             info.AvailableAnalyses,
-            CacheStateText(load.EtlxCacheState));
+            CacheStateText(load.EtlxCacheState))
+        {
+            Analyses = AnalysisViews(info.Analyses)
+        };
         return new AnalysisResult<TraceInfoView>(view, info.Warnings, SteeringHints.ForTraceInfo(info));
     }
 
@@ -1451,6 +1454,34 @@ public sealed class TraceTools
         EtlxCacheState.Recovered => "recovered",
         null => null,
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown ETLX cache state.")
+    };
+
+    private static IReadOnlyDictionary<string, AnalysisAvailabilityView> AnalysisViews(
+        IReadOnlyDictionary<string, AnalysisAvailability> analyses)
+    {
+        Dictionary<string, AnalysisAvailabilityView> views = new(StringComparer.Ordinal);
+        foreach ((string name, AnalysisAvailability availability) in analyses)
+        {
+            if (!availability.FormatSupported)
+            {
+                continue;
+            }
+
+            views[name] = new AnalysisAvailabilityView(
+                availability.FormatSupported,
+                CaptureStatusText(availability.CaptureStatus),
+                availability.EventCount);
+        }
+
+        return views;
+    }
+
+    private static string CaptureStatusText(CaptureStatus status) => status switch
+    {
+        CaptureStatus.Enabled => "enabled",
+        CaptureStatus.Disabled => "disabled",
+        CaptureStatus.Unknown => "unknown",
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown capture status.")
     };
 
     // An empty process selector means "auto-scope to the busiest process tree" (the

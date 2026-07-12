@@ -55,7 +55,10 @@ internal static class InfoExecutor
             info.SymbolResolutionRate,
             info.Threads,
             info.AvailableAnalyses,
-            CacheStateText(info.EtlxCacheState));
+            CacheStateText(info.EtlxCacheState))
+        {
+            Analyses = AnalysisViews(info.Analyses)
+        };
 
         AnalysisResult<TraceInfoView> envelope = new(view, info.Warnings, SteeringHints.ForTraceInfo(info));
 
@@ -79,5 +82,33 @@ internal static class InfoExecutor
         EtlxCacheState.Recovered => "recovered",
         null => null,
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown ETLX cache state.")
+    };
+
+    private static IReadOnlyDictionary<string, AnalysisAvailabilityView> AnalysisViews(
+        IReadOnlyDictionary<string, AnalysisAvailability> analyses)
+    {
+        Dictionary<string, AnalysisAvailabilityView> views = new(StringComparer.Ordinal);
+        foreach ((string name, AnalysisAvailability availability) in analyses)
+        {
+            if (!availability.FormatSupported)
+            {
+                continue;
+            }
+
+            views[name] = new AnalysisAvailabilityView(
+                availability.FormatSupported,
+                CaptureStatusText(availability.CaptureStatus),
+                availability.EventCount);
+        }
+
+        return views;
+    }
+
+    private static string CaptureStatusText(CaptureStatus status) => status switch
+    {
+        CaptureStatus.Enabled => "enabled",
+        CaptureStatus.Disabled => "disabled",
+        CaptureStatus.Unknown => "unknown",
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown capture status.")
     };
 }

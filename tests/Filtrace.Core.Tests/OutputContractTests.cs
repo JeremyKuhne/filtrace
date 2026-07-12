@@ -122,7 +122,14 @@ public sealed class OutputContractTests
             42,
             0.91234,
             [new ThreadSampleInfo("tid-1", 30)],
-            ["cpu", "alloc", "exceptions"]);
+            ["cpu", "alloc", "exceptions"])
+        {
+            Analyses = new Dictionary<string, AnalysisAvailabilityView>
+            {
+                ["cpu"] = new(true, "enabled", 42),
+                ["alloc"] = new(true, "disabled", null)
+            }
+        };
         AnalysisResult<TraceInfoView> envelope = new(view);
 
         string json = OutputJson.Serialize(envelope);
@@ -134,6 +141,9 @@ public sealed class OutputContractTests
         result.GetProperty("symbolResolutionRate").GetDouble().Should().Be(0.91);
         result.GetProperty("threads")[0].GetProperty("thread").GetString().Should().Be("tid-1");
         result.GetProperty("availableAnalyses")[0].GetString().Should().Be("cpu");
+        result.GetProperty("analyses").GetProperty("cpu").GetProperty("eventCount").GetInt32().Should().Be(42);
+        result.GetProperty("analyses").GetProperty("alloc").GetProperty("captureStatus").GetString()
+            .Should().Be("disabled");
     }
 
     [TestMethod]

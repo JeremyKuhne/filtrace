@@ -26,7 +26,7 @@ analyzes whatever a recorder produces. Record or produce one, then point filtrac
 
 | Capture | Records | Elevation | Scope | Recorded by |
 |---|---|---|---|---|
-| EventPipe (`.nettrace`; a `.speedscope.json` export is cpu-only) | cpu, alloc, exceptions, contention, gc, jit, threadpool; wait/activity with capture opt-ins below | none | one process | `dotnet-trace collect`, BenchmarkDotNet `-p EP` |
+| EventPipe (`.nettrace`; a `.speedscope.json` export is cpu-only) | can carry cpu, alloc, exceptions, contention, gc, jit, and threadpool when their providers/keywords are enabled; wait/activity need capture opt-ins below | none | one process | `dotnet-trace collect`, BenchmarkDotNet `-p EP` |
 | ETW (`.etl`) | cpu, threadtime, native frames | Administrator | machine-wide | `filtrace collect`, BenchmarkDotNet `-p ETW`, PerfView, `wpr` |
 
 Only an ETW `.etl` carries wall-clock (`threadtime`), the native GC / JIT / `memcpy`
@@ -62,6 +62,19 @@ dotnet-trace collect --profile cpu-sampling `
 
 A plain `dotnet-trace collect` records the default runtime families but not waits
 (`rank --metric wait` then warns it found none).
+
+`trace_info.analyses` separates three questions for every selector:
+
+- `formatSupported` says filtrace knows how to run it for this file format;
+- `captureStatus` is `enabled`, `disabled`, or `unknown`;
+- `eventCount` is the capture-wide source-record count when enabled, including zero.
+
+Observed source events always establish `enabled`. A zero is reported only when
+recorder metadata proves the provider/keyword was enabled; without that metadata,
+no events means `unknown`, not disabled. The bundled capture helpers write a bounded
+`<trace>.filtrace.json` sidecar with the profile facts they know. Keep it beside the
+trace when moving the capture. Arbitrary third-party traces without a sidecar remain
+honest: supported families with no evidence are unknown.
 
 Activity ranking and `--activity` CPU scope need completed EventSource Start/Stop
 pairs **and that application provider enabled during capture**. Use matching
@@ -125,9 +138,10 @@ are named for them:
   matching PDBs for source lines, not a replacement for missing rundown. Unresolved
   native ETW frames can also depress the aggregate rate while managed-method
   rankings remain usable; use `--native-symbols` when the native runtime split
-  matters. `trace_info` also reports which analyses the trace's
-  format can answer and hints the metric that matches the symptom, so a vague
-  "why is this slow?" reaches an applicable view.
+  matters. `trace_info.availableAnalyses` reports format support only;
+  `trace_info.analyses` reports capture enablement and observed event counts. Follow
+  known-enabled symptom routes; an unknown status means inspect capture settings or
+  recapture, not that the provider was disabled.
 2. **Rank.** Find the hottest frames by a metric (`filtrace cpu|alloc|exceptions|threadtime`,
    or `rank --metric`). Self-time finds the leaf that burns the resource;
    inclusive time finds the subtree that drives it.
@@ -141,7 +155,8 @@ are named for them:
 
 ### Route by symptom
 
-Choose the analysis from the symptom, then confirm it appears in `availableAnalyses`:
+Choose the analysis from the symptom, confirm `formatSupported`, then require
+`captureStatus: enabled` before treating an empty result as a meaningful zero:
 
 | Symptom / question | Start with | What it establishes |
 |---|---|---|
@@ -161,7 +176,7 @@ Choose the analysis from the symptom, then confirm it appears in `availableAnaly
 
 | Verb | Shows |
 |---|---|
-| `info` | format, sample count, symbol-resolution rate, per-thread counts, the analyses the trace can answer, and quality warnings - the CLI counterpart of `trace_info` |
+| `info` | format, sample count, symbol-resolution rate, per-thread counts, per-analysis format/capture/event state, and quality warnings - the CLI counterpart of `trace_info` |
 
 **Rank** - find the hottest frames by a metric:
 

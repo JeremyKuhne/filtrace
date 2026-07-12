@@ -57,7 +57,7 @@ ranking when needed, then diff comparable CPU traces against a baseline.
 
 ```pwsh
 # Workflow: orient, rank the hottest frames, drill into one, then diff two runs.
-filtrace info app.nettrace                     # 0. orient: format, symbol rate, what it can answer
+filtrace info app.nettrace                     # 0. orient: format, providers, event counts, symbol rate
 filtrace cpu app.nettrace                      # 1. what's hot (self-time)
 filtrace callers app.nettrace MyApp.Parse      # 2. who calls the hot frame
 filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source lines
@@ -80,7 +80,7 @@ config and tool workflow.
 
 | Verb | Purpose | Example |
 |---|---|---|
-| `info` | Format, sample count, symbol-resolution rate, the analyses the trace can answer, and warnings | `filtrace info app.nettrace` |
+| `info` | Format, sample count, symbol-resolution rate, and per-analysis format/capture/event state | `filtrace info app.nettrace` |
 
 **Ranking** - rank stacks by a metric (`--metric` on `rank`, or a shortcut verb):
 
