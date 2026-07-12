@@ -41,8 +41,11 @@ public sealed class AnalysisResult<T>
     ///   Version 3 added query-specific contributing-record counts, distinct from
     ///   metric weight, to ranking, callers, lines, and heat-map payloads.
     ///  </para>
+    ///  <para>
+    ///   Version 4 added the request-specific ETLX cache state to trace-info payloads.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 4;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.

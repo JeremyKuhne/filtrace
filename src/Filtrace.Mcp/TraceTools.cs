@@ -43,6 +43,14 @@ namespace Filtrace.Mcp;
 [McpServerToolType]
 public sealed class TraceTools
 {
+    /// <inheritdoc cref="InfoAsync"/>
+    public static AnalysisResult<TraceInfoView> Info(
+        TraceStore store,
+        string path,
+        string symbols = "",
+        string process = "") =>
+        InfoAsync(store, path, symbols, process).GetAwaiter().GetResult();
+
     /// <summary>
     ///  Loads a trace and returns its format, total weight, sample count, symbol
     ///  resolution rate, per-thread sample counts, and quality warnings.
@@ -51,15 +59,14 @@ public sealed class TraceTools
     /// <param name="path">Path to the trace file.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
+    /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The trace summary envelope.</returns>
     [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Load a trace (.speedscope.json, .nettrace, or .etl) and return its format, total weight, sample count, "
-        + "symbol-resolution rate, per-thread sample counts, the analyses the trace's format can answer "
-        + "(availableAnalyses, with a hint routing each symptom to one), and quality warnings. Call this first: a "
-        + "resolution rate below 0.8 means unresolved frames need inspection. Managed names normally come from CLR "
-        + "rundown; 'symbols' supplies PDBs for source lines.")]
-    public static AnalysisResult<TraceInfoView> Info(
+        "Load a trace and return format, weight, sample/thread counts, symbol resolution, available analyses, "
+        + "quality warnings, and etlxCacheState (hit, waited, converted, or recovered; null for speedscope). Call "
+        + "this first. Managed names come from CLR rundown; 'symbols' supplies PDBs for source lines.")]
+    public static async Task<AnalysisResult<TraceInfoView>> InfoAsync(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
         [Description("Optional build-output directory whose PDBs map managed code to source lines.")]
@@ -67,9 +74,16 @@ public sealed class TraceTools
         [Description(
             "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
             + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
-        string process = "")
+        string process = "",
+        CancellationToken cancellationToken = default)
     {
-        TraceInfo info = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process)).Info;
+        TraceStoreLoadResult load = await LoadAsync(
+            store,
+            path,
+            NullIfEmpty(symbols),
+            scope: ResolveScope(process),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        TraceInfo info = load.Trace.Info;
         TraceInfoView view = new(
             info.Path,
             info.Format.ToString(),
@@ -77,9 +91,40 @@ public sealed class TraceTools
             info.SampleCount,
             info.SymbolResolutionRate,
             info.Threads,
-            info.AvailableAnalyses);
+            info.AvailableAnalyses,
+            CacheStateText(load.EtlxCacheState));
         return new AnalysisResult<TraceInfoView>(view, info.Warnings, SteeringHints.ForTraceInfo(info));
     }
+
+    /// <inheritdoc cref="RankAsync"/>
+    public static AnalysisResult<RankingResult> Rank(
+        TraceStore store,
+        string path,
+        string metric = "cpu",
+        string measure = "self",
+        string root = "",
+        int top = 25,
+        string[]? fold = null,
+        string symbols = "",
+        string process = "",
+        string activity = "",
+        string time = "",
+        bool nativeSymbols = false,
+        bool benchmark = false) =>
+        RankAsync(
+            store,
+            path,
+            metric,
+            measure,
+            root,
+            top,
+            fold,
+            symbols,
+            process,
+            activity,
+            time,
+            nativeSymbols,
+            benchmark).GetAwaiter().GetResult();
 
     /// <summary>
     ///  Ranks the hottest frames over a chosen provider metric by self or inclusive
@@ -98,13 +143,14 @@ public sealed class TraceTools
     /// <param name="time">Optional time window 'start,end' in ms scoping the ranking to that slice; any metric.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
+    /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The ranking envelope.</returns>
     [McpServerTool(Name = "trace_rank", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description(
         "Rank frames by self or inclusive metric weight. Metrics: cpu, threadtime, alloc, exceptions, "
         + "contention, wait, or activity; all but cpu and threadtime need .nettrace. Scope with root or "
         + "benchmark=true (BenchmarkDotNet measured workload).")]
-    public static AnalysisResult<RankingResult> Rank(
+    public static async Task<AnalysisResult<RankingResult>> RankAsync(
         TraceStore store,
         [Description("Trace path (.speedscope.json, .nettrace, or .etl).")] string path,
         [Description("Metric: cpu, threadtime, alloc, exceptions, contention, wait, or activity.")] string metric = "cpu",
@@ -123,7 +169,8 @@ public sealed class TraceTools
         [Description("Resolve native runtime frames via network/cache; cpu .etl only.")]
         bool nativeSymbols = false,
         [Description("BenchmarkDotNet workload root; conflicts with 'root'.")]
-        bool benchmark = false)
+        bool benchmark = false,
+        CancellationToken cancellationToken = default)
     {
         TraceMetric resolved = ResolveMetric(metric);
         bool inclusive = ResolveMeasure(measure);
@@ -157,7 +204,15 @@ public sealed class TraceTools
             scope = (scope ?? ScopeRequest.Auto).WithTimeWindow(startMSec, endMSec);
         }
 
-        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), resolved, scope, ResolveSymbols(nativeSymbols));
+        TraceStoreLoadResult load = await LoadAsync(
+            store,
+            path,
+            NullIfEmpty(symbols),
+            resolved,
+            scope,
+            ResolveSymbols(nativeSymbols),
+            cancellationToken).ConfigureAwait(false);
+        LoadedTrace trace = load.Trace;
         TraceInfo info = trace.Info;
         RankingResult ranking = inclusive
             ? trace.Aggregator.InclusiveTime(resolvedRoot, foldPatterns, top)
@@ -176,6 +231,17 @@ public sealed class TraceTools
             warnings,
             SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, scope));
     }
+
+    /// <inheritdoc cref="LinesAsync"/>
+    public static AnalysisResult<LineRankingResult> Lines(
+        TraceStore store,
+        string path,
+        string method = "",
+        int top = 25,
+        string[]? fold = null,
+        string symbols = "",
+        string process = "") =>
+        LinesAsync(store, path, method, top, fold, symbols, process).GetAwaiter().GetResult();
 
     /// <summary>
     ///  Reports the immediate callers of the frame matching <paramref name="frame"/>,
@@ -246,6 +312,7 @@ public sealed class TraceTools
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
+    /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The line-level self-time envelope.</returns>
     [McpServerTool(Name = "trace_lines", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
@@ -254,7 +321,7 @@ public sealed class TraceTools
         + ".nettrace or .etl trace whose modules have portable PDBs; pass 'symbols' pointing at the build-output "
         + "directory. Speedscope inputs carry no line data and return an empty ranking. A '<no source>' row is "
         + "time in matching methods whose PDB was not found.")]
-    public static AnalysisResult<LineRankingResult> Lines(
+    public static async Task<AnalysisResult<LineRankingResult>> LinesAsync(
         TraceStore store,
         [Description("Path to a .nettrace or .etl trace file (speedscope carries no line data).")] string path,
         [Description("Optional substring of a method name to scope the ranking; omit for every method.")] string method = "",
@@ -265,11 +332,18 @@ public sealed class TraceTools
         [Description(
             "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
             + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
-        string process = "")
+        string process = "",
+        CancellationToken cancellationToken = default)
     {
         RequirePositiveTop(top);
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
-        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process));
+        TraceStoreLoadResult load = await LoadAsync(
+            store,
+            path,
+            NullIfEmpty(symbols),
+            scope: ResolveScope(process),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        LoadedTrace trace = load.Trace;
         TraceInfo info = trace.Info;
         LineRankingResult lines = trace.Aggregator.HotLines(method, foldPatterns, top);
         List<string> warnings = [.. info.Warnings];
@@ -920,6 +994,39 @@ public sealed class TraceTools
         }
     }
 
+    private static async Task<TraceStoreLoadResult> LoadAsync(
+        TraceStore store,
+        string path,
+        string? symbols,
+        TraceMetric metric = TraceMetric.Cpu,
+        ScopeRequest? scope = null,
+        SymbolOptions? symbolOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await store.GetAsync(
+                path,
+                symbols,
+                metric,
+                scope,
+                symbolOptions,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or JsonException
+            or KeyNotFoundException
+            or InvalidOperationException
+            or FormatException
+            or ArgumentException)
+        {
+            throw new McpException(ex.Message);
+        }
+    }
+
     private static TraceMetric ResolveMetric(string metric) =>
         TraceMetricSelector.TryResolve(metric, out TraceMetric resolved)
             ? resolved
@@ -1335,6 +1442,16 @@ public sealed class TraceTools
     }
 
     private static string? NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
+
+    private static string? CacheStateText(EtlxCacheState? state) => state switch
+    {
+        EtlxCacheState.Hit => "hit",
+        EtlxCacheState.Waited => "waited",
+        EtlxCacheState.Converted => "converted",
+        EtlxCacheState.Recovered => "recovered",
+        null => null,
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown ETLX cache state.")
+    };
 
     // An empty process selector means "auto-scope to the busiest process tree" (the
     // Load default), a no-op on a single-process .nettrace/speedscope trace; a non-empty

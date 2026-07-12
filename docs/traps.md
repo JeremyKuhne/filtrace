@@ -66,7 +66,10 @@ embeds the marked block below verbatim and
 
 8. **Reading an `.etl` through filtrace is Windows-only.** The ETW -> ETLX
    conversion needs Windows, and direct `.etlx` input is not part of the current
-   CLI or MCP surface. The `.etl` paths report a clean error off Windows.
+   CLI or MCP surface. The `.etl` paths report a clean error off Windows. Do not
+   serialize same-trace MCP calls as a workaround: filtrace now coordinates ETLX
+   conversion across threads and processes, publishes atomically, and reports
+   `hit`, `waited`, `converted`, or `recovered` in `trace_info.etlxCacheState`.
 
 9. **The default fold list hides runtime leaves on purpose.** It folds
    `memmove`, write-barriers, and GC-poll helpers into their managed caller -

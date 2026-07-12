@@ -12,6 +12,15 @@ public sealed class TraceStoreTests
     private static string FixturePath(string name) =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
+    private static string CopyToTemp(string fixture, out string tempDirectory)
+    {
+        tempDirectory = Path.Combine(Path.GetTempPath(), $"filtrace-store-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        string destination = Path.Combine(tempDirectory, fixture);
+        File.Copy(FixturePath(fixture), destination);
+        return destination;
+    }
+
     [TestMethod]
     public void Get_SamePath_ReturnsCachedInstance()
     {
@@ -22,6 +31,72 @@ public sealed class TraceStoreTests
         LoadedTrace second = store.Get(path);
 
         second.Should().BeSameAs(first);
+    }
+
+    [TestMethod]
+    public async Task GetAsync_ConcurrentSameTrace_ConvertsOnceAndWaitsAsynchronously()
+    {
+        TraceStore store = new();
+        string path = CopyToTemp("activity.nettrace", out string tempDirectory);
+        try
+        {
+            Task<TraceStoreLoadResult>[] loads = Enumerable.Range(0, 4)
+                .Select(_ => store.GetAsync(path))
+                .ToArray();
+
+            TraceStoreLoadResult[] results = await Task.WhenAll(loads);
+
+            results.Should().ContainSingle(result => result.EtlxCacheState == EtlxCacheState.Converted);
+            results.Count(result => result.EtlxCacheState == EtlxCacheState.Waited).Should().Be(3);
+            results.Select(result => result.Trace).Should().OnlyContain(trace => trace.Info.SampleCount > 0);
+            Directory.EnumerateFiles(tempDirectory, "*.new").Should().BeEmpty();
+            Directory.EnumerateFiles(tempDirectory, ".filtrace-etlx-*").Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAsync_CanceledWhileWaitingForInterprocessConversion_ThrowsOperationCanceled()
+    {
+        TraceStore store = new();
+        string path = CopyToTemp("alloc.nettrace", out string tempDirectory);
+        using ManualResetEventSlim mutexHeld = new(initialState: false);
+        using ManualResetEventSlim releaseMutex = new(initialState: false);
+        using CancellationTokenSource cancellation = new();
+        Task mutexOwner = Task.Run(() =>
+        {
+            using Mutex conversionMutex = new(initiallyOwned: false, TraceConverter.LockNameFor(path));
+            conversionMutex.WaitOne();
+            try
+            {
+                mutexHeld.Set();
+                releaseMutex.Wait();
+            }
+            finally
+            {
+                conversionMutex.ReleaseMutex();
+            }
+        });
+        try
+        {
+            mutexHeld.Wait();
+            Task<TraceStoreLoadResult> load = store.GetAsync(path, cancellationToken: cancellation.Token);
+            cancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
+
+            Func<Task> wait = async () => await load;
+
+            await wait.Should().ThrowAsync<OperationCanceledException>();
+            File.Exists(TraceConverter.EtlxPathFor(path)).Should().BeFalse();
+        }
+        finally
+        {
+            releaseMutex.Set();
+            await mutexOwner;
+            Directory.Delete(tempDirectory, recursive: true);
+        }
     }
 
     [TestMethod]

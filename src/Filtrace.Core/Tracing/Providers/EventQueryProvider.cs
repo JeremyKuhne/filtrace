@@ -124,26 +124,11 @@ public sealed class EventQueryProvider
         return new EventQueryResult(matched, Math.Min(skip, matched), page);
     }
 
-    // Opens a trace of either supported format as a TraceLog: an ETW .etl via
-    // OpenOrConvert (the ETW -> ETLX conversion is Windows-only), or an EventPipe
-    // .nettrace via CreateFromEventPipeDataFile. The event loop over TraceLog.Events is
+    // Opens either supported format through the shared concurrency-safe ETLX cache.
+    // ETW conversion remains Windows-only; the event loop over TraceLog.Events is
     // identical for both, so the raw query spans EventPipe and ETW alike.
-    private static Etlx.TraceLog OpenTrace(string fullPath)
-    {
-        if (fullPath.EndsWith(".etl", StringComparison.OrdinalIgnoreCase))
-        {
-            return Etlx.TraceLog.OpenOrConvert(
-                fullPath,
-                new Etlx.TraceLogOptions { ContinueOnError = true });
-        }
-
-        string etlxPath = Etlx.TraceLog.CreateFromEventPipeDataFile(
-            fullPath,
-            null,
-            new Etlx.TraceLogOptions { ContinueOnError = true });
-
-        return new Etlx.TraceLog(etlxPath);
-    }
+    private static Etlx.TraceLog OpenTrace(string fullPath) =>
+        TraceConverter.OpenTraceLog(fullPath, out _);
 
     // Whether any of the event's payload values contains the filter (case-insensitive).
     // Scans the full untruncated value - a match past the output cap must still count -

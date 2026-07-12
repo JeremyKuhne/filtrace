@@ -61,12 +61,7 @@ public sealed class ActivityProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        string etlxPath = TraceLog.CreateFromEventPipeDataFile(
-            fullPath,
-            null,
-            new TraceLogOptions { ContinueOnError = true });
-
-        using TraceLog traceLog = new(etlxPath);
+        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
         using TraceLogEventSource source = traceLog.Events.GetSource();
 
         // The activity computer needs a symbol reader and a GC-reference computer to

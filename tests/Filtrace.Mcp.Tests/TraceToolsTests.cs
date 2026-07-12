@@ -26,12 +26,21 @@ public sealed class TraceToolsTests
     private static string FixturePath(string name) =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
+    private static string CopyToTemp(string fixture, out string tempDirectory)
+    {
+        tempDirectory = Path.Combine(Path.GetTempPath(), $"filtrace-mcp-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        string destination = Path.Combine(tempDirectory, fixture);
+        File.Copy(FixturePath(fixture), destination);
+        return destination;
+    }
+
     // Every tool returns the typed AnalysisResult envelope; the SDK serializes it (with
     // an output schema and structured content) from the typed shape, so the unit tests
     // assert on the object directly rather than re-parsing JSON.
     private static void AssertEnvelope<T>(AnalysisResult<T> envelope)
     {
-        envelope.SchemaVersion.Should().Be(3);
+        envelope.SchemaVersion.Should().Be(4);
         envelope.Warnings.Should().NotBeNull();
         envelope.Hints.Should().NotBeNull();
         envelope.Result.Should().NotBeNull();
@@ -51,6 +60,36 @@ public sealed class TraceToolsTests
         result.SampleCount.Should().Be(4);
         result.SymbolResolutionRate.Should().BeInRange(0.0, 1.0);
         result.Threads.Should().NotBeEmpty();
+        result.EtlxCacheState.Should().BeNull();
+    }
+
+    [TestMethod]
+    public async Task ConcurrentSameTrace_InfoTwoRanksAndLines_AllSucceedWithOneCache()
+    {
+        TraceStore store = new();
+        string path = CopyToTemp(Activity, out string tempDirectory);
+        try
+        {
+            Task<AnalysisResult<TraceInfoView>> infoTask = TraceTools.InfoAsync(store, path);
+            Task<AnalysisResult<RankingResult>> firstRankTask = TraceTools.RankAsync(store, path);
+            Task<AnalysisResult<RankingResult>> secondRankTask = TraceTools.RankAsync(store, path, measure: "inclusive");
+            Task<AnalysisResult<LineRankingResult>> linesTask = TraceTools.LinesAsync(store, path);
+
+            await Task.WhenAll(infoTask, firstRankTask, secondRankTask, linesTask);
+
+            AnalysisResult<TraceInfoView> info = await infoTask;
+            info.Result.EtlxCacheState.Should().BeOneOf("converted", "waited");
+            (await firstRankTask).Result.Rows.Should().NotBeEmpty();
+            (await secondRankTask).Result.Rows.Should().NotBeEmpty();
+            (await linesTask).Result.Should().NotBeNull();
+            File.Exists(TraceConverter.EtlxPathFor(path)).Should().BeTrue();
+            Directory.EnumerateFiles(tempDirectory, "*.new").Should().BeEmpty();
+            Directory.EnumerateFiles(tempDirectory, ".filtrace-etlx-*").Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
     }
 
     [TestMethod]

@@ -15,7 +15,7 @@ namespace Filtrace.Tracing;
 ///  does not establish meaningful record semantics.
 /// </param>
 public sealed record RankingResult(
-	double ScopeWeight,
-	string RootFrame,
-	IReadOnlyList<RankRow> Rows,
-	int? ContributingRecordCount = null);
+    double ScopeWeight,
+    string RootFrame,
+    IReadOnlyList<RankRow> Rows,
+    int? ContributingRecordCount = null);
