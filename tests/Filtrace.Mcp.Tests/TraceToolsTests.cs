@@ -83,6 +83,52 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Rank_BenchmarkPreset_ScopesToWorkloadActionFrame()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<RankingResult> envelope =
+            TraceTools.Rank(store, FixturePath(Speedscope), benchmark: true);
+
+        envelope.Result.ScopeWeight.Should().Be(0.0);
+        envelope.Result.Rows.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void Rank_RootAndBenchmarkBothSet_Throws()
+    {
+        TraceStore store = new();
+
+        Action act = () => TraceTools.Rank(
+            store, FixturePath(Speedscope), root: "MyApp.Work", benchmark: true);
+
+        act.Should().Throw<McpException>().WithMessage("*only one of 'root' and 'benchmark'*");
+    }
+
+    [TestMethod]
+    public void Rank_AmbiguousRoot_ReportsDefinitionsDepthsAndSelection()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<RankingResult> envelope =
+            TraceTools.Rank(store, FixturePath(Speedscope), root: "MyApp");
+
+        envelope.Warnings.Should().Contain(
+            warning => warning.Contains("root 'MyApp'", StringComparison.Ordinal)
+                && warning.Contains("outermost", StringComparison.Ordinal)
+                && warning.Contains("ambiguous", StringComparison.OrdinalIgnoreCase));
+        envelope.Warnings.Should().Contain(
+            warning => warning.Contains("MyApp.Work", StringComparison.Ordinal)
+                && warning.Contains("depth", StringComparison.Ordinal));
+        envelope.Warnings.Should().Contain(
+            warning => warning.Contains("MyApp.Inner", StringComparison.Ordinal)
+                && warning.Contains("depth", StringComparison.Ordinal));
+        envelope.Warnings.Should().Contain(
+            warning => warning.Contains("MyApp.Other", StringComparison.Ordinal)
+                && warning.Contains("depth", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void Rank_AllocMetric_ReadsTheAllocationView()
     {
         TraceStore store = new();
@@ -226,6 +272,38 @@ public sealed class TraceToolsTests
         envelope.Result.Callers.Should().NotBeNull();
     }
 
+
+    [TestMethod]
+    public void Callers_BenchmarkPreset_ScopesToWorkloadActionFrame()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<CallersResult> envelope =
+            TraceTools.Callers(store, FixturePath(Speedscope), frame: "MyApp.Work", benchmark: true);
+
+        envelope.Result.ScopeWeight.Should().Be(0.0);
+        envelope.Result.Callers.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void Callers_AmbiguousFocus_ReportsDefinitionsAndDeepestSelection()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<CallersResult> envelope =
+            TraceTools.Callers(store, FixturePath(Speedscope), frame: "MyApp");
+
+        envelope.Warnings.Should().Contain(
+            warning => warning.Contains("frame 'MyApp'", StringComparison.Ordinal)
+                && warning.Contains("deepest", StringComparison.Ordinal)
+                && warning.Contains("ambiguous", StringComparison.OrdinalIgnoreCase));
+        envelope.Warnings.Should().Contain(
+            warning => warning.Contains("MyApp.Work", StringComparison.Ordinal));
+        envelope.Warnings.Should().Contain(
+            warning => warning.Contains("MyApp.Inner", StringComparison.Ordinal));
+        envelope.Warnings.Should().Contain(
+            warning => warning.Contains("MyApp.Other", StringComparison.Ordinal));
+    }
     [TestMethod]
     public void Callers_WithoutCallees_LeavesCalleesNull()
     {
@@ -573,6 +651,18 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Tree_BenchmarkPreset_ScopesToWorkloadActionFrame()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<CallTreeResult> envelope =
+            TraceTools.Tree(store, FixturePath(Speedscope), benchmark: true);
+
+        envelope.Result.ScopeWeight.Should().Be(0.0);
+        envelope.Result.Root.Children.Should().BeEmpty();
+    }
+
+    [TestMethod]
     public void Tree_NegativeMaxDepth_Throws()
     {
         TraceStore store = new();
@@ -602,6 +692,18 @@ public sealed class TraceToolsTests
         AssertEnvelope(envelope);
         envelope.Result.ScopeWeight.Should().BeGreaterThan(0.0);
         envelope.Result.Categories.Should().NotBeEmpty();
+    }
+
+    [TestMethod]
+    public void Classify_BenchmarkPreset_ScopesToWorkloadActionFrame()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<ClassifyResult> envelope =
+            TraceTools.Classify(store, FixturePath(Speedscope), benchmark: true);
+
+        envelope.Result.ScopeWeight.Should().Be(0.0);
+        envelope.Result.Categories.Should().BeEmpty();
     }
 
     [TestMethod]
@@ -787,6 +889,37 @@ public sealed class TraceToolsTests
             written.Should().Contain("MyApp.Inner");
             written.Should().NotContain("Program.Main");
             written.Should().NotContain("MyApp.Other");
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Export_AmbiguousRoot_ReportsDefinitionsAndSelection()
+    {
+        TraceStore store = new();
+        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+
+        try
+        {
+            AnalysisResult<ExportResult> envelope =
+                TraceTools.Export(store, FixturePath(Speedscope), outputPath, root: "MyApp");
+
+            envelope.Warnings.Should().Contain(
+                warning => warning.Contains("root 'MyApp'", StringComparison.Ordinal)
+                    && warning.Contains("outermost", StringComparison.Ordinal)
+                    && warning.Contains("ambiguous", StringComparison.OrdinalIgnoreCase));
+            envelope.Warnings.Should().Contain(
+                warning => warning.Contains("MyApp.Work", StringComparison.Ordinal));
+            envelope.Warnings.Should().Contain(
+                warning => warning.Contains("MyApp.Inner", StringComparison.Ordinal));
+            envelope.Warnings.Should().Contain(
+                warning => warning.Contains("MyApp.Other", StringComparison.Ordinal));
         }
         finally
         {

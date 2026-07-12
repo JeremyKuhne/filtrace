@@ -34,12 +34,14 @@ embeds the marked block below verbatim and
    default, not as an afterthought.** A raw ranking (or export) of a BDN trace is
    mixed with orchestrator and overhead scaffolding outside your `[Benchmark]`.
    In the CLI, pass `--benchmark` to every verb that offers it; in MCP, pass
-   `root: "WorkloadAction"` to root-aware stack tools and `benchmark: true` to
-   `trace_export`. The wrapper includes warmup and actual workload iterations; it
-   excludes harness/overhead scaffolding, not warmup. This applies especially to
-   export - a flame graph with the harness left in is not just noisy, its proportions
-   are wrong. `lines` / `heatmap` cannot preserve root scope; narrow them with their
-   method/file filter and treat percentages as whole-trace.
+   `benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`,
+   `trace_classify`, and `trace_export`. The wrapper includes warmup and actual
+   workload iterations; it excludes harness/overhead scaffolding, not warmup. This
+   applies especially to export - a flame graph with the harness left in is not just
+   noisy, its proportions are wrong. Do not substitute a benchmark method substring:
+   if root/frame warnings report multiple definitions or depths, narrow the selector
+   before trusting the result. `lines` / `heatmap` cannot preserve root scope; narrow
+   them with their method/file filter and treat percentages as whole-trace.
 
 5. **Native runtime frames need `--native-symbols`.** Without it, the unmanaged
    share of a trace - GC, JIT, `memset` / `memcpy`, write barriers - shows as

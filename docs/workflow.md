@@ -80,12 +80,15 @@ and point `--symbols` at build output containing matching PDBs. Scope every
 **root-aware stack analysis** to the generated `WorkloadAction*` wrapper - not just
 rankings, export too, and not just when the result looks noisy. In the CLI,
 `--benchmark` supplies that preset to every verb that offers it. In MCP, pass
-`root: "WorkloadAction"` to `trace_rank`, `trace_callers`, `trace_tree`, and
-`trace_classify`; `trace_export` has its own `benchmark: true` preset. `lines` and
-`heatmap` have no root scope in either head: narrow them with their method/file filter
-and remember their percentages still describe the process-scoped whole trace. The
-workload wrapper includes warmup and actual iterations; it isolates the `[Benchmark]`
-code from bootstrap and overhead scaffolding, not warmup from measurement. The bundled
+`benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`,
+and `trace_export`. Do not guess a benchmark method substring: root/frame warnings
+list every matching full frame definition, its observed stack depths, and which
+outermost/deepest definition the query selected. Narrow an ambiguous selector before
+trusting percentages. `lines` and `heatmap` have no root scope in either head: narrow
+them with their method/file filter and remember their percentages still describe the
+process-scoped whole trace. The workload wrapper includes warmup and actual iterations;
+it isolates the `[Benchmark]` code from bootstrap and overhead scaffolding, not warmup
+from measurement. The bundled
 [scripts/Capture-BenchmarkTrace.ps1](../.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1)
 wraps the whole loop: it runs the benchmark under the chosen profiler
 (self-elevating for ETW, with visible progress), finds the newest trace, and prints
@@ -238,12 +241,14 @@ defaults to scenario scope and lets you tighten further:
 - **`--root <frame>`** - scope a ranking to the subtree under a frame.
 - **BenchmarkDotNet workload scope** - preset the root to the measured-workload
   wrapper, isolating the `[Benchmark]` code from harness and overhead scaffolding.
-  Use `--benchmark` in CLI verbs that offer it; in MCP use `root: "WorkloadAction"`
-  on `trace_rank`, `trace_callers`, `trace_tree`, or `trace_classify`, and
-  `benchmark: true` on `trace_export`. The wrapper includes warmup and actual
-  iterations. `lines` / `heatmap` are not root-aware; use their method/file filter
-  and treat percentages as whole-trace. A benchmark preset is mutually exclusive
-  with an explicit root.
+  Use `--benchmark` in CLI verbs that offer it; in MCP use `benchmark: true` on
+  `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`, and `trace_export`.
+  The wrapper includes warmup and actual iterations. `lines` / `heatmap` are not
+  root-aware; use their method/file filter and treat percentages as whole-trace. A
+  benchmark preset is mutually exclusive with an explicit root. When using a root or
+  frame substring, inspect warnings: they enumerate matching full frame definitions,
+  stack depths, and the per-stack selection rule. Narrow an ambiguous selector before
+  treating its percentages as evidence.
 - **`--activity <name>`** (`rank`, cpu metric) - scope the CPU view to the samples
   taken inside one start-stop activity - a request, job, or operation - or a child
   of it. Answers "why is *this* request slow?".
