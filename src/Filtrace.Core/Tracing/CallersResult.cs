@@ -17,10 +17,14 @@ namespace Filtrace.Tracing;
 ///  The immediate callees, highest first, or <see langword="null"/> when only callers
 ///  were requested. The caller and callee lists partition the same focus-inclusive weight.
 /// </param>
+/// <param name="ContributingRecordCount">
+///  Scoped records containing the focus frame, or <see langword="null"/> when unavailable.
+/// </param>
 public sealed record CallersResult(
     string Focus,
     double TargetWeight,
     double PercentOfScope,
     double ScopeWeight,
     IReadOnlyList<CallerRow> Callers,
-    IReadOnlyList<CalleeRow>? Callees = null);
+    IReadOnlyList<CalleeRow>? Callees = null,
+    int? ContributingRecordCount = null);

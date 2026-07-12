@@ -43,6 +43,8 @@ internal sealed class SpeedscopeReader : ITraceReader
 
         string[] frameNames = ReadFrameNames(root);
         List<SampleStack> samples = [];
+        bool readEventedProfile = false;
+        bool readSampledProfile = false;
 
         if (root.TryGetProperty("profiles", out JsonElement profiles)
             && profiles.ValueKind == JsonValueKind.Array)
@@ -65,11 +67,13 @@ internal sealed class SpeedscopeReader : ITraceReader
 
                 if (string.Equals(type, "evented", StringComparison.Ordinal))
                 {
+                    readEventedProfile = true;
                     double millisecondsPerUnit = ResolveMillisecondsPerUnit(profile);
                     ReadEventedProfile(profile, frameNames, samples, millisecondsPerUnit);
                 }
                 else if (string.Equals(type, "sampled", StringComparison.Ordinal))
                 {
+                    readSampledProfile = true;
                     double millisecondsPerUnit = ResolveMillisecondsPerUnit(profile);
                     ReadSampledProfile(profile, frameNames, samples, millisecondsPerUnit);
                 }
@@ -91,7 +95,15 @@ internal sealed class SpeedscopeReader : ITraceReader
                 "Time-window scoping is not applied to a speedscope trace; the requested window was ignored. Use a .nettrace or .etl capture to scope by trace-relative time.");
         }
 
-        return new TraceReadResult(samples, 1.0, warnings);
+        StackRecordSemantics recordSemantics = (readEventedProfile, readSampledProfile) switch
+        {
+            (true, false) => StackRecordSemantics.EventedIntervals,
+            (false, true) => StackRecordSemantics.SampledProfileRecords,
+            (true, true) => StackRecordSemantics.MixedProfileRecords,
+            _ => StackRecordSemantics.Unavailable
+        };
+
+        return new TraceReadResult(samples, 1.0, warnings, recordSemantics);
     }
 
     private static string[] ReadFrameNames(JsonElement root)

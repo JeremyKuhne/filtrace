@@ -45,6 +45,12 @@ internal static class HeatmapTextRenderer
         output.WriteLine(
             $"{metric.Name} source heatmap '{heatmap.File}'  -  {heatmap.FileWeight:N2} {unit} "
             + $"({percentOfTrace:N2}% of trace)");
+        if (heatmap.AttributedRecordCount is int attributedRecordCount
+            && heatmap.UnattributedRecordCount is int unattributedRecordCount)
+        {
+            output.WriteLine(
+                $"  records {attributedRecordCount} attributed, {unattributedRecordCount} unattributed");
+        }
 
         if (heatmap.Lines.Count == 0)
         {

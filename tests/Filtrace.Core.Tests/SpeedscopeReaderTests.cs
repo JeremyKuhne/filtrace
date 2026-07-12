@@ -23,6 +23,25 @@ public sealed class SpeedscopeReaderTests
     }
 
     [TestMethod]
+    public void Read_EventedProfile_ReportsRecordsSeparatelyFromWeight()
+    {
+        const string json = """
+            {"shared":{"frames":[{"name":"Root"},{"name":"Work"}]},"profiles":[{"type":"evented","name":"thread","unit":"milliseconds","startValue":0,"endValue":32,"events":[{"type":"O","frame":0,"at":0},{"type":"O","frame":1,"at":8},{"type":"C","frame":1,"at":16},{"type":"O","frame":1,"at":24},{"type":"C","frame":1,"at":32},{"type":"C","frame":0,"at":32}]}]}
+            """;
+
+        LoadedTrace trace = Read(json);
+        RankingResult ranking = trace.Aggregator.SelfTime("", FrameNames.DefaultFoldPatterns, 5);
+
+        trace.Source.RecordSemantics.Should().Be(StackRecordSemantics.EventedIntervals);
+        ranking.ScopeWeight.Should().Be(32.0);
+        ranking.ContributingRecordCount.Should().Be(4);
+        ContributingRecordQuality.TryGetMethodWarning(
+            trace.Source.RecordSemantics,
+            ranking.ContributingRecordCount,
+            out _).Should().BeFalse();
+    }
+
+    [TestMethod]
     public void Read_SampledSeconds_NormalizesToMilliseconds()
     {
         const string json = """
@@ -32,6 +51,7 @@ public sealed class SpeedscopeReaderTests
         LoadedTrace trace = Read(json);
         RankingResult ranking = trace.Aggregator.SelfTime("", FrameNames.DefaultFoldPatterns, 5);
 
+        trace.Source.RecordSemantics.Should().Be(StackRecordSemantics.SampledProfileRecords);
         trace.Info.TotalWeight.Should().Be(2000.0);
         ranking.Rows[0].Frame.Should().Be("Second");
         ranking.Rows[0].Weight.Should().Be(1500.0);

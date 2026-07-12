@@ -20,8 +20,12 @@ namespace Filtrace.Tracing;
 /// <param name="File">The source file name the lines belong to (no directory).</param>
 /// <param name="FileWeight">Self-weight attributed to the file across all its lines, in the metric's unit.</param>
 /// <param name="Lines">The hot lines of the file, ordered by line number.</param>
+/// <param name="AttributedRecordCount">Records attributed to the requested file and a source line, or <see langword="null"/> when unavailable.</param>
+/// <param name="UnattributedRecordCount">Records without a usable source location, or <see langword="null"/> when unavailable.</param>
 public sealed record SourceHeatmapResult(
     double ScopeWeight,
     string File,
     double FileWeight,
-    IReadOnlyList<HeatLine> Lines);
+    IReadOnlyList<HeatLine> Lines,
+    int? AttributedRecordCount = null,
+    int? UnattributedRecordCount = null);

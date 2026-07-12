@@ -46,10 +46,18 @@ internal static class RankingExecutor
         RankingResult ranking = request.Measure == Measure.Inclusive
             ? trace.Aggregator.InclusiveTime(request.Root, request.Fold, request.Top)
             : trace.Aggregator.SelfTime(request.Root, request.Fold, request.Top);
+        List<string> warnings = [.. TraceExecution.ResultWarnings(info)];
+        if (ContributingRecordQuality.TryGetMethodWarning(
+            trace.Source.RecordSemantics,
+            ranking.ContributingRecordCount,
+            out string? recordWarning))
+        {
+            warnings.Add(recordWarning!);
+        }
 
         AnalysisResult<RankingResult> envelope = new(
             ranking,
-            TraceExecution.ResultWarnings(info),
+            warnings,
             SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, request.Scope));
 
         if (request.Format == OutputFormat.Json)

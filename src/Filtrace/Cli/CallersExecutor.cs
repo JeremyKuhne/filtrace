@@ -38,10 +38,18 @@ internal static class CallersExecutor
 
         TraceInfo info = trace.Info;
         CallersResult callers = trace.Aggregator.CallersOf(request.Frame, request.Root, request.Top, request.Callees);
+        List<string> warnings = [.. TraceExecution.ResultWarnings(info)];
+        if (ContributingRecordQuality.TryGetMethodWarning(
+            trace.Source.RecordSemantics,
+            callers.ContributingRecordCount,
+            out string? recordWarning))
+        {
+            warnings.Add(recordWarning!);
+        }
 
         AnalysisResult<CallersResult> envelope = new(
             callers,
-            TraceExecution.ResultWarnings(info),
+            warnings,
             SteeringHints.ForCallers(callers, request.Root, request.Scope));
 
         if (request.Format == OutputFormat.Json)

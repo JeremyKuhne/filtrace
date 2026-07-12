@@ -92,7 +92,7 @@ public sealed class CliAppTests
     [TestMethod]
     public void Run_InfoJson_EmitsTheSameEnvelopeAsTheTool()
     {
-        // The JSON shape must match trace_info: a schemaVersion-2 envelope whose result
+        // The JSON shape must match trace_info: a versioned envelope whose result
         // carries availableAnalyses, so an agent gets the same orientation either way.
         (int exit, string output, _) = Run("info", Speedscope, "--format", "json");
 

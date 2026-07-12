@@ -105,7 +105,7 @@ public sealed class ScopeFilter
             kept.Add(sample);
         }
 
-        return new StackSampleSource(source.Metric, kept);
+        return new StackSampleSource(source.Metric, kept, source.RecordSemantics);
     }
 
     // Compiles a set of filter patterns, recasting the shared helper's "fold

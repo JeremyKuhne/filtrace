@@ -38,6 +38,12 @@ internal static class LinesTextRenderer
             $"{info.Format}  {info.SampleCount} samples  {info.TotalWeight:N1} {unit}  symbols {info.SymbolResolutionRate:P0}");
         output.WriteLine();
         output.WriteLine($"{metric.Name} hot lines  -  scope {lines.ScopeWeight:N2} {unit}  ({scope})");
+        if (lines.AttributedRecordCount is int attributedRecordCount
+            && lines.UnattributedRecordCount is int unattributedRecordCount)
+        {
+            output.WriteLine(
+                $"  records {attributedRecordCount} attributed, {unattributedRecordCount} unattributed");
+        }
 
         if (lines.Rows.Count == 0)
         {

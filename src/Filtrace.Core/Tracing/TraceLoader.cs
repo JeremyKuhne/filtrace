@@ -139,7 +139,8 @@ public sealed class TraceLoader
             result.SymbolResolutionRate,
             result.Warnings);
 
-        return new LoadedTrace(info, result.Samples);
+        StackSampleSource source = new(MetricInfo.Cpu, result.Samples, result.RecordSemantics);
+        return new LoadedTrace(info, source);
     }
 
     private static LoadedTrace LoadAllocations(string fullPath, ITraceReader reader, ScopeRequest? scope)

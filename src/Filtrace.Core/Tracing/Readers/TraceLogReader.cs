@@ -372,7 +372,11 @@ internal abstract class TraceLogReader : ITraceReader
             warnings.Add(symbolWarning);
         }
 
-        return new TraceReadResult(samples, resolutionRate, warnings);
+        return new TraceReadResult(
+            samples,
+            resolutionRate,
+            warnings,
+            StackRecordSemantics.PeriodicCpuSamples);
     }
 
     // Joins the applied-scope phrases into one clause: "A" for one, "A and B" for two,

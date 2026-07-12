@@ -15,6 +15,7 @@ namespace Filtrace.Mcp;
 public sealed class TraceToolsTests
 {
     private const string Speedscope = "folding.speedscope.json";
+    private const string Activity = "activity.nettrace";
     private const string Alloc = "alloc.nettrace";
     private const string Exceptions = "exceptions.nettrace";
     private const string Jit = "jit.nettrace";
@@ -30,7 +31,7 @@ public sealed class TraceToolsTests
     // assert on the object directly rather than re-parsing JSON.
     private static void AssertEnvelope<T>(AnalysisResult<T> envelope)
     {
-        envelope.SchemaVersion.Should().Be(2);
+        envelope.SchemaVersion.Should().Be(3);
         envelope.Warnings.Should().NotBeNull();
         envelope.Hints.Should().NotBeNull();
         envelope.Result.Should().NotBeNull();
@@ -71,6 +72,9 @@ public sealed class TraceToolsTests
         AssertEnvelope(envelope);
         envelope.Hints.Should().NotBeEmpty();
         envelope.Result.Rows.Should().NotBeEmpty();
+        envelope.Result.ContributingRecordCount.Should().Be(4);
+        envelope.Warnings.Should().NotContain(
+            warning => warning.Contains("periodic CPU records", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -81,6 +85,25 @@ public sealed class TraceToolsTests
         AnalysisResult<RankingResult> envelope = TraceTools.Rank(store, FixturePath(Speedscope), measure: "inclusive");
 
         envelope.Result.Rows.Should().NotBeEmpty();
+    }
+
+    [TestMethod]
+    public void Rank_ThinPeriodicCpuRoot_WarnsUsingContributingRecords()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<RankingResult> whole = TraceTools.Rank(store, FixturePath(Activity));
+        AnalysisResult<RankingResult> scoped = TraceTools.Rank(
+            store,
+            FixturePath(Activity),
+            root: "ActivityLoop.EmitActivities");
+
+        whole.Result.ContributingRecordCount.Should().BeGreaterThanOrEqualTo(
+            ContributingRecordQuality.DefaultMinimumMethodRecords);
+        scoped.Result.ContributingRecordCount.Should().Be(179);
+        scoped.Warnings.Should().Contain(
+            warning => warning.Contains("179 periodic CPU records", StringComparison.Ordinal)
+                && warning.Contains("200", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -405,6 +428,10 @@ public sealed class TraceToolsTests
 
         AssertEnvelope(envelope);
         envelope.Result.Rows.Should().BeEmpty();
+        envelope.Result.AttributedRecordCount.Should().Be(0);
+        envelope.Result.UnattributedRecordCount.Should().Be(4);
+        envelope.Warnings.Should().NotContain(
+            warning => warning.Contains("periodic CPU records", StringComparison.Ordinal));
     }
 
     [TestMethod]
