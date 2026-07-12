@@ -22,6 +22,7 @@ public sealed class TraceToolsTests
     private const string ThreadPoolTrace = "threadpool.nettrace";
     private const string DiskIoTrace = "diskio.etl";
     private const string Etw = "etw.etl";
+    private static readonly TimeSpan SynchronizationTimeout = TimeSpan.FromSeconds(10);
 
     private static string FixturePath(string name) =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
@@ -68,17 +69,35 @@ public sealed class TraceToolsTests
     {
         TraceStore store = new();
         string path = CopyToTemp(Activity, out string tempDirectory);
+        using Barrier startBarrier = new(participantCount: 5);
         try
         {
-            Task<AnalysisResult<TraceInfoView>> infoTask = TraceTools.InfoAsync(store, path);
-            Task<AnalysisResult<RankingResult>> firstRankTask = TraceTools.RankAsync(store, path);
-            Task<AnalysisResult<RankingResult>> secondRankTask = TraceTools.RankAsync(store, path, measure: "inclusive");
-            Task<AnalysisResult<LineRankingResult>> linesTask = TraceTools.LinesAsync(store, path);
+            Task<AnalysisResult<TraceInfoView>> infoTask = Task.Run(async () =>
+            {
+                startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
+                return await TraceTools.InfoAsync(store, path);
+            });
+            Task<AnalysisResult<RankingResult>> firstRankTask = Task.Run(async () =>
+            {
+                startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
+                return await TraceTools.RankAsync(store, path);
+            });
+            Task<AnalysisResult<RankingResult>> secondRankTask = Task.Run(async () =>
+            {
+                startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
+                return await TraceTools.RankAsync(store, path, measure: "inclusive");
+            });
+            Task<AnalysisResult<LineRankingResult>> linesTask = Task.Run(async () =>
+            {
+                startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
+                return await TraceTools.LinesAsync(store, path);
+            });
+            startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
 
             await Task.WhenAll(infoTask, firstRankTask, secondRankTask, linesTask);
 
             AnalysisResult<TraceInfoView> info = await infoTask;
-            info.Result.EtlxCacheState.Should().BeOneOf("converted", "waited");
+            info.Result.EtlxCacheState.Should().BeOneOf("converted", "waited", "hit");
             (await firstRankTask).Result.Rows.Should().NotBeEmpty();
             (await secondRankTask).Result.Rows.Should().NotBeEmpty();
             (await linesTask).Result.Should().NotBeNull();

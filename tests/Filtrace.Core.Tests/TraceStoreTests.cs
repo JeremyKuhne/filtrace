@@ -40,11 +40,17 @@ public sealed class TraceStoreTests
     {
         TraceStore store = new();
         string path = CopyToTemp("activity.nettrace", out string tempDirectory);
+        using Barrier startBarrier = new(participantCount: 5);
         try
         {
             Task<TraceStoreLoadResult>[] loads = Enumerable.Range(0, 4)
-                .Select(_ => store.GetAsync(path))
+                .Select(_ => Task.Run(async () =>
+                {
+                    startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
+                    return await store.GetAsync(path);
+                }))
                 .ToArray();
+            startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
 
             TraceStoreLoadResult[] results = await Task.WhenAll(loads);
 
