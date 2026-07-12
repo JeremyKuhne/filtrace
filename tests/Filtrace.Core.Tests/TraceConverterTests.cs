@@ -145,11 +145,33 @@ public sealed class TraceConverterTests
     public void ConvertWithState_CanceledWhileWaiting_ThrowsOperationCanceled()
     {
         string trace = CopyToTemp("alloc.nettrace", out string tempDir);
-        using Mutex conversionMutex = new(initiallyOwned: false, TraceConverter.LockNameFor(trace));
+        using ManualResetEventSlim mutexHeld = new(initialState: false);
+        using ManualResetEventSlim releaseMutex = new(initialState: false);
         using CancellationTokenSource cancellation = new();
+        Task mutexOwner = Task.Run(() =>
+        {
+            using Mutex conversionMutex = new(initiallyOwned: false, TraceConverter.LockNameFor(trace));
+            if (!conversionMutex.WaitOne(SynchronizationTimeout))
+            {
+                throw new TimeoutException("Timed out acquiring the ETLX conversion mutex.");
+            }
+
+            try
+            {
+                mutexHeld.Set();
+                if (!releaseMutex.Wait(SynchronizationTimeout))
+                {
+                    throw new TimeoutException("Timed out waiting to release the ETLX conversion mutex.");
+                }
+            }
+            finally
+            {
+                conversionMutex.ReleaseMutex();
+            }
+        });
         try
         {
-            conversionMutex.WaitOne(SynchronizationTimeout).Should().BeTrue();
+            mutexHeld.Wait(SynchronizationTimeout).Should().BeTrue();
             Task<EtlxCacheResult> conversion = Task.Run(() =>
                 TraceConverter.ConvertWithState(trace, cancellation.Token));
             cancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
@@ -161,7 +183,8 @@ public sealed class TraceConverterTests
         }
         finally
         {
-            conversionMutex.ReleaseMutex();
+            releaseMutex.Set();
+            mutexOwner.GetAwaiter().GetResult();
             Directory.Delete(tempDir, recursive: true);
         }
     }
