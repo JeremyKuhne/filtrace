@@ -79,6 +79,10 @@ jobs:
         shell: pwsh
         run: ./tools/Test-Docs.ps1
 
+      - name: Capture helper contract
+        shell: pwsh
+        run: ./tools/Test-CaptureBenchmarkTrace.ps1
+
   build-windows:
     name: build (Windows)
     runs-on: windows-latest
