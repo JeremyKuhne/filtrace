@@ -55,6 +55,8 @@ internal abstract class TraceLogReader : ITraceReader
         ScopeRequest? scope = null,
         SymbolOptions? symbolOptions = null)
     {
+        symbolsDirectory = NormalizeSymbolsDirectory(symbolsDirectory);
+
         EtlxCacheState cacheState;
         using TraceLog traceLog = OpenTraceLog(path, out cacheState);
 
@@ -83,7 +85,9 @@ internal abstract class TraceLogReader : ITraceReader
         {
             if (extractedPdbDirectory is not null)
             {
-                localSymbolPath = $"{symbolsDirectory}{Path.PathSeparator}{extractedPdbDirectory}";
+                SymbolPath symbolPath = new(symbolsDirectory);
+                symbolPath.Add(extractedPdbDirectory);
+                localSymbolPath = symbolPath.ToString();
                 symbolReader.SymbolPath = localSymbolPath;
             }
             else if (!string.IsNullOrEmpty(symbolsDirectory))
@@ -147,6 +151,42 @@ internal abstract class TraceLogReader : ITraceReader
                 }
             }
         }
+    }
+
+    internal static string? NormalizeSymbolsDirectory(string? symbolsDirectory)
+    {
+        if (string.IsNullOrEmpty(symbolsDirectory))
+        {
+            return null;
+        }
+
+        if (!IsSingleLocalSymbolPath(symbolsDirectory))
+        {
+            throw new ArgumentException(
+                "Symbols must be one local build-output directory; symbol-path syntax is not allowed.",
+                nameof(symbolsDirectory));
+        }
+
+        string fullPath = Path.GetFullPath(symbolsDirectory);
+        if (!IsSingleLocalSymbolPath(fullPath))
+        {
+            throw new ArgumentException(
+                "Symbols must be one local build-output directory; symbol-path syntax is not allowed.",
+                nameof(symbolsDirectory));
+        }
+
+        if (!Directory.Exists(fullPath))
+        {
+            throw new DirectoryNotFoundException($"Symbols directory '{fullPath}' was not found.");
+        }
+
+        return fullPath;
+    }
+
+    private static bool IsSingleLocalSymbolPath(string path)
+    {
+        SymbolPath symbolPath = new(path);
+        return symbolPath.Elements.Count == 1 && !symbolPath.Elements.Single().IsRemote;
     }
 
     // Runs the start-stop activity computer over the trace and returns the set of CPU
@@ -445,9 +485,9 @@ internal abstract class TraceLogReader : ITraceReader
         // server, so the first read downloads and later reads hit the cache. Preserve
         // any path already set (the local build-output PDBs) by appending the server.
         string serverPath = $"srv*{cacheDirectory}*https://msdl.microsoft.com/download/symbols";
-        symbolReader.SymbolPath = string.IsNullOrEmpty(symbolReader.SymbolPath)
-            ? serverPath
-            : $"{symbolReader.SymbolPath}{Path.PathSeparator}{serverPath}";
+        SymbolPath symbolPath = new(symbolReader.SymbolPath);
+        symbolPath.Add(serverPath);
+        symbolReader.SymbolPath = symbolPath.ToString();
 
         foreach (TraceModuleFile moduleFile in traceLog.ModuleFiles)
         {

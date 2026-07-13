@@ -11,6 +11,74 @@ namespace Filtrace.Tracing;
 public sealed class SourceResolutionTrackerTests
 {
     [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    public void NormalizeSymbolsDirectory_NullOrEmpty_ReturnsNull(string? symbolsDirectory)
+    {
+        TraceLogReader.NormalizeSymbolsDirectory(symbolsDirectory).Should().BeNull();
+    }
+
+    [TestMethod]
+    public void NormalizeSymbolsDirectory_ExistingDirectory_ReturnsCanonicalPath()
+    {
+        string relative = Path.GetRelativePath(Environment.CurrentDirectory, AppContext.BaseDirectory);
+
+        string? normalized = TraceLogReader.NormalizeSymbolsDirectory(relative);
+
+        normalized.Should().Be(Path.GetFullPath(relative));
+    }
+
+    [TestMethod]
+    [DataRow("srv*cache*https://evil.example/symbols")]
+    [DataRow("cache*symbols")]
+    [DataRow(@"\\server\share\build")]
+    public void NormalizeSymbolsDirectory_SymbolPathSyntax_Throws(string symbolsDirectory)
+    {
+        Action act = () => TraceLogReader.NormalizeSymbolsDirectory(symbolsDirectory);
+
+        act.Should().Throw<ArgumentException>()
+            .WithParameterName("symbolsDirectory")
+            .WithMessage("*symbol-path syntax*");
+    }
+
+    [TestMethod]
+    public void NormalizeSymbolsDirectory_MultipleEntries_Throws()
+    {
+        const string symbolsDirectory = "first;second";
+
+        Action act = () => TraceLogReader.NormalizeSymbolsDirectory(symbolsDirectory);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("symbolsDirectory");
+    }
+
+    [TestMethod]
+    public void NormalizeSymbolsDirectory_CanonicalPathWithSeparator_Throws()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"filtrace;symbols-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            Action act = () => TraceLogReader.NormalizeSymbolsDirectory(directory);
+
+            act.Should().Throw<ArgumentException>().WithParameterName("symbolsDirectory");
+        }
+        finally
+        {
+            Directory.Delete(directory);
+        }
+    }
+
+    [TestMethod]
+    public void NormalizeSymbolsDirectory_MissingDirectory_Throws()
+    {
+        string missing = Path.Combine(Path.GetTempPath(), $"filtrace-missing-{Guid.NewGuid():N}");
+
+        Action act = () => TraceLogReader.NormalizeSymbolsDirectory(missing);
+
+        act.Should().Throw<DirectoryNotFoundException>().WithMessage("Symbols directory*");
+    }
+
+    [TestMethod]
     public void HasMatchingPdb_ExactPortablePdbIdentity_ReturnsTrue()
     {
         string modulePath = typeof(SourceResolutionTrackerTests).Assembly.Location;
