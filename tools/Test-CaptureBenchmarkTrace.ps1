@@ -19,7 +19,9 @@ param()
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $captureScript = Join-Path $root '.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1'
-$temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace-capture-contract-$([Guid]::NewGuid().ToString('N'))"
+# Keep the root short so the long case identities below exercise JSON sizing rather
+# than the legacy Windows path-length boundary.
+$temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) "ftc-$([Guid]::NewGuid().ToString('N').Substring(0, 12))"
 
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
@@ -54,6 +56,14 @@ if ($artifacts -like '*oversize-run*') {
         $timestamp = [DateTime]::new(2026, 7, 13, 2, 0, 0, [DateTimeKind]::Utc).AddSeconds($index)
         $name = "Fake.Bench.Oversize.WithLongParameterName$($index.ToString('D3'))-$($timestamp.ToString('yyyyMMdd-HHmmss')).nettrace"
         [System.IO.File]::WriteAllText((Join-Path $artifacts $name), 'oversize raw')
+    }
+}
+elseif ($artifacts -like '*handoff-budget-run*') {
+    $padding = [string]::new('x', 80)
+    for ($index = 0; $index -lt 4; $index++) {
+        $timestamp = [DateTime]::new(2026, 7, 13, 3, 0, 0, [DateTimeKind]::Utc).AddSeconds($index)
+        $name = "Fake.Bench.Handoff.$padding.$($index.ToString('D2'))-$($timestamp.ToString('yyyyMMdd-HHmmss')).nettrace"
+        [System.IO.File]::WriteAllText((Join-Path $artifacts $name), 'handoff budget raw')
     }
 }
 else {
@@ -104,7 +114,19 @@ $source = [ordered]@{
     mappedManagedFrameCount = if ($isExact) { 75 } else { 0 }
     matchingPdbModules = if ($isExact) { @('Fake-Job') } else { @() }
 }
-$analyses = if ($isSpeedscope) {
+$analyses = if ($tracePath -like '*handoff-budget-run*') {
+    $handoffAnalyses = [ordered]@{
+        cpu = [ordered]@{ captureStatus = 'enabled'; eventCount = 0 }
+    }
+    for ($index = 0; $index -lt 23; $index++) {
+        $handoffAnalyses["unknown$($index.ToString('D2'))"] = [ordered]@{
+            captureStatus = 'unknown'
+            eventCount = $null
+        }
+    }
+    $handoffAnalyses
+}
+elseif ($isSpeedscope) {
     [ordered]@{ cpu = [ordered]@{ captureStatus = 'enabled'; eventCount = 0 } }
 }
 else {
@@ -236,6 +258,9 @@ $global:LASTEXITCODE = 0
         $quietOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
             -RunId 'quiet-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Quiet 2>&1 | Out-String
         $quietExitCode = $LASTEXITCODE
+        $boundedJsonOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Handoff*' `
+            -RunId 'handoff-budget-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json 2>&1 | Out-String
+        $boundedJsonExitCode = $LASTEXITCODE
     }
     finally {
         Pop-Location
@@ -252,6 +277,22 @@ $global:LASTEXITCODE = 0
     Assert-True ($jsonResult.cases[0].commands -contains "filtrace gcstats '$($jsonResult.cases[0].trace)'") 'JSON output omitted an enabled-zero command.'
     Assert-True (-not $jsonOutput.Contains('fake BenchmarkDotNet capture completed', [StringComparison]::OrdinalIgnoreCase)) 'BenchmarkDotNet chatter polluted JSON output.'
     Assert-True ([Text.Encoding]::UTF8.GetByteCount($jsonOutput.Trim()) -lt 20KB) 'JSON handoff exceeded 20 KiB.'
+
+    Assert-True ($boundedJsonExitCode -eq 0) "Bounded JSON capture failed: $($boundedJsonOutput.Trim())"
+    $boundedJsonResult = $boundedJsonOutput | ConvertFrom-Json
+    $boundedManifestPath = Join-Path $globalArtifacts 'filtrace-runs/handoff-budget-run/manifest.json'
+    Assert-True (Test-Path -LiteralPath $boundedManifestPath) 'Bounded JSON capture did not write its manifest.'
+    Assert-True ((Get-Item -LiteralPath $boundedManifestPath).Length -lt 20KB) 'Bounded JSON fixture exceeded the manifest budget instead of only the handoff budget.'
+    $boundedManifest = Get-Content -LiteralPath $boundedManifestPath -Raw | ConvertFrom-Json
+    Assert-True ($boundedManifest.cases.Count -eq 4) 'Bounded JSON manifest omitted capture cases.'
+    Assert-True (@($boundedManifest.cases[0].warnings).Count -eq 23) 'Bounded JSON manifest omitted the full warning detail.'
+    Assert-True ($boundedJsonResult.status -eq 'completed') 'Bounded JSON fallback did not preserve completed status.'
+    Assert-True ($boundedJsonResult.runId -eq 'handoff-budget-run') 'Bounded JSON fallback omitted the run ID.'
+    Assert-True ($boundedJsonResult.manifest -eq $boundedManifestPath) 'Bounded JSON fallback omitted the manifest path.'
+    Assert-True ($boundedJsonResult.message.Contains('read the manifest', [StringComparison]::OrdinalIgnoreCase)) 'Bounded JSON fallback did not direct the caller to the manifest.'
+    Assert-True ($boundedJsonResult.PSObject.Properties.Name -notcontains 'cases') 'Bounded JSON fallback retained oversized case detail.'
+    Assert-True ($boundedJsonResult.PSObject.Properties.Name -notcontains 'warnings') 'Bounded JSON fallback retained oversized warning detail.'
+    Assert-True ([Text.Encoding]::UTF8.GetByteCount($boundedJsonOutput.Trim()) -lt 20KB) 'Bounded JSON fallback exceeded 20 KiB.'
 
     if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
         $timeoutWrapper = Join-Path $temporaryRoot 'Invoke-TimeoutCapture.ps1'

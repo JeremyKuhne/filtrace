@@ -117,7 +117,9 @@ Full BenchmarkDotNet output stays in `capture.log`. Use `-Format Json` for a com
 machine-readable handoff or `-Quiet` to suppress text progress/commands while retaining
 warnings. On a non-fatal elevated wait timeout, text modes emit a warning;
 `-Format Json` returns `status: "timeout"`, `runId`, `log`, and `message` instead of
-empty stdout. The helper parses
+empty stdout. JSON stdout stays under 20 KiB; when full case detail would exceed that
+budget, a minimal completed result points to `manifest.json`; if even that path cannot
+fit, the result directs the caller to the run directory. The helper parses
 BenchmarkDotNet's logged child `OutDir` values and uses `filtrace info` to put a
 directory in `symbolsDirectory` only when its PDB identity maps sampled frames. A
 same-project/same-TFM file-handle lock rejects overlapping captures immediately;

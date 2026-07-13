@@ -486,7 +486,7 @@ function Write-CaptureResult(
     [string]$Message = $null) {
     if ($OutputFormat -eq 'Json') {
         if ($Status -eq 'timeout') {
-            [ordered]@{
+            $result = [ordered]@{
                 schemaVersion = 1
                 status = 'timeout'
                 runId = $CaptureRunId
@@ -495,34 +495,62 @@ function Write-CaptureResult(
                 message = $Message
                 warnings = @()
                 cases = @()
-            } | ConvertTo-Json -Depth 6 -Compress
-            return
+            }
+        }
+        else {
+            $result = [ordered]@{
+                schemaVersion = 1
+                status = $Status
+                runId = $CaptureRunId
+                manifest = $ManifestPath
+                warnings = @(
+                    foreach ($captureCase in $CaptureCases) {
+                        foreach ($warning in $captureCase.warnings) {
+                            [ordered]@{ case = $captureCase.id; message = $warning }
+                        }
+                    }
+                )
+                cases = @(
+                    foreach ($captureCase in $CaptureCases) {
+                        [ordered]@{
+                            id = $captureCase.id
+                            trace = $captureCase.trace
+                            speedscope = $captureCase.speedscope
+                            commands = $captureCase.commands
+                        }
+                    }
+                )
+            }
         }
 
-        $result = [ordered]@{
-            schemaVersion = 1
-            status = $Status
-            runId = $CaptureRunId
-            manifest = $ManifestPath
-            warnings = @(
-                foreach ($captureCase in $CaptureCases) {
-                    foreach ($warning in $captureCase.warnings) {
-                        [ordered]@{ case = $captureCase.id; message = $warning }
-                    }
-                }
-            )
-            cases = @(
-                foreach ($captureCase in $CaptureCases) {
-                    [ordered]@{
-                        id = $captureCase.id
-                        trace = $captureCase.trace
-                        speedscope = $captureCase.speedscope
-                        commands = $captureCase.commands
-                    }
-                }
-            )
+        $maxResultBytes = 20KB
+        $encoding = New-Object System.Text.UTF8Encoding($false)
+        $json = $result | ConvertTo-Json -Depth 6 -Compress
+        if ($encoding.GetByteCount($json) -ge $maxResultBytes) {
+            # Completed runs have a manifest; a timed-out child may have produced only
+            # partial output, so the fallback guidance differs by status.
+            $fallbackMessage = if ($Status -eq 'timeout') {
+                'Timeout details exceeded 20 KiB; inspect the run directory for partial output.'
+            }
+            else {
+                'JSON handoff exceeded 20 KiB; read the manifest for full cases, commands, and warnings.'
+            }
+            $result = [ordered]@{
+                schemaVersion = 1
+                status = $Status
+                runId = $CaptureRunId
+                manifest = $ManifestPath
+                message = $fallbackMessage
+            }
+            $json = $result | ConvertTo-Json -Depth 3 -Compress
+            if ($encoding.GetByteCount($json) -ge $maxResultBytes) {
+                $result.manifest = $null
+                $result.message = 'JSON handoff exceeded 20 KiB; inspect the run directory for full details.'
+                $json = $result | ConvertTo-Json -Depth 3 -Compress
+            }
         }
-        $result | ConvertTo-Json -Depth 6 -Compress
+
+        $json
         return
     }
 

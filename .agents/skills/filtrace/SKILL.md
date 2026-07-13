@@ -58,8 +58,10 @@ commands only for known-enabled analyses. Disabled/unknown states become warning
 full BenchmarkDotNet output stays in the run log. Use `-Format Json` for a compact
 handoff or `-Quiet` for warnings only. On a non-fatal elevated wait timeout, text
 modes emit a warning; `-Format Json` returns `status: "timeout"`, `runId`, `log`, and
-`message` instead of empty stdout. Same-project/same-TFM overlap is rejected rather
-than sharing outputs. The
+`message` instead of empty stdout. JSON stdout stays under 20 KiB; when full case
+detail would exceed that budget, a minimal completed result points to `manifest.json`;
+if even that path cannot fit, the result directs the caller to the run directory.
+Same-project/same-TFM overlap is rejected rather than sharing outputs. The
 [scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) builds an
 executable project and traces its running output directly - never `dotnet run`,
 whose build/run host is a different process (see the trap catalog).
