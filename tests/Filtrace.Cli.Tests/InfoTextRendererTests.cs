@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Output;
+using Filtrace.Tracing;
 
 namespace Filtrace.Cli;
 
@@ -25,6 +26,26 @@ public sealed class InfoTextRendererTests
         InfoTextRenderer.Render(new AnalysisResult<TraceInfoView>(view), output);
 
         output.ToString().Should().Contain("analyses:").And.Contain("  cpu");
+    }
+
+    [TestMethod]
+    public void Render_LegacyTraceInfoMappedToView_UsesAvailableAnalyses()
+    {
+        TraceInfo info = new(
+            "/trace.nettrace",
+            TraceFormat.NetTrace,
+            10.0,
+            10,
+            1.0,
+            [],
+            [],
+            ["cpu", "alloc"]);
+        TraceInfoView view = TraceInfoView.FromTraceInfo(info, null);
+        StringWriter output = new();
+
+        InfoTextRenderer.Render(new AnalysisResult<TraceInfoView>(view), output);
+
+        output.ToString().Should().Contain("analyses:").And.Contain("  cpu, alloc");
     }
 
     [TestMethod]

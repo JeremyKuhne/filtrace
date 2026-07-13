@@ -36,7 +36,7 @@ internal static class InfoTextRenderer
         output.WriteLine();
 
         output.WriteLine("analyses:");
-        if (view.Analyses is null)
+        if (view.Analyses is not { Count: > 0 })
         {
             output.WriteLine($"  {string.Join(", ", view.AvailableAnalyses)}");
         }
