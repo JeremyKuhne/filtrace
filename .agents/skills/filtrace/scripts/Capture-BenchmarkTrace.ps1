@@ -208,6 +208,7 @@ function Get-LocalDirectoryCandidate([string]$Path) {
 
 function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases, [string]$CaptureLog) {
     $benchmarksById = @{}
+    $benchmarksInExecutionOrder = New-Object 'System.Collections.Generic.List[System.Collections.IDictionary]'
     $currentDisplay = $null
     foreach ($line in Get-Content -LiteralPath $CaptureLog) {
         if ($line -match '^// Benchmark: (.+)$') {
@@ -225,16 +226,34 @@ function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases
                     benchmark = $benchmarkName
                     benchmarkDisplay = $currentDisplay
                 }
+                $benchmarksInExecutionOrder.Add($benchmarksById[$benchmarkId])
             }
         }
     }
 
-    $benchmarks = @($benchmarksById.Values | Sort-Object { $_.benchmarkId })
-    if ($benchmarks.Count -ne $CaptureCases.Count) { return }
-    for ($index = 0; $index -lt $CaptureCases.Count; $index++) {
-        $CaptureCases[$index].benchmarkId = $benchmarks[$index].benchmarkId
-        $CaptureCases[$index].benchmark = $benchmarks[$index].benchmark
-        $CaptureCases[$index].benchmarkDisplay = $benchmarks[$index].benchmarkDisplay
+    foreach ($benchmarkName in @($benchmarksInExecutionOrder.benchmark | Select-Object -Unique)) {
+        $benchmarks = @($benchmarksInExecutionOrder | Where-Object { $_.benchmark -eq $benchmarkName })
+        $prefix = "$benchmarkName-"
+        $cases = @(
+            $CaptureCases |
+                Where-Object { $_.id.StartsWith($prefix, [StringComparison]::Ordinal) } |
+                Sort-Object { $_.capturedUtc }, { $_.id }
+        )
+        if ($benchmarks.Count -ne $cases.Count) { continue }
+
+        # Parameter values are not encoded in profiler filenames. BenchmarkDotNet
+        # executes cases sequentially, so within one exact benchmark name use logged
+        # execution order only when each completed trace has a distinct timestamp.
+        # Otherwise leave identity null rather than silently mis-pair parameters.
+        if ($cases.Count -gt 1 -and @($cases.capturedUtc | Select-Object -Unique).Count -ne $cases.Count) {
+            continue
+        }
+
+        for ($index = 0; $index -lt $cases.Count; $index++) {
+            $cases[$index].benchmarkId = $benchmarks[$index].benchmarkId
+            $cases[$index].benchmark = $benchmarks[$index].benchmark
+            $cases[$index].benchmarkDisplay = $benchmarks[$index].benchmarkDisplay
+        }
     }
 }
 
@@ -356,8 +375,14 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     exit 0
 }
 
-$lockName = [regex]::Replace($Tfm, '[^A-Za-z0-9._-]', '_')
-if ([string]::IsNullOrEmpty($lockName)) { $lockName = 'default' }
+$projectLockName = [regex]::Replace(
+    [System.IO.Path]::GetFileNameWithoutExtension($projFile.Name),
+    '[^A-Za-z0-9._-]',
+    '_')
+if ([string]::IsNullOrEmpty($projectLockName)) { $projectLockName = 'project' }
+$tfmLockName = [regex]::Replace($Tfm, '[^A-Za-z0-9._-]', '_')
+if ([string]::IsNullOrEmpty($tfmLockName)) { $tfmLockName = 'default' }
+$lockName = "$projectLockName-$tfmLockName"
 $lockDirectory = Join-Path $projFile.DirectoryName 'obj/filtrace-capture-locks'
 New-Item -ItemType Directory -Force -Path $lockDirectory | Out-Null
 $lockPath = Join-Path $lockDirectory "$lockName.lock"
