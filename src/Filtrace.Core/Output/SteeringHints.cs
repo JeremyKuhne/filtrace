@@ -49,10 +49,9 @@ public static class SteeringHints
     private const string EmptyScope = "no frames in scope; widen the filter or check symbol resolution";
 
     /// <summary>
-    ///  The next-step hints for a trace-info orientation: name the analyses this
-    ///  trace's format can answer, and route each common symptom to one of them, so an
-    ///  agent starting from a vague "why is this slow?" reaches an applicable metric or
-    ///  report without guessing.
+    ///  The next-step hints for a trace-info orientation: distinguish format support
+    ///  from known capture enablement, and route symptoms only to analyses whose source
+    ///  events were observed or whose recorder metadata establishes enablement.
     /// </summary>
     /// <param name="info">The trace info the hints steer from.</param>
     /// <returns>The steering hints, never <see langword="null"/>.</returns>
@@ -61,11 +60,21 @@ public static class SteeringHints
     {
         ArgumentNullException.ThrowIfNull(info);
 
-        HashSet<string> analyses = new(info.AvailableAnalyses, StringComparer.Ordinal);
+        bool hasAvailability = info.Analyses.Count > 0;
+        HashSet<string> formatSupported = new(info.AvailableAnalyses, StringComparer.Ordinal);
+        HashSet<string> analyses = !hasAvailability
+            ? formatSupported
+            : new HashSet<string>(
+                info.Analyses
+                    .Where(static pair => pair.Value is { FormatSupported: true, CaptureStatus: CaptureStatus.Enabled })
+                    .Select(static pair => pair.Key),
+                StringComparer.Ordinal);
 
-        // Route each symptom only to the analyses this format actually supports, so the
-        // nudge never points at a metric the trace cannot produce.
-        List<string> routes = ["CPU-bound -> cpu"];
+        // Loader-produced objects route only to analyses known enabled. The fallback
+        // keeps manually constructed legacy TraceInfo objects useful, but labels those
+        // routes as format-supported because they carry no capture evidence.
+        List<string> routes = [];
+        if (analyses.Contains("cpu")) { routes.Add("CPU-bound -> cpu"); }
 
         List<string> blocked = [];
         if (analyses.Contains("contention")) { blocked.Add("contention"); }
@@ -100,11 +109,31 @@ public static class SteeringHints
             routes.Add("one request / endpoint / job is slow -> activity");
         }
 
-        return
-        [
-            $"this trace can answer: {string.Join(", ", info.AvailableAnalyses)}",
-            $"match the symptom to an analysis this trace supports - {string.Join("; ", routes)}"
-        ];
+        List<string> hints = [];
+
+        if (routes.Count > 0)
+        {
+            string evidence = hasAvailability ? "known-enabled" : "format-supported";
+            hints.Add($"{evidence} symptom routes - {string.Join("; ", routes)}");
+        }
+
+        if (hasAvailability)
+        {
+            string[] unknown =
+            [
+                .. info.Analyses
+                    .Where(static pair => pair.Value is { FormatSupported: true, CaptureStatus: CaptureStatus.Unknown })
+                    .Select(static pair => pair.Key)
+            ];
+            if (unknown.Length > 0)
+            {
+                hints.Add(
+                    $"capture status unknown for: {string.Join(", ", unknown)}; "
+                    + "absence of events is not proof the provider was disabled");
+            }
+        }
+
+        return hints;
     }
 
     /// <summary>

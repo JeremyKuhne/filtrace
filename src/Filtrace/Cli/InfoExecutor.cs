@@ -47,15 +47,7 @@ internal static class InfoExecutor
         }
 
         TraceInfo info = trace.Info;
-        TraceInfoView view = new(
-            info.Path,
-            info.Format.ToString(),
-            info.TotalWeight,
-            info.SampleCount,
-            info.SymbolResolutionRate,
-            info.Threads,
-            info.AvailableAnalyses,
-            CacheStateText(info.EtlxCacheState));
+        TraceInfoView view = TraceInfoView.FromTraceInfo(info, info.EtlxCacheState);
 
         AnalysisResult<TraceInfoView> envelope = new(view, info.Warnings, SteeringHints.ForTraceInfo(info));
 
@@ -70,14 +62,4 @@ internal static class InfoExecutor
 
         return ExitCodes.Success;
     }
-
-    private static string? CacheStateText(EtlxCacheState? state) => state switch
-    {
-        EtlxCacheState.Hit => "hit",
-        EtlxCacheState.Waited => "waited",
-        EtlxCacheState.Converted => "converted",
-        EtlxCacheState.Recovered => "recovered",
-        null => null,
-        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown ETLX cache state.")
-    };
 }

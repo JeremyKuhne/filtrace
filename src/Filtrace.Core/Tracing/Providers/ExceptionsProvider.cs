@@ -47,7 +47,10 @@ public sealed class ExceptionsProvider
     /// <returns>The exceptions source: count-weighted throw-site stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public StackSampleSource Read(string path, TimeWindow? window = null)
+    public StackSampleSource Read(string path, TimeWindow? window = null) =>
+        Read(path, window, out _);
+
+    internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
@@ -61,6 +64,7 @@ public sealed class ExceptionsProvider
 
         List<SampleStack> samples = [];
         List<string> leafToRoot = [];
+        int captureRecordCount = 0;
 
         foreach (TraceEvent data in traceLog.Events)
         {
@@ -70,6 +74,8 @@ public sealed class ExceptionsProvider
             {
                 continue;
             }
+
+            captureRecordCount++;
 
             // When scoped to a time window, drop throws outside it; every event carries a
             // trace-relative timestamp, so the same guard scopes every metric.
@@ -119,6 +125,7 @@ public sealed class ExceptionsProvider
             samples.Add(new SampleStack(frames, 1.0, exception.ThreadID.ToString(CultureInfo.InvariantCulture)));
         }
 
+        recordCount = captureRecordCount;
         return new StackSampleSource(MetricInfo.Exceptions, samples);
     }
 

@@ -51,9 +51,13 @@ public sealed class WaitProvider
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
     public StackSampleSource Read(string path, TimeWindow? window = null) =>
+        Read(path, window, out _);
+
+    internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount) =>
         LatencyStackReader.Read(
             path,
             MetricInfo.Wait,
             static (traceLog, stackSource) => new WaitHandleWaitLatencyComputer(traceLog, stackSource),
-            window);
+            window,
+            out recordCount);
 }

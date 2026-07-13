@@ -79,13 +79,14 @@ public sealed class CliAppTests
     public void Run_Info_ReportsFormatAnalysesAndSymbolRate()
     {
         // info is the CLI orientation step (the counterpart of the trace_info tool): it
-        // reports the format, the analyses the trace can answer, and the symbol rate.
+        // reports format support, capture/event state, and the symbol rate.
         (int exit, string output, _) = Run("info", Speedscope);
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("Speedscope");
         output.Should().Contain("analyses:");
         output.Should().Contain("cpu");
+        output.Should().Contain("capture=enabled");
         output.Should().Contain("symbols");
     }
 
@@ -93,12 +94,15 @@ public sealed class CliAppTests
     public void Run_InfoJson_EmitsTheSameEnvelopeAsTheTool()
     {
         // The JSON shape must match trace_info: a versioned envelope whose result
-        // carries availableAnalyses, so an agent gets the same orientation either way.
+        // carries both format-only availableAnalyses and structured capture/event state,
+        // so an agent gets the same orientation either way.
         (int exit, string output, _) = Run("info", Speedscope, "--format", "json");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("\"schemaVersion\"");
         output.Should().Contain("\"availableAnalyses\"");
+        output.Should().Contain("\"analyses\"");
+        output.Should().Contain("\"captureStatus\":\"enabled\"");
         output.Should().Contain("\"symbolResolutionRate\"");
     }
 

@@ -87,7 +87,7 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
-    public void ForTraceInfo_NetTrace_RoutesSymptomsToSupportedAnalyses()
+    public void ForTraceInfo_LegacyNetTrace_LabelsRoutesAsFormatSupported()
     {
         TraceInfo info = new(
             "/t.nettrace", TraceFormat.NetTrace, 100.0, 10, 1.0, [], [],
@@ -95,8 +95,9 @@ public sealed class SteeringHintsTests
 
         IReadOnlyList<string> hints = SteeringHints.ForTraceInfo(info);
 
-        hints.Should().Contain(h => h.Contains("this trace can answer", StringComparison.Ordinal)
+        hints.Should().Contain(h => h.Contains("format-supported symptom routes", StringComparison.Ordinal)
             && h.Contains("contention", StringComparison.Ordinal));
+        hints.Should().NotContain(h => h.Contains("known-enabled symptom routes", StringComparison.Ordinal));
         hints.Should().Contain(h => h.Contains("frequent exceptions -> exceptions", StringComparison.Ordinal));
         hints.Should().Contain(h => h.Contains("slow but low CPU", StringComparison.Ordinal)
             && h.Contains("contention", StringComparison.Ordinal)
@@ -106,6 +107,32 @@ public sealed class SteeringHintsTests
             && h.Contains("alloc", StringComparison.Ordinal)
             && h.Contains("gcstats", StringComparison.Ordinal));
         hints.Should().NotContain(h => h.Contains("growing memory", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ForTraceInfo_CaptureStates_RoutesOnlyKnownEnabledAnalyses()
+    {
+        IReadOnlyDictionary<string, AnalysisAvailability> analyses =
+            TraceCapabilities.AvailabilityFor(
+                TraceFormat.NetTrace,
+                new Dictionary<string, int> { ["cpu"] = 100, ["exceptions"] = 2 },
+                new Dictionary<string, CaptureStatus>
+                {
+                    ["alloc"] = CaptureStatus.Disabled,
+                    ["wait"] = CaptureStatus.Unknown
+                });
+        TraceInfo info = new(
+            "/t.nettrace", TraceFormat.NetTrace, 100.0, 100, 1.0, [], [],
+            TraceCapabilities.AnalysesFor(TraceFormat.NetTrace), analyses);
+
+        IReadOnlyList<string> hints = SteeringHints.ForTraceInfo(info);
+
+        hints.Should().Contain(h => h.Contains("known-enabled symptom routes", StringComparison.Ordinal));
+        hints.Should().Contain(h => h.Contains("frequent exceptions -> exceptions", StringComparison.Ordinal));
+        hints.Should().NotContain(h => h.Contains("high allocation rate", StringComparison.Ordinal));
+        hints.Should().NotContain(h => h.Contains("slow but low CPU", StringComparison.Ordinal));
+        hints.Should().Contain(h => h.Contains("capture status unknown", StringComparison.Ordinal)
+            && h.Contains("wait", StringComparison.Ordinal));
     }
 
     [TestMethod]

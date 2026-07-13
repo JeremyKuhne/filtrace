@@ -122,7 +122,15 @@ public sealed class OutputContractTests
             42,
             0.91234,
             [new ThreadSampleInfo("tid-1", 30)],
-            ["cpu", "alloc", "exceptions"]);
+            ["cpu", "alloc", "exceptions"])
+        {
+            Analyses = new Dictionary<string, AnalysisAvailabilityView>
+            {
+                ["cpu"] = new("enabled", 42),
+                ["alloc"] = new("disabled", null),
+                ["exceptions"] = new("unknown", null)
+            }
+        };
         AnalysisResult<TraceInfoView> envelope = new(view);
 
         string json = OutputJson.Serialize(envelope);
@@ -134,6 +142,60 @@ public sealed class OutputContractTests
         result.GetProperty("symbolResolutionRate").GetDouble().Should().Be(0.91);
         result.GetProperty("threads")[0].GetProperty("thread").GetString().Should().Be("tid-1");
         result.GetProperty("availableAnalyses")[0].GetString().Should().Be("cpu");
+        result.GetProperty("analyses").GetProperty("cpu").TryGetProperty("formatSupported", out _)
+            .Should().BeFalse();
+        result.GetProperty("analyses").GetProperty("cpu").GetProperty("eventCount").GetInt32().Should().Be(42);
+        result.GetProperty("analyses").GetProperty("alloc").GetProperty("captureStatus").GetString()
+            .Should().Be("disabled");
+        JsonElement exceptions = result.GetProperty("analyses").GetProperty("exceptions");
+        exceptions.GetProperty("captureStatus").GetString().Should().Be("unknown");
+        exceptions.GetProperty("eventCount").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [TestMethod]
+    public void FromTraceInfo_MapsSharedCliMcpView()
+    {
+        IReadOnlyDictionary<string, AnalysisAvailability> analyses =
+            TraceCapabilities.AvailabilityFor(
+                TraceFormat.NetTrace,
+                new Dictionary<string, int> { ["cpu"] = 42 },
+                new Dictionary<string, CaptureStatus>
+                {
+                    ["alloc"] = CaptureStatus.Disabled,
+                    ["wait"] = CaptureStatus.Unknown
+                });
+        TraceInfo info = new(
+            "/traces/sample.nettrace",
+            TraceFormat.NetTrace,
+            42.0,
+            42,
+            1.0,
+            [],
+            [],
+            TraceCapabilities.AnalysesFor(TraceFormat.NetTrace),
+            analyses);
+
+        TraceInfoView view = TraceInfoView.FromTraceInfo(info, EtlxCacheState.Waited);
+
+        view.EtlxCacheState.Should().Be("waited");
+        view.Analyses!["cpu"].Should().Be(new AnalysisAvailabilityView("enabled", 42));
+        view.Analyses["alloc"].Should().Be(new AnalysisAvailabilityView("disabled", null));
+        view.Analyses["wait"].Should().Be(new AnalysisAvailabilityView("unknown", null));
+        view.Analyses.Should().NotContainKey("threadtime");
+    }
+
+    [TestMethod]
+    public void FromTraceInfo_InvalidInput_Throws()
+    {
+        Action nullInfo = () => TraceInfoView.FromTraceInfo(null!, null);
+        TraceInfo invalidCaptureInfo = CreateTraceInfo((CaptureStatus)999);
+        Action invalidCapture = () => TraceInfoView.FromTraceInfo(invalidCaptureInfo, null);
+        TraceInfo validInfo = CreateTraceInfo(CaptureStatus.Enabled);
+        Action invalidCache = () => TraceInfoView.FromTraceInfo(validInfo, (EtlxCacheState)999);
+
+        nullInfo.Should().Throw<ArgumentNullException>().WithParameterName("info");
+        invalidCapture.Should().Throw<ArgumentOutOfRangeException>();
+        invalidCache.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [TestMethod]
@@ -148,4 +210,19 @@ public sealed class OutputContractTests
 
         act.Should().Throw<NotSupportedException>();
     }
+
+    private static TraceInfo CreateTraceInfo(CaptureStatus captureStatus) =>
+        new(
+            "/traces/sample.nettrace",
+            TraceFormat.NetTrace,
+            1.0,
+            1,
+            1.0,
+            [],
+            [],
+            ["cpu"],
+            new Dictionary<string, AnalysisAvailability>
+            {
+                ["cpu"] = new(true, captureStatus, 1)
+            });
 }

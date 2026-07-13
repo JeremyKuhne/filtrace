@@ -138,6 +138,7 @@ public sealed class TraceLoader
             result.Samples,
             result.SymbolResolutionRate,
             result.Warnings,
+            result.AnalysisEventCounts ?? new Dictionary<string, int>(),
             result.EtlxCacheState);
 
         StackSampleSource source = new(MetricInfo.Cpu, result.Samples, result.RecordSemantics);
@@ -155,7 +156,8 @@ public sealed class TraceLoader
                 $"The allocation metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new AllocationProvider().Read(fullPath, scope?.Window);
+        StackSampleSource source = new AllocationProvider().Read(
+            fullPath, scope?.Window, out int recordCount);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -168,7 +170,9 @@ public sealed class TraceLoader
         // trace, and this provider carries no separate symbol-reader signal, so
         // resolution is reported as complete: the low-resolution warning and the
         // --strict gate are CPU-reader concerns that do not apply to this family.
-        TraceInfo info = BuildInfo(fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0, warnings);
+        TraceInfo info = BuildInfo(
+            fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
+            warnings, AnalysisRecordCounts("alloc", recordCount));
         return new LoadedTrace(info, source);
     }
 
@@ -183,7 +187,8 @@ public sealed class TraceLoader
                 $"The exceptions metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new ExceptionsProvider().Read(fullPath, scope?.Window);
+        StackSampleSource source = new ExceptionsProvider().Read(
+            fullPath, scope?.Window, out int recordCount);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -195,7 +200,9 @@ public sealed class TraceLoader
         // Throw-site frames resolve from the trace's CLR rundown, so - as with the
         // allocation family - resolution is reported complete and the --strict gate
         // does not apply.
-        TraceInfo info = BuildInfo(fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0, warnings);
+        TraceInfo info = BuildInfo(
+            fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
+            warnings, AnalysisRecordCounts("exceptions", recordCount));
         return new LoadedTrace(info, source);
     }
 
@@ -212,7 +219,8 @@ public sealed class TraceLoader
                 $"The contention metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new ContentionProvider().Read(fullPath, scope?.Window);
+        StackSampleSource source = new ContentionProvider().Read(
+            fullPath, scope?.Window, out int recordCount);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -225,7 +233,9 @@ public sealed class TraceLoader
         // Contention frames resolve from the trace's CLR rundown, so - as with the
         // allocation and exceptions families - resolution is reported complete and the
         // --strict gate does not apply.
-        TraceInfo info = BuildInfo(fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0, warnings);
+        TraceInfo info = BuildInfo(
+            fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
+            warnings, AnalysisRecordCounts("contention", recordCount));
         return new LoadedTrace(info, source);
     }
 
@@ -240,7 +250,8 @@ public sealed class TraceLoader
                 $"The wait metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new WaitProvider().Read(fullPath, scope?.Window);
+        StackSampleSource source = new WaitProvider().Read(
+            fullPath, scope?.Window, out int recordCount);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -254,7 +265,9 @@ public sealed class TraceLoader
         // Wait frames resolve from the trace's CLR rundown, so - as with the allocation,
         // exceptions, and contention families - resolution is reported complete and the
         // --strict gate does not apply.
-        TraceInfo info = BuildInfo(fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0, warnings);
+        TraceInfo info = BuildInfo(
+            fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
+            warnings, AnalysisRecordCounts("wait", recordCount));
         return new LoadedTrace(info, source);
     }
 
@@ -271,7 +284,8 @@ public sealed class TraceLoader
                 $"The activity metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new ActivityProvider().Read(fullPath, scope?.Window);
+        StackSampleSource source = new ActivityProvider().Read(
+            fullPath, scope?.Window, out int recordCount);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -283,7 +297,9 @@ public sealed class TraceLoader
         // Activity frames are the activity names from the event stream, not resolved
         // symbols, so - as with the other stack-source families - resolution is reported
         // complete and the --strict gate does not apply.
-        TraceInfo info = BuildInfo(fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0, warnings);
+        TraceInfo info = BuildInfo(
+            fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
+            warnings, AnalysisRecordCounts("activity", recordCount));
         return new LoadedTrace(info, source);
     }
 
@@ -298,7 +314,8 @@ public sealed class TraceLoader
                 $"The thread-time metric requires an .etl ETW capture; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new ThreadTimeProvider().Read(fullPath, scope, out string? appliedScopeName);
+        StackSampleSource source = new ThreadTimeProvider().Read(
+            fullPath, scope, out string? appliedScopeName, out int recordCount);
 
         // Thread time carries both scope axes an ETW capture supports: the process tree
         // and the time window. Name whichever narrowed the read so an empty or reduced
@@ -353,7 +370,9 @@ public sealed class TraceLoader
         // exposes no separate resolution signal, so - as with the other stack-source
         // families - resolution is reported complete and the --strict gate does not
         // apply. The total weight BuildInfo sums is elapsed milliseconds.
-        TraceInfo info = BuildInfo(fullPath, TraceFormat.Etl, source.Samples, symbolResolutionRate: 1.0, warnings);
+        TraceInfo info = BuildInfo(
+            fullPath, TraceFormat.Etl, source.Samples, symbolResolutionRate: 1.0,
+            warnings, AnalysisRecordCounts("threadtime", recordCount));
         return new LoadedTrace(info, source);
     }
 
@@ -393,6 +412,7 @@ public sealed class TraceLoader
         IReadOnlyList<SampleStack> samples,
         double symbolResolutionRate,
         IReadOnlyList<string> warnings,
+        IReadOnlyDictionary<string, int> analysisEventCounts,
         EtlxCacheState? etlxCacheState = null)
     {
         double totalWeight = 0.0;
@@ -412,6 +432,15 @@ public sealed class TraceLoader
 
         threads.Sort(static (a, b) => b.SampleCount.CompareTo(a.SampleCount));
 
+        List<string> combinedWarnings = [.. warnings];
+        IReadOnlyDictionary<string, CaptureStatus>? captureStatuses =
+            CaptureMetadataReader.Read(fullPath, combinedWarnings);
+        IReadOnlyDictionary<string, AnalysisAvailability> analyses =
+            TraceCapabilities.AvailabilityFor(
+                format,
+                analysisEventCounts,
+                captureStatuses);
+
         return new TraceInfo(
             fullPath,
             format,
@@ -419,10 +448,16 @@ public sealed class TraceLoader
             samples.Count,
             symbolResolutionRate,
             threads,
-            warnings,
+            combinedWarnings,
             TraceCapabilities.AnalysesFor(format),
+            analyses,
             etlxCacheState);
     }
+
+    private static IReadOnlyDictionary<string, int> AnalysisRecordCounts(
+        string analysis,
+        int recordCount) =>
+        new Dictionary<string, int>(StringComparer.Ordinal) { [analysis] = recordCount };
 
     private ITraceReader? ResolveReader(string path)
     {

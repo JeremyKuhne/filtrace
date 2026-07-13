@@ -55,6 +55,7 @@ internal static class LatencyStackReader
     ///  Optional time window; when set, only pairs whose start falls inside it are
     ///  kept. <see langword="null"/> reads the whole trace.
     /// </param>
+    /// <param name="recordCount">The capture-wide count of completed positive-duration pairs.</param>
     /// <returns>The latency source: blocked-millisecond-weighted stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
@@ -62,7 +63,8 @@ internal static class LatencyStackReader
         string path,
         MetricInfo metric,
         Func<TraceLog, MutableTraceEventStackSource, StartStopLatencyComputer> createComputer,
-        TimeWindow? window = null)
+        TimeWindow? window,
+        out int recordCount)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
@@ -80,6 +82,7 @@ internal static class LatencyStackReader
 
         List<SampleStack> samples = [];
         List<string> leafToRoot = [];
+        int captureRecordCount = 0;
 
         stackSource.ForEach(sample =>
         {
@@ -90,6 +93,8 @@ internal static class LatencyStackReader
             {
                 return;
             }
+
+            captureRecordCount++;
 
             // When scoped to a time window, drop pairs whose start falls outside it; the
             // sample's time is the Start event's, so this scopes by when the block began.
@@ -137,6 +142,7 @@ internal static class LatencyStackReader
             samples.Add(new SampleStack(frames, weight));
         });
 
+        recordCount = captureRecordCount;
         return new StackSampleSource(metric, samples);
     }
 }

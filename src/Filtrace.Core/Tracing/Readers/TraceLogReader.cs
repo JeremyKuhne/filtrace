@@ -204,6 +204,7 @@ internal abstract class TraceLogReader : ITraceReader
         TimeWindow? window,
         EtlxCacheState cacheState)
     {
+        AnalysisEventCounter analysisEvents = new();
         Dictionary<int, string> locationCache = [];
 
         List<SampleStack> samples = [];
@@ -214,6 +215,8 @@ internal abstract class TraceLogReader : ITraceReader
 
         foreach (TraceEvent data in traceLog.Events)
         {
+            analysisEvents.Observe(data);
+
             // ETW (.etl) surfaces CPU samples as SampledProfileTraceData; EventPipe
             // (.nettrace) surfaces them as the SampleProfiler's ClrThreadSampleTraceData.
             if (data is ClrThreadSampleTraceData clrSample)
@@ -383,12 +386,15 @@ internal abstract class TraceLogReader : ITraceReader
             warnings.Add(symbolWarning);
         }
 
+        analysisEvents.AddProcesses(traceLog.Processes.Count);
+
         return new TraceReadResult(
             samples,
             resolutionRate,
             warnings,
             StackRecordSemantics.PeriodicCpuSamples,
-            cacheState);
+            cacheState,
+            analysisEvents.Counts);
     }
 
     // Joins the applied-scope phrases into one clause: "A" for one, "A and B" for two,

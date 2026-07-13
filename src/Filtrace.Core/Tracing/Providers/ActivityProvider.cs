@@ -51,7 +51,10 @@ public sealed class ActivityProvider
     /// <returns>The activity source: wall-clock-duration-weighted activity stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public StackSampleSource Read(string path, TimeWindow? window = null)
+    public StackSampleSource Read(string path, TimeWindow? window = null) =>
+        Read(path, window, out _);
+
+    internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
@@ -73,6 +76,7 @@ public sealed class ActivityProvider
         StartStopActivityComputer startStop = new(source, activityComputer, ignoreApplicationInsightsRequestsWithRelatedActivityId: false);
 
         List<SampleStack> samples = [];
+        int captureRecordCount = 0;
 
         // Each completed activity contributes one duration-weighted stack. Stop is a
         // callback field on the computer (not an event), invoked as each Start/Stop pair
@@ -84,6 +88,8 @@ public sealed class ActivityProvider
             {
                 return;
             }
+
+            captureRecordCount++;
 
             // When scoped to a time window, drop activities that started outside it; the
             // stack is rooted at the activity's start, so this scopes by when it began.
@@ -113,6 +119,7 @@ public sealed class ActivityProvider
 
         source.Process();
 
+        recordCount = captureRecordCount;
         return new StackSampleSource(MetricInfo.Activity, samples);
     }
 }

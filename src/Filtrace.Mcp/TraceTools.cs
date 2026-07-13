@@ -64,8 +64,8 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
         "Load a trace and return format, weight, sample/thread counts, symbol resolution, available analyses, "
-        + "quality warnings, and etlxCacheState (hit, waited, converted, or recovered; null for speedscope). Call "
-        + "this first. Managed names come from CLR rundown; 'symbols' supplies PDBs for source lines.")]
+        + "and per-analysis captureStatus/eventCount. captureStatus is enabled, disabled, or unknown; zero is "
+        + "reported only when enablement is known. Also returns etlxCacheState. Call this first.")]
     public static async Task<AnalysisResult<TraceInfoView>> InfoAsync(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -84,15 +84,7 @@ public sealed class TraceTools
             scope: ResolveScope(process),
             cancellationToken: cancellationToken).ConfigureAwait(false);
         TraceInfo info = load.Trace.Info;
-        TraceInfoView view = new(
-            info.Path,
-            info.Format.ToString(),
-            info.TotalWeight,
-            info.SampleCount,
-            info.SymbolResolutionRate,
-            info.Threads,
-            info.AvailableAnalyses,
-            CacheStateText(load.EtlxCacheState));
+        TraceInfoView view = TraceInfoView.FromTraceInfo(info, load.EtlxCacheState);
         return new AnalysisResult<TraceInfoView>(view, info.Warnings, SteeringHints.ForTraceInfo(info));
     }
 
@@ -1442,16 +1434,6 @@ public sealed class TraceTools
     }
 
     private static string? NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
-
-    private static string? CacheStateText(EtlxCacheState? state) => state switch
-    {
-        EtlxCacheState.Hit => "hit",
-        EtlxCacheState.Waited => "waited",
-        EtlxCacheState.Converted => "converted",
-        EtlxCacheState.Recovered => "recovered",
-        null => null,
-        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown ETLX cache state.")
-    };
 
     // An empty process selector means "auto-scope to the busiest process tree" (the
     // Load default), a no-op on a single-process .nettrace/speedscope trace; a non-empty

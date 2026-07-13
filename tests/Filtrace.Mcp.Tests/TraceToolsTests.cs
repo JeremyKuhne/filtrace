@@ -41,7 +41,7 @@ public sealed class TraceToolsTests
     // assert on the object directly rather than re-parsing JSON.
     private static void AssertEnvelope<T>(AnalysisResult<T> envelope)
     {
-        envelope.SchemaVersion.Should().Be(4);
+        envelope.SchemaVersion.Should().Be(5);
         envelope.Warnings.Should().NotBeNull();
         envelope.Hints.Should().NotBeNull();
         envelope.Result.Should().NotBeNull();
@@ -62,6 +62,70 @@ public sealed class TraceToolsTests
         result.SymbolResolutionRate.Should().BeInRange(0.0, 1.0);
         result.Threads.Should().NotBeEmpty();
         result.EtlxCacheState.Should().BeNull();
+        result.Analyses!["cpu"].Should().Be(new AnalysisAvailabilityView("enabled", 4));
+        result.Analyses.Should().NotContainKey("alloc");
+    }
+
+    [TestMethod]
+    public void Info_NetTrace_ReportsObservedAndUnknownAnalysisStates()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<TraceInfoView> envelope = TraceTools.Info(store, FixturePath(Alloc));
+
+        AnalysisAvailabilityView allocation = envelope.Result.Analyses!["alloc"];
+        allocation.CaptureStatus.Should().Be("enabled");
+        allocation.EventCount.Should().BeGreaterThan(0);
+        envelope.Result.Analyses["wait"].Should().Be(
+            new AnalysisAvailabilityView("unknown", null));
+    }
+
+    [TestMethod]
+    public void Info_CaptureMetadata_ReportsEnabledZeroAndDisabled()
+    {
+        TraceStore store = new();
+        string path = CopyToTemp(Alloc, out string tempDirectory);
+        try
+        {
+            File.WriteAllText(
+                $"{path}.filtrace.json",
+                """{"schemaVersion":1,"analyses":{"exceptions":"enabled","wait":"disabled","alloc":"disabled"}}""");
+
+            AnalysisResult<TraceInfoView> envelope = TraceTools.Info(store, path);
+
+            envelope.Result.Analyses!["exceptions"].Should().Be(
+                new AnalysisAvailabilityView("enabled", 0));
+            envelope.Result.Analyses["wait"].Should().Be(
+                new AnalysisAvailabilityView("disabled", null));
+            envelope.Result.Analyses["alloc"].CaptureStatus.Should().Be("enabled");
+            envelope.Result.Analyses["alloc"].EventCount.Should().BeGreaterThan(0);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Info_MalformedCaptureMetadata_WarnsAndKeepsObservedEvidence()
+    {
+        TraceStore store = new();
+        string path = CopyToTemp(Alloc, out string tempDirectory);
+        try
+        {
+            File.WriteAllText($"{path}.filtrace.json", "{invalid");
+
+            AnalysisResult<TraceInfoView> envelope = TraceTools.Info(store, path);
+
+            envelope.Warnings.Should().Contain(
+                warning => warning.Contains("Capture metadata", StringComparison.Ordinal));
+            envelope.Result.Analyses!["alloc"].CaptureStatus.Should().Be("enabled");
+            envelope.Result.Analyses["wait"].CaptureStatus.Should().Be("unknown");
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
     }
 
     [TestMethod]

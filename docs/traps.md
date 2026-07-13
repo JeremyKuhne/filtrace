@@ -52,31 +52,39 @@ embeds the marked block below verbatim and
    sampling. Evented speedscope records are duration intervals: report their count,
    but do not treat it as a periodic sample confidence gate.
 
-6. **Native runtime frames need `--native-symbols`.** Without it, the unmanaged
+6. **A supported format does not prove the provider was enabled.**
+   `availableAnalyses` is the format inventory only. Read
+   `trace_info.analyses.<name>` before acting: observed events prove `enabled`;
+   recorder metadata can prove `enabled` with zero events or `disabled`; without
+   either, the status is `unknown`. Never relabel unknown as an empty workload.
+   The bundled capture helpers write `<trace>.filtrace.json`; preserve that sidecar
+   with the trace so enabled-zero stays distinguishable from disabled.
+
+7. **Native runtime frames need `--native-symbols`.** Without it, the unmanaged
    share of a trace - GC, JIT, `memset` / `memcpy`, write barriers - shows as
    unresolved `?` leaves. Opt in (CPU `.etl` only; fetches PDBs from the Microsoft
    public symbol server, cached locally) to name them, then `classify` to get the
    zeroing-vs-copying-vs-GC-vs-JIT split. It is off by default so analysis stays
    offline and deterministic.
 
-7. **Self-time and inclusive-time answer different questions.** Self-time finds
+8. **Self-time and inclusive-time answer different questions.** Self-time finds
    the leaf that burns the resource; inclusive-time finds the subtree that drives
    it. Ranking by the wrong measure hides the frame you want - start with self for
    "what is hot", switch to inclusive for "what is responsible".
 
-8. **Reading an `.etl` through filtrace is Windows-only.** The ETW -> ETLX
+9. **Reading an `.etl` through filtrace is Windows-only.** The ETW -> ETLX
    conversion needs Windows, and direct `.etlx` input is not part of the current
    CLI or MCP surface. The `.etl` paths report a clean error off Windows. Do not
    serialize same-trace MCP calls as a workaround: filtrace now coordinates ETLX
    conversion across threads and processes, publishes atomically, and reports
    `hit`, `waited`, `converted`, or `recovered` in `trace_info.etlxCacheState`.
 
-9. **The default fold list hides runtime leaves on purpose.** It folds
+10. **The default fold list hides runtime leaves on purpose.** It folds
    `memmove`, write-barriers, and GC-poll helpers into their managed caller -
    right for "which method is hot", wrong for "what kind of work dominates". Use
    `--no-fold` (or `classify`) to let the native leaves rank on their own.
 
-10. **Trace the built app, not `dotnet run`.** `dotnet run` builds and then forks
+11. **Trace the built app, not `dotnet run`.** `dotnet run` builds and then forks
    your program into a separate child process, so a single-process EventPipe
    session launched with `dotnet-trace collect -- dotnet run ...` records the
    build/run host, not your code, and the hot frames never appear. Build first,
@@ -84,7 +92,7 @@ embeds the marked block below verbatim and
    <app>.dll`, or `dotnet-trace collect -- <apphost>`); the bundled
    `Capture-ProjectTrace.ps1` resolves that run target for you.
 
-11. **A machine-wide `.etl` can be huge - capture lean, then scope at analysis.**
+12. **A machine-wide `.etl` can be huge - capture lean, then scope at analysis.**
    ETW kernel tracing is machine-wide, so the wrong keywords balloon the file: the
    File/Disk *name* rundowns enumerate every open file on the box (hundreds of
    thousands of events that dwarf the workload) no matter how short the window.

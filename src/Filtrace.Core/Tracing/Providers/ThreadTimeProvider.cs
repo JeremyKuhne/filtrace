@@ -68,7 +68,14 @@ public sealed class ThreadTimeProvider
     /// <returns>The thread-time source: elapsed-millisecond-weighted stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public StackSampleSource Read(string path, ScopeRequest? scope, out string? appliedProcessName)
+    public StackSampleSource Read(string path, ScopeRequest? scope, out string? appliedProcessName) =>
+        Read(path, scope, out appliedProcessName, out _);
+
+    internal StackSampleSource Read(
+        string path,
+        ScopeRequest? scope,
+        out string? appliedProcessName,
+        out int recordCount)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
         appliedProcessName = null;
@@ -80,6 +87,7 @@ public sealed class ThreadTimeProvider
         }
 
         using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        recordCount = CountContextSwitches(traceLog);
 
         using SymbolReader symbolReader = new(TextWriter.Null, "", null);
 
@@ -173,6 +181,20 @@ public sealed class ThreadTimeProvider
         });
 
         return new StackSampleSource(MetricInfo.ThreadTime, samples);
+    }
+
+    private static int CountContextSwitches(TraceLog traceLog)
+    {
+        long count = 0;
+        foreach (TraceEventCounts eventCounts in traceLog.Stats)
+        {
+            if (string.Equals(eventCounts.EventName, "Thread/CSwitch", StringComparison.Ordinal))
+            {
+                count += eventCounts.Count;
+            }
+        }
+
+        return (int)Math.Min(count, int.MaxValue);
     }
 
     // Turns "Process64 <name> (<pid>) Args: ..." into "<name> (<pid>)" and yields the

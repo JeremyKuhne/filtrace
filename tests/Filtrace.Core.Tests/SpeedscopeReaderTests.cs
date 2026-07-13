@@ -100,6 +100,19 @@ public sealed class SpeedscopeReaderTests
     }
 
     [TestMethod]
+    public void Read_EmptySupportedProfile_ReportsCpuEnabledZero()
+    {
+        const string json = """
+            {"shared":{"frames":[]},"profiles":[{"type":"sampled","name":"cpu","unit":"milliseconds","startValue":0,"endValue":0,"samples":[],"weights":[]}]}
+            """;
+
+        LoadedTrace trace = Read(json);
+
+        trace.Info.Analyses["cpu"].Should().Be(
+            new AnalysisAvailability(true, CaptureStatus.Enabled, 0));
+    }
+
+    [TestMethod]
     public void Read_ProfileMissingType_RejectsMalformedInput()
     {
         const string json = """
