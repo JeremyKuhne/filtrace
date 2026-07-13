@@ -27,6 +27,12 @@ function Assert-True([bool]$Condition, [string]$Message) {
 
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 try {
+    $help = Get-Help $captureScript -Full | Out-String
+    Assert-True ($help.Contains('[-ElevatedChild]', [StringComparison]::OrdinalIgnoreCase)) 'ElevatedChild was not discoverable in Get-Help syntax.'
+    $captureSource = Get-Content -LiteralPath $captureScript -Raw
+    Assert-True ($captureSource.Contains('.PARAMETER ElevatedChild', [StringComparison]::Ordinal)) 'ElevatedChild has no comment-based help entry.'
+    Assert-True ($captureSource.Contains('Internal switch reserved for the self-elevated ETW child process', [StringComparison]::OrdinalIgnoreCase)) 'ElevatedChild help did not identify the switch as internal.'
+
     $projectDirectory = Join-Path $temporaryRoot 'src/Fake.Perf'
     New-Item -ItemType Directory -Path $projectDirectory | Out-Null
     $projectPath = Join-Path $projectDirectory 'Fake.Perf.csproj'

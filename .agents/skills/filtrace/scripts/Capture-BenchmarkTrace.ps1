@@ -81,6 +81,10 @@
 .PARAMETER Quiet
     Suppress informational progress in Text mode. Warnings and errors still surface.
 
+.PARAMETER ElevatedChild
+    Internal switch reserved for the self-elevated ETW child process. Do not pass it
+    directly; non-ETW or non-elevated use is rejected.
+
 .EXAMPLE
     ./Capture-BenchmarkTrace.ps1 -Project src/App.Perf -Filter '*GlobMatchBench*'
 
