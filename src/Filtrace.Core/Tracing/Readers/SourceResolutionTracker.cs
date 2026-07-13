@@ -17,6 +17,7 @@ internal sealed class SourceResolutionTracker
     private readonly string? _localSymbolPath;
     private readonly string[] _searchedDirectories;
     private readonly Dictionary<int, ModuleResolution> _modules = [];
+    private readonly Dictionary<string, ModuleResolution> _modulesWithoutMetadata = new(StringComparer.OrdinalIgnoreCase);
     private int _sampledManagedFrames;
     private int _mappedManagedFrames;
 
@@ -36,26 +37,56 @@ internal sealed class SourceResolutionTracker
             return;
         }
 
+        TraceModuleFile? module = method.MethodModuleFile ?? address.ModuleFile;
+        ObserveModule(module, module?.Name ?? address.ModuleName, sourceMapped);
+    }
+
+    internal void ObserveModule(TraceModuleFile? module, string? moduleName, bool sourceMapped)
+    {
         _sampledManagedFrames = SaturatingIncrement(_sampledManagedFrames);
         if (sourceMapped)
         {
             _mappedManagedFrames = SaturatingIncrement(_mappedManagedFrames);
         }
 
-        TraceModuleFile? module = method.MethodModuleFile ?? address.ModuleFile;
-        int key = module is null ? int.MinValue : (int)module.ModuleFileIndex;
-        if (!_modules.TryGetValue(key, out ModuleResolution? resolution))
+        string name = NormalizeModuleName(moduleName);
+        ModuleResolution? resolution;
+        if (module is null)
         {
-            if (_modules.Count == MaxTrackedModules)
+            if (_modulesWithoutMetadata.TryGetValue(name, out resolution))
+            {
+                ObserveResolution(resolution, sourceMapped);
+                return;
+            }
+
+            if (_modules.Count + _modulesWithoutMetadata.Count == MaxTrackedModules)
             {
                 return;
             }
 
-            string name = module?.Name ?? address.ModuleName;
-            resolution = new ModuleResolution(NormalizeModuleName(name), module);
+            resolution = new ModuleResolution(name, null);
+            _modulesWithoutMetadata.Add(name, resolution);
+            ObserveResolution(resolution, sourceMapped);
+            return;
+        }
+
+        int key = (int)module.ModuleFileIndex;
+        if (!_modules.TryGetValue(key, out resolution))
+        {
+            if (_modules.Count + _modulesWithoutMetadata.Count == MaxTrackedModules)
+            {
+                return;
+            }
+
+            resolution = new ModuleResolution(name, module);
             _modules.Add(key, resolution);
         }
 
+        ObserveResolution(resolution, sourceMapped);
+    }
+
+    private static void ObserveResolution(ModuleResolution resolution, bool sourceMapped)
+    {
         resolution.SampledFrames = SaturatingIncrement(resolution.SampledFrames);
         if (sourceMapped)
         {
@@ -65,7 +96,7 @@ internal sealed class SourceResolutionTracker
 
     public SourceResolutionInfo CreateInfo()
     {
-        List<ModuleResolution> modules = [.. _modules.Values];
+        List<ModuleResolution> modules = [.. _modules.Values, .. _modulesWithoutMetadata.Values];
         if (!string.IsNullOrEmpty(_localSymbolPath))
         {
             try

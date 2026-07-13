@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using Filtrace.Tracing;
 using Filtrace.Tracing.Providers;
 
@@ -153,7 +154,7 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
-    public void ForTraceInfo_PoorSourceResolution_SeparatesMethodNamesFromPdbs()
+    public void ForTraceInfo_PoorSourceResolutionUnderFrenchCulture_UsesAsciiPercentages()
     {
         TraceInfo info = new(
             "/t.nettrace", TraceFormat.NetTrace, 100.0, 10, 1.0, [], [],
@@ -167,7 +168,17 @@ public sealed class SteeringHintsTests
                 ["GeneratedChild (0/75 mapped)", "MyApp (0/25 mapped)"])
         };
 
-        IReadOnlyList<string> hints = SteeringHints.ForTraceInfo(info);
+        CultureInfo originalCulture = CultureInfo.CurrentCulture;
+        IReadOnlyList<string> hints;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            hints = SteeringHints.ForTraceInfo(info);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
 
         hints.Should().Contain(hint =>
             hint.Contains("method-name resolution (100%) is separate from source mapping (0%)", StringComparison.Ordinal)

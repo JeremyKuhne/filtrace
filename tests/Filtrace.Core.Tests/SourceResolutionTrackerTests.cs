@@ -72,4 +72,22 @@ public sealed class SourceResolutionTrackerTests
         normalized.Should().StartWith("Hot Loop Bench");
         normalized.Any(char.IsControl).Should().BeFalse();
     }
+
+    [TestMethod]
+    public void ObserveModule_WithoutMetadata_KeepsDistinctNormalizedNames()
+    {
+        SourceResolutionTracker tracker = new(null, null);
+        tracker.ObserveModule(null, "ModuleA", sourceMapped: false);
+        tracker.ObserveModule(null, "ModuleB", sourceMapped: false);
+        tracker.ObserveModule(null, "modulea", sourceMapped: true);
+
+        SourceResolutionInfo source = tracker.CreateInfo();
+
+        source.SampledManagedFrameCount.Should().Be(3);
+        source.MappedManagedFrameCount.Should().Be(1);
+        source.MatchingPdbModules.Should().Equal("ModuleA");
+        source.HighestUnmappedModules.Should().BeEquivalentTo(
+            "ModuleA (1/2 mapped)",
+            "ModuleB (0/1 mapped)");
+    }
 }

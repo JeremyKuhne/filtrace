@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using Filtrace.Output;
 using Filtrace.Tracing;
 
@@ -32,7 +33,7 @@ internal static class InfoTextRenderer
         // The banner mirrors the header every ranking prints; the weight is the CPU
         // view's total sampled milliseconds, the metric this orientation load reads.
         output.WriteLine(
-            $"{view.Format}  {view.SampleCount} samples  {view.TotalWeight:N1} ms  symbols {view.SymbolResolutionRate:P0}");
+            $"{view.Format}  {view.SampleCount} samples  {view.TotalWeight:N1} ms  symbols {FormatRate(view.SymbolResolutionRate)}");
         output.WriteLine();
 
         output.WriteLine("analyses:");
@@ -64,7 +65,7 @@ internal static class InfoTextRenderer
 
         if (view.SourceResolution is SourceResolutionInfo source)
         {
-            output.WriteLine($"source: {source.MappedManagedFrameCount}/{source.SampledManagedFrameCount} sampled managed frames ({source.SourceResolutionRate:P0})");
+            output.WriteLine($"source: {source.MappedManagedFrameCount}/{source.SampledManagedFrameCount} sampled managed frames ({FormatRate(source.SourceResolutionRate)})");
             output.WriteLine(
                 $"symbol directories: {ListOrNone(source.SearchedDirectories)}");
             output.WriteLine(
@@ -109,4 +110,7 @@ internal static class InfoTextRenderer
 
     private static string ListOrNone(IReadOnlyList<string> values) =>
         values.Count == 0 ? "(none)" : string.Join(", ", values);
+
+    private static string FormatRate(double value) =>
+        $"{(value * 100.0).ToString("0", CultureInfo.InvariantCulture)}%";
 }

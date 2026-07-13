@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using Filtrace.Output;
 using Filtrace.Tracing;
 
@@ -76,7 +77,7 @@ public sealed class InfoTextRendererTests
     }
 
     [TestMethod]
-    public void Render_SourceResolution_ReportsPdbQualitySeparately()
+    public void Render_SourceResolutionUnderFrenchCulture_UsesAsciiPercentages()
     {
         TraceInfoView view = new(
             "/trace.nettrace",
@@ -96,7 +97,16 @@ public sealed class InfoTextRendererTests
         };
         StringWriter output = new();
 
-        InfoTextRenderer.Render(new AnalysisResult<TraceInfoView>(view), output);
+        CultureInfo originalCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            InfoTextRenderer.Render(new AnalysisResult<TraceInfoView>(view), output);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
 
         string text = output.ToString();
         text.Should().Contain("symbols 100%");
