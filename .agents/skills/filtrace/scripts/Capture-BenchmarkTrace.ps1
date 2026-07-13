@@ -674,9 +674,9 @@ if ($ElevatedChild -and -not (Test-Elevated)) {
 }
 
 # ETW kernel sessions require Administrator. When not elevated, relaunch this script
-# in an elevated window that shows the capture's live progress, then wait for it.
+# in an elevated window, then wait for it.
 # -WorkingDirectory anchors the child at the repo root so BenchmarkDotNet.Artifacts (and
-# the capture log the parent tails) resolve there, not in the elevated shell's system32.
+# the capture log the parent references for progress) resolve there, not in the elevated shell's system32.
 if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     if ($showProgress) {
         Write-Host 'ETW capture needs Administrator; relaunching elevated (a UAC prompt will appear).' -ForegroundColor Yellow
