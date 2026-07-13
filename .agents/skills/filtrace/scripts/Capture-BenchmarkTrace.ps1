@@ -539,6 +539,15 @@ function Write-CaptureResult(
 
         $maxResultBytes = 20KB
         $encoding = New-Object System.Text.UTF8Encoding($false)
+        $runDirectoryPath = if ($ManifestPath) {
+            Split-Path -Parent $ManifestPath
+        }
+        elseif ($LogPath) {
+            Split-Path -Parent $LogPath
+        }
+        else {
+            "BenchmarkDotNet.Artifacts/filtrace-runs/$CaptureRunId"
+        }
         $json = $result | ConvertTo-Json -Depth 6 -Compress
         if ($encoding.GetByteCount($json) -ge $maxResultBytes) {
             # Completed runs have a manifest; a timed-out child may have produced only
@@ -554,12 +563,14 @@ function Write-CaptureResult(
                 status = $Status
                 runId = $CaptureRunId
                 manifest = $ManifestPath
+                runDirectory = $runDirectoryPath
                 message = $fallbackMessage
             }
             $json = $result | ConvertTo-Json -Depth 3 -Compress
             if ($encoding.GetByteCount($json) -ge $maxResultBytes) {
                 $result.manifest = $null
-                $result.message = 'JSON handoff exceeded 20 KiB; inspect the run directory for full details.'
+                $result.runDirectory = "BenchmarkDotNet.Artifacts/filtrace-runs/$CaptureRunId"
+                $result.message = 'JSON handoff exceeded 20 KiB; inspect runDirectory relative to the invocation working directory.'
                 $json = $result | ConvertTo-Json -Depth 3 -Compress
             }
         }

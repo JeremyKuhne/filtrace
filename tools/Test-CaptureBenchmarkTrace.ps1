@@ -293,6 +293,7 @@ $global:LASTEXITCODE = 0
     Assert-True ($boundedJsonResult.status -eq 'completed') 'Bounded JSON fallback did not preserve completed status.'
     Assert-True ($boundedJsonResult.runId -eq 'handoff-budget-run') 'Bounded JSON fallback omitted the run ID.'
     Assert-True ($boundedJsonResult.manifest -eq $boundedManifestPath) 'Bounded JSON fallback omitted the manifest path.'
+    Assert-True ($boundedJsonResult.runDirectory -eq (Split-Path -Parent $boundedManifestPath)) 'Bounded JSON fallback omitted the canonical run directory.'
     Assert-True ($boundedJsonResult.message.Contains('read the manifest', [StringComparison]::OrdinalIgnoreCase)) 'Bounded JSON fallback did not direct the caller to the manifest.'
     Assert-True ($boundedJsonResult.PSObject.Properties.Name -notcontains 'cases') 'Bounded JSON fallback retained oversized case detail.'
     Assert-True ($boundedJsonResult.PSObject.Properties.Name -notcontains 'warnings') 'Bounded JSON fallback retained oversized warning detail.'

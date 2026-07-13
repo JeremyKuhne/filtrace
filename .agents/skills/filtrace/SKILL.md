@@ -60,7 +60,8 @@ handoff or `-Quiet` for warnings only. On a non-fatal elevated wait timeout, tex
 modes emit a warning; `-Format Json` returns `status: "timeout"`, `runId`, `log`, and
 `message` instead of empty stdout. JSON stdout stays under 20 KiB; when full case
 detail would exceed that budget, a minimal completed result points to `manifest.json`;
-if even that path cannot fit, the result directs the caller to the run directory.
+every compact fallback includes `runDirectory`, using the canonical run-relative path
+if an absolute path cannot fit.
 Recorder-established command fallback is used only when filtrace is unavailable;
 if `filtrace info` is present but cannot read a case, every analysis is unknown and
 no command is emitted. Recorder fallback never fabricates an `eventCount`; only a
