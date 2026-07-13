@@ -52,7 +52,9 @@ So "where's the time / what allocates" on one process -> EventPipe; "CPU-bound o
 blocked?", "GC versus my code?", or a machine-wide capture -> ETW. Two bundled
 scripts wrap the capture-then-analyze loop and print the scoped filtrace commands:
 [scripts/Capture-BenchmarkTrace.ps1](scripts/Capture-BenchmarkTrace.ps1) profiles a
-BenchmarkDotNet micro-benchmark (retains build files; analyze with `--benchmark`), and
+BenchmarkDotNet micro-benchmark in an isolated run directory, emits an all-case
+manifest, verifies exact generated-child PDBs, and prints `--benchmark`-scoped
+commands. Same-project/same-TFM overlap is rejected rather than sharing outputs. The
 [scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) builds an
 executable project and traces its running output directly - never `dotnet run`,
 whose build/run host is a different process (see the trap catalog).

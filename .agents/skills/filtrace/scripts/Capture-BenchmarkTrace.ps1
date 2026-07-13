@@ -6,22 +6,17 @@
 
 .DESCRIPTION
     Wraps the "record a trace, then analyze it" loop for a BenchmarkDotNet perf
-    project. Run it from the repository root (where BenchmarkDotNet.Artifacts should
-    land):
+        project. Run it from the repository root. Each invocation passes a run-specific
+        `--artifacts` directory and `--keepFiles`, enumerates every profiler output in
+        that run, and emits a compact manifest with parameterized benchmark identity,
+        trace pairs, runtime/source identity, and exact symbols when verified:
 
       - EventPipe (-Profiler EP, the default): cross-platform, no elevation, single
-        process. Runs `dotnet run -c Release -f <Tfm> --project <Project> --
-                --filter <Filter> -p EP --keepFiles`, which writes a raw .nettrace and
-                (today) also a derived .speedscope.json from the same capture. The raw .nettrace is
-        preferred when both exist - it is the only one of the two that carries
-        allocation events and per-frame source locations, which the printed
-        `alloc` / `lines` commands need; a .speedscope.json is CPU-self-time
-        only and carries no per-frame source locations at all, so `filtrace
-        lines` against one always reports nothing. Falls back to
-        .speedscope.json - printing only the commands that work against it
-        (`cpu`, `export`) - when no .nettrace was produced.
+                process. BenchmarkDotNet normally writes a raw .nettrace and a paired derived
+                .speedscope.json. The manifest retains both; analysis commands use the raw
+                trace when present, or limit a speedscope-only case to CPU/export commands.
       - ETW (-Profiler ETW): Windows only, self-elevates (one UAC prompt), machine
-        wide. Runs the same with `-p ETW --keepFiles`, which writes a .etl. Only an
+                wide. Uses `-p ETW --keepFiles`, which writes a .etl. Only an
         .etl carries wall-clock (threadtime), the native GC / JIT / memcpy split
         (classify --native-symbols), and multi-process scoping.
 
@@ -29,6 +24,13 @@
     progress instead of looking hung. The printed filtrace commands are pre-scoped:
     an EventPipe trace with --benchmark (past the harness); an .etl additionally with
     --process, because an .etl is machine-wide.
+
+    Every invocation writes BenchmarkDotNet output and capture.log under a unique
+    BenchmarkDotNet.Artifacts/filtrace-runs/<RunId> directory, then emits manifest.json
+    with every parameterized capture case. A same-project/same-TFM handle lock rejects
+    overlap before any build starts. Logged child OutDir paths are verified with
+    filtrace info; source commands are printed only when an exact PDB maps sampled
+    frames. No globally newest artifact is selected.
 
     filtrace: https://github.com/JeremyKuhne/filtrace - install once with
     `dotnet tool install -g KlutzyNinja.Filtrace`, or drive the MCP trace_* tools.
@@ -59,6 +61,18 @@
     the ETW self-elevation path uses it - it is the backstop that keeps a never-signaled
     elevated child from hanging the parent indefinitely.
 
+.PARAMETER RunId
+    Optional stable identifier for this capture run. Defaults to a UTC timestamp plus
+    a random suffix. The run's BenchmarkDotNet artifacts and capture log are written
+    under BenchmarkDotNet.Artifacts/filtrace-runs/<RunId>.
+
+.PARAMETER DotnetPath
+    Path or command name for the dotnet host. Defaults to dotnet from PATH.
+
+.PARAMETER FiltracePath
+    Path or command name for filtrace. Used after capture to verify which logged
+    BenchmarkDotNet child output has an exact PDB match for each trace.
+
 .EXAMPLE
     ./Capture-BenchmarkTrace.ps1 -Project src/App.Perf -Filter '*GlobMatchBench*'
 
@@ -72,7 +86,10 @@ param(
     [string]$Tfm = 'net10.0',
     [string]$Process,
     [int]$Top = 25,
-    [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1200
+    [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1200,
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$')][string]$RunId,
+    [string]$DotnetPath = 'dotnet',
+    [string]$FiltracePath = 'filtrace'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -91,6 +108,175 @@ function Write-CaptureMetadata([string]$TracePath, [System.Collections.IDictiona
     }
 }
 
+function Write-RunManifest([string]$Path, [System.Collections.IDictionary]$Manifest) {
+    $json = $Manifest | ConvertTo-Json -Depth 8 -Compress
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $json, $encoding)
+}
+
+function Get-CaptureCases([string]$ArtifactsDirectory, [string]$CaptureProfiler) {
+    $maxCases = 256
+    $casesByStem = @{}
+    foreach ($file in Get-ChildItem -LiteralPath $ArtifactsDirectory -Recurse -File -ErrorAction SilentlyContinue) {
+        $kind = $null
+        $stem = $null
+        if ($file.Name -like '*.speedscope.json') {
+            $kind = 'speedscope'
+            $stem = $file.Name -replace '\.speedscope\.json$', ''
+        }
+        elseif ($CaptureProfiler -eq 'ETW' -and $file.Extension -eq '.etl') {
+            $kind = 'trace'
+            $stem = $file.BaseName
+        }
+        elseif ($CaptureProfiler -eq 'EP' -and $file.Extension -eq '.nettrace') {
+            $kind = 'trace'
+            $stem = $file.BaseName
+        }
+        else {
+            continue
+        }
+
+        if (-not $casesByStem.ContainsKey($stem)) {
+            if ($casesByStem.Count -ge $maxCases) {
+                throw "Capture produced more than $maxCases cases; narrow the benchmark filter."
+            }
+
+            $casesByStem[$stem] = [ordered]@{
+                id = $stem
+                benchmarkId = $null
+                benchmark = $null
+                benchmarkDisplay = $null
+                capturedUtc = $file.LastWriteTimeUtc.ToString('O')
+                trace = $null
+                speedscope = $null
+                symbolsDirectory = $null
+                symbolCandidates = @()
+            }
+        }
+
+        $casesByStem[$stem][$kind] = $file.FullName
+        if ($kind -eq 'trace') {
+            $casesByStem[$stem].capturedUtc = $file.LastWriteTimeUtc.ToString('O')
+        }
+    }
+
+    return @($casesByStem.Values | Sort-Object { $_.capturedUtc }, { $_.id })
+}
+
+function Get-SymbolCandidates([string]$CaptureLog, [string]$OuterSymbolsDirectory) {
+    $maxCandidates = 32
+    $candidates = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    $outerCandidate = Get-LocalDirectoryCandidate $OuterSymbolsDirectory
+    if ($outerCandidate) {
+        [void]$candidates.Add($outerCandidate)
+    }
+
+    :captureLog foreach ($line in Get-Content -LiteralPath $CaptureLog) {
+        foreach ($match in [regex]::Matches($line, '/p:OutDir="([^"]+)"')) {
+            $directory = Get-LocalDirectoryCandidate $match.Groups[1].Value
+            if ($directory) {
+                [void]$candidates.Add($directory)
+                if ($candidates.Count -ge $maxCandidates) { break captureLog }
+            }
+        }
+    }
+
+    return @($candidates | Sort-Object)
+}
+
+function Get-LocalDirectoryCandidate([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path) -or
+        $Path.StartsWith('\\', [StringComparison]::Ordinal) -or
+        $Path.StartsWith('//', [StringComparison]::Ordinal)) {
+        return $null
+    }
+
+    try {
+        $fullPath = [System.IO.Path]::GetFullPath($Path)
+        if ($fullPath.StartsWith('\\', [StringComparison]::Ordinal) -or
+            $fullPath.StartsWith('//', [StringComparison]::Ordinal) -or
+            -not (Test-Path -LiteralPath $fullPath -PathType Container)) {
+            return $null
+        }
+
+        return $fullPath
+    }
+    catch {
+        return $null
+    }
+}
+
+function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases, [string]$CaptureLog) {
+    $benchmarksById = @{}
+    $currentDisplay = $null
+    foreach ($line in Get-Content -LiteralPath $CaptureLog) {
+        if ($line -match '^// Benchmark: (.+)$') {
+            $currentDisplay = $Matches[1]
+            continue
+        }
+
+        if ($null -ne $currentDisplay -and
+            $line -match '--benchmarkName\s+(?:"([^"]+)"|(\S+)).*--benchmarkId\s+(\d+)') {
+            $benchmarkId = [int]$Matches[3]
+            if (-not $benchmarksById.ContainsKey($benchmarkId)) {
+                $benchmarkName = if ($Matches[1]) { $Matches[1] } else { $Matches[2] }
+                $benchmarksById[$benchmarkId] = [ordered]@{
+                    benchmarkId = $benchmarkId
+                    benchmark = $benchmarkName
+                    benchmarkDisplay = $currentDisplay
+                }
+            }
+        }
+    }
+
+    $benchmarks = @($benchmarksById.Values | Sort-Object { $_.benchmarkId })
+    if ($benchmarks.Count -ne $CaptureCases.Count) { return }
+    for ($index = 0; $index -lt $CaptureCases.Count; $index++) {
+        $CaptureCases[$index].benchmarkId = $benchmarks[$index].benchmarkId
+        $CaptureCases[$index].benchmark = $benchmarks[$index].benchmark
+        $CaptureCases[$index].benchmarkDisplay = $benchmarks[$index].benchmarkDisplay
+    }
+}
+
+function Get-SourceIdentity([string]$ProjectDirectory) {
+    if ($null -eq (Get-Command git -ErrorAction SilentlyContinue)) { return $null }
+    try {
+        $repository = & git -C $ProjectDirectory rev-parse --show-toplevel 2>$null | Select-Object -First 1
+        $commit = & git -C $ProjectDirectory rev-parse HEAD 2>$null | Select-Object -First 1
+        if ($LASTEXITCODE -ne 0 -or -not $repository -or -not $commit) { return $null }
+        return [ordered]@{
+            repository = [System.IO.Path]::GetFullPath($repository)
+            commit = $commit
+        }
+    }
+    catch {
+        return $null
+    }
+}
+
+function Find-ExactSymbolDirectory([string]$TracePath, [string[]]$Candidates, [string]$FiltraceCommand) {
+    $bestDirectory = $null
+    $bestMappedFrames = 0
+    foreach ($candidate in $Candidates) {
+        try {
+            $json = & $FiltraceCommand info $TracePath --symbols $candidate --format json 2>$null | Out-String
+            if ($LASTEXITCODE -ne 0) { continue }
+            $source = ($json | ConvertFrom-Json).result.sourceResolution
+            if ($null -eq $source -or $source.matchingPdbModules.Count -eq 0) { continue }
+            $mappedFrames = [int]$source.mappedManagedFrameCount
+            if ($mappedFrames -gt $bestMappedFrames) {
+                $bestMappedFrames = $mappedFrames
+                $bestDirectory = $candidate
+            }
+        }
+        catch {
+            # A candidate that filtrace cannot read or match is simply not exact.
+        }
+    }
+
+    return $bestDirectory
+}
+
 # Resolve the project file (accept either a .csproj or a directory holding one).
 $projItem = Get-Item -LiteralPath $Project
 if ($projItem.PSIsContainer) {
@@ -103,8 +289,12 @@ else {
 if (-not $Process) { $Process = [System.IO.Path]::GetFileNameWithoutExtension($projFile.Name) }
 
 $repoRoot = (Get-Location).Path
-$artifacts = Join-Path $repoRoot 'BenchmarkDotNet.Artifacts'
-$log = Join-Path $artifacts 'capture.log'
+if (-not $RunId) {
+    $RunId = "$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
+}
+$runDirectory = Join-Path $repoRoot "BenchmarkDotNet.Artifacts/filtrace-runs/$RunId"
+$artifacts = Join-Path $runDirectory 'artifacts'
+$log = Join-Path $runDirectory 'capture.log'
 
 function Test-Elevated {
     $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -130,7 +320,8 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     # Quote path/value args so a project path, filter, or process name containing spaces
     # survives Start-Process joining the array into a single command line.
     $argList = @('-NoProfile', '-File', "`"$PSCommandPath`"", '-Project', "`"$($projFile.FullName)`"",
-        '-Filter', "`"$Filter`"", '-Profiler', 'ETW', '-Tfm', $Tfm, '-Process', "`"$Process`"", '-Top', $Top)
+        '-Filter', "`"$Filter`"", '-Profiler', 'ETW', '-Tfm', $Tfm, '-Process', "`"$Process`"", '-Top', $Top,
+        '-RunId', $RunId, '-DotnetPath', "`"$DotnetPath`"", '-FiltracePath', "`"$FiltracePath`"")
     # Relaunch with the host that is ALREADY running this script, not a hardcoded 'pwsh' -
     # a caller on Windows PowerShell 5.1 without PowerShell 7 installed would otherwise
     # fail here with pwsh unresolved.
@@ -165,7 +356,25 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     exit 0
 }
 
-New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
+$lockName = [regex]::Replace($Tfm, '[^A-Za-z0-9._-]', '_')
+if ([string]::IsNullOrEmpty($lockName)) { $lockName = 'default' }
+$lockDirectory = Join-Path $projFile.DirectoryName 'obj/filtrace-capture-locks'
+New-Item -ItemType Directory -Force -Path $lockDirectory | Out-Null
+$lockPath = Join-Path $lockDirectory "$lockName.lock"
+try {
+    $captureLock = [System.IO.File]::Open(
+        $lockPath,
+        [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::ReadWrite,
+        [System.IO.FileShare]::None)
+}
+catch [System.IO.IOException] {
+    Write-Error "A capture is already active for project '$($projFile.FullName)' and TFM '$Tfm'. Wait for it to finish before starting another." -ErrorAction Continue
+    exit 1
+}
+
+try {
+    New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
 
 # Without BenchmarkDotNet.Diagnostics.Windows the `-p ETW` profiler silently resolves
 # to UnresolvedDiagnoser and no .etl is written - fail fast with guidance.
@@ -178,107 +387,130 @@ if ($Profiler -eq 'ETW' -and -not (Select-String -Path $projFile.FullName -Patte
 # profilers. Both branches are multi-element arrays, so they stay arrays (a
 # single-element if-expression would unwrap to a scalar under Set-StrictMode).
 $profArg = @('-p', $Profiler, '--keepFiles')
+$benchmarkArguments = @('run', '-c', 'Release', '-f', $Tfm, '--project', $projFile.FullName, '--', '--filter', $Filter) +
+    $profArg + @('--artifacts', $artifacts)
+$startedUtc = [DateTimeOffset]::UtcNow
 
 Write-Host "Capturing $Profiler trace: $Filter ($Tfm)..." -ForegroundColor Cyan
 # Tee, do not redirect: an elevated window shows BenchmarkDotNet's live progress
 # while the run is also logged for the parent window to surface.
-dotnet run -c Release -f $Tfm --project $projFile.FullName -- --filter $Filter @profArg 2>&1 |
+& $DotnetPath @benchmarkArguments 2>&1 |
     Tee-Object -FilePath $log
 if ($LASTEXITCODE -ne 0) { Write-Error "Benchmark run failed (exit $LASTEXITCODE). See $log." -ErrorAction Continue ; exit $LASTEXITCODE }
 
-# Locate the newest trace of the right kind (BenchmarkDotNet may nest it under a
-# results/ subfolder, so recurse). For EventPipe, prefer the raw .nettrace over any
-# derived .speedscope.json from the same capture - the .nettrace also carries
-# allocation events and per-frame source locations that the alloc/lines commands
-# below need and a speedscope conversion does not. But only prefer it when it is
-# actually the PAIRED raw file for this capture (same stem, i.e. produced together) -
-# otherwise a stale .nettrace left over from an earlier run would win over a fresh,
-# speedscope-only capture just because it happens to be a .nettrace. When the two
-# are not paired, whichever file is genuinely newest wins.
-if ($Profiler -eq 'ETW') {
-    $trace = Get-ChildItem -Path $artifacts -Filter '*.etl' -Recurse -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime | Select-Object -Last 1
-    if ($null -eq $trace) { Write-Error "No *.etl found in $artifacts. Did the capture run?" -ErrorAction Continue ; exit 1 }
+$captureCases = @(Get-CaptureCases $artifacts $Profiler)
+if ($captureCases.Count -eq 0) {
+    Write-Error "No capture files found in $artifacts. Did the capture run?" -ErrorAction Continue
+    exit 1
 }
-else {
-    $netTrace = Get-ChildItem -Path $artifacts -Filter '*.nettrace' -Recurse -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime | Select-Object -Last 1
-    $speedscope = Get-ChildItem -Path $artifacts -Filter '*.speedscope.json' -Recurse -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime | Select-Object -Last 1
-
-    if ($null -eq $netTrace) {
-        $trace = $speedscope
-    }
-    elseif ($null -eq $speedscope) {
-        $trace = $netTrace
-    }
-    else {
-        # BenchmarkDotNet names both files from the same stem, e.g.
-        # foo-<timestamp>.nettrace / foo-<timestamp>.speedscope.json - strip each
-        # file's own suffix to compare the stems, not just Extension (which for
-        # *.speedscope.json is only ".json").
-        $netStem = $netTrace.BaseName
-        $scopeStem = $speedscope.Name -replace '\.speedscope\.json$', ''
-        if ($netStem -eq $scopeStem -or $netTrace.LastWriteTime -ge $speedscope.LastWriteTime) {
-            $trace = $netTrace
-        }
-        else {
-            $trace = $speedscope
-        }
-    }
-    if ($null -eq $trace) { Write-Error "No *.nettrace or *.speedscope.json found in $artifacts. Did the capture run?" -ErrorAction Continue ; exit 1 }
-}
+Set-BenchmarkIdentities $captureCases $log
 
 # The project build output carries matching PDBs for source lines; --keepFiles also
 # preserves BenchmarkDotNet's generated build output for manual follow-up.
 $symbols = Join-Path (Split-Path -Parent $projFile.FullName) "bin/Release/$Tfm"
+$symbolCandidates = @(Get-SymbolCandidates $log $symbols)
+$filtraceAvailable = $null -ne (Get-Command $FiltracePath -ErrorAction SilentlyContinue)
+foreach ($captureCase in $captureCases) {
+    $captureCase.symbolCandidates = $symbolCandidates
+    if ($captureCase.trace -and $filtraceAvailable) {
+        $captureCase.symbolsDirectory = Find-ExactSymbolDirectory $captureCase.trace $symbolCandidates $FiltracePath
+    }
+}
 $methodFilter = $Filter.Trim('*')
 if ([string]::IsNullOrWhiteSpace($methodFilter)) { $methodFilter = 'BenchmarkMethod' }
 
-if ($Profiler -eq 'ETW') {
-    Write-CaptureMetadata $trace.FullName ([ordered]@{
-        cpu = 'enabled'; threadtime = 'enabled'; classify = 'enabled';
-        processes = 'enabled'; diskio = 'disabled'; events = 'enabled'
-    })
-}
-elseif ($trace.Name -like '*.nettrace') {
-    # BenchmarkDotNet's default EventPipeProfile.CpuSampling enables the sample
-    # profiler, CLR Default keywords, and its benchmark Engine provider.
-    Write-CaptureMetadata $trace.FullName ([ordered]@{
-        cpu = 'enabled'; alloc = 'disabled'; exceptions = 'enabled';
-        contention = 'enabled'; wait = 'disabled'; activity = 'enabled';
-        gcstats = 'enabled'; jitstats = 'enabled'; threadpool = 'enabled';
-        events = 'enabled'
-    })
+foreach ($captureCase in $captureCases) {
+    if (-not $captureCase.trace) { continue }
+    if ($Profiler -eq 'ETW') {
+        Write-CaptureMetadata $captureCase.trace ([ordered]@{
+            cpu = 'enabled'; threadtime = 'enabled'; classify = 'enabled';
+            processes = 'enabled'; diskio = 'disabled'; events = 'enabled'
+        })
+    }
+    else {
+        # BenchmarkDotNet's default EventPipeProfile.CpuSampling enables the sample
+        # profiler, CLR Default keywords, and its benchmark Engine provider.
+        Write-CaptureMetadata $captureCase.trace ([ordered]@{
+            cpu = 'enabled'; alloc = 'disabled'; exceptions = 'enabled';
+            contention = 'enabled'; wait = 'disabled'; activity = 'enabled';
+            gcstats = 'enabled'; jitstats = 'enabled'; threadpool = 'enabled';
+            events = 'enabled'
+        })
+    }
 }
 
-Write-Host "`nCaptured: $($trace.FullName)" -ForegroundColor Green
-Write-Host "`nNext-step filtrace commands:" -ForegroundColor Green
-if ($Profiler -eq 'ETW') {
-    # An .etl is machine-wide: narrow it to the benchmark process. Root-aware
-    # rankings/exports also use --benchmark to exclude harness/overhead scaffolding;
-    # the WorkloadAction wrapper still includes warmup and actual iterations. Lines
-    # has no root preset, so print its supported method filter explicitly.
-    Write-Host "  filtrace processes `"$($trace.FullName)`""
-    Write-Host "  filtrace cpu `"$($trace.FullName)`" --process `"$Process`" --benchmark --top $Top"
-    Write-Host "  filtrace threadtime `"$($trace.FullName)`" --process `"$Process`" --benchmark --top $Top"
-    Write-Host "  filtrace lines `"$($trace.FullName)`" --process `"$Process`" --method `"$methodFilter`" --symbols `"$symbols`""
-    Write-Host "  filtrace classify `"$($trace.FullName)`" --process `"$Process`" --benchmark --native-symbols"
-    Write-Host "  filtrace export `"$($trace.FullName)`" --process `"$Process`" --benchmark --native-symbols --symbols `"$symbols`" -o flame.speedscope.json"
+$manifestPath = Join-Path $runDirectory 'manifest.json'
+$manifest = [ordered]@{
+    schemaVersion = 1
+    runId = $RunId
+    startedUtc = $startedUtc.ToString('O')
+    completedUtc = [DateTimeOffset]::UtcNow.ToString('O')
+    command = [ordered]@{
+        executable = $DotnetPath
+        arguments = $benchmarkArguments
+    }
+    project = $projFile.FullName
+    tfm = $Tfm
+    filter = $Filter
+    profiler = $Profiler
+    process = $Process
+    source = Get-SourceIdentity $projFile.DirectoryName
+    runtimes = @(
+        Get-Content -LiteralPath $log |
+            Where-Object { $_ -match '^Runtime = ' } |
+            Sort-Object -Unique
+    )
+    paths = [ordered]@{
+        runDirectory = $runDirectory
+        artifactsDirectory = $artifacts
+        log = $log
+    }
+    cases = $captureCases
 }
-elseif ($trace.Name -like '*.nettrace') {
-    # The default BenchmarkDotNet EventPipe profile carries CPU and source locations,
-    # but not allocation ticks. Root-aware rankings/exports use --benchmark; lines
-    # has no root preset, so narrow it with the benchmark method name.
-    Write-Host "  filtrace cpu `"$($trace.FullName)`" --benchmark --top $Top"
-    Write-Host "  filtrace lines `"$($trace.FullName)`" --method `"$methodFilter`" --symbols `"$symbols`""
-    Write-Host "  filtrace export `"$($trace.FullName)`" --benchmark --symbols `"$symbols`" -o flame.speedscope.json"
-    Write-Host "  # alloc disabled by BenchmarkDotNet's default CpuSampling profile; recapture with EventPipeProfile.GcVerbose"
+Write-RunManifest $manifestPath $manifest
+
+Write-Host "`nCaptured $($captureCases.Count) case(s)." -ForegroundColor Green
+Write-Host "Manifest: $manifestPath" -ForegroundColor Green
+foreach ($captureCase in $captureCases) {
+    $analysisPath = if ($captureCase.trace) { $captureCase.trace } else { $captureCase.speedscope }
+    Write-Host "`nCase: $($captureCase.id)" -ForegroundColor Green
+    Write-Host "Captured: $analysisPath"
+    Write-Host "Next-step filtrace commands:"
+    $exactSymbols = $captureCase.symbolsDirectory
+    if ($Profiler -eq 'ETW') {
+        # An .etl is machine-wide: narrow it to the benchmark process. Root-aware
+        # rankings/exports also use --benchmark to exclude harness/overhead scaffolding.
+        Write-Host "  filtrace processes `"$analysisPath`""
+        Write-Host "  filtrace cpu `"$analysisPath`" --process `"$Process`" --benchmark --top $Top"
+        Write-Host "  filtrace threadtime `"$analysisPath`" --process `"$Process`" --benchmark --top $Top"
+        if ($exactSymbols) {
+            Write-Host "  filtrace lines `"$analysisPath`" --process `"$Process`" --method `"$methodFilter`" --symbols `"$exactSymbols`""
+        }
+        else {
+            Write-Host "  # source lines unavailable: no logged child output had an exact matching PDB"
+        }
+        Write-Host "  filtrace classify `"$analysisPath`" --process `"$Process`" --benchmark --native-symbols"
+        $exportSymbols = if ($exactSymbols) { " --symbols `"$exactSymbols`"" } else { '' }
+        Write-Host "  filtrace export `"$analysisPath`" --process `"$Process`" --benchmark --native-symbols$exportSymbols -o flame.speedscope.json"
+    }
+    elseif ($captureCase.trace) {
+        Write-Host "  filtrace cpu `"$analysisPath`" --benchmark --top $Top"
+        if ($exactSymbols) {
+            Write-Host "  filtrace lines `"$analysisPath`" --method `"$methodFilter`" --symbols `"$exactSymbols`""
+            Write-Host "  filtrace export `"$analysisPath`" --benchmark --symbols `"$exactSymbols`" -o flame.speedscope.json"
+        }
+        else {
+            Write-Host "  # source lines unavailable: no logged child output had an exact matching PDB"
+            Write-Host "  filtrace export `"$analysisPath`" --benchmark -o flame.speedscope.json"
+        }
+        Write-Host "  # alloc disabled by BenchmarkDotNet's default CpuSampling profile; recapture with EventPipeProfile.GcVerbose"
+    }
+    else {
+        Write-Host "  filtrace cpu `"$analysisPath`" --benchmark --top $Top"
+        Write-Host "  filtrace export `"$analysisPath`" --benchmark -o flame.speedscope.json"
+    }
 }
-else {
-    # A derived .speedscope.json carries CPU self-time only: no allocation events
-    # (alloc needs a .nettrace) and no per-frame source locations (speedscope inputs
-    # never carry line data), so only print the commands that actually work against it.
-    Write-Host "  filtrace cpu `"$($trace.FullName)`" --benchmark --top $Top"
-    Write-Host "  filtrace export `"$($trace.FullName)`" --benchmark -o flame.speedscope.json"
+}
+finally {
+    $captureLock.Dispose()
 }

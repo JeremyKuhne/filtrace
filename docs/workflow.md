@@ -109,8 +109,14 @@ it isolates the `[Benchmark]` code from bootstrap and overhead scaffolding, not 
 from measurement. The bundled
 [scripts/Capture-BenchmarkTrace.ps1](../.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1)
 wraps the whole loop: it runs the benchmark under the chosen profiler
-(self-elevating for ETW, with visible progress), finds the newest trace, and prints
-the next-step filtrace commands already scoped with `--process` and `--benchmark`.
+(self-elevating for ETW, with visible progress) in a run-specific artifacts/log
+directory, emits `manifest.json` with every parameterized case and trace pair, and
+prints next-step commands already scoped with `--process` and `--benchmark`. It parses
+BenchmarkDotNet's logged child `OutDir` values and uses `filtrace info` to put a
+directory in `symbolsDirectory` only when its PDB identity maps sampled frames. A
+same-project/same-TFM file-handle lock rejects overlapping captures immediately;
+different projects or TFMs remain independent. The script never selects a globally
+newest artifact, so stale traces cannot enter the manifest.
 
 To profile a whole executable project instead of a micro-benchmark, capture its
 running output with `dotnet-trace` (EventPipe) or `filtrace collect` (ETW). Build first

@@ -27,7 +27,7 @@ Layout:
 - `dotnet build filtrace.slnx -c Release`
 - `dotnet test filtrace.slnx -c Release`
 
-CI also runs five contract and evaluation checks that must stay green:
+CI also runs six contract and evaluation checks that must stay green:
 
 - `tools/Test-CliHelp.ps1 -Configuration Release` - every verb appears in the
   top-level help, each verb's `--help` stays within the line budget, and the
@@ -37,6 +37,8 @@ CI also runs five contract and evaluation checks that must stay green:
   round-trips.
 - `tools/Test-Docs.ps1` - shared workflow blocks, command/tool catalogs, and the
   packaged filtrace skill stay synchronized.
+- `tools/Test-CaptureBenchmarkTrace.ps1` - run artifacts stay isolated, overlap
+  is rejected, every case enters the manifest, and exact child symbols are used.
 - `eval/Invoke-Eval.ps1 -Configuration Release` - canonical trace tasks keep
   their answers, call counts, and output budgets.
 - `tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation` - commons
