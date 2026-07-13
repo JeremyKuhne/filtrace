@@ -63,7 +63,8 @@ detail would exceed that budget, a minimal completed result points to `manifest.
 if even that path cannot fit, the result directs the caller to the run directory.
 Recorder-established command fallback is used only when filtrace is unavailable;
 if `filtrace info` is present but cannot read a case, every analysis is unknown and
-no command is emitted.
+no command is emitted. Recorder fallback never fabricates an `eventCount`; only a
+successful `filtrace info` result supplies an observed count, including zero.
 Same-project/same-TFM overlap is rejected rather than sharing outputs. The
 [scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) builds an
 executable project and traces its running output directly - never `dotnet run`,

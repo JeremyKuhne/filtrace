@@ -357,7 +357,7 @@ function ConvertTo-AnalysisMap(
         }
         $analyses[$name] = [ordered]@{
             captureStatus = $status
-            eventCount = if ($status -eq 'enabled') { 0 } else { $null }
+            eventCount = $null
         }
     }
     return $analyses

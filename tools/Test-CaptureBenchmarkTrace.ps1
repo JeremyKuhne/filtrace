@@ -328,6 +328,7 @@ $global:LASTEXITCODE = 0
     Assert-True (@($infoFailureManifest.cases[0].warnings) -contains 'filtrace info could not verify analysis availability; no commands emitted') 'Failed filtrace info warning was omitted from the manifest.'
     foreach ($captureCase in $infoFailureManifest.cases) {
         Assert-True (@($captureCase.analyses.PSObject.Properties.Value.captureStatus | Where-Object { $_ -ne 'unknown' }).Count -eq 0) "Failed filtrace info did not mark every analysis unknown for case '$($captureCase.id)'."
+        Assert-True (@($captureCase.analyses.PSObject.Properties.Value.eventCount | Where-Object { $null -ne $_ }).Count -eq 0) "Failed filtrace info fabricated an observed event count for case '$($captureCase.id)'."
     }
 
     if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
@@ -436,12 +437,23 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     }
     Assert-True ($fallbackExitCode -eq 0) 'Capture without filtrace failed.'
     $fallbackResult = $fallbackOutput | ConvertFrom-Json
+    $fallbackManifestPath = Join-Path $globalArtifacts 'filtrace-runs/fallback-run/manifest.json'
+    $fallbackManifest = Get-Content -LiteralPath $fallbackManifestPath -Raw | ConvertFrom-Json
     $fallbackCommands = @($fallbackResult.cases[0].commands)
     Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace cpu ' }).Count -eq 1) 'Recorder-established CPU did not emit a fallback command.'
     Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace exceptions ' }).Count -eq 1) 'Recorder-established exceptions did not emit a fallback command.'
     Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace alloc ' }).Count -eq 0) 'Recorder-disabled allocation emitted a fallback command.'
     Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace lines ' }).Count -eq 0) 'Unverified symbols emitted a source-line command.'
     Assert-True (@($fallbackResult.warnings.message) -contains 'source lines unavailable; no logged child output had an exact matching PDB') 'Missing filtrace did not explain unavailable source lines.'
+    Assert-True ($fallbackManifest.cases[0].analyses.cpu.captureStatus -eq 'enabled') 'Recorder-established CPU status was not preserved.'
+    Assert-True ($null -eq $fallbackManifest.cases[0].analyses.cpu.eventCount) 'Recorder-established CPU fabricated an observed event count.'
+    Assert-True ($fallbackManifest.cases[0].analyses.exceptions.captureStatus -eq 'enabled') 'Recorder-established exceptions status was not preserved.'
+    Assert-True ($null -eq $fallbackManifest.cases[0].analyses.exceptions.eventCount) 'Recorder-established exceptions fabricated an observed event count.'
+    Assert-True ($fallbackManifest.cases[0].analyses.alloc.captureStatus -eq 'disabled') 'Recorder-disabled allocation status was not preserved.'
+    Assert-True ($null -eq $fallbackManifest.cases[0].analyses.alloc.eventCount) 'Recorder-disabled allocation unexpectedly gained an event count.'
+    foreach ($captureCase in $fallbackManifest.cases) {
+        Assert-True (@($captureCase.analyses.PSObject.Properties.Value.eventCount | Where-Object { $null -ne $_ }).Count -eq 0) "Recorder fallback fabricated an observed event count for case '$($captureCase.id)'."
+    }
 
     $reuseArgsPath = Join-Path $temporaryRoot 'reuse-dotnet-args.txt'
     $env:FILTRACE_CAPTURE_ARGS = $reuseArgsPath
