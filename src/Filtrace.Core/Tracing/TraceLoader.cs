@@ -139,7 +139,8 @@ public sealed class TraceLoader
             result.SymbolResolutionRate,
             result.Warnings,
             result.AnalysisEventCounts ?? new Dictionary<string, int>(),
-            result.EtlxCacheState);
+            result.EtlxCacheState,
+            result.SourceResolution);
 
         StackSampleSource source = new(MetricInfo.Cpu, result.Samples, result.RecordSemantics);
         return new LoadedTrace(info, source);
@@ -413,7 +414,8 @@ public sealed class TraceLoader
         double symbolResolutionRate,
         IReadOnlyList<string> warnings,
         IReadOnlyDictionary<string, int> analysisEventCounts,
-        EtlxCacheState? etlxCacheState = null)
+        EtlxCacheState? etlxCacheState = null,
+        SourceResolutionInfo? sourceResolution = null)
     {
         double totalWeight = 0.0;
         Dictionary<string, int> threadCounts = new(StringComparer.Ordinal);
@@ -451,7 +453,10 @@ public sealed class TraceLoader
             combinedWarnings,
             TraceCapabilities.AnalysesFor(format),
             analyses,
-            etlxCacheState);
+            etlxCacheState)
+        {
+            SourceResolution = sourceResolution
+        };
     }
 
     private static IReadOnlyDictionary<string, int> AnalysisRecordCounts(

@@ -133,8 +133,23 @@ public static class SteeringHints
             }
         }
 
+        if (info.SourceResolution is SourceResolutionInfo
+            {
+                SampledManagedFrameCount: > 0,
+                SourceResolutionRate: < SymbolGate.MinimumResolutionRate
+            } source)
+        {
+            string affected = source.HighestUnmappedModules.Count == 0
+                ? "sampled managed modules"
+                : string.Join(", ", source.HighestUnmappedModules.Take(3));
+            hints.Add($"method-name resolution ({FormatRate(info.SymbolResolutionRate)}) is separate from source mapping ({FormatRate(source.SourceResolutionRate)}); affected: {affected}; source lines require exact matching PDBs - retry with --symbols pointing at the recorded build output (for BenchmarkDotNet, the generated child output)");
+        }
+
         return hints;
     }
+
+    private static string FormatRate(double value) =>
+        $"{(value * 100.0).ToString("0", CultureInfo.InvariantCulture)}%";
 
     /// <summary>
     ///  The next-step hints for a self-time or inclusive-time ranking: drill into

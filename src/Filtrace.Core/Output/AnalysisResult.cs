@@ -48,8 +48,12 @@ public sealed class AnalysisResult<T>
     ///   Version 5 added per-supported-analysis capture status and observed
     ///   source-record counts to trace-info payloads.
     ///  </para>
+    ///  <para>
+    ///   Version 6 added sampled managed source/PDB diagnostics to trace-info
+    ///   payloads.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.

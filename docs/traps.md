@@ -23,6 +23,12 @@ embeds the marked block below verbatim and
    frames, so a net481 ETW capture can read low while every *managed* leaf resolves
    correctly; in that case managed-method rankings remain usable, and
    `--native-symbols` is the relevant opt-in when the native runtime split matters.
+   Conversely, 100% method-name resolution does not prove that any source line is
+   available. Before `lines` or `heatmap`, inspect `trace_info.sourceResolution`:
+   require the relevant module in `matchingPdbModules`, then report mapped versus
+   sampled managed frames and `highestUnmappedModules`. PDB identity must match the
+   captured module; for BenchmarkDotNet this usually means the generated child output
+   retained with `--keepFiles`, not the outer project output.
 
 3. **On a machine-wide `.etl`, confirm the process before scoping.** filtrace
    auto-scopes to the busiest process tree ranked by **CPU-sample count** (a

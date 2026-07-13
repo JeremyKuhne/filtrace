@@ -128,6 +128,13 @@ public sealed class TraceInfo
     public IReadOnlyDictionary<string, AnalysisAvailability> Analyses { get; }
 
     /// <summary>
+    ///  Sampled managed source/PDB quality, separate from
+    ///  <see cref="SymbolResolutionRate"/>, or <see langword="null"/> when the input
+    ///  carries no managed source-resolution diagnostics.
+    /// </summary>
+    public SourceResolutionInfo? SourceResolution { get; init; }
+
+    /// <summary>
     ///  How this request obtained the ETLX cache, or <see langword="null"/> for
     ///  formats such as speedscope that do not use ETLX.
     /// </summary>

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using Filtrace.Output;
 using Filtrace.Tracing;
 
@@ -73,5 +74,45 @@ public sealed class InfoTextRendererTests
         string text = output.ToString();
         text.IndexOf("  cpu:", StringComparison.Ordinal).Should().BeLessThan(
             text.IndexOf("  alloc:", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Render_SourceResolutionUnderFrenchCulture_UsesAsciiPercentages()
+    {
+        TraceInfoView view = new(
+            "/trace.nettrace",
+            "NetTrace",
+            10.0,
+            10,
+            1.0,
+            [],
+            ["cpu"])
+        {
+            SourceResolution = new SourceResolutionInfo(
+                ["/child-output"],
+                100,
+                25,
+                ["MyApp"],
+                ["GeneratedChild (0/75 mapped)"])
+        };
+        StringWriter output = new();
+
+        CultureInfo originalCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            InfoTextRenderer.Render(new AnalysisResult<TraceInfoView>(view), output);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+        }
+
+        string text = output.ToString();
+        text.Should().Contain("symbols 100%");
+        text.Should().Contain("source: 25/100 sampled managed frames (25%)");
+        text.Should().Contain("symbol directories: /child-output");
+        text.Should().Contain("matching PDB modules: MyApp");
+        text.Should().Contain("highest unmapped modules: GeneratedChild (0/75 mapped)");
     }
 }

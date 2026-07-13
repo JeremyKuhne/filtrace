@@ -55,6 +55,8 @@ internal abstract class TraceLogReader : ITraceReader
         ScopeRequest? scope = null,
         SymbolOptions? symbolOptions = null)
     {
+        symbolsDirectory = NormalizeSymbolsDirectory(symbolsDirectory);
+
         EtlxCacheState cacheState;
         using TraceLog traceLog = OpenTraceLog(path, out cacheState);
 
@@ -73,6 +75,7 @@ internal abstract class TraceLogReader : ITraceReader
         string? extractedPdbDirectory = symbolsDirectory is null
             ? null
             : EmbeddedPdbExtractor.Extract(symbolsDirectory);
+        string? localSymbolPath = null;
 
         // The name the scope resolved to (set by ResolveScope below), surfaced as a
         // warning so the caller knows a machine-wide capture was narrowed automatically.
@@ -82,11 +85,15 @@ internal abstract class TraceLogReader : ITraceReader
         {
             if (extractedPdbDirectory is not null)
             {
-                symbolReader.SymbolPath = $"{symbolsDirectory}{Path.PathSeparator}{extractedPdbDirectory}";
+                SymbolPath symbolPath = new(symbolsDirectory);
+                symbolPath.Add(extractedPdbDirectory);
+                localSymbolPath = symbolPath.ToString();
+                symbolReader.SymbolPath = localSymbolPath;
             }
             else if (!string.IsNullOrEmpty(symbolsDirectory))
             {
-                symbolReader.SymbolPath = symbolsDirectory;
+                localSymbolPath = symbolsDirectory;
+                symbolReader.SymbolPath = localSymbolPath;
             }
 
             // Opt-in native runtime symbols: point the reader at the Microsoft public
@@ -126,7 +133,8 @@ internal abstract class TraceLogReader : ITraceReader
                 activitySamples,
                 activityName,
                 scope?.Window,
-                cacheState);
+                cacheState,
+                new SourceResolutionTracker(symbolsDirectory, localSymbolPath));
         }
         finally
         {
@@ -143,6 +151,42 @@ internal abstract class TraceLogReader : ITraceReader
                 }
             }
         }
+    }
+
+    internal static string? NormalizeSymbolsDirectory(string? symbolsDirectory)
+    {
+        if (string.IsNullOrEmpty(symbolsDirectory))
+        {
+            return null;
+        }
+
+        if (!IsSingleLocalSymbolPath(symbolsDirectory))
+        {
+            throw new ArgumentException(
+                "Symbols must be one local build-output directory; symbol-path syntax is not allowed.",
+                nameof(symbolsDirectory));
+        }
+
+        string fullPath = Path.GetFullPath(symbolsDirectory);
+        if (!IsSingleLocalSymbolPath(fullPath))
+        {
+            throw new ArgumentException(
+                "Symbols must be one local build-output directory; symbol-path syntax is not allowed.",
+                nameof(symbolsDirectory));
+        }
+
+        if (!Directory.Exists(fullPath))
+        {
+            throw new DirectoryNotFoundException($"Symbols directory '{fullPath}' was not found.");
+        }
+
+        return fullPath;
+    }
+
+    private static bool IsSingleLocalSymbolPath(string path)
+    {
+        SymbolPath symbolPath = new(path);
+        return symbolPath.Elements.Count == 1 && !symbolPath.Elements.Single().IsRemote;
     }
 
     // Runs the start-stop activity computer over the trace and returns the set of CPU
@@ -202,7 +246,8 @@ internal abstract class TraceLogReader : ITraceReader
         HashSet<EventIndex>? activitySamples,
         string? activityName,
         TimeWindow? window,
-        EtlxCacheState cacheState)
+        EtlxCacheState cacheState,
+        SourceResolutionTracker sourceResolution)
     {
         AnalysisEventCounter analysisEvents = new();
         Dictionary<int, string> locationCache = [];
@@ -279,7 +324,9 @@ internal abstract class TraceLogReader : ITraceReader
                 }
 
                 leafToRoot.Add(name);
-                leafToRootLocations.Add(ResolveLocation(symbolReader, address, locationCache));
+                string location = ResolveLocation(symbolReader, address, locationCache);
+                leafToRootLocations.Add(location);
+                sourceResolution.Observe(address, location.Length > 0);
             }
 
             if (leafToRoot.Count == 0)
@@ -394,7 +441,8 @@ internal abstract class TraceLogReader : ITraceReader
             warnings,
             StackRecordSemantics.PeriodicCpuSamples,
             cacheState,
-            analysisEvents.Counts);
+            analysisEvents.Counts,
+            sourceResolution.CreateInfo());
     }
 
     // Joins the applied-scope phrases into one clause: "A" for one, "A and B" for two,
@@ -437,9 +485,9 @@ internal abstract class TraceLogReader : ITraceReader
         // server, so the first read downloads and later reads hit the cache. Preserve
         // any path already set (the local build-output PDBs) by appending the server.
         string serverPath = $"srv*{cacheDirectory}*https://msdl.microsoft.com/download/symbols";
-        symbolReader.SymbolPath = string.IsNullOrEmpty(symbolReader.SymbolPath)
-            ? serverPath
-            : $"{symbolReader.SymbolPath}{Path.PathSeparator}{serverPath}";
+        SymbolPath symbolPath = new(symbolReader.SymbolPath);
+        symbolPath.Add(serverPath);
+        symbolReader.SymbolPath = symbolPath.ToString();
 
         foreach (TraceModuleFile moduleFile in traceLog.ModuleFiles)
         {

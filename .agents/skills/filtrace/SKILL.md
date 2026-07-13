@@ -99,6 +99,12 @@ Almost every investigation is the same four moves:
    fires a quality warning: inspect the unresolved rows before trusting frame names.
    Managed method names normally come from the capture's CLR rundown; `--symbols`
    supplies matching PDBs for source lines, not a replacement for missing rundown.
+   Treat that rate as frame-name quality only. Before source-line analysis, inspect
+   `sourceResolution`: require exact matches for the relevant modules, report mapped
+   versus sampled managed frames, and use `highestUnmappedModules` plus
+   `searchedDirectories` to diagnose the missing PDBs. For BenchmarkDotNet, point
+   symbols at the generated child output retained with `--keepFiles`; an outer build
+   PDB can have the same filename but a different identity.
    Unresolved native ETW frames can depress the aggregate while managed-method
    rankings remain usable; use `--native-symbols` when the native runtime split matters.
    Check `availableAnalyses` before selecting a metric, then read
@@ -146,7 +152,7 @@ workload:
 
 | Verb | Shows |
 |---|---|
-| `info` | format, sample count, symbol-resolution rate, per-thread counts, per-analysis format/capture/event state, and quality warnings - the CLI counterpart of `trace_info` |
+| `info` | format, samples, frame-name and source/PDB quality, per-thread counts, per-analysis format/capture/event state, and quality warnings - the CLI counterpart of `trace_info` |
 
 **Rank** - find the hottest frames by a metric:
 
@@ -249,7 +255,10 @@ Run `filtrace <verb> --help` for the full option set of any verb.
 - **Symbols.** Managed frames (including NGEN and ReadyToRun framework methods)
    resolve to method names from the trace's CLR rundown. `--symbols <dir>` supplies
    matching local PDBs for source-line attribution; do not assume it repairs missing
-   rundown names. `--native-symbols` (CPU `.etl` only, opt-in, network) names the
+   rundown names or that a same-named PDB matches. Confirm exact PDB modules and
+   sampled source mapping in `trace_info.sourceResolution`; for BenchmarkDotNet,
+   prefer the retained generated child output over the outer project output.
+   `--native-symbols` (CPU `.etl` only, opt-in, network) names the
    unmanaged GC / JIT / `memcpy` frames that otherwise show as a `?` leaf.
 
 ## Interpret and report the evidence
@@ -311,6 +320,12 @@ The recurring ways a .NET trace investigation goes wrong:
    frames, so a net481 ETW capture can read low while every *managed* leaf resolves
    correctly; in that case managed-method rankings remain usable, and
    `--native-symbols` is the relevant opt-in when the native runtime split matters.
+   Conversely, 100% method-name resolution does not prove that any source line is
+   available. Before `lines` or `heatmap`, inspect `trace_info.sourceResolution`:
+   require the relevant module in `matchingPdbModules`, then report mapped versus
+   sampled managed frames and `highestUnmappedModules`. PDB identity must match the
+   captured module; for BenchmarkDotNet this usually means the generated child output
+   retained with `--keepFiles`, not the outer project output.
 
 3. **On a machine-wide `.etl`, confirm the process before scoping.** filtrace
    auto-scopes to the busiest process tree ranked by **CPU-sample count** (a

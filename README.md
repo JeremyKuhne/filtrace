@@ -220,8 +220,11 @@ filtrace is built for an agent mid-investigation. Two ways to wire it in:
 
 Either way, the canonical loop is **orient -> rank -> drill -> compare**: read
 `trace_info` (CLI: `filtrace info`) first; when symbol resolution is below 0.8,
-inspect its warning and unresolved rows; use local PDBs for source lines or native
-symbols for CPU ETW runtime frames as applicable. Rank by the metric that matches the question (cpu, alloc, exceptions,
+inspect its warning and unresolved rows. Treat that as frame-name quality; before
+source-line analysis, inspect `sourceResolution` for exact matching PDB modules,
+mapped sampled managed frames, searched directories, and highest-unmapped modules.
+Use the generated BenchmarkDotNet child output when the outer build PDB does not
+match; use native symbols for CPU ETW runtime frames as applicable. Rank by the metric that matches the question (cpu, alloc, exceptions,
 threadtime, contention, wait, activity); for an unwindowed CPU ranking, drill the
 hot frame with callers / lines / tree; diff comparable CPU traces against a baseline.
 <!-- filtrace:end agents-snippet -->

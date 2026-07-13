@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using Filtrace.Output;
 using Filtrace.Tracing;
 
@@ -32,7 +33,7 @@ internal static class InfoTextRenderer
         // The banner mirrors the header every ranking prints; the weight is the CPU
         // view's total sampled milliseconds, the metric this orientation load reads.
         output.WriteLine(
-            $"{view.Format}  {view.SampleCount} samples  {view.TotalWeight:N1} ms  symbols {view.SymbolResolutionRate:P0}");
+            $"{view.Format}  {view.SampleCount} samples  {view.TotalWeight:N1} ms  symbols {FormatRate(view.SymbolResolutionRate)}");
         output.WriteLine();
 
         output.WriteLine("analyses:");
@@ -62,6 +63,17 @@ internal static class InfoTextRenderer
             output.WriteLine($"etlx cache: {view.EtlxCacheState}");
         }
 
+        if (view.SourceResolution is SourceResolutionInfo source)
+        {
+            output.WriteLine($"source: {source.MappedManagedFrameCount}/{source.SampledManagedFrameCount} sampled managed frames ({FormatRate(source.SourceResolutionRate)})");
+            output.WriteLine(
+                $"symbol directories: {ListOrNone(source.SearchedDirectories)}");
+            output.WriteLine(
+                $"matching PDB modules: {ListOrNone(source.MatchingPdbModules)}");
+            output.WriteLine(
+                $"highest unmapped modules: {ListOrNone(source.HighestUnmappedModules)}");
+        }
+
         output.WriteLine("threads:");
         if (view.Threads.Count == 0)
         {
@@ -84,8 +96,7 @@ internal static class InfoTextRenderer
             }
         }
 
-        // The symptom-to-analysis routing hints, then the quality warnings (a low
-        // symbol-resolution rate rides the warning channel).
+        // The symptom-to-analysis routing hints, then quality warnings.
         foreach (string hint in envelope.Hints)
         {
             output.WriteLine($"> {hint}");
@@ -96,4 +107,10 @@ internal static class InfoTextRenderer
             output.WriteLine($"! {warning}");
         }
     }
+
+    private static string ListOrNone(IReadOnlyList<string> values) =>
+        values.Count == 0 ? "(none)" : string.Join(", ", values);
+
+    private static string FormatRate(double value) =>
+        $"{(value * 100.0).ToString("0", CultureInfo.InvariantCulture)}%";
 }

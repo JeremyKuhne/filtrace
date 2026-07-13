@@ -53,6 +53,12 @@ public sealed record TraceInfoView(
     public IReadOnlyDictionary<string, AnalysisAvailabilityView>? Analyses { get; init; }
 
     /// <summary>
+    ///  Sampled managed source/PDB quality, separate from method-name
+    ///  <see cref="SymbolResolutionRate"/>.
+    /// </summary>
+    public SourceResolutionInfo? SourceResolution { get; init; }
+
+    /// <summary>
     ///  Creates the shared CLI/MCP view of <paramref name="info"/>.
     /// </summary>
     /// <param name="info">The loaded trace information to map.</param>
@@ -86,7 +92,8 @@ public sealed record TraceInfoView(
             info.AvailableAnalyses,
             CacheStateText(etlxCacheState))
         {
-            Analyses = analyses
+            Analyses = analyses,
+            SourceResolution = info.SourceResolution
         };
     }
 
