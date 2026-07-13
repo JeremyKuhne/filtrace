@@ -174,8 +174,28 @@ $global:LASTEXITCODE = 0
     Assert-True ($manifest.cases[0].symbolCandidates -contains $childSymbols) 'Logged child output was not recorded as a symbol candidate.'
     Assert-True (-not (($manifest.cases[0].symbolCandidates -join ';') -match 'evil\.example')) 'Remote logged OutDir entered symbol candidates.'
     Assert-True ($output.Contains("--symbols `"$childSymbols`"", [StringComparison]::OrdinalIgnoreCase)) 'Printed source command did not use exact child symbols.'
-    Assert-True (([regex]::Matches($output, 'filtrace lines ')).Count -eq 3) 'Speedscope-only case printed a source-line command.'
+    Assert-True (([regex]::Matches($output, 'filtrace lines ')).Count -eq 3) 'Expected one filtrace lines command per raw trace and none for the speedscope-only case.'
     Assert-True (-not (($manifest | ConvertTo-Json -Depth 8) -match 'stale-global|stale-old-run')) 'Stale captures entered the manifest.'
+
+    $reuseArgsPath = Join-Path $temporaryRoot 'reuse-dotnet-args.txt'
+    $env:FILTRACE_CAPTURE_ARGS = $reuseArgsPath
+    $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
+    Push-Location $temporaryRoot
+    try {
+        $hostExe = (Get-Process -Id $PID).Path
+        $reuseOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+            -RunId 'current-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 | Out-String
+        $reuseExitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+        $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+        $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $previousChildSymbols
+    }
+
+    Assert-True ($reuseExitCode -ne 0) 'A reused RunId was accepted.'
+    Assert-True ($reuseOutput.Contains('already exists', [StringComparison]::OrdinalIgnoreCase)) 'Reused RunId failure did not explain the existing run.'
+    Assert-True (-not (Test-Path -LiteralPath $reuseArgsPath)) 'Reused RunId invoked dotnet before rejection.'
 
     $env:FILTRACE_CAPTURE_ARGS = $argsPath
     $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols

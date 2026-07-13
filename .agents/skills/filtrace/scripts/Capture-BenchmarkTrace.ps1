@@ -405,6 +405,34 @@ catch [System.IO.IOException] {
 }
 
 try {
+    $runsDirectory = Split-Path -Parent $runDirectory
+    New-Item -ItemType Directory -Force -Path $runsDirectory | Out-Null
+    if (Test-Path -LiteralPath $runDirectory) {
+        Write-Error "Capture run ID '$RunId' already exists at '$runDirectory'. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
+        exit 1
+    }
+
+    $runClaimPath = Join-Path $runsDirectory "$RunId.claim"
+    try {
+        $runClaim = [System.IO.File]::Open(
+            $runClaimPath,
+            [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None)
+        $runClaim.Dispose()
+    }
+    catch [System.IO.IOException] {
+        Write-Error "Capture run ID '$RunId' is already reserved. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
+        exit 1
+    }
+
+    # A pre-existing directory from an older helper may not have a claim file. Recheck
+    # after the atomic claim to close the check/create race before writing any output.
+    if (Test-Path -LiteralPath $runDirectory) {
+        Write-Error "Capture run ID '$RunId' already exists at '$runDirectory'. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
+        exit 1
+    }
+
     New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
 
 # Without BenchmarkDotNet.Diagnostics.Windows the `-p ETW` profiler silently resolves
