@@ -109,9 +109,13 @@ it isolates the `[Benchmark]` code from bootstrap and overhead scaffolding, not 
 from measurement. The bundled
 [scripts/Capture-BenchmarkTrace.ps1](../.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1)
 wraps the whole loop: it runs the benchmark under the chosen profiler
-(self-elevating for ETW, with visible progress) in a run-specific artifacts/log
+(self-elevating for ETW) in a run-specific artifacts/log
 directory, emits `manifest.json` with every parameterized case and trace pair, and
-prints next-step commands already scoped with `--process` and `--benchmark`. It parses
+prints only commands whose `captureStatus` is known-enabled, already scoped with
+`--process` and `--benchmark`; disabled and unknown analyses become explicit warnings.
+Full BenchmarkDotNet output stays in `capture.log`. Use `-Format Json` for a compact
+machine-readable handoff or `-Quiet` to suppress text progress/commands while retaining
+warnings. The helper parses
 BenchmarkDotNet's logged child `OutDir` values and uses `filtrace info` to put a
 directory in `symbolsDirectory` only when its PDB identity maps sampled frames. A
 same-project/same-TFM file-handle lock rejects overlapping captures immediately;

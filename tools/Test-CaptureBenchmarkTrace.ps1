@@ -91,12 +91,31 @@ Write-Output 'fake BenchmarkDotNet capture completed'
 $symbolIndex = [Array]::IndexOf($args, '--symbols')
 $symbols = if ($symbolIndex -ge 0) { $args[$symbolIndex + 1] } else { '' }
 $isExact = $symbols -eq $env:FILTRACE_CAPTURE_CHILD_SYMBOLS
+$tracePath = if ($args.Count -gt 1) { $args[1] } else { '' }
+$isSpeedscope = $tracePath -like '*.speedscope.json'
 $source = [ordered]@{
     sampledManagedFrameCount = 100
     mappedManagedFrameCount = if ($isExact) { 75 } else { 0 }
     matchingPdbModules = if ($isExact) { @('Fake-Job') } else { @() }
 }
-[ordered]@{ result = [ordered]@{ sourceResolution = $source } } | ConvertTo-Json -Depth 4 -Compress
+$analyses = if ($isSpeedscope) {
+    [ordered]@{ cpu = [ordered]@{ captureStatus = 'enabled'; eventCount = 0 } }
+}
+else {
+    [ordered]@{
+        cpu = [ordered]@{ captureStatus = 'enabled'; eventCount = 0 }
+        alloc = [ordered]@{ captureStatus = 'disabled'; eventCount = $null }
+        exceptions = [ordered]@{ captureStatus = 'unknown'; eventCount = $null }
+        contention = [ordered]@{ captureStatus = 'enabled'; eventCount = 2 }
+        wait = [ordered]@{ captureStatus = 'disabled'; eventCount = $null }
+        activity = [ordered]@{ captureStatus = 'unknown'; eventCount = $null }
+        gcstats = [ordered]@{ captureStatus = 'enabled'; eventCount = 0 }
+        jitstats = [ordered]@{ captureStatus = 'unknown'; eventCount = $null }
+        threadpool = [ordered]@{ captureStatus = 'enabled'; eventCount = 1 }
+        events = [ordered]@{ captureStatus = 'enabled'; eventCount = 10 }
+    }
+}
+[ordered]@{ result = [ordered]@{ sourceResolution = $source; analyses = $analyses } } | ConvertTo-Json -Depth 6 -Compress
 $global:LASTEXITCODE = 0
 '@
     [System.IO.File]::WriteAllText($fakeFiltrace, $fakeFiltraceText)
@@ -117,7 +136,7 @@ $global:LASTEXITCODE = 0
     try {
         $global:LASTEXITCODE = 0
         $output = & $captureScript -Project $projectPath -Filter '*Work*' -RunId 'current-run' `
-            -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 6>&1 | Out-String
+            -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace *>&1 | Out-String
     }
     finally {
         Pop-Location
@@ -171,11 +190,86 @@ $global:LASTEXITCODE = 0
     Assert-True ($manifest.cases[0].symbolsDirectory -eq $childSymbols) 'Exact child symbols were not discovered.'
     Assert-True ($manifest.cases[1].symbolsDirectory -eq $childSymbols) 'Exact child symbols were not paired with every matching trace.'
     Assert-True ($manifest.cases[2].symbolsDirectory -eq $childSymbols) 'Exact child symbols were not paired with the other trace.'
+    Assert-True ($manifest.cases[0].analyses.cpu.captureStatus -eq 'enabled') 'CPU capture status was not recorded.'
+    Assert-True ($manifest.cases[0].analyses.cpu.eventCount -eq 0) 'Enabled-zero CPU count was not recorded.'
+    Assert-True ($manifest.cases[0].commands -contains "filtrace cpu '$currentTrace' --benchmark --top 25") 'Enabled-zero CPU command was not recorded.'
+    Assert-True (-not ($manifest.cases[0].commands -match '^filtrace alloc ')) 'Disabled allocation command entered the manifest.'
+    Assert-True (-not ($manifest.cases[0].commands -match '^filtrace exceptions ')) 'Unknown exceptions command entered the manifest.'
+    Assert-True ($manifest.cases[0].warnings -contains 'alloc capture disabled; recapture with a profile that enables it') 'Disabled allocation warning was not recorded.'
+    Assert-True ($manifest.cases[0].warnings -contains 'exceptions capture status unknown; no command emitted') 'Unknown exceptions warning was not recorded.'
     Assert-True ($manifest.cases[0].symbolCandidates -contains $childSymbols) 'Logged child output was not recorded as a symbol candidate.'
     Assert-True (-not (($manifest.cases[0].symbolCandidates -join ';') -match 'evil\.example')) 'Remote logged OutDir entered symbol candidates.'
-    Assert-True ($output.Contains("--symbols `"$childSymbols`"", [StringComparison]::OrdinalIgnoreCase)) 'Printed source command did not use exact child symbols.'
+    Assert-True ($output.Contains($childSymbols, [StringComparison]::OrdinalIgnoreCase)) 'Printed source command did not use exact child symbols.'
     Assert-True (([regex]::Matches($output, 'filtrace lines ')).Count -eq 3) 'Expected one filtrace lines command per raw trace and none for the speedscope-only case.'
+    Assert-True (([regex]::Matches($output, 'filtrace cpu ')).Count -eq 4) 'Enabled-zero CPU did not emit one command per case.'
+    Assert-True (([regex]::Matches($output, 'filtrace rank .*--metric contention')).Count -eq 3) 'Enabled contention did not emit one command per raw trace.'
+    Assert-True (([regex]::Matches($output, 'filtrace gcstats ')).Count -eq 3) 'Enabled-zero GC did not emit one command per raw trace.'
+    Assert-True (([regex]::Matches($output, 'filtrace threadpool ')).Count -eq 3) 'Enabled threadpool did not emit one command per raw trace.'
+    Assert-True (-not $output.Contains('filtrace alloc ', [StringComparison]::OrdinalIgnoreCase)) 'Disabled allocation emitted a command.'
+    Assert-True (-not $output.Contains('filtrace exceptions ', [StringComparison]::OrdinalIgnoreCase)) 'Unknown exceptions emitted a command.'
+    Assert-True ($output.Contains('alloc capture disabled', [StringComparison]::OrdinalIgnoreCase)) 'Disabled allocation was not explained.'
+    Assert-True ($output.Contains('exceptions capture status unknown', [StringComparison]::OrdinalIgnoreCase)) 'Unknown exceptions were not explained.'
+    Assert-True (-not $output.Contains('fake BenchmarkDotNet capture completed', [StringComparison]::OrdinalIgnoreCase)) 'BenchmarkDotNet chatter leaked to stdout.'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $currentRun 'capture.log') -Raw).Contains('fake BenchmarkDotNet capture completed', [StringComparison]::OrdinalIgnoreCase)) 'Full BenchmarkDotNet output was not retained in capture.log.'
     Assert-True (-not (($manifest | ConvertTo-Json -Depth 8) -match 'stale-global|stale-old-run')) 'Stale captures entered the manifest.'
+
+    $hostExe = (Get-Process -Id $PID).Path
+    $env:FILTRACE_CAPTURE_ARGS = $argsPath
+    $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
+    Push-Location $temporaryRoot
+    try {
+        $jsonOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+            -RunId 'json-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json | Out-String
+        $jsonExitCode = $LASTEXITCODE
+        $quietOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+            -RunId 'quiet-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Quiet 2>&1 | Out-String
+        $quietExitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+        $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+        $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $previousChildSymbols
+    }
+
+    Assert-True ($jsonExitCode -eq 0) 'JSON capture failed.'
+    $jsonResult = $jsonOutput | ConvertFrom-Json
+    Assert-True ($jsonResult.status -eq 'completed') 'JSON output did not report completed status.'
+    Assert-True ($jsonResult.runId -eq 'json-run') 'JSON output did not report the run ID.'
+    Assert-True ($jsonResult.cases.Count -eq 4) 'JSON output did not include every case.'
+    Assert-True ($jsonResult.warnings.Count -gt 0) 'JSON output omitted provider warnings.'
+    Assert-True ($jsonResult.cases[0].commands -contains "filtrace gcstats '$($jsonResult.cases[0].trace)'") 'JSON output omitted an enabled-zero command.'
+    Assert-True (-not $jsonOutput.Contains('fake BenchmarkDotNet capture completed', [StringComparison]::OrdinalIgnoreCase)) 'BenchmarkDotNet chatter polluted JSON output.'
+    Assert-True ([Text.Encoding]::UTF8.GetByteCount($jsonOutput.Trim()) -lt 20KB) 'JSON handoff exceeded 20 KiB.'
+
+    Assert-True ($quietExitCode -eq 0) 'Quiet capture failed.'
+    Assert-True ($quietOutput.Contains('capture disabled', [StringComparison]::OrdinalIgnoreCase)) 'Quiet mode suppressed warnings.'
+    Assert-True (-not $quietOutput.Contains('Captured ', [StringComparison]::OrdinalIgnoreCase)) 'Quiet mode emitted capture summary.'
+    Assert-True (-not $quietOutput.Contains('Manifest:', [StringComparison]::OrdinalIgnoreCase)) 'Quiet mode emitted the manifest summary.'
+    Assert-True (-not $quietOutput.Contains('filtrace cpu ', [StringComparison]::OrdinalIgnoreCase)) 'Quiet mode emitted commands.'
+    Assert-True (-not $quietOutput.Contains('fake BenchmarkDotNet capture completed', [StringComparison]::OrdinalIgnoreCase)) 'BenchmarkDotNet chatter polluted quiet output.'
+
+    $missingFiltrace = Join-Path $temporaryRoot 'missing-filtrace'
+    $env:FILTRACE_CAPTURE_ARGS = $argsPath
+    $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
+    Push-Location $temporaryRoot
+    try {
+        $fallbackOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+            -RunId 'fallback-run' -DotnetPath $fakeDotnet -FiltracePath $missingFiltrace -Format Json | Out-String
+        $fallbackExitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+        $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+        $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $previousChildSymbols
+    }
+    Assert-True ($fallbackExitCode -eq 0) 'Capture without filtrace failed.'
+    $fallbackResult = $fallbackOutput | ConvertFrom-Json
+    $fallbackCommands = @($fallbackResult.cases[0].commands)
+    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace cpu ' }).Count -eq 1) 'Recorder-established CPU did not emit a fallback command.'
+    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace exceptions ' }).Count -eq 1) 'Recorder-established exceptions did not emit a fallback command.'
+    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace alloc ' }).Count -eq 0) 'Recorder-disabled allocation emitted a fallback command.'
+    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace lines ' }).Count -eq 0) 'Unverified symbols emitted a source-line command.'
+    Assert-True (@($fallbackResult.warnings.message) -contains 'source lines unavailable; no logged child output had an exact matching PDB') 'Missing filtrace did not explain unavailable source lines.'
 
     $reuseArgsPath = Join-Path $temporaryRoot 'reuse-dotnet-args.txt'
     $env:FILTRACE_CAPTURE_ARGS = $reuseArgsPath
@@ -196,6 +290,20 @@ $global:LASTEXITCODE = 0
     Assert-True ($reuseExitCode -ne 0) 'A reused RunId was accepted.'
     Assert-True ($reuseOutput.Contains('already exists', [StringComparison]::OrdinalIgnoreCase)) 'Reused RunId failure did not explain the existing run.'
     Assert-True (-not (Test-Path -LiteralPath $reuseArgsPath)) 'Reused RunId invoked dotnet before rejection.'
+
+    Push-Location $temporaryRoot
+    try {
+        $hostExe = (Get-Process -Id $PID).Path
+        $unsafeOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*"' `
+            -Profiler ETW -RunId 'unsafe-etw-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 | Out-String
+        $unsafeExitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+    }
+    Assert-True ($unsafeExitCode -ne 0) 'Unsafe ETW elevation argument was accepted.'
+    Assert-True ($unsafeOutput.Contains('cannot contain quotes', [StringComparison]::OrdinalIgnoreCase)) 'Unsafe ETW argument failure was not explained.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/unsafe-etw-run'))) 'Unsafe ETW argument created a run directory.'
 
     $env:FILTRACE_CAPTURE_ARGS = $argsPath
     $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols

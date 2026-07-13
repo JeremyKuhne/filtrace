@@ -6,24 +6,25 @@
 
 .DESCRIPTION
     Wraps the "record a trace, then analyze it" loop for a BenchmarkDotNet perf
-        project. Run it from the repository root. Each invocation passes a run-specific
-        `--artifacts` directory and `--keepFiles`, enumerates every profiler output in
-        that run, and emits a compact manifest with parameterized benchmark identity,
-        trace pairs, runtime/source identity, and exact symbols when verified:
+    project. Run it from the repository root. Each invocation passes a run-specific
+    `--artifacts` directory and `--keepFiles`, enumerates every profiler output in
+    that run, and emits a compact manifest with parameterized benchmark identity,
+    trace pairs, runtime/source identity, and exact symbols when verified:
 
       - EventPipe (-Profiler EP, the default): cross-platform, no elevation, single
-                process. BenchmarkDotNet normally writes a raw .nettrace and a paired derived
-                .speedscope.json. The manifest retains both; analysis commands use the raw
-                trace when present, or limit a speedscope-only case to CPU/export commands.
+        process. BenchmarkDotNet normally writes a raw .nettrace and a paired derived
+        .speedscope.json. The manifest retains both; analysis commands use the raw
+        trace when present, or limit a speedscope-only case to CPU/export commands.
       - ETW (-Profiler ETW): Windows only, self-elevates (one UAC prompt), machine
-                wide. Uses `-p ETW --keepFiles`, which writes a .etl. Only an
+        wide. Uses `-p ETW --keepFiles`, which writes a .etl. Only an
         .etl carries wall-clock (threadtime), the native GC / JIT / memcpy split
         (classify --native-symbols), and multi-process scoping.
 
-    Output is teed, never redirected away, so the elevated window shows live
-    progress instead of looking hung. The printed filtrace commands are pre-scoped:
-    an EventPipe trace with --benchmark (past the harness); an .etl additionally with
-    --process, because an .etl is machine-wide.
+    Full BenchmarkDotNet output is written only to capture.log. The final Text or Json
+    handoff contains the manifest path, warnings, and commands only for analyses whose
+    captureStatus is known-enabled. Enabled-zero remains actionable; disabled and
+    unknown analyses are explained instead of receiving commands. Quiet Text mode
+    emits warnings only.
 
     Every invocation writes BenchmarkDotNet output and capture.log under a unique
     BenchmarkDotNet.Artifacts/filtrace-runs/<RunId> directory, then emits manifest.json
@@ -73,6 +74,13 @@
     Path or command name for filtrace. Used after capture to verify which logged
     BenchmarkDotNet child output has an exact PDB match for each trace.
 
+.PARAMETER Format
+    Final result format: Text (default) or Json. BenchmarkDotNet output always stays
+    in capture.log.
+
+.PARAMETER Quiet
+    Suppress informational progress in Text mode. Warnings and errors still surface.
+
 .EXAMPLE
     ./Capture-BenchmarkTrace.ps1 -Project src/App.Perf -Filter '*GlobMatchBench*'
 
@@ -89,10 +97,14 @@ param(
     [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1200,
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$')][string]$RunId,
     [string]$DotnetPath = 'dotnet',
-    [string]$FiltracePath = 'filtrace'
+    [string]$FiltracePath = 'filtrace',
+    [ValidateSet('Text', 'Json')][string]$Format = 'Text',
+    [switch]$Quiet,
+    [switch]$ElevatedChild
 )
 
 $ErrorActionPreference = 'Stop'
+$showProgress = $Format -eq 'Text' -and -not $Quiet
 
 function Write-CaptureMetadata([string]$TracePath, [System.Collections.IDictionary]$Analyses) {
     $metadata = [ordered]@{
@@ -157,6 +169,9 @@ function Get-CaptureCases([string]$ArtifactsDirectory, [string]$CaptureProfiler)
                 speedscope = $null
                 symbolsDirectory = $null
                 symbolCandidates = @()
+                analyses = [ordered]@{}
+                commands = @()
+                warnings = @()
             }
         }
 
@@ -279,27 +294,226 @@ function Get-SourceIdentity([string]$ProjectDirectory) {
     }
 }
 
+function Get-DefaultCaptureStatuses([string]$CaptureProfiler, [bool]$HasRawTrace) {
+    if (-not $HasRawTrace) {
+        return [ordered]@{ cpu = 'enabled' }
+    }
+
+    if ($CaptureProfiler -eq 'ETW') {
+        return [ordered]@{
+            cpu = 'enabled'; threadtime = 'enabled'; classify = 'enabled';
+            processes = 'enabled'; diskio = 'disabled'; events = 'enabled'
+        }
+    }
+
+    return [ordered]@{
+        cpu = 'enabled'; alloc = 'disabled'; exceptions = 'enabled';
+        contention = 'enabled'; wait = 'disabled'; activity = 'enabled';
+        gcstats = 'enabled'; jitstats = 'enabled'; threadpool = 'enabled';
+        events = 'enabled'
+    }
+}
+
+function ConvertTo-AnalysisMap($TraceInfo, [System.Collections.IDictionary]$CaptureStatuses) {
+    $analyses = [ordered]@{}
+    if ($null -ne $TraceInfo -and $null -ne $TraceInfo.analyses) {
+        foreach ($property in $TraceInfo.analyses.PSObject.Properties) {
+            $analyses[$property.Name] = [ordered]@{
+                captureStatus = [string]$property.Value.captureStatus
+                eventCount = $property.Value.eventCount
+            }
+        }
+        return $analyses
+    }
+
+    foreach ($name in $CaptureStatuses.Keys) {
+        $status = [string]$CaptureStatuses[$name]
+        $analyses[$name] = [ordered]@{
+            captureStatus = $status
+            eventCount = if ($status -eq 'enabled') { 0 } else { $null }
+        }
+    }
+    return $analyses
+}
+
+function Get-TraceInfoResult(
+    [string]$TracePath,
+    [string]$SymbolsDirectory,
+    [string]$FiltraceCommand) {
+    try {
+        $arguments = @('info', $TracePath, '--format', 'json')
+        if ($SymbolsDirectory) { $arguments += @('--symbols', $SymbolsDirectory) }
+        $json = & $FiltraceCommand @arguments 2>$null | Out-String
+        if ($LASTEXITCODE -ne 0) { return $null }
+        return ($json | ConvertFrom-Json).result
+    }
+    catch {
+        return $null
+    }
+}
+
 function Find-ExactSymbolDirectory([string]$TracePath, [string[]]$Candidates, [string]$FiltraceCommand) {
     $bestDirectory = $null
     $bestMappedFrames = 0
     foreach ($candidate in $Candidates) {
-        try {
-            $json = & $FiltraceCommand info $TracePath --symbols $candidate --format json 2>$null | Out-String
-            if ($LASTEXITCODE -ne 0) { continue }
-            $source = ($json | ConvertFrom-Json).result.sourceResolution
-            if ($null -eq $source -or $source.matchingPdbModules.Count -eq 0) { continue }
-            $mappedFrames = [int]$source.mappedManagedFrameCount
-            if ($mappedFrames -gt $bestMappedFrames) {
-                $bestMappedFrames = $mappedFrames
-                $bestDirectory = $candidate
-            }
-        }
-        catch {
-            # A candidate that filtrace cannot read or match is simply not exact.
+        $traceInfo = Get-TraceInfoResult $TracePath $candidate $FiltraceCommand
+        $source = if ($null -ne $traceInfo) { $traceInfo.sourceResolution } else { $null }
+        if ($null -eq $source -or $source.matchingPdbModules.Count -eq 0) { continue }
+        $mappedFrames = [int]$source.mappedManagedFrameCount
+        if ($mappedFrames -gt $bestMappedFrames) {
+            $bestMappedFrames = $mappedFrames
+            $bestDirectory = $candidate
         }
     }
 
     return $bestDirectory
+}
+
+function ConvertTo-PowerShellArgument([string]$Value) {
+    return "'$($Value.Replace("'", "''"))'"
+}
+
+function Test-AnalysisEnabled([System.Collections.IDictionary]$Analyses, [string]$Name) {
+    return $Analyses.Contains($Name) -and $Analyses[$Name].captureStatus -eq 'enabled'
+}
+
+function Get-CaseCommands(
+    [System.Collections.IDictionary]$CaptureCase,
+    [string]$CaptureProfiler,
+    [string]$ProcessName,
+    [string]$MethodFilter,
+    [int]$TopRows) {
+    $commands = New-Object 'System.Collections.Generic.List[string]'
+    $analysisPath = if ($CaptureCase.trace) { $CaptureCase.trace } else { $CaptureCase.speedscope }
+    $trace = ConvertTo-PowerShellArgument $analysisPath
+    $symbols = if ($CaptureCase.symbolsDirectory) { ConvertTo-PowerShellArgument $CaptureCase.symbolsDirectory } else { $null }
+
+    if ($CaptureProfiler -eq 'ETW') {
+        $process = ConvertTo-PowerShellArgument $ProcessName
+        if (Test-AnalysisEnabled $CaptureCase.analyses 'processes') {
+            $commands.Add("filtrace processes $trace")
+        }
+        if (Test-AnalysisEnabled $CaptureCase.analyses 'cpu') {
+            $commands.Add("filtrace cpu $trace --process $process --benchmark --top $TopRows")
+            if ($symbols) {
+                $method = ConvertTo-PowerShellArgument $MethodFilter
+                $commands.Add("filtrace lines $trace --process $process --method $method --symbols $symbols")
+            }
+            $exportSymbols = if ($symbols) { " --symbols $symbols" } else { '' }
+            $commands.Add("filtrace export $trace --process $process --benchmark --native-symbols$exportSymbols -o flame.speedscope.json")
+        }
+        if (Test-AnalysisEnabled $CaptureCase.analyses 'threadtime') {
+            $commands.Add("filtrace threadtime $trace --process $process --benchmark --top $TopRows")
+        }
+        if (Test-AnalysisEnabled $CaptureCase.analyses 'classify') {
+            $commands.Add("filtrace classify $trace --process $process --benchmark --native-symbols")
+        }
+        if (Test-AnalysisEnabled $CaptureCase.analyses 'diskio') {
+            $commands.Add("filtrace diskio $trace --top $TopRows")
+        }
+        return @($commands)
+    }
+
+    if (Test-AnalysisEnabled $CaptureCase.analyses 'cpu') {
+        $commands.Add("filtrace cpu $trace --benchmark --top $TopRows")
+        if ($symbols) {
+            $method = ConvertTo-PowerShellArgument $MethodFilter
+            $commands.Add("filtrace lines $trace --method $method --symbols $symbols")
+            $commands.Add("filtrace export $trace --benchmark --symbols $symbols -o flame.speedscope.json")
+        }
+        else {
+            $commands.Add("filtrace export $trace --benchmark -o flame.speedscope.json")
+        }
+    }
+    if (Test-AnalysisEnabled $CaptureCase.analyses 'alloc') {
+        $commands.Add("filtrace alloc $trace --benchmark --top $TopRows")
+    }
+    if (Test-AnalysisEnabled $CaptureCase.analyses 'exceptions') {
+        $commands.Add("filtrace exceptions $trace --benchmark --top $TopRows")
+    }
+    foreach ($metric in @('contention', 'wait', 'activity')) {
+        if (Test-AnalysisEnabled $CaptureCase.analyses $metric) {
+            $commands.Add("filtrace rank $trace --metric $metric --benchmark --top $TopRows")
+        }
+    }
+    foreach ($report in @('gcstats', 'jitstats', 'threadpool')) {
+        if (Test-AnalysisEnabled $CaptureCase.analyses $report) {
+            $commands.Add("filtrace $report $trace")
+        }
+    }
+    return @($commands)
+}
+
+function Get-CaseWarnings([System.Collections.IDictionary]$CaptureCase) {
+    $warnings = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($name in $CaptureCase.analyses.Keys) {
+        $status = $CaptureCase.analyses[$name].captureStatus
+        if ($status -eq 'disabled') {
+            $warnings.Add("$name capture disabled; recapture with a profile that enables it")
+        }
+        elseif ($status -eq 'unknown') {
+            $warnings.Add("$name capture status unknown; no command emitted")
+        }
+    }
+    if ($CaptureCase.trace -and -not $CaptureCase.symbolsDirectory) {
+        $warnings.Add('source lines unavailable; no logged child output had an exact matching PDB')
+    }
+    return @($warnings)
+}
+
+function Write-CaptureResult(
+    [object[]]$CaptureCases,
+    [string]$ManifestPath,
+    [string]$CaptureRunId,
+    [string]$OutputFormat,
+    [bool]$QuietOutput) {
+    if ($OutputFormat -eq 'Json') {
+        $result = [ordered]@{
+            schemaVersion = 1
+            status = 'completed'
+            runId = $CaptureRunId
+            manifest = $ManifestPath
+            warnings = @(
+                foreach ($captureCase in $CaptureCases) {
+                    foreach ($warning in $captureCase.warnings) {
+                        [ordered]@{ case = $captureCase.id; message = $warning }
+                    }
+                }
+            )
+            cases = @(
+                foreach ($captureCase in $CaptureCases) {
+                    [ordered]@{
+                        id = $captureCase.id
+                        trace = $captureCase.trace
+                        speedscope = $captureCase.speedscope
+                        commands = $captureCase.commands
+                    }
+                }
+            )
+        }
+        $result | ConvertTo-Json -Depth 6 -Compress
+        return
+    }
+
+    if (-not $QuietOutput) {
+        Write-Host "`nCaptured $($CaptureCases.Count) case(s)." -ForegroundColor Green
+        Write-Host "Manifest: $ManifestPath" -ForegroundColor Green
+        foreach ($captureCase in $CaptureCases) {
+            $analysisPath = if ($captureCase.trace) { $captureCase.trace } else { $captureCase.speedscope }
+            Write-Host "`nCase: $($captureCase.id)" -ForegroundColor Green
+            Write-Host "Captured: $analysisPath"
+            if ($captureCase.commands.Count -gt 0) {
+                Write-Host 'Next-step filtrace commands:'
+                foreach ($command in $captureCase.commands) { Write-Host "  $command" }
+            }
+            foreach ($warning in $captureCase.warnings) { Write-Warning "[$($captureCase.id)] $warning" }
+        }
+        return
+    }
+
+    foreach ($captureCase in $CaptureCases) {
+        foreach ($warning in $captureCase.warnings) { Write-Warning "[$($captureCase.id)] $warning" }
+    }
 }
 
 # Resolve the project file (accept either a .csproj or a directory holding one).
@@ -327,6 +541,35 @@ function Test-Elevated {
     return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Test-SafeElevationArgument([string]$Value) {
+    return $null -ne $Value -and
+        $Value.IndexOfAny([char[]]@('"', "`r", "`n")) -lt 0 -and
+        -not $Value.EndsWith('\', [StringComparison]::Ordinal)
+}
+
+if ($ElevatedChild -and $Profiler -ne 'ETW') {
+    Write-Error '-ElevatedChild is reserved for the internal elevated ETW handoff.' -ErrorAction Continue
+    exit 1
+}
+
+if ($Profiler -eq 'ETW') {
+    $elevationArguments = [ordered]@{
+        Script = $PSCommandPath
+        Project = $projFile.FullName
+        Filter = $Filter
+        Tfm = $Tfm
+        Process = $Process
+        DotnetPath = $DotnetPath
+        FiltracePath = $FiltracePath
+    }
+    foreach ($argument in $elevationArguments.GetEnumerator()) {
+        if (-not (Test-SafeElevationArgument ([string]$argument.Value))) {
+            Write-Error "ETW elevation argument '$($argument.Key)' cannot contain quotes, newlines, or end in a backslash." -ErrorAction Continue
+            exit 1
+        }
+    }
+}
+
 # Recording an .etl is Windows-only, and Test-Elevated below calls a Windows-only API, so
 # fail fast with a clear message rather than a PlatformNotSupportedException. Compare
 # against $false so Windows PowerShell 5.1 (undefined $IsWindows) is not mistaken for a
@@ -336,17 +579,26 @@ if ($Profiler -eq 'ETW' -and $IsWindows -eq $false) {
     exit 1
 }
 
+if ($ElevatedChild -and -not (Test-Elevated)) {
+    Write-Error '-ElevatedChild requires an elevated Windows process.' -ErrorAction Continue
+    exit 1
+}
+
 # ETW kernel sessions require Administrator. When not elevated, relaunch this script
 # in an elevated window that shows the capture's live progress, then wait for it.
 # -WorkingDirectory anchors the child at the repo root so BenchmarkDotNet.Artifacts (and
 # the capture log the parent tails) resolve there, not in the elevated shell's system32.
 if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
-    Write-Host 'ETW capture needs Administrator; relaunching elevated (a UAC prompt will appear).' -ForegroundColor Yellow
+    if ($showProgress) {
+        Write-Host 'ETW capture needs Administrator; relaunching elevated (a UAC prompt will appear).' -ForegroundColor Yellow
+    }
     # Quote path/value args so a project path, filter, or process name containing spaces
     # survives Start-Process joining the array into a single command line.
     $argList = @('-NoProfile', '-File', "`"$PSCommandPath`"", '-Project', "`"$($projFile.FullName)`"",
-        '-Filter', "`"$Filter`"", '-Profiler', 'ETW', '-Tfm', $Tfm, '-Process', "`"$Process`"", '-Top', $Top,
-        '-RunId', $RunId, '-DotnetPath', "`"$DotnetPath`"", '-FiltracePath', "`"$FiltracePath`"")
+        '-Filter', "`"$Filter`"", '-Profiler', 'ETW', '-Tfm', "`"$Tfm`"", '-Process', "`"$Process`"", '-Top', $Top,
+        '-RunId', $RunId, '-DotnetPath', "`"$DotnetPath`"", '-FiltracePath', "`"$FiltracePath`"", '-Format', $Format,
+        '-ElevatedChild')
+    if ($Quiet) { $argList += '-Quiet' }
     # Relaunch with the host that is ALREADY running this script, not a hardcoded 'pwsh' -
     # a caller on Windows PowerShell 5.1 without PowerShell 7 installed would otherwise
     # fail here with pwsh unresolved.
@@ -371,13 +623,20 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     try { $exited = $proc.WaitForExit($waitMs) } catch { $exited = $false }
     if (-not $exited) {
         Write-Warning "Elevated capture did not signal completion within $ElevatedTimeoutSeconds s; not blocking further. See $log for progress."
+        exit 0
     }
     # ExitCode is only defined once the child has exited, and reading it on a higher-integrity
     # (elevated) process can throw Access Denied - treat either as 'not observed', non-fatal.
     $childExit = 0
     try { if ($proc.HasExited) { $childExit = $proc.ExitCode } } catch { $childExit = 0 }
     if ($childExit -ne 0) { Write-Error "Elevated capture failed (exit $childExit). See $log." -ErrorAction Continue ; exit $childExit }
-    if (Test-Path $log) { Write-Host "`n--- capture log tail (full log: $log) ---" -ForegroundColor Cyan ; Get-Content $log -Tail 20 }
+    $manifestPath = Join-Path $runDirectory 'manifest.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        Write-Error "Elevated capture did not produce $manifestPath. See $log for details." -ErrorAction Continue
+        exit 1
+    }
+    $childManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    Write-CaptureResult @($childManifest.cases) $manifestPath $RunId $Format ([bool]$Quiet)
     exit 0
 }
 
@@ -450,11 +709,13 @@ $benchmarkArguments = @('run', '-c', 'Release', '-f', $Tfm, '--project', $projFi
     $profArg + @('--artifacts', $artifacts)
 $startedUtc = [DateTimeOffset]::UtcNow
 
-Write-Host "Capturing $Profiler trace: $Filter ($Tfm)..." -ForegroundColor Cyan
-# Tee, do not redirect: an elevated window shows BenchmarkDotNet's live progress
-# while the run is also logged for the parent window to surface.
+if ($showProgress) {
+    Write-Host "Capturing $Profiler trace: $Filter ($Tfm)..." -ForegroundColor Cyan
+}
+# Keep full BenchmarkDotNet output in the run log; stdout remains a compact filtrace
+# handoff rather than a duplicate benchmark transcript.
 & $DotnetPath @benchmarkArguments 2>&1 |
-    Tee-Object -FilePath $log
+    Tee-Object -FilePath $log | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "Benchmark run failed (exit $LASTEXITCODE). See $log." -ErrorAction Continue ; exit $LASTEXITCODE }
 
 $captureCases = @(Get-CaptureCases $artifacts $Profiler)
@@ -479,23 +740,21 @@ $methodFilter = $Filter.Trim('*')
 if ([string]::IsNullOrWhiteSpace($methodFilter)) { $methodFilter = 'BenchmarkMethod' }
 
 foreach ($captureCase in $captureCases) {
-    if (-not $captureCase.trace) { continue }
-    if ($Profiler -eq 'ETW') {
-        Write-CaptureMetadata $captureCase.trace ([ordered]@{
-            cpu = 'enabled'; threadtime = 'enabled'; classify = 'enabled';
-            processes = 'enabled'; diskio = 'disabled'; events = 'enabled'
-        })
+    $captureStatuses = Get-DefaultCaptureStatuses $Profiler ([bool]$captureCase.trace)
+    if ($captureCase.trace) {
+        Write-CaptureMetadata $captureCase.trace $captureStatuses
+    }
+
+    $analysisPath = if ($captureCase.trace) { $captureCase.trace } else { $captureCase.speedscope }
+    $traceInfo = if ($filtraceAvailable) {
+        Get-TraceInfoResult $analysisPath $captureCase.symbolsDirectory $FiltracePath
     }
     else {
-        # BenchmarkDotNet's default EventPipeProfile.CpuSampling enables the sample
-        # profiler, CLR Default keywords, and its benchmark Engine provider.
-        Write-CaptureMetadata $captureCase.trace ([ordered]@{
-            cpu = 'enabled'; alloc = 'disabled'; exceptions = 'enabled';
-            contention = 'enabled'; wait = 'disabled'; activity = 'enabled';
-            gcstats = 'enabled'; jitstats = 'enabled'; threadpool = 'enabled';
-            events = 'enabled'
-        })
+        $null
     }
+    $captureCase.analyses = ConvertTo-AnalysisMap $traceInfo $captureStatuses
+    $captureCase.commands = Get-CaseCommands $captureCase $Profiler $Process $methodFilter $Top
+    $captureCase.warnings = Get-CaseWarnings $captureCase
 }
 
 $manifestPath = Join-Path $runDirectory 'manifest.json'
@@ -528,46 +787,8 @@ $manifest = [ordered]@{
 }
 Write-RunManifest $manifestPath $manifest
 
-Write-Host "`nCaptured $($captureCases.Count) case(s)." -ForegroundColor Green
-Write-Host "Manifest: $manifestPath" -ForegroundColor Green
-foreach ($captureCase in $captureCases) {
-    $analysisPath = if ($captureCase.trace) { $captureCase.trace } else { $captureCase.speedscope }
-    Write-Host "`nCase: $($captureCase.id)" -ForegroundColor Green
-    Write-Host "Captured: $analysisPath"
-    Write-Host "Next-step filtrace commands:"
-    $exactSymbols = $captureCase.symbolsDirectory
-    if ($Profiler -eq 'ETW') {
-        # An .etl is machine-wide: narrow it to the benchmark process. Root-aware
-        # rankings/exports also use --benchmark to exclude harness/overhead scaffolding.
-        Write-Host "  filtrace processes `"$analysisPath`""
-        Write-Host "  filtrace cpu `"$analysisPath`" --process `"$Process`" --benchmark --top $Top"
-        Write-Host "  filtrace threadtime `"$analysisPath`" --process `"$Process`" --benchmark --top $Top"
-        if ($exactSymbols) {
-            Write-Host "  filtrace lines `"$analysisPath`" --process `"$Process`" --method `"$methodFilter`" --symbols `"$exactSymbols`""
-        }
-        else {
-            Write-Host "  # source lines unavailable: no logged child output had an exact matching PDB"
-        }
-        Write-Host "  filtrace classify `"$analysisPath`" --process `"$Process`" --benchmark --native-symbols"
-        $exportSymbols = if ($exactSymbols) { " --symbols `"$exactSymbols`"" } else { '' }
-        Write-Host "  filtrace export `"$analysisPath`" --process `"$Process`" --benchmark --native-symbols$exportSymbols -o flame.speedscope.json"
-    }
-    elseif ($captureCase.trace) {
-        Write-Host "  filtrace cpu `"$analysisPath`" --benchmark --top $Top"
-        if ($exactSymbols) {
-            Write-Host "  filtrace lines `"$analysisPath`" --method `"$methodFilter`" --symbols `"$exactSymbols`""
-            Write-Host "  filtrace export `"$analysisPath`" --benchmark --symbols `"$exactSymbols`" -o flame.speedscope.json"
-        }
-        else {
-            Write-Host "  # source lines unavailable: no logged child output had an exact matching PDB"
-            Write-Host "  filtrace export `"$analysisPath`" --benchmark -o flame.speedscope.json"
-        }
-        Write-Host "  # alloc disabled by BenchmarkDotNet's default CpuSampling profile; recapture with EventPipeProfile.GcVerbose"
-    }
-    else {
-        Write-Host "  filtrace cpu `"$analysisPath`" --benchmark --top $Top"
-        Write-Host "  filtrace export `"$analysisPath`" --benchmark -o flame.speedscope.json"
-    }
+if (-not $ElevatedChild) {
+    Write-CaptureResult $captureCases $manifestPath $RunId $Format ([bool]$Quiet)
 }
 }
 finally {

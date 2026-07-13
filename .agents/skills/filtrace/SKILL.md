@@ -54,7 +54,10 @@ scripts wrap the capture-then-analyze loop and print the scoped filtrace command
 [scripts/Capture-BenchmarkTrace.ps1](scripts/Capture-BenchmarkTrace.ps1) profiles a
 BenchmarkDotNet micro-benchmark in an isolated run directory, emits an all-case
 manifest, verifies exact generated-child PDBs, and prints `--benchmark`-scoped
-commands. Same-project/same-TFM overlap is rejected rather than sharing outputs. The
+commands only for known-enabled analyses. Disabled/unknown states become warnings;
+full BenchmarkDotNet output stays in the run log. Use `-Format Json` for a compact
+handoff or `-Quiet` for warnings only. Same-project/same-TFM overlap is rejected rather
+than sharing outputs. The
 [scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) builds an
 executable project and traces its running output directly - never `dotnet run`,
 whose build/run host is a different process (see the trap catalog).
