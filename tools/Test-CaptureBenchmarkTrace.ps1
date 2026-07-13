@@ -109,6 +109,10 @@ $symbols = if ($symbolIndex -ge 0) { $args[$symbolIndex + 1] } else { '' }
 $isExact = $symbols -eq $env:FILTRACE_CAPTURE_CHILD_SYMBOLS
 $tracePath = if ($args.Count -gt 1) { $args[1] } else { '' }
 $isSpeedscope = $tracePath -like '*.speedscope.json'
+if ($env:FILTRACE_CAPTURE_INFO_FAILURE -eq '1') {
+    $global:LASTEXITCODE = 1
+    return
+}
 $source = [ordered]@{
     sampledManagedFrameCount = 100
     mappedManagedFrameCount = if ($isExact) { 75 } else { 0 }
@@ -293,6 +297,38 @@ $global:LASTEXITCODE = 0
     Assert-True ($boundedJsonResult.PSObject.Properties.Name -notcontains 'cases') 'Bounded JSON fallback retained oversized case detail.'
     Assert-True ($boundedJsonResult.PSObject.Properties.Name -notcontains 'warnings') 'Bounded JSON fallback retained oversized warning detail.'
     Assert-True ([Text.Encoding]::UTF8.GetByteCount($boundedJsonOutput.Trim()) -lt 20KB) 'Bounded JSON fallback exceeded 20 KiB.'
+
+    $previousInfoFailure = $env:FILTRACE_CAPTURE_INFO_FAILURE
+    $env:FILTRACE_CAPTURE_ARGS = $argsPath
+    $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
+    $env:FILTRACE_CAPTURE_INFO_FAILURE = '1'
+    Push-Location $temporaryRoot
+    try {
+        $infoFailureOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+            -RunId 'info-failure-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json | Out-String
+        $infoFailureExitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+        $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+        $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $previousChildSymbols
+        $env:FILTRACE_CAPTURE_INFO_FAILURE = $previousInfoFailure
+    }
+
+    Assert-True ($infoFailureExitCode -eq 0) 'Capture with unreadable filtrace info failed instead of returning an unknown-status handoff.'
+    $infoFailureResult = $infoFailureOutput | ConvertFrom-Json
+    $infoFailureManifestPath = Join-Path $globalArtifacts 'filtrace-runs/info-failure-run/manifest.json'
+    $infoFailureManifest = Get-Content -LiteralPath $infoFailureManifestPath -Raw | ConvertFrom-Json
+    $unexpectedInfoFailureCommands = @(
+        $infoFailureResult.cases.commands |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+    )
+    Assert-True ($unexpectedInfoFailureCommands.Count -eq 0) "Failed filtrace info emitted analysis commands: $($unexpectedInfoFailureCommands -join '; ')"
+    Assert-True (@($infoFailureResult.warnings.message) -contains 'filtrace info could not verify analysis availability; no commands emitted') 'Failed filtrace info did not emit an explicit warning.'
+    Assert-True (@($infoFailureManifest.cases[0].warnings) -contains 'filtrace info could not verify analysis availability; no commands emitted') 'Failed filtrace info warning was omitted from the manifest.'
+    foreach ($captureCase in $infoFailureManifest.cases) {
+        Assert-True (@($captureCase.analyses.PSObject.Properties.Value.captureStatus | Where-Object { $_ -ne 'unknown' }).Count -eq 0) "Failed filtrace info did not mark every analysis unknown for case '$($captureCase.id)'."
+    }
 
     if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
         $timeoutWrapper = Join-Path $temporaryRoot 'Invoke-TimeoutCapture.ps1'

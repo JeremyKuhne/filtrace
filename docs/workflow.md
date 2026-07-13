@@ -119,7 +119,9 @@ warnings. On a non-fatal elevated wait timeout, text modes emit a warning;
 `-Format Json` returns `status: "timeout"`, `runId`, `log`, and `message` instead of
 empty stdout. JSON stdout stays under 20 KiB; when full case detail would exceed that
 budget, a minimal completed result points to `manifest.json`; if even that path cannot
-fit, the result directs the caller to the run directory. The helper parses
+fit, the result directs the caller to the run directory. Recorder-established command
+fallback is used only when filtrace is unavailable; if `filtrace info` is present but
+cannot read a case, every analysis is unknown and no command is emitted. The helper parses
 BenchmarkDotNet's logged child `OutDir` values and uses `filtrace info` to put a
 directory in `symbolsDirectory` only when its PDB identity maps sampled frames. A
 same-project/same-TFM file-handle lock rejects overlapping captures immediately;

@@ -327,9 +327,18 @@ function ConvertTo-CaptureStatus($Status) {
     }
 }
 
-function ConvertTo-AnalysisMap($TraceInfo, [System.Collections.IDictionary]$CaptureStatuses) {
+function Test-HasAnalysisInfo($TraceInfo) {
+    return $null -ne $TraceInfo -and
+        $null -ne $TraceInfo.analyses -and
+        @($TraceInfo.analyses.PSObject.Properties).Count -gt 0
+}
+
+function ConvertTo-AnalysisMap(
+    $TraceInfo,
+    [System.Collections.IDictionary]$CaptureStatuses,
+    [bool]$AllowRecorderFallback) {
     $analyses = [ordered]@{}
-    if ($null -ne $TraceInfo -and $null -ne $TraceInfo.analyses) {
+    if (Test-HasAnalysisInfo $TraceInfo) {
         foreach ($property in $TraceInfo.analyses.PSObject.Properties) {
             $analyses[$property.Name] = [ordered]@{
                 captureStatus = ConvertTo-CaptureStatus $property.Value.captureStatus
@@ -340,7 +349,12 @@ function ConvertTo-AnalysisMap($TraceInfo, [System.Collections.IDictionary]$Capt
     }
 
     foreach ($name in $CaptureStatuses.Keys) {
-        $status = ConvertTo-CaptureStatus $CaptureStatuses[$name]
+        $status = if ($AllowRecorderFallback) {
+            ConvertTo-CaptureStatus $CaptureStatuses[$name]
+        }
+        else {
+            'unknown'
+        }
         $analyses[$name] = [ordered]@{
             captureStatus = $status
             eventCount = if ($status -eq 'enabled') { 0 } else { $null }
@@ -819,9 +833,15 @@ foreach ($captureCase in $captureCases) {
     else {
         $null
     }
-    $captureCase.analyses = ConvertTo-AnalysisMap $traceInfo $captureStatuses
+    $traceInfoFailed = $filtraceAvailable -and -not (Test-HasAnalysisInfo $traceInfo)
+    $captureCase.analyses = ConvertTo-AnalysisMap $traceInfo $captureStatuses (-not $filtraceAvailable)
     $captureCase.commands = Get-CaseCommands $captureCase $Profiler $Process $methodFilter $Top
-    $captureCase.warnings = Get-CaseWarnings $captureCase
+    $captureCase.warnings = @(
+        if ($traceInfoFailed) {
+            'filtrace info could not verify analysis availability; no commands emitted'
+        }
+        Get-CaseWarnings $captureCase
+    )
 }
 
 $manifestPath = Join-Path $runDirectory 'manifest.json'
