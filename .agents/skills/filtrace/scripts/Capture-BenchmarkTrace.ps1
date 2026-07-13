@@ -109,8 +109,14 @@ function Write-CaptureMetadata([string]$TracePath, [System.Collections.IDictiona
 }
 
 function Write-RunManifest([string]$Path, [System.Collections.IDictionary]$Manifest) {
+    $maxManifestBytes = 20KB
     $json = $Manifest | ConvertTo-Json -Depth 8 -Compress
     $encoding = New-Object System.Text.UTF8Encoding($false)
+    $manifestBytes = $encoding.GetByteCount($json)
+    if ($manifestBytes -ge $maxManifestBytes) {
+        throw "Capture manifest is $manifestBytes UTF-8 bytes; it must stay under 20 KiB. Narrow the benchmark filter or split the capture into fewer cases."
+    }
+
     [System.IO.File]::WriteAllText($Path, $json, $encoding)
 }
 

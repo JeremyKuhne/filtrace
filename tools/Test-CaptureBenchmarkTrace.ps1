@@ -43,13 +43,22 @@ New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
 $childSymbols = $env:FILTRACE_CAPTURE_CHILD_SYMBOLS
 New-Item -ItemType Directory -Force -Path $childSymbols | Out-Null
 [System.IO.File]::WriteAllText((Join-Path $childSymbols 'Fake-Job.pdb'), 'pdb')
-[System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Work-20260713-010203.nettrace'), 'current raw')
-[System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Work-20260713-010203.speedscope.json'), 'current speedscope')
-[System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Work-20260713-010204.nettrace'), 'second parameter raw')
-[System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Work-20260713-010204.speedscope.json'), 'second parameter speedscope')
-[System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Other-20260713-010205.nettrace'), 'other raw')
-[System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Other-20260713-010205.speedscope.json'), 'other speedscope')
-[System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.ScopeOnly-20260713-010206.speedscope.json'), 'scope only')
+if ($artifacts -like '*oversize-run*') {
+    for ($index = 0; $index -lt 64; $index++) {
+        $timestamp = [DateTime]::new(2026, 7, 13, 2, 0, 0, [DateTimeKind]::Utc).AddSeconds($index)
+        $name = "Fake.Bench.Oversize.WithLongParameterName$($index.ToString('D3'))-$($timestamp.ToString('yyyyMMdd-HHmmss')).nettrace"
+        [System.IO.File]::WriteAllText((Join-Path $artifacts $name), 'oversize raw')
+    }
+}
+else {
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Work-20260713-010203.nettrace'), 'current raw')
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Work-20260713-010203.speedscope.json'), 'current speedscope')
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Work-20260713-010204.nettrace'), 'second parameter raw')
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Work-20260713-010204.speedscope.json'), 'second parameter speedscope')
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Other-20260713-010205.nettrace'), 'other raw')
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Other-20260713-010205.speedscope.json'), 'other speedscope')
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.ScopeOnly-20260713-010206.speedscope.json'), 'scope only')
+}
 foreach ($file in Get-ChildItem -LiteralPath $artifacts -File) {
     if ($file.Name -match '-(\d{8})-(\d{6})\.') {
         $timestamp = [DateTime]::ParseExact(
@@ -167,6 +176,26 @@ $global:LASTEXITCODE = 0
     Assert-True ($output.Contains("--symbols `"$childSymbols`"", [StringComparison]::OrdinalIgnoreCase)) 'Printed source command did not use exact child symbols.'
     Assert-True (([regex]::Matches($output, 'filtrace lines ')).Count -eq 3) 'Speedscope-only case printed a source-line command.'
     Assert-True (-not (($manifest | ConvertTo-Json -Depth 8) -match 'stale-global|stale-old-run')) 'Stale captures entered the manifest.'
+
+    $env:FILTRACE_CAPTURE_ARGS = $argsPath
+    $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
+    Push-Location $temporaryRoot
+    try {
+        $hostExe = (Get-Process -Id $PID).Path
+        $oversizeOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Oversize*' `
+            -RunId 'oversize-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 | Out-String
+        $oversizeExitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+        $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+        $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $previousChildSymbols
+    }
+
+    $oversizeManifest = Join-Path $globalArtifacts 'filtrace-runs/oversize-run/manifest.json'
+    Assert-True ($oversizeExitCode -ne 0) 'An oversized capture manifest was accepted.'
+    Assert-True ($oversizeOutput.Contains('must stay under 20 KiB', [StringComparison]::OrdinalIgnoreCase)) 'Oversized manifest failure did not explain the budget.'
+    Assert-True (-not (Test-Path -LiteralPath $oversizeManifest)) 'Oversized manifest was written before budget validation.'
 
     $lockPath = Get-ChildItem -LiteralPath (Join-Path $projectDirectory 'obj/filtrace-capture-locks') -Filter '*.lock' |
         Select-Object -ExpandProperty FullName -First 1
