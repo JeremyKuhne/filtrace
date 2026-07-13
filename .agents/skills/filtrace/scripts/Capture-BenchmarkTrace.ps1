@@ -58,7 +58,7 @@
 
 .PARAMETER ElevatedTimeoutSeconds
     How long the non-elevated parent waits for the self-elevated ETW capture to finish
-    before it stops blocking and surfaces the log tail. Default 1200 (20 minutes). Only
+    before it stops blocking and reports the capture.log path. Default 1200 (20 minutes). Only
     the ETW self-elevation path uses it - it is the backstop that keeps a never-signaled
     elevated child from hanging the parent indefinitely.
 
@@ -675,8 +675,8 @@ if ($ElevatedChild -and -not (Test-Elevated)) {
 
 # ETW kernel sessions require Administrator. When not elevated, relaunch this script
 # in an elevated window, then wait for it.
-# -WorkingDirectory anchors the child at the repo root so BenchmarkDotNet.Artifacts (and
-# the capture log the parent references for progress) resolve there, not in the elevated shell's system32.
+# -WorkingDirectory anchors the child at the repo root so BenchmarkDotNet.Artifacts
+# and capture.log are created there, not in the elevated shell's system32 directory.
 if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     if ($showProgress) {
         Write-Host 'ETW capture needs Administrator; relaunching elevated (a UAC prompt will appear).' -ForegroundColor Yellow
@@ -696,7 +696,7 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     # after the elevated child self-closes, hanging the parent forever even though the
     # capture already finished and the .etl is on disk. Take the process object and wait on
     # it directly with a bounded WaitForExit, so a lost or access-denied handle degrades to
-    # a timeout (the log still surfaces) instead of an indefinite hang.
+    # a timeout result that reports the log path instead of an indefinite hang.
     $proc = Start-Process -FilePath $hostExe -Verb RunAs -PassThru -WorkingDirectory $repoRoot -ArgumentList $argList
     if ($null -eq $proc) {
         Write-Error 'Elevated relaunch returned no process handle; cannot wait for the capture. Check for a blocked UAC prompt.' -ErrorAction Continue
@@ -704,8 +704,8 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     }
     # WaitForExit / HasExited / ExitCode can each throw (e.g. Access Denied reading the
     # elevated, higher-integrity child's handle). Under $ErrorActionPreference='Stop' an
-    # uncaught throw would abort the script and reintroduce the very hang/no-tail failure
-    # this fix avoids, so guard every handle access and treat a throw as a timeout-like miss.
+    # uncaught throw would abort the script instead of producing the bounded timeout result,
+    # so guard every handle access and treat a throw as a timeout-like miss.
     # Clamp to Int32.MaxValue so a large timeout cannot overflow the millisecond argument.
     $waitMs = [int][Math]::Min([long]$ElevatedTimeoutSeconds * 1000, [int]::MaxValue)
     $exited = $false

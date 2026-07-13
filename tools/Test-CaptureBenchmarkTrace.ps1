@@ -34,6 +34,10 @@ try {
     $captureSource = Get-Content -LiteralPath $captureScript -Raw
     Assert-True ($captureSource.Contains('.PARAMETER ElevatedChild', [StringComparison]::Ordinal)) 'ElevatedChild has no comment-based help entry.'
     Assert-True ($captureSource.Contains('Internal switch reserved for the self-elevated ETW child process', [StringComparison]::OrdinalIgnoreCase)) 'ElevatedChild help did not identify the switch as internal.'
+    Assert-True ($captureSource.Contains('reports the capture.log path', [StringComparison]::OrdinalIgnoreCase)) 'Elevated timeout help did not describe reporting capture.log.'
+    foreach ($staleElevationPhrase in @('surfaces the log tail', 'live progress', 'references for progress', 'log still surfaces', 'hang/no-tail')) {
+        Assert-True (-not $captureSource.Contains($staleElevationPhrase, [StringComparison]::OrdinalIgnoreCase)) "Stale ETW elevation wording remained: '$staleElevationPhrase'."
+    }
 
     $projectDirectory = Join-Path $temporaryRoot 'src/Fake.Perf'
     New-Item -ItemType Directory -Path $projectDirectory | Out-Null
