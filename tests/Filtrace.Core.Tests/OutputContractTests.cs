@@ -127,7 +127,8 @@ public sealed class OutputContractTests
             Analyses = new Dictionary<string, AnalysisAvailabilityView>
             {
                 ["cpu"] = new("enabled", 42),
-                ["alloc"] = new("disabled", null)
+                ["alloc"] = new("disabled", null),
+                ["exceptions"] = new("unknown", null)
             }
         };
         AnalysisResult<TraceInfoView> envelope = new(view);
@@ -146,6 +147,9 @@ public sealed class OutputContractTests
         result.GetProperty("analyses").GetProperty("cpu").GetProperty("eventCount").GetInt32().Should().Be(42);
         result.GetProperty("analyses").GetProperty("alloc").GetProperty("captureStatus").GetString()
             .Should().Be("disabled");
+        JsonElement exceptions = result.GetProperty("analyses").GetProperty("exceptions");
+        exceptions.GetProperty("captureStatus").GetString().Should().Be("unknown");
+        exceptions.GetProperty("eventCount").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     [TestMethod]
