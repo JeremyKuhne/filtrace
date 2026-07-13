@@ -56,7 +56,9 @@ BenchmarkDotNet micro-benchmark in an isolated run directory, emits an all-case
 manifest, verifies exact generated-child PDBs, and prints `--benchmark`-scoped
 commands only for known-enabled analyses. Disabled/unknown states become warnings;
 full BenchmarkDotNet output stays in the run log. Use `-Format Json` for a compact
-handoff or `-Quiet` for warnings only. Same-project/same-TFM overlap is rejected rather
+handoff or `-Quiet` for warnings only. On a non-fatal elevated wait timeout, text
+modes emit a warning; `-Format Json` returns `status: "timeout"`, `runId`, `log`, and
+`message` instead of empty stdout. Same-project/same-TFM overlap is rejected rather
 than sharing outputs. The
 [scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) builds an
 executable project and traces its running output directly - never `dotnet run`,

@@ -115,7 +115,9 @@ prints only commands whose `captureStatus` is known-enabled, already scoped with
 `--process` and `--benchmark`; disabled and unknown analyses become explicit warnings.
 Full BenchmarkDotNet output stays in `capture.log`. Use `-Format Json` for a compact
 machine-readable handoff or `-Quiet` to suppress text progress/commands while retaining
-warnings. The helper parses
+warnings. On a non-fatal elevated wait timeout, text modes emit a warning;
+`-Format Json` returns `status: "timeout"`, `runId`, `log`, and `message` instead of
+empty stdout. The helper parses
 BenchmarkDotNet's logged child `OutDir` values and uses `filtrace info` to put a
 directory in `symbolsDirectory` only when its PDB identity maps sampled frames. A
 same-project/same-TFM file-handle lock rejects overlapping captures immediately;

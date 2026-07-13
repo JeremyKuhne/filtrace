@@ -318,12 +318,21 @@ function Get-DefaultCaptureStatuses([string]$CaptureProfiler, [bool]$HasRawTrace
     }
 }
 
+function ConvertTo-CaptureStatus($Status) {
+    switch ([string]$Status) {
+        'enabled' { return 'enabled' }
+        'disabled' { return 'disabled' }
+        'unknown' { return 'unknown' }
+        default { return 'unknown' }
+    }
+}
+
 function ConvertTo-AnalysisMap($TraceInfo, [System.Collections.IDictionary]$CaptureStatuses) {
     $analyses = [ordered]@{}
     if ($null -ne $TraceInfo -and $null -ne $TraceInfo.analyses) {
         foreach ($property in $TraceInfo.analyses.PSObject.Properties) {
             $analyses[$property.Name] = [ordered]@{
-                captureStatus = [string]$property.Value.captureStatus
+                captureStatus = ConvertTo-CaptureStatus $property.Value.captureStatus
                 eventCount = $property.Value.eventCount
             }
         }
@@ -331,7 +340,7 @@ function ConvertTo-AnalysisMap($TraceInfo, [System.Collections.IDictionary]$Capt
     }
 
     foreach ($name in $CaptureStatuses.Keys) {
-        $status = [string]$CaptureStatuses[$name]
+        $status = ConvertTo-CaptureStatus $CaptureStatuses[$name]
         $analyses[$name] = [ordered]@{
             captureStatus = $status
             eventCount = if ($status -eq 'enabled') { 0 } else { $null }
@@ -470,11 +479,29 @@ function Write-CaptureResult(
     [string]$ManifestPath,
     [string]$CaptureRunId,
     [string]$OutputFormat,
-    [bool]$QuietOutput) {
+    [bool]$QuietOutput,
+    [ValidateSet('completed', 'timeout')]
+    [string]$Status = 'completed',
+    [string]$LogPath = $null,
+    [string]$Message = $null) {
     if ($OutputFormat -eq 'Json') {
+        if ($Status -eq 'timeout') {
+            [ordered]@{
+                schemaVersion = 1
+                status = 'timeout'
+                runId = $CaptureRunId
+                manifest = $null
+                log = $LogPath
+                message = $Message
+                warnings = @()
+                cases = @()
+            } | ConvertTo-Json -Depth 6 -Compress
+            return
+        }
+
         $result = [ordered]@{
             schemaVersion = 1
-            status = 'completed'
+            status = $Status
             runId = $CaptureRunId
             manifest = $ManifestPath
             warnings = @(
@@ -496,6 +523,11 @@ function Write-CaptureResult(
             )
         }
         $result | ConvertTo-Json -Depth 6 -Compress
+        return
+    }
+
+    if ($Status -eq 'timeout') {
+        Write-Warning $Message
         return
     }
 
@@ -626,7 +658,10 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     $exited = $false
     try { $exited = $proc.WaitForExit($waitMs) } catch { $exited = $false }
     if (-not $exited) {
-        Write-Warning "Elevated capture did not signal completion within $ElevatedTimeoutSeconds s; not blocking further. See $log for progress."
+        $timeoutMessage = "Elevated capture did not signal completion within $ElevatedTimeoutSeconds s; not blocking further. See $log for progress."
+        Write-CaptureResult -CaptureCases @() -ManifestPath $null -CaptureRunId $RunId `
+            -OutputFormat $Format -QuietOutput ([bool]$Quiet) -Status timeout `
+            -LogPath $log -Message $timeoutMessage
         exit 0
     }
     # ExitCode is only defined once the child has exited, and reading it on a higher-integrity

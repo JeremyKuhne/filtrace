@@ -113,10 +113,10 @@ else {
         alloc = [ordered]@{ captureStatus = 'disabled'; eventCount = $null }
         exceptions = [ordered]@{ captureStatus = 'unknown'; eventCount = $null }
         contention = [ordered]@{ captureStatus = 'enabled'; eventCount = 2 }
-        wait = [ordered]@{ captureStatus = 'disabled'; eventCount = $null }
-        activity = [ordered]@{ captureStatus = 'unknown'; eventCount = $null }
+        wait = [ordered]@{ captureStatus = ''; eventCount = $null }
+        activity = [ordered]@{ captureStatus = 'future-state'; eventCount = $null }
         gcstats = [ordered]@{ captureStatus = 'enabled'; eventCount = 0 }
-        jitstats = [ordered]@{ captureStatus = 'unknown'; eventCount = $null }
+        jitstats = [ordered]@{ eventCount = $null }
         threadpool = [ordered]@{ captureStatus = 'enabled'; eventCount = 1 }
         events = [ordered]@{ captureStatus = 'enabled'; eventCount = 10 }
     }
@@ -203,6 +203,12 @@ $global:LASTEXITCODE = 0
     Assert-True (-not ($manifest.cases[0].commands -match '^filtrace exceptions ')) 'Unknown exceptions command entered the manifest.'
     Assert-True ($manifest.cases[0].warnings -contains 'alloc capture disabled; recapture with a profile that enables it') 'Disabled allocation warning was not recorded.'
     Assert-True ($manifest.cases[0].warnings -contains 'exceptions capture status unknown; no command emitted') 'Unknown exceptions warning was not recorded.'
+    Assert-True ($manifest.cases[0].analyses.wait.captureStatus -eq 'unknown') 'Empty capture status was not normalized to unknown.'
+    Assert-True ($manifest.cases[0].analyses.activity.captureStatus -eq 'unknown') 'Unexpected capture status was not normalized to unknown.'
+    Assert-True ($manifest.cases[0].analyses.jitstats.captureStatus -eq 'unknown') 'Missing capture status was not normalized to unknown.'
+    Assert-True ($manifest.cases[0].warnings -contains 'wait capture status unknown; no command emitted') 'Normalized empty capture status did not emit a warning.'
+    Assert-True ($manifest.cases[0].warnings -contains 'activity capture status unknown; no command emitted') 'Normalized unexpected capture status did not emit a warning.'
+    Assert-True ($manifest.cases[0].warnings -contains 'jitstats capture status unknown; no command emitted') 'Normalized missing capture status did not emit a warning.'
     Assert-True ($manifest.cases[0].symbolCandidates -contains $childSymbols) 'Logged child output was not recorded as a symbol candidate.'
     Assert-True (-not (($manifest.cases[0].symbolCandidates -join ';') -match 'evil\.example')) 'Remote logged OutDir entered symbol candidates.'
     Assert-True ($output.Contains($childSymbols, [StringComparison]::OrdinalIgnoreCase)) 'Printed source command did not use exact child symbols.'
@@ -246,6 +252,89 @@ $global:LASTEXITCODE = 0
     Assert-True ($jsonResult.cases[0].commands -contains "filtrace gcstats '$($jsonResult.cases[0].trace)'") 'JSON output omitted an enabled-zero command.'
     Assert-True (-not $jsonOutput.Contains('fake BenchmarkDotNet capture completed', [StringComparison]::OrdinalIgnoreCase)) 'BenchmarkDotNet chatter polluted JSON output.'
     Assert-True ([Text.Encoding]::UTF8.GetByteCount($jsonOutput.Trim()) -lt 20KB) 'JSON handoff exceeded 20 KiB.'
+
+    if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        $timeoutWrapper = Join-Path $temporaryRoot 'Invoke-TimeoutCapture.ps1'
+        $timeoutWrapperText = @'
+param(
+    [string]$CaptureScript,
+    [string]$ProjectPath,
+    [string]$DotnetPath,
+    [string]$FiltracePath,
+    [string]$RunId,
+    [ValidateSet('Text', 'Json')]
+    [string]$OutputFormat,
+    [switch]$Quiet)
+
+function Start-Process {
+    [CmdletBinding()]
+    param(
+        [string]$FilePath,
+        [string]$Verb,
+        [switch]$PassThru,
+        [string]$WorkingDirectory,
+        [object[]]$ArgumentList)
+
+    # Force the bounded wait to time out without a UAC prompt. Real elevation remains
+    # a manual Windows check; this fake pins the parent process's output contract.
+    $process = [pscustomobject]@{ HasExited = $false; ExitCode = 0 }
+    $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {
+        param([int]$Milliseconds)
+        return $false
+    }
+    return $process
+}
+
+$captureParameters = @{
+    Project = $ProjectPath
+    Filter = '*Work*'
+    Profiler = 'ETW'
+    RunId = $RunId
+    DotnetPath = $DotnetPath
+    FiltracePath = $FiltracePath
+    Format = $OutputFormat
+    ElevatedTimeoutSeconds = 1
+}
+if ($Quiet) { $captureParameters.Quiet = $true }
+. $CaptureScript @captureParameters
+'@
+        [System.IO.File]::WriteAllText($timeoutWrapper, $timeoutWrapperText)
+        Push-Location $temporaryRoot
+        try {
+            $timeoutJson = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $captureScript `
+                -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                -RunId 'timeout-json-run' -OutputFormat Json | Out-String
+            $timeoutExitCode = $LASTEXITCODE
+            $timeoutText = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $captureScript `
+                -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                -RunId 'timeout-text-run' -OutputFormat Text 2>&1 | Out-String
+            $timeoutTextExitCode = $LASTEXITCODE
+            $timeoutQuiet = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $captureScript `
+                -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                -RunId 'timeout-quiet-run' -OutputFormat Text -Quiet 2>&1 | Out-String
+            $timeoutQuietExitCode = $LASTEXITCODE
+        }
+        finally {
+            Pop-Location
+        }
+
+        Assert-True ($timeoutExitCode -eq 0) 'Elevated timeout did not preserve its non-fatal exit status.'
+        $timeoutResult = $timeoutJson | ConvertFrom-Json
+        $timeoutLog = Join-Path $globalArtifacts 'filtrace-runs/timeout-json-run/capture.log'
+        Assert-True ($timeoutResult.status -eq 'timeout') 'Elevated JSON timeout did not report timeout status.'
+        Assert-True ($timeoutResult.runId -eq 'timeout-json-run') 'Elevated JSON timeout omitted the run ID.'
+        Assert-True ($timeoutResult.log -eq $timeoutLog) 'Elevated JSON timeout omitted the capture log path.'
+        Assert-True ($timeoutResult.message.Contains('did not signal completion', [StringComparison]::OrdinalIgnoreCase)) 'Elevated JSON timeout omitted its diagnostic message.'
+        Assert-True ($null -eq $timeoutResult.manifest) 'Elevated JSON timeout reported a manifest that was never observed.'
+        Assert-True ($timeoutResult.cases.Count -eq 0) 'Elevated JSON timeout reported capture cases that were never observed.'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/timeout-json-run'))) 'Elevated timeout unexpectedly created a run directory in the parent.'
+        Assert-True ($timeoutTextExitCode -eq 0) 'Elevated text timeout did not preserve its non-fatal exit status.'
+        Assert-True ($timeoutText.Contains('did not signal completion', [StringComparison]::OrdinalIgnoreCase)) 'Elevated text timeout did not emit a warning.'
+        Assert-True (-not $timeoutText.Contains('"status"', [StringComparison]::OrdinalIgnoreCase)) 'Elevated text timeout emitted JSON.'
+        Assert-True ($timeoutQuietExitCode -eq 0) 'Elevated quiet timeout did not preserve its non-fatal exit status.'
+        Assert-True ($timeoutQuiet.Contains('did not signal completion', [StringComparison]::OrdinalIgnoreCase)) 'Elevated quiet timeout suppressed its warning.'
+        Assert-True (-not $timeoutQuiet.Contains('Captured ', [StringComparison]::OrdinalIgnoreCase)) 'Elevated quiet timeout emitted a capture summary.'
+    }
 
     Assert-True ($quietExitCode -eq 0) 'Quiet capture failed.'
     Assert-True ($quietOutput.Contains('capture disabled', [StringComparison]::OrdinalIgnoreCase)) 'Quiet mode suppressed warnings.'
