@@ -149,6 +149,52 @@ public sealed class OutputContractTests
     }
 
     [TestMethod]
+    public void FromTraceInfo_MapsSharedCliMcpView()
+    {
+        IReadOnlyDictionary<string, AnalysisAvailability> analyses =
+            TraceCapabilities.AvailabilityFor(
+                TraceFormat.NetTrace,
+                new Dictionary<string, int> { ["cpu"] = 42 },
+                new Dictionary<string, CaptureStatus>
+                {
+                    ["alloc"] = CaptureStatus.Disabled,
+                    ["wait"] = CaptureStatus.Unknown
+                });
+        TraceInfo info = new(
+            "/traces/sample.nettrace",
+            TraceFormat.NetTrace,
+            42.0,
+            42,
+            1.0,
+            [],
+            [],
+            TraceCapabilities.AnalysesFor(TraceFormat.NetTrace),
+            analyses);
+
+        TraceInfoView view = TraceInfoView.FromTraceInfo(info, EtlxCacheState.Waited);
+
+        view.EtlxCacheState.Should().Be("waited");
+        view.Analyses!["cpu"].Should().Be(new AnalysisAvailabilityView("enabled", 42));
+        view.Analyses["alloc"].Should().Be(new AnalysisAvailabilityView("disabled", null));
+        view.Analyses["wait"].Should().Be(new AnalysisAvailabilityView("unknown", null));
+        view.Analyses.Should().NotContainKey("threadtime");
+    }
+
+    [TestMethod]
+    public void FromTraceInfo_InvalidInput_Throws()
+    {
+        Action nullInfo = () => TraceInfoView.FromTraceInfo(null!, null);
+        TraceInfo invalidCaptureInfo = CreateTraceInfo((CaptureStatus)999);
+        Action invalidCapture = () => TraceInfoView.FromTraceInfo(invalidCaptureInfo, null);
+        TraceInfo validInfo = CreateTraceInfo(CaptureStatus.Enabled);
+        Action invalidCache = () => TraceInfoView.FromTraceInfo(validInfo, (EtlxCacheState)999);
+
+        nullInfo.Should().Throw<ArgumentNullException>().WithParameterName("info");
+        invalidCapture.Should().Throw<ArgumentOutOfRangeException>();
+        invalidCache.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [TestMethod]
     public void Serialize_UnregisteredPayloadType_Throws()
     {
         // The source-gen context is the only type-info resolver, so a payload type that
@@ -160,4 +206,19 @@ public sealed class OutputContractTests
 
         act.Should().Throw<NotSupportedException>();
     }
+
+    private static TraceInfo CreateTraceInfo(CaptureStatus captureStatus) =>
+        new(
+            "/traces/sample.nettrace",
+            TraceFormat.NetTrace,
+            1.0,
+            1,
+            1.0,
+            [],
+            [],
+            ["cpu"],
+            new Dictionary<string, AnalysisAvailability>
+            {
+                ["cpu"] = new(true, captureStatus, 1)
+            });
 }

@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Tracing;
+using EtlxCacheStateValue = Filtrace.Tracing.EtlxCacheState;
 
 namespace Filtrace.Output;
 
@@ -50,4 +51,60 @@ public sealed record TraceInfoView(
     ///  manually constructed legacy views may leave it <see langword="null"/>.
     /// </summary>
     public IReadOnlyDictionary<string, AnalysisAvailabilityView>? Analyses { get; init; }
+
+    /// <summary>
+    ///  Creates the shared CLI/MCP view of <paramref name="info"/>.
+    /// </summary>
+    /// <param name="info">The loaded trace information to map.</param>
+    /// <param name="etlxCacheState">How this request obtained the ETLX cache.</param>
+    /// <returns>The agent-facing trace-information view.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="info"/> is <see langword="null"/>.</exception>
+    public static TraceInfoView FromTraceInfo(TraceInfo info, EtlxCacheStateValue? etlxCacheState)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+
+        Dictionary<string, AnalysisAvailabilityView> analyses = new(StringComparer.Ordinal);
+        foreach ((string name, AnalysisAvailability availability) in info.Analyses)
+        {
+            if (!availability.FormatSupported)
+            {
+                continue;
+            }
+
+            analyses[name] = new AnalysisAvailabilityView(
+                CaptureStatusText(availability.CaptureStatus),
+                availability.EventCount);
+        }
+
+        return new TraceInfoView(
+            info.Path,
+            info.Format.ToString(),
+            info.TotalWeight,
+            info.SampleCount,
+            info.SymbolResolutionRate,
+            info.Threads,
+            info.AvailableAnalyses,
+            CacheStateText(etlxCacheState))
+        {
+            Analyses = analyses
+        };
+    }
+
+    private static string? CacheStateText(EtlxCacheStateValue? state) => state switch
+    {
+        EtlxCacheStateValue.Hit => "hit",
+        EtlxCacheStateValue.Waited => "waited",
+        EtlxCacheStateValue.Converted => "converted",
+        EtlxCacheStateValue.Recovered => "recovered",
+        null => null,
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown ETLX cache state.")
+    };
+
+    private static string CaptureStatusText(CaptureStatus status) => status switch
+    {
+        CaptureStatus.Enabled => "enabled",
+        CaptureStatus.Disabled => "disabled",
+        CaptureStatus.Unknown => "unknown",
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown capture status.")
+    };
 }
