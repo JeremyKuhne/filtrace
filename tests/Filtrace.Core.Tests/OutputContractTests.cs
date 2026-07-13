@@ -129,7 +129,13 @@ public sealed class OutputContractTests
                 ["cpu"] = new("enabled", 42),
                 ["alloc"] = new("disabled", null),
                 ["exceptions"] = new("unknown", null)
-            }
+            },
+            SourceResolution = new SourceResolutionInfo(
+                ["/symbols"],
+                100,
+                25,
+                ["MyApp"],
+                ["OtherLibrary (0/75 mapped)"])
         };
         AnalysisResult<TraceInfoView> envelope = new(view);
 
@@ -150,6 +156,9 @@ public sealed class OutputContractTests
         JsonElement exceptions = result.GetProperty("analyses").GetProperty("exceptions");
         exceptions.GetProperty("captureStatus").GetString().Should().Be("unknown");
         exceptions.GetProperty("eventCount").ValueKind.Should().Be(JsonValueKind.Null);
+        JsonElement source = result.GetProperty("sourceResolution");
+        source.GetProperty("sourceResolutionRate").GetDouble().Should().Be(0.25);
+        source.GetProperty("matchingPdbModules")[0].GetString().Should().Be("MyApp");
     }
 
     [TestMethod]
@@ -173,7 +182,15 @@ public sealed class OutputContractTests
             [],
             [],
             TraceCapabilities.AnalysesFor(TraceFormat.NetTrace),
-            analyses);
+            analyses)
+        {
+            SourceResolution = new SourceResolutionInfo(
+                ["/symbols"],
+                100,
+                25,
+                ["MyApp"],
+                ["OtherLibrary (0/75 mapped)"])
+        };
 
         TraceInfoView view = TraceInfoView.FromTraceInfo(info, EtlxCacheState.Waited);
 
@@ -182,6 +199,8 @@ public sealed class OutputContractTests
         view.Analyses["alloc"].Should().Be(new AnalysisAvailabilityView("disabled", null));
         view.Analyses["wait"].Should().Be(new AnalysisAvailabilityView("unknown", null));
         view.Analyses.Should().NotContainKey("threadtime");
+        view.SourceResolution!.SourceResolutionRate.Should().Be(0.25);
+        view.SourceResolution.MatchingPdbModules.Should().Equal("MyApp");
     }
 
     [TestMethod]

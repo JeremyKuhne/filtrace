@@ -62,6 +62,17 @@ internal static class InfoTextRenderer
             output.WriteLine($"etlx cache: {view.EtlxCacheState}");
         }
 
+        if (view.SourceResolution is SourceResolutionInfo source)
+        {
+            output.WriteLine($"source: {source.MappedManagedFrameCount}/{source.SampledManagedFrameCount} sampled managed frames ({source.SourceResolutionRate:P0})");
+            output.WriteLine(
+                $"symbol directories: {ListOrNone(source.SearchedDirectories)}");
+            output.WriteLine(
+                $"matching PDB modules: {ListOrNone(source.MatchingPdbModules)}");
+            output.WriteLine(
+                $"highest unmapped modules: {ListOrNone(source.HighestUnmappedModules)}");
+        }
+
         output.WriteLine("threads:");
         if (view.Threads.Count == 0)
         {
@@ -84,8 +95,7 @@ internal static class InfoTextRenderer
             }
         }
 
-        // The symptom-to-analysis routing hints, then the quality warnings (a low
-        // symbol-resolution rate rides the warning channel).
+        // The symptom-to-analysis routing hints, then quality warnings.
         foreach (string hint in envelope.Hints)
         {
             output.WriteLine($"> {hint}");
@@ -96,4 +106,7 @@ internal static class InfoTextRenderer
             output.WriteLine($"! {warning}");
         }
     }
+
+    private static string ListOrNone(IReadOnlyList<string> values) =>
+        values.Count == 0 ? "(none)" : string.Join(", ", values);
 }

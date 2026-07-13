@@ -16,8 +16,8 @@ namespace Filtrace.Cli;
 /// <remarks>
 ///  <para>
 ///   This is the CLI counterpart of the <c>trace_info</c> tool, so the two entry
-///   points expose the same orientation step: the analyses a capture can answer and
-///   whether its symbol-resolution rate is high enough to trust a ranking. It builds
+///   points expose the same orientation step: the analyses a capture can answer,
+///   frame-name quality, and distinct source/PDB quality. It builds
 ///   the identical envelope, so <c>--format json</c> emits the same shape the tool's
 ///   structured content carries. The execution is independent of the command-line
 ///   parser; it takes an <see cref="InfoRequest"/> and writes to the supplied writers,

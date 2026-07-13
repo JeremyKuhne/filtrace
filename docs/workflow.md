@@ -89,7 +89,11 @@ dotnet-trace collect --profile cpu-sampling `
 Replace the provider name; level `5` is Verbose and the mask enables all keywords.
 
 For a BenchmarkDotNet capture, add `--keepFiles` to retain its generated build output
-and point `--symbols` at build output containing matching PDBs. Scope every
+and point `--symbols` at the generated child output containing the exact PDBs recorded
+in the trace, not merely the outer project output. Confirm the match in
+`trace_info.sourceResolution`: inspect `matchingPdbModules`, the mapped/total sampled
+managed-frame counts, and `highestUnmappedModules` before trusting `lines` or
+`heatmap`. Scope every
 **root-aware stack analysis** to the generated `WorkloadAction*` wrapper - not just
 rankings, export too, and not just when the result looks noisy. In the CLI,
 `--benchmark` supplies that preset to every verb that offers it. In MCP, pass
@@ -138,7 +142,12 @@ are named for them:
   matching PDBs for source lines, not a replacement for missing rundown. Unresolved
   native ETW frames can also depress the aggregate rate while managed-method
   rankings remain usable; use `--native-symbols` when the native runtime split
-  matters. `trace_info.availableAnalyses` reports format support only;
+  matters. This rate measures frame names, not PDB/source quality. For source-line
+  analysis, read `trace_info.sourceResolution`: its mapped and sampled managed-frame
+  counts give the source-resolution rate, `matchingPdbModules` confirms exact PDB
+  identity, `highestUnmappedModules` identifies where sequence points are missing,
+  and `searchedDirectories` records where filtrace looked.
+  `trace_info.availableAnalyses` reports format support only;
   `trace_info.analyses` reports capture enablement and observed event counts. Follow
   known-enabled symptom routes; an unknown status means inspect capture settings or
   recapture, not that the provider was disabled.
@@ -177,7 +186,7 @@ meaningful zero:
 
 | Verb | Shows |
 |---|---|
-| `info` | format, sample count, symbol-resolution rate, per-thread counts, per-analysis format/capture/event state, and quality warnings - the CLI counterpart of `trace_info` |
+| `info` | format, samples, frame-name and source/PDB quality, per-thread counts, per-analysis format/capture/event state, and quality warnings - the CLI counterpart of `trace_info` |
 
 **Rank** - find the hottest frames by a metric:
 
@@ -294,7 +303,11 @@ go further:
 - **`--symbols <build-output-dir>`** - map managed code to source lines using
   matching portable PDBs in a build-output directory. Needed for `lines` /
   `heatmap`; managed method names normally come from CLR rundown, so this is not a
-  general repair for a low aggregate name-resolution rate.
+  general repair for a low aggregate name-resolution rate. Read
+  `trace_info.sourceResolution` to confirm exact PDB matches and sampled frame
+  mapping. For BenchmarkDotNet, use the generated child output retained by
+  `--keepFiles`; the outer project output can have the right filenames but different
+  PDB identities.
 - **`--native-symbols`** (CPU `.etl` only) - resolve the *unmanaged* runtime
   frames (GC, JIT, `memset` / `memcpy`, write barriers) from the Microsoft public
   symbol server. Off by default so analysis stays offline and deterministic; the
@@ -311,7 +324,7 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 
 | Tool | CLI equivalent | Purpose |
 |---|---|---|
-| `trace_info` | (orient) | format, sample count, symbol-resolution rate, available analyses; call first |
+| `trace_info` | (orient) | format, samples, frame-name and source/PDB quality, available analyses; call first |
 | `trace_rank` | `rank` / `cpu` / `alloc` / `exceptions` / `threadtime` | rank by `metric` (cpu, threadtime, alloc, exceptions, contention, wait, activity) |
 | `trace_callers` | `callers` | immediate CPU callers of a frame, or a caller/callee view (`callees`) |
 | `trace_lines` | `lines` | hottest CPU source lines of the scoped methods |
@@ -413,8 +426,11 @@ filtrace is built for an agent mid-investigation. Two ways to wire it in:
 
 Either way, the canonical loop is **orient -> rank -> drill -> compare**: read
 `trace_info` (CLI: `filtrace info`) first; when symbol resolution is below 0.8,
-inspect its warning and unresolved rows; use local PDBs for source lines or native
-symbols for CPU ETW runtime frames as applicable. Rank by the metric that matches the question (cpu, alloc, exceptions,
+inspect its warning and unresolved rows. Treat that as frame-name quality; before
+source-line analysis, inspect `sourceResolution` for exact matching PDB modules,
+mapped sampled managed frames, searched directories, and highest-unmapped modules.
+Use the generated BenchmarkDotNet child output when the outer build PDB does not
+match; use native symbols for CPU ETW runtime frames as applicable. Rank by the metric that matches the question (cpu, alloc, exceptions,
 threadtime, contention, wait, activity); for an unwindowed CPU ranking, drill the
 hot frame with callers / lines / tree; diff comparable CPU traces against a baseline.
 <!-- filtrace:end agents-snippet -->

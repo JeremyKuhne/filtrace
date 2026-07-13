@@ -26,11 +26,11 @@ internal sealed class TraceCommands
     /// <param name="process">Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
-    ///  Reports the format, sample count, total weight, symbol-resolution rate, the
-    ///  busiest threads, the analyses the trace's format can answer, and quality
-    ///  warnings. It is the CLI counterpart of the <c>trace_info</c> tool - run it
-    ///  first, and inspect the warning and unresolved frames when the rate is below
-    ///  0.8 before supplying managed or native symbols as needed. Like that tool it
+    ///  Reports the format, sample count, total weight, frame-name resolution,
+    ///  sampled source/PDB quality, the busiest threads, available analyses, and
+    ///  quality warnings. It is the CLI counterpart of the <c>trace_info</c> tool -
+    ///  run it first. Frame names normally come from CLR rundown; source lines require
+    ///  exact matching PDBs in <c>--symbols</c>. Like that tool it
     ///  takes an optional <c>--process</c> selector (no
     ///  <c>--all-processes</c> opt-out); use the <c>processes</c> verb to see every
     ///  process in a machine-wide capture.

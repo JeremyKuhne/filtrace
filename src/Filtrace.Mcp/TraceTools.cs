@@ -52,8 +52,8 @@ public sealed class TraceTools
         InfoAsync(store, path, symbols, process).GetAwaiter().GetResult();
 
     /// <summary>
-    ///  Loads a trace and returns its format, total weight, sample count, symbol
-    ///  resolution rate, per-thread sample counts, and quality warnings.
+    ///  Loads a trace and returns its format, total weight, sample count, frame-name
+    ///  and source/PDB quality, per-thread sample counts, and quality warnings.
     /// </summary>
     /// <param name="store">The trace cache (injected).</param>
     /// <param name="path">Path to the trace file.</param>
@@ -63,7 +63,7 @@ public sealed class TraceTools
     /// <returns>The trace summary envelope.</returns>
     [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Load a trace and return format, weight, sample/thread counts, symbol resolution, available analyses, "
+        "Load a trace and return format, weight, sample/thread counts, frame/source quality, available analyses, "
         + "and per-analysis captureStatus/eventCount. captureStatus is enabled, disabled, or unknown; zero is "
         + "reported only when enablement is known. Also returns etlxCacheState. Call this first.")]
     public static async Task<AnalysisResult<TraceInfoView>> InfoAsync(

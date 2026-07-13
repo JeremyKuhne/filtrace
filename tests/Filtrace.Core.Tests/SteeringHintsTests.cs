@@ -153,6 +153,29 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForTraceInfo_PoorSourceResolution_SeparatesMethodNamesFromPdbs()
+    {
+        TraceInfo info = new(
+            "/t.nettrace", TraceFormat.NetTrace, 100.0, 10, 1.0, [], [],
+            TraceCapabilities.AnalysesFor(TraceFormat.NetTrace))
+        {
+            SourceResolution = new SourceResolutionInfo(
+                ["/outer"],
+                100,
+                0,
+                [],
+                ["GeneratedChild (0/75 mapped)", "MyApp (0/25 mapped)"])
+        };
+
+        IReadOnlyList<string> hints = SteeringHints.ForTraceInfo(info);
+
+        hints.Should().Contain(hint =>
+            hint.Contains("method-name resolution (100%) is separate from source mapping (0%)", StringComparison.Ordinal)
+            && hint.Contains("GeneratedChild", StringComparison.Ordinal)
+            && hint.Contains("generated child output", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void ForCallers_WithNamedCaller_NudgesUpTheStack()
     {
         CallersResult callers = new(

@@ -3,15 +3,15 @@
   "tasks": {
     "cpu-hotspot": {
       "calls": 2,
-      "tokens": 151
+      "tokens": 165
     },
     "alloc-hotspot": {
       "calls": 1,
-      "tokens": 192
+      "tokens": 199
     },
     "exception-sites": {
       "calls": 1,
-      "tokens": 99
+      "tokens": 106
     },
     "gc-report": {
       "calls": 1,
@@ -35,11 +35,11 @@
     },
     "cpu-inclusive": {
       "calls": 1,
-      "tokens": 98
+      "tokens": 105
     },
     "threadtime-hotpath": {
       "calls": 1,
-      "tokens": 547
+      "tokens": 554
     },
     "timeline-window": {
       "calls": 1,
@@ -47,11 +47,15 @@
     },
     "caller-callee": {
       "calls": 1,
-      "tokens": 116
+      "tokens": 123
     },
     "trace-info-orientation": {
       "calls": 1,
-      "tokens": 105
+      "tokens": 121
+    },
+    "source-quality": {
+      "calls": 1,
+      "tokens": 575
     }
   }
 }

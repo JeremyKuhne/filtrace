@@ -73,6 +73,7 @@ internal abstract class TraceLogReader : ITraceReader
         string? extractedPdbDirectory = symbolsDirectory is null
             ? null
             : EmbeddedPdbExtractor.Extract(symbolsDirectory);
+        string? localSymbolPath = null;
 
         // The name the scope resolved to (set by ResolveScope below), surfaced as a
         // warning so the caller knows a machine-wide capture was narrowed automatically.
@@ -82,11 +83,13 @@ internal abstract class TraceLogReader : ITraceReader
         {
             if (extractedPdbDirectory is not null)
             {
-                symbolReader.SymbolPath = $"{symbolsDirectory}{Path.PathSeparator}{extractedPdbDirectory}";
+                localSymbolPath = $"{symbolsDirectory}{Path.PathSeparator}{extractedPdbDirectory}";
+                symbolReader.SymbolPath = localSymbolPath;
             }
             else if (!string.IsNullOrEmpty(symbolsDirectory))
             {
-                symbolReader.SymbolPath = symbolsDirectory;
+                localSymbolPath = symbolsDirectory;
+                symbolReader.SymbolPath = localSymbolPath;
             }
 
             // Opt-in native runtime symbols: point the reader at the Microsoft public
@@ -126,7 +129,8 @@ internal abstract class TraceLogReader : ITraceReader
                 activitySamples,
                 activityName,
                 scope?.Window,
-                cacheState);
+                cacheState,
+                new SourceResolutionTracker(symbolsDirectory, localSymbolPath));
         }
         finally
         {
@@ -202,7 +206,8 @@ internal abstract class TraceLogReader : ITraceReader
         HashSet<EventIndex>? activitySamples,
         string? activityName,
         TimeWindow? window,
-        EtlxCacheState cacheState)
+        EtlxCacheState cacheState,
+        SourceResolutionTracker sourceResolution)
     {
         AnalysisEventCounter analysisEvents = new();
         Dictionary<int, string> locationCache = [];
@@ -279,7 +284,9 @@ internal abstract class TraceLogReader : ITraceReader
                 }
 
                 leafToRoot.Add(name);
-                leafToRootLocations.Add(ResolveLocation(symbolReader, address, locationCache));
+                string location = ResolveLocation(symbolReader, address, locationCache);
+                leafToRootLocations.Add(location);
+                sourceResolution.Observe(address, location.Length > 0);
             }
 
             if (leafToRoot.Count == 0)
@@ -394,7 +401,8 @@ internal abstract class TraceLogReader : ITraceReader
             warnings,
             StackRecordSemantics.PeriodicCpuSamples,
             cacheState,
-            analysisEvents.Counts);
+            analysisEvents.Counts,
+            sourceResolution.CreateInfo());
     }
 
     // Joins the applied-scope phrases into one clause: "A" for one, "A and B" for two,

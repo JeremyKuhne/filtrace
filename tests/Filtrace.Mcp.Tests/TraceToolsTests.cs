@@ -41,7 +41,7 @@ public sealed class TraceToolsTests
     // assert on the object directly rather than re-parsing JSON.
     private static void AssertEnvelope<T>(AnalysisResult<T> envelope)
     {
-        envelope.SchemaVersion.Should().Be(5);
+        envelope.SchemaVersion.Should().Be(6);
         envelope.Warnings.Should().NotBeNull();
         envelope.Hints.Should().NotBeNull();
         envelope.Result.Should().NotBeNull();
@@ -78,6 +78,27 @@ public sealed class TraceToolsTests
         allocation.EventCount.Should().BeGreaterThan(0);
         envelope.Result.Analyses["wait"].Should().Be(
             new AnalysisAvailabilityView("unknown", null));
+    }
+
+    [TestMethod]
+    public void Info_NetTrace_SeparatesFrameNamesFromSourceQuality()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<TraceInfoView> envelope = TraceTools.Info(
+            store,
+            FixturePath(Activity),
+            AppContext.BaseDirectory);
+
+        envelope.Result.SymbolResolutionRate.Should().Be(1.0);
+        SourceResolutionInfo source = envelope.Result.SourceResolution!;
+        source.SearchedDirectories.Should().Equal(AppContext.BaseDirectory);
+        source.SampledManagedFrameCount.Should().BeGreaterThan(0);
+        source.MappedManagedFrameCount.Should().BeLessThan(source.SampledManagedFrameCount);
+        source.HighestUnmappedModules.Should().Contain(
+            module => module.Contains("HotLoopBench", StringComparison.OrdinalIgnoreCase));
+        envelope.Hints.Should().Contain(hint =>
+            hint.Contains("method-name resolution (100%) is separate from source mapping", StringComparison.Ordinal));
     }
 
     [TestMethod]
