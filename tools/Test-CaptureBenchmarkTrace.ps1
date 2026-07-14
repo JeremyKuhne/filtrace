@@ -39,6 +39,72 @@ try {
         Assert-True (-not $captureSource.Contains($staleElevationPhrase, [StringComparison]::OrdinalIgnoreCase)) "Stale ETW elevation wording remained: '$staleElevationPhrase'."
     }
 
+    # Execute the trusted command-builder functions directly so ETW syntax is covered
+    # without elevation or a capture side effect.
+    $tokens = $null
+    $parseErrors = $null
+    $captureAst = [System.Management.Automation.Language.Parser]::ParseFile(
+        $captureScript,
+        [ref]$tokens,
+        [ref]$parseErrors)
+    Assert-True ($parseErrors.Count -eq 0) 'Capture helper could not be parsed for command-contract tests.'
+    $commandFunctionNames = @('ConvertTo-PowerShellArgument', 'Test-AnalysisEnabled', 'Get-CaseCommands')
+    $commandFunctionDefinitions = @(
+        $captureAst.FindAll(
+            { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $commandFunctionNames },
+            $true) |
+            Sort-Object { $_.Extent.StartOffset } |
+            ForEach-Object { $_.Extent.Text }
+    )
+    Assert-True ($commandFunctionDefinitions.Count -eq $commandFunctionNames.Count) 'Capture command-builder functions could not be isolated.'
+    . ([scriptblock]::Create(($commandFunctionDefinitions -join [Environment]::NewLine)))
+
+    $eventPipeCase = [ordered]@{
+        trace = 'C:\capture.nettrace'
+        speedscope = $null
+        symbolsDirectory = 'C:\symbols'
+        analyses = [ordered]@{}
+    }
+    foreach ($analysis in @('cpu', 'alloc', 'exceptions', 'contention', 'wait', 'activity', 'gcstats', 'jitstats', 'threadpool')) {
+        $eventPipeCase.analyses[$analysis] = [ordered]@{ captureStatus = 'enabled' }
+    }
+    $eventPipeCommands = @(Get-CaseCommands $eventPipeCase 'EP' 'Fake.Process' 'Fake.Method' 25)
+    $expectedEventPipeCommands = @(
+        "filtrace cpu 'C:\capture.nettrace' --benchmark --top 25"
+        "filtrace lines 'C:\capture.nettrace' --method 'Fake.Method' --symbols 'C:\symbols'"
+        "filtrace export 'C:\capture.nettrace' --benchmark --symbols 'C:\symbols' -o flame.speedscope.json"
+        "filtrace alloc 'C:\capture.nettrace' --benchmark --top 25"
+        "filtrace exceptions 'C:\capture.nettrace' --benchmark --top 25"
+        "filtrace rank 'C:\capture.nettrace' --metric contention --benchmark --top 25"
+        "filtrace rank 'C:\capture.nettrace' --metric wait --benchmark --top 25"
+        "filtrace rank 'C:\capture.nettrace' --metric activity --benchmark --top 25"
+        "filtrace gcstats 'C:\capture.nettrace'"
+        "filtrace jitstats 'C:\capture.nettrace'"
+        "filtrace threadpool 'C:\capture.nettrace'"
+    )
+    Assert-True (($eventPipeCommands -join "`n") -ceq ($expectedEventPipeCommands -join "`n")) "EventPipe command syntax drifted.`nActual:`n$($eventPipeCommands -join "`n")"
+
+    $etwCase = [ordered]@{
+        trace = 'C:\capture.etl'
+        speedscope = $null
+        symbolsDirectory = 'C:\symbols'
+        analyses = [ordered]@{}
+    }
+    foreach ($analysis in @('processes', 'cpu', 'threadtime', 'classify', 'diskio')) {
+        $etwCase.analyses[$analysis] = [ordered]@{ captureStatus = 'enabled' }
+    }
+    $etwCommands = @(Get-CaseCommands $etwCase 'ETW' 'Fake.Process' 'Fake.Method' 25)
+    $expectedEtwCommands = @(
+        "filtrace processes 'C:\capture.etl'"
+        "filtrace cpu 'C:\capture.etl' --process 'Fake.Process' --benchmark --top 25"
+        "filtrace lines 'C:\capture.etl' --process 'Fake.Process' --method 'Fake.Method' --symbols 'C:\symbols'"
+        "filtrace export 'C:\capture.etl' --process 'Fake.Process' --benchmark --native-symbols --symbols 'C:\symbols' -o flame.speedscope.json"
+        "filtrace threadtime 'C:\capture.etl' --process 'Fake.Process' --benchmark --top 25"
+        "filtrace classify 'C:\capture.etl' --process 'Fake.Process' --benchmark --native-symbols"
+        "filtrace diskio 'C:\capture.etl' --top 25"
+    )
+    Assert-True (($etwCommands -join "`n") -ceq ($expectedEtwCommands -join "`n")) "ETW command syntax drifted.`nActual:`n$($etwCommands -join "`n")"
+
     $projectDirectory = Join-Path $temporaryRoot 'src/Fake.Perf'
     New-Item -ItemType Directory -Path $projectDirectory | Out-Null
     $projectPath = Join-Path $projectDirectory 'Fake.Perf.csproj'
@@ -247,6 +313,18 @@ $global:LASTEXITCODE = 0
     Assert-True (([regex]::Matches($output, 'filtrace rank .*--metric contention')).Count -eq 3) 'Enabled contention did not emit one command per raw trace.'
     Assert-True (([regex]::Matches($output, 'filtrace gcstats ')).Count -eq 3) 'Enabled-zero GC did not emit one command per raw trace.'
     Assert-True (([regex]::Matches($output, 'filtrace threadpool ')).Count -eq 3) 'Enabled threadpool did not emit one command per raw trace.'
+    $generatedCommands = @(
+        $manifest.cases.commands |
+            Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+    )
+    foreach ($command in $generatedCommands) {
+        if ($command -match '^filtrace (?:gcstats|jitstats|threadpool|processes)\b') {
+            Assert-True ($command -notmatch '(?:^|\s)--(?:benchmark|process)(?:\s|$)') "Structured/orientation command used an unsupported stack scope: $command"
+        }
+        if ($command -match '^filtrace lines\b') {
+            Assert-True ($command -notmatch '(?:^|\s)--benchmark(?:\s|$)') "Source-line command used unsupported benchmark scope: $command"
+        }
+    }
     Assert-True (-not $output.Contains('filtrace alloc ', [StringComparison]::OrdinalIgnoreCase)) 'Disabled allocation emitted a command.'
     Assert-True (-not $output.Contains('filtrace exceptions ', [StringComparison]::OrdinalIgnoreCase)) 'Unknown exceptions emitted a command.'
     Assert-True ($output.Contains('alloc capture disabled', [StringComparison]::OrdinalIgnoreCase)) 'Disabled allocation was not explained.'

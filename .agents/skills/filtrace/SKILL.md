@@ -53,8 +53,10 @@ blocked?", "GC versus my code?", or a machine-wide capture -> ETW. Two bundled
 scripts wrap the capture-then-analyze loop and print the scoped filtrace commands:
 [scripts/Capture-BenchmarkTrace.ps1](scripts/Capture-BenchmarkTrace.ps1) profiles a
 BenchmarkDotNet micro-benchmark in an isolated run directory, emits an all-case
-manifest, verifies exact generated-child PDBs, and prints `--benchmark`-scoped
-commands only for known-enabled analyses. Disabled/unknown states become warnings;
+manifest, verifies exact generated-child PDBs, and prints commands only for
+known-enabled analyses. Each command uses the benchmark, process, method, or other
+scope supported by its verb; structured reports and orientation commands keep their
+own syntax. Disabled/unknown states become warnings;
 full BenchmarkDotNet output stays in the run log. Use `-Format Json` for a compact
 handoff or `-Quiet` for warnings only. On a non-fatal elevated wait timeout, text
 modes emit a warning; `-Format Json` returns `status: "timeout"`, `runId`, `log`, and

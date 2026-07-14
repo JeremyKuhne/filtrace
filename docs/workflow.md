@@ -111,8 +111,10 @@ from measurement. The bundled
 wraps the whole loop: it runs the benchmark under the chosen profiler
 (self-elevating for ETW) in a run-specific artifacts/log
 directory, emits `manifest.json` with every parameterized case and trace pair, and
-prints only commands whose `captureStatus` is known-enabled, already scoped with
-`--process` and `--benchmark`; disabled and unknown analyses become explicit warnings.
+prints only commands whose `captureStatus` is known-enabled. Each command uses the
+benchmark, process, method, or other scope supported by its verb; structured reports
+and orientation commands keep their own syntax. Disabled and unknown analyses become
+explicit warnings.
 Full BenchmarkDotNet output stays in `capture.log`. Use `-Format Json` for a compact
 machine-readable handoff or `-Quiet` to suppress text progress/commands while retaining
 warnings. On a non-fatal elevated wait timeout, text modes emit a warning;
