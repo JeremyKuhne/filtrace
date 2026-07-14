@@ -15,8 +15,8 @@ selects stale data, or corrupts output under another host.
    boundaries, working directory, stream handling, immediate exit-code checks,
    process lifetime, and elevation behavior.
 4. For each external dependency or optional capability, write the state matrix:
-  absent, success-with-data, valid-empty, nonzero/exception, and malformed or
-  incomplete output. Verify that states sharing a sentinel really share policy.
+    absent, success-with-data, valid-empty, nonzero/exception, and malformed or
+    incomplete output. Verify that states sharing a sentinel really share policy.
 5. Trace every path from input to filesystem, network, command line, regex,
    serializer, and log. Check grammar transitions and privilege boundaries.
 6. Identify all acquired resources and shared names. Confirm exact lock identity,
