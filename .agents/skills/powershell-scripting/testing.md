@@ -144,8 +144,8 @@ identity, points to or locates the complete artifact, and is itself remeasured.
 ## 6. Validate help and `ShouldProcess`
 
 - Run `Get-Help <script> -Full` and verify every public parameter is present with
-    accurate mode and side-effect wording. Include internal/reserved relaunch switches
-    that remain discoverable in the public parameter block.
+  accurate mode and side-effect wording. Include internal/reserved relaunch switches
+  that remain discoverable in the public parameter block.
 - Invoke state-changing commands with `-WhatIf` and assert no file, process,
   network, or configuration change occurred.
 - Test `-Confirm:$false` noninteractively. Do not let CI wait for a prompt.
