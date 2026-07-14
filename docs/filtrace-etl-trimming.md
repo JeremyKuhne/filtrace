@@ -80,17 +80,22 @@ This is why the trim is a fixture-generation tool, not a shipped verb: the
 lossless path (`--process` at analysis time) already covers the analysis case, and a
 shipped physical trim would ship this limitation with it.
 
-## Shipping path
+## Future shipping decision
 
-Two backlog items in
-[traceevent-surface-assessment.md](traceevent-surface-assessment.md) track turning
-this into a user-facing capability:
+Physical trim is tracked only as VC7 in the canonical
+[v.next roadmap](vnext-improvement-plan.md#vc7---physical-etl-trim). The earlier
+TraceEvent assessment called the process-tree relog TE-14 and the time-window axis
+TE-15. Analysis-time `--time` scope has since shipped as the lossless way to inspect
+a spike; only a physical `[t0, t1]` relog remains part of the potential transport
+feature.
 
-- **TE-14** - ship the process-tree trim as a filtrace verb (for transport / commit /
-  cross-machine hand-off), documenting the managed-stack limitation until the
-  address-map rebuild is solved.
-- **TE-15** - add a time-window trim axis (`[t0, t1]`), the natural second scoping
-  dimension after the process tree, for long captures where only a spike matters.
+A user-facing trim should combine process-tree and optional time-window selection,
+state that it is for transport/fixtures rather than analysis fidelity, and either:
 
-Resolving the managed-method rebuild - the reason the relog is native-only - is what
-would raise TE-14 from a transport convenience to a full lossless shrink.
+1. rebuild enough managed method/module mapping for JITted frames to resolve; or
+2. explicitly limit the output contract to native/event scenarios such as disk I/O.
+
+Resolving the managed-method rebuild is what would raise physical trim from a
+specialized transport convenience to a general lossless shrink. Until then, keep
+the relogger in fixture generation and use analysis-time process/time scope for
+normal investigations.
