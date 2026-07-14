@@ -268,6 +268,10 @@ function Test-UpstreamMirror {
                     [string] $artifactPath = "$skillName/$($relativePath -replace '\\', '/')"
                     [byte[]] $localBytes = Convert-LineEndings ([System.IO.File]::ReadAllBytes($localPath))
                     [byte[]] $upstreamBytes = Convert-LineEndings ([System.IO.File]::ReadAllBytes($upstreamPath))
+                    if (Test-BytesEqual $localBytes $upstreamBytes) {
+                        continue
+                    }
+
                     if ($pendingUpstreamEntityFixes -ccontains $artifactPath) {
                         [System.Text.UTF8Encoding] $encoding = [System.Text.UTF8Encoding]::new($false, $true)
                         [string] $localText = $encoding.GetString($localBytes)
@@ -280,7 +284,7 @@ function Test-UpstreamMirror {
                             [void]$observedPendingFixes.Add($artifactPath)
                         }
                     }
-                    elseif (-not (Test-BytesEqual $localBytes $upstreamBytes)) {
+                    else {
                         Add-Failure "$artifactPath differs from the $ExpectedPin artifact."
                     }
                 }
