@@ -222,7 +222,12 @@ Either way, the canonical loop is **orient -> rank -> drill -> compare**: read
 `trace_info` (CLI: `filtrace info`) first; when symbol resolution is below 0.8,
 inspect its warning and unresolved rows. Treat that as frame-name quality; before
 source-line analysis, inspect `sourceResolution` for exact matching PDB modules,
-mapped sampled managed frames, searched directories, and highest-unmapped modules.
+mapped sampled managed frames, searched directories, highest-unmapped modules, and
+`pdbIdentityMismatchModules`. A mismatch means a same-named local PDB was found but
+its GUID or age differs from the trace. Once the relevant module matches, use
+`sourceMappedManagedMethodCount` versus `sampledManagedMethodCount` to confirm sampled
+methods resolve sequence points; `unmappedNamedManagedFrameCount` and
+`highestUnmappedMethods` expose the remaining `<no source>` impact.
 Use the generated BenchmarkDotNet child output when the outer build PDB does not
 match; use native symbols for CPU ETW runtime frames as applicable. Rank by the metric that matches the question (cpu, alloc, exceptions,
 threadtime, contention, wait, activity); for an unwindowed CPU ranking, drill the

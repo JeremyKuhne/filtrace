@@ -135,6 +135,15 @@ public static class SteeringHints
 
         if (info.SourceResolution is SourceResolutionInfo
             {
+                PdbIdentityMismatchModules.Count: > 0
+            } mismatchSource)
+        {
+            string mismatches = string.Join(", ", mismatchSource.PdbIdentityMismatchModules.Take(3));
+            hints.Add($"PDB identity mismatch for: {mismatches}; the supplied build output does not match the trace-recorded GUID/age - use symbols from the captured run");
+        }
+
+        if (info.SourceResolution is SourceResolutionInfo
+            {
                 SampledManagedFrameCount: > 0,
                 SourceResolutionRate: < SymbolGate.MinimumResolutionRate
             } source)
@@ -143,6 +152,12 @@ public static class SteeringHints
                 ? "sampled managed modules"
                 : string.Join(", ", source.HighestUnmappedModules.Take(3));
             hints.Add($"method-name resolution ({FormatRate(info.SymbolResolutionRate)}) is separate from source mapping ({FormatRate(source.SourceResolutionRate)}); affected: {affected}; source lines require exact matching PDBs - retry with --symbols pointing at the recorded build output (for BenchmarkDotNet, the generated child output)");
+            if (source.HighestUnmappedMethods.Count > 0)
+            {
+                hints.Add(
+                    $"named managed frames without source: {source.UnmappedNamedManagedFrameCount}; "
+                    + "inspect sourceResolution.highestUnmappedMethods");
+            }
         }
 
         return hints;

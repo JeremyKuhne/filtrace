@@ -52,8 +52,12 @@ public sealed class AnalysisResult<T>
     ///   Version 6 added sampled managed source/PDB diagnostics to trace-info
     ///   payloads.
     ///  </para>
+    ///  <para>
+    ///   Version 7 added PDB identity mismatch modules, sampled method
+    ///   sequence-point coverage, and named managed frames without source.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 6;
+    public const int CurrentSchemaVersion = 7;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.

@@ -92,8 +92,14 @@ For a BenchmarkDotNet capture, add `--keepFiles` to retain its generated build o
 and point `--symbols` at the generated child output containing the exact PDBs recorded
 in the trace, not merely the outer project output. Confirm the match in
 `trace_info.sourceResolution`: inspect `matchingPdbModules`, the mapped/total sampled
-managed-frame counts, and `highestUnmappedModules` before trusting `lines` or
-`heatmap`. Scope every
+managed-frame counts, `highestUnmappedModules`, and `pdbIdentityMismatchModules`
+before trusting `lines` or `heatmap`. A mismatch means the directory contains the
+expected PDB filename but its GUID or age differs from the trace; use the generated
+child output from the captured run. Once the relevant module matches, compare
+`sourceMappedManagedMethodCount` with `sampledManagedMethodCount`; the former counts
+unique sampled methods with at least one address resolved through a sequence point.
+`unmappedNamedManagedFrameCount` and `highestUnmappedMethods` show which named frame
+occurrences still become `<no source>`. Scope every
 **root-aware stack analysis** to the generated `WorkloadAction*` wrapper - not just
 rankings, export too, and not just when the result looks noisy. In the CLI,
 `--benchmark` supplies that preset to every verb that offers it. In MCP, pass
@@ -167,7 +173,13 @@ are named for them:
   analysis, read `trace_info.sourceResolution`: its mapped and sampled managed-frame
   counts give the source-resolution rate, `matchingPdbModules` confirms exact PDB
   identity, `highestUnmappedModules` identifies where sequence points are missing,
-  and `searchedDirectories` records where filtrace looked.
+  `pdbIdentityMismatchModules` identifies same-named PDBs from another build, and
+  `searchedDirectories` records where filtrace looked. After confirming the relevant
+  module matches, compare `sourceMappedManagedMethodCount` with
+  `sampledManagedMethodCount`; use `unmappedNamedManagedFrameCount` and
+  `highestUnmappedMethods` to quantify and identify named frames that remain
+  `<no source>`. Unique method counts become null rather than partial if their
+  safety limit is exceeded.
   `trace_info.availableAnalyses` reports format support only;
   `trace_info.analyses` reports capture enablement and observed event counts. Follow
   known-enabled symptom routes; an unknown status means inspect capture settings or
@@ -449,7 +461,12 @@ Either way, the canonical loop is **orient -> rank -> drill -> compare**: read
 `trace_info` (CLI: `filtrace info`) first; when symbol resolution is below 0.8,
 inspect its warning and unresolved rows. Treat that as frame-name quality; before
 source-line analysis, inspect `sourceResolution` for exact matching PDB modules,
-mapped sampled managed frames, searched directories, and highest-unmapped modules.
+mapped sampled managed frames, searched directories, highest-unmapped modules, and
+`pdbIdentityMismatchModules`. A mismatch means a same-named local PDB was found but
+its GUID or age differs from the trace. Once the relevant module matches, use
+`sourceMappedManagedMethodCount` versus `sampledManagedMethodCount` to confirm sampled
+methods resolve sequence points; `unmappedNamedManagedFrameCount` and
+`highestUnmappedMethods` expose the remaining `<no source>` impact.
 Use the generated BenchmarkDotNet child output when the outer build PDB does not
 match; use native symbols for CPU ETW runtime frames as applicable. Rank by the metric that matches the question (cpu, alloc, exceptions,
 threadtime, contention, wait, activity); for an unwindowed CPU ranking, drill the

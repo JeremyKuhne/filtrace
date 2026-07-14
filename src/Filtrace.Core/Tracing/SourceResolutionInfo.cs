@@ -21,6 +21,39 @@ public sealed record SourceResolutionInfo(
     IReadOnlyList<string> HighestUnmappedModules)
 {
     /// <summary>
+    ///  Bounded highest-impact sampled modules for which the caller-supplied
+    ///  directory contains the expected PDB filename but its GUID or age does not
+    ///  match the trace-recorded identity.
+    /// </summary>
+    public IReadOnlyList<string> PdbIdentityMismatchModules { get; init; } = [];
+
+    /// <summary>
+    ///  Unique managed methods observed in sampled stacks, or <see langword="null"/>
+    ///  when the count is unavailable, including when method cardinality exceeded
+    ///  the diagnostic safety limit.
+    /// </summary>
+    public int? SampledManagedMethodCount { get; init; }
+
+    /// <summary>
+    ///  Unique sampled managed methods for which at least one sampled address
+    ///  resolved through a PDB sequence point, or <see langword="null"/> when the
+    ///  count is unavailable, including when method cardinality exceeded the
+    ///  diagnostic safety limit.
+    /// </summary>
+    public int? SourceMappedManagedMethodCount { get; init; }
+
+    /// <summary>
+    ///  Named managed frame occurrences that did not resolve to a source line.
+    /// </summary>
+    public int UnmappedNamedManagedFrameCount { get; init; }
+
+    /// <summary>
+    ///  Bounded highest-impact named sampled methods with frame occurrences that
+    ///  did not resolve to source. Overloads sharing a display name are grouped.
+    /// </summary>
+    public IReadOnlyList<string> HighestUnmappedMethods { get; init; } = [];
+
+    /// <summary>
     ///  Fraction in <c>[0, 1]</c> of sampled managed frame occurrences mapped to a
     ///  source line.
     /// </summary>

@@ -41,7 +41,7 @@ public sealed class TraceToolsTests
     // assert on the object directly rather than re-parsing JSON.
     private static void AssertEnvelope<T>(AnalysisResult<T> envelope)
     {
-        envelope.SchemaVersion.Should().Be(6);
+        envelope.SchemaVersion.Should().Be(7);
         envelope.Warnings.Should().NotBeNull();
         envelope.Hints.Should().NotBeNull();
         envelope.Result.Should().NotBeNull();
@@ -95,6 +95,12 @@ public sealed class TraceToolsTests
         source.SearchedDirectories.Should().Equal(AppContext.BaseDirectory);
         source.SampledManagedFrameCount.Should().BeGreaterThan(0);
         source.MappedManagedFrameCount.Should().BeLessThan(source.SampledManagedFrameCount);
+        source.SampledManagedMethodCount.Should().BeGreaterThan(0);
+        source.SourceMappedManagedMethodCount.Should().NotBeNull();
+        source.SourceMappedManagedMethodCount.Value.Should().BeLessThanOrEqualTo(
+            source.SampledManagedMethodCount.Value);
+        source.UnmappedNamedManagedFrameCount.Should().BeGreaterThan(0);
+        source.HighestUnmappedMethods.Should().NotBeEmpty();
         source.HighestUnmappedModules.Should().Contain(
             module => module.Contains("HotLoopBench", StringComparison.OrdinalIgnoreCase));
         envelope.Hints.Should().Contain(hint =>

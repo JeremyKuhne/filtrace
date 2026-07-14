@@ -103,6 +103,133 @@ public sealed class SourceResolutionTrackerTests
             Guid.NewGuid(),
             data.Age,
             modulePath).Should().BeFalse();
+        SourceResolutionTracker.HasMatchingPdb(
+            directory,
+            data.Path,
+            data.Guid,
+            data.Age + 1,
+            modulePath).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void GetPdbMatchStatus_LocalCandidate_ClassifiesIdentity()
+    {
+        string modulePath = typeof(SourceResolutionTrackerTests).Assembly.Location;
+        string directory = Path.GetDirectoryName(modulePath)!;
+        using FileStream stream = File.OpenRead(modulePath);
+        using PEReader reader = new(stream);
+        DebugDirectoryEntry codeView = reader.ReadDebugDirectory()
+            .Single(entry => entry.Type == DebugDirectoryEntryType.CodeView);
+        CodeViewDebugDirectoryData data = reader.ReadCodeViewDebugDirectoryData(codeView);
+
+        SourceResolutionTracker.GetPdbMatchStatus(
+            directory,
+            directory,
+            data.Path,
+            data.Guid,
+            data.Age,
+            modulePath).Should().Be(SourceResolutionTracker.PdbMatchStatus.Matched);
+        SourceResolutionTracker.GetPdbMatchStatus(
+            directory,
+            directory,
+            data.Path,
+            Guid.NewGuid(),
+            data.Age,
+            modulePath).Should().Be(SourceResolutionTracker.PdbMatchStatus.IdentityMismatch);
+        SourceResolutionTracker.GetPdbMatchStatus(
+            directory,
+            directory,
+            data.Path,
+            data.Guid,
+            data.Age + 1,
+            modulePath).Should().Be(SourceResolutionTracker.PdbMatchStatus.IdentityMismatch);
+
+        string emptyDirectory = Path.Combine(Path.GetTempPath(), $"filtrace-symbols-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(emptyDirectory);
+        try
+        {
+            SourceResolutionTracker.GetPdbMatchStatus(
+                emptyDirectory,
+                emptyDirectory,
+                data.Path,
+                data.Guid,
+                data.Age,
+                modulePath).Should().Be(SourceResolutionTracker.PdbMatchStatus.NotFound);
+        }
+        finally
+        {
+            Directory.Delete(emptyDirectory);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(@"C:\build\MyApp.pdb")]
+    [DataRow("/build/MyApp.pdb")]
+    [DataRow("MyApp.pdb")]
+    public void GetPdbFileName_AnyTracePathStyle_ReturnsLeaf(string path)
+    {
+        SourceResolutionTracker.GetPdbFileName(path).Should().Be("MyApp.pdb");
+    }
+
+    [TestMethod]
+    public void MergePdbMatchStatus_ExactMatchTakesPrecedence()
+    {
+        SourceResolutionTracker.MergePdbMatchStatus(
+            SourceResolutionTracker.PdbMatchStatus.IdentityMismatch,
+            SourceResolutionTracker.PdbMatchStatus.Matched)
+            .Should().Be(SourceResolutionTracker.PdbMatchStatus.Matched);
+        SourceResolutionTracker.MergePdbMatchStatus(
+            SourceResolutionTracker.PdbMatchStatus.Matched,
+            SourceResolutionTracker.PdbMatchStatus.IdentityMismatch)
+            .Should().Be(SourceResolutionTracker.PdbMatchStatus.Matched);
+        SourceResolutionTracker.MergePdbMatchStatus(
+            SourceResolutionTracker.PdbMatchStatus.NotFound,
+            SourceResolutionTracker.PdbMatchStatus.IdentityMismatch)
+            .Should().Be(SourceResolutionTracker.PdbMatchStatus.IdentityMismatch);
+    }
+
+    [TestMethod]
+    public void ObserveManagedFrame_ReportsSequencePointsAndNamedFramesWithoutSource()
+    {
+        SourceResolutionTracker tracker = new(null, null);
+        tracker.ObserveManagedFrame(1, null, "ModuleA", "Mapped", sourceMapped: false);
+        tracker.ObserveManagedFrame(1, null, "ModuleA", "Mapped", sourceMapped: true);
+        tracker.ObserveManagedFrame(2, null, "ModuleA", "Unmapped", sourceMapped: false);
+        tracker.ObserveManagedFrame(2, null, "ModuleA", "Unmapped", sourceMapped: false);
+        tracker.ObserveManagedFrame(3, null, "ModuleA", null, sourceMapped: false);
+        tracker.ObserveManagedFrame(4, null, "ModuleA", "Unmapped(int)", sourceMapped: false);
+
+        SourceResolutionInfo source = tracker.CreateInfo();
+
+        source.SampledManagedMethodCount.Should().Be(4);
+        source.SourceMappedManagedMethodCount.Should().Be(1);
+        source.UnmappedNamedManagedFrameCount.Should().Be(4);
+        source.HighestUnmappedMethods.Should().Equal(
+            "ModuleA!Unmapped (0/3 mapped)",
+            "ModuleA!Mapped (1/2 mapped)");
+    }
+
+    [TestMethod]
+    public void ObserveManagedFrame_TooManyMethods_MakesUniqueCountsUnavailable()
+    {
+        SourceResolutionTracker tracker = new(null, null);
+        for (int methodKey = 0; methodKey <= SourceResolutionTracker.MaxTrackedMethods; methodKey++)
+        {
+            tracker.ObserveManagedFrame(
+                methodKey,
+                null,
+                "ModuleA",
+                "Run",
+                sourceMapped: false);
+        }
+
+        SourceResolutionInfo source = tracker.CreateInfo();
+
+        source.SampledManagedMethodCount.Should().BeNull();
+        source.SourceMappedManagedMethodCount.Should().BeNull();
+        source.HighestUnmappedMethods.Should().BeEmpty();
+        source.UnmappedNamedManagedFrameCount.Should().Be(
+            SourceResolutionTracker.MaxTrackedMethods + 1);
     }
 
     [TestMethod]
@@ -118,8 +245,15 @@ public sealed class SourceResolutionTrackerTests
         source.SearchedDirectories.Should().Equal(AppContext.BaseDirectory);
         source.SampledManagedFrameCount.Should().BeGreaterThan(0);
         source.MappedManagedFrameCount.Should().BeLessThan(source.SampledManagedFrameCount);
+        source.SampledManagedMethodCount.Should().BeGreaterThan(0);
+        source.SourceMappedManagedMethodCount.Should().NotBeNull();
+        source.SourceMappedManagedMethodCount.Value.Should().BeLessThanOrEqualTo(
+            source.SampledManagedMethodCount.Value);
+        source.UnmappedNamedManagedFrameCount.Should().BeGreaterThan(0);
+        source.HighestUnmappedMethods.Should().NotBeEmpty();
         source.HighestUnmappedModules.Should().Contain(
             module => module.Contains("HotLoopBench", StringComparison.OrdinalIgnoreCase));
+        source.PdbIdentityMismatchModules.Should().BeEmpty();
         string[] moduleNames =
         [
             .. source.HighestUnmappedModules
@@ -127,6 +261,38 @@ public sealed class SourceResolutionTrackerTests
         ];
         moduleNames.Distinct(StringComparer.OrdinalIgnoreCase)
             .Should().HaveCount(moduleNames.Length);
+    }
+
+    [TestMethod]
+    public void Read_SameNamedWrongIdentityPdb_ReportsMismatch()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
+        string modulePath = typeof(SourceResolutionTrackerTests).Assembly.Location;
+        string assemblyDirectory = Path.GetDirectoryName(modulePath)!;
+        using FileStream stream = File.OpenRead(modulePath);
+        using PEReader peReader = new(stream);
+        DebugDirectoryEntry codeView = peReader.ReadDebugDirectory()
+            .Single(entry => entry.Type == DebugDirectoryEntryType.CodeView);
+        CodeViewDebugDirectoryData data = peReader.ReadCodeViewDebugDirectoryData(codeView);
+        string sourcePdb = Path.Combine(assemblyDirectory, Path.GetFileName(data.Path));
+        string symbolsDirectory = Path.Combine(
+            Path.GetTempPath(),
+            $"filtrace-wrong-pdb-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(symbolsDirectory);
+        try
+        {
+            File.Copy(sourcePdb, Path.Combine(symbolsDirectory, "HotLoopBench.pdb"));
+            NetTraceReader reader = new();
+
+            TraceReadResult result = reader.Read(path, symbolsDirectory);
+
+            result.SourceResolution!.PdbIdentityMismatchModules.Should().Contain(
+                module => module.Contains("HotLoopBench", StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(symbolsDirectory, recursive: true);
+        }
     }
 
     [TestMethod]
@@ -139,6 +305,13 @@ public sealed class SourceResolutionTrackerTests
         normalized.Should().HaveLength(120);
         normalized.Should().StartWith("Hot Loop Bench");
         normalized.Any(char.IsControl).Should().BeFalse();
+
+        string method = SourceResolutionTracker.NormalizeMethodName(
+            "Hot\tLoop",
+            $"Run\0{new string('x', 200)}(class System.String)");
+        method.Should().HaveLength(120);
+        method.Should().StartWith("Hot Loop!Run ");
+        method.Any(char.IsControl).Should().BeFalse();
     }
 
     [TestMethod]

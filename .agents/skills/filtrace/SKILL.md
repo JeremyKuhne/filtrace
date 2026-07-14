@@ -118,9 +118,14 @@ Almost every investigation is the same four moves:
    Treat that rate as frame-name quality only. Before source-line analysis, inspect
    `sourceResolution`: require exact matches for the relevant modules, report mapped
    versus sampled managed frames, and use `highestUnmappedModules` plus
-   `searchedDirectories` to diagnose the missing PDBs. For BenchmarkDotNet, point
-   symbols at the generated child output retained with `--keepFiles`; an outer build
-   PDB can have the same filename but a different identity.
+   `searchedDirectories` to diagnose the missing PDBs. If
+   `pdbIdentityMismatchModules` names a module, the expected PDB filename exists but
+   its GUID or age differs from the trace. For BenchmarkDotNet, point symbols at the
+   generated child output retained with `--keepFiles`. Once the relevant module
+   matches, compare `sourceMappedManagedMethodCount` with
+   `sampledManagedMethodCount`; use `unmappedNamedManagedFrameCount` and
+   `highestUnmappedMethods` to quantify and identify named frames that remain
+   `<no source>`.
    Unresolved native ETW frames can depress the aggregate while managed-method
    rankings remain usable; use `--native-symbols` when the native runtime split matters.
    Check `availableAnalyses` before selecting a metric, then read
@@ -339,9 +344,14 @@ The recurring ways a .NET trace investigation goes wrong:
    Conversely, 100% method-name resolution does not prove that any source line is
    available. Before `lines` or `heatmap`, inspect `trace_info.sourceResolution`:
    require the relevant module in `matchingPdbModules`, then report mapped versus
-   sampled managed frames and `highestUnmappedModules`. PDB identity must match the
-   captured module; for BenchmarkDotNet this usually means the generated child output
-   retained with `--keepFiles`, not the outer project output.
+   sampled managed frames and `highestUnmappedModules`. When
+   `pdbIdentityMismatchModules` names the module, the expected PDB filename exists
+   but its GUID or age differs from the trace. For BenchmarkDotNet, use the generated
+   child output retained with `--keepFiles`, not the outer project output. Once the
+   relevant module appears in `matchingPdbModules`, compare
+   `sourceMappedManagedMethodCount` with `sampledManagedMethodCount`; then use
+   `unmappedNamedManagedFrameCount` and `highestUnmappedMethods` to quantify and
+   identify named frames that still map to `<no source>`.
 
 3. **On a machine-wide `.etl`, confirm the process before scoping.** filtrace
    auto-scopes to the busiest process tree ranked by **CPU-sample count** (a
