@@ -29,6 +29,11 @@ Changes to trace readers, event queries, regular expressions, output limits, or
 other caller-supplied input also invoke the security-review skill. Changes under
 `.agents/` additionally invoke agent-files-review.
 
+When compacting MCP tool or parameter descriptions, compare every changed
+description with its signature and XML docs. Defaults, optionality, supported
+formats, and side effects must remain explicit; reclaiming schema tokens cannot
+change the public contract implied to an agent.
+
 Any changed `.ps1`, `.psm1`, or `.psd1` also invokes the
 [powershell-scripting skill](../powershell-scripting/SKILL.md). Read its overlay
 and the relevant review/testing pages before the agentic review pass. For every
