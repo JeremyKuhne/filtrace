@@ -53,7 +53,7 @@ Every analysis verb takes a trace path and prints a dense text report (or compac
 JSON with `--format json`); `collect` instead launches the executable it records.
 The canonical investigation is **orient -> rank -> drill ->
 compare**: inspect the capture, rank the matching metric, drill an unwindowed CPU
-ranking when needed, then diff comparable CPU traces against a baseline.
+ranking when needed, then diff comparable traces or capture manifests against a baseline.
 
 ```pwsh
 # Workflow: orient, rank the hottest frames, drill into one, then diff two runs.
@@ -62,10 +62,11 @@ filtrace cpu app.nettrace                      # 1. what's hot (self-time)
 filtrace callers app.nettrace MyApp.Parse      # 2. who calls the hot frame
 filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source lines
 filtrace diff before.nettrace after.nettrace   # 4. what changed between runs
+filtrace batch BenchmarkDotNet.Artifacts/filtrace-runs/run/manifest.json
 ```
 
 The same analysis core is exposed as a stdio MCP server: every analysis verb has a
-matching `trace_*` tool (sixteen in all - `info` -> `trace_info`, `rank` ->
+matching `trace_*` tool (seventeen in all - `info` -> `trace_info`, `rank` ->
 `trace_rank`, `callers` -> `trace_callers`, and so on), returning the same envelope
 shape and results. The capture and housekeeping verbs (`collect`, `convert`,
 `clean`) are CLI-only, as is widening an ETW analysis with `--all-processes`; MCP
@@ -152,7 +153,8 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 
 | Verb | Purpose | Example |
 |---|---|---|
-| `diff` | Absolute CPU sampled-time changes between comparable traces | `filtrace diff before.nettrace after.nettrace` |
+| `diff` | Absolute/normalized CPU changes for traces or paired manifests | `filtrace diff before.nettrace after.nettrace` |
+| `batch` | One compact ranking across every capture-manifest case | `filtrace batch run/manifest.json` |
 | `export` | Write a flame graph (speedscope / chromium) | `filtrace export app.nettrace --format speedscope -o app.json` |
 
 **Structured reports:**

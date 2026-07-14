@@ -1,0 +1,1 @@
+{"$schema":"https://www.speedscope.app/file-format-schema.json","shared":{"frames":[{"name":"Work"},{"name":"Dictionary.Resize"}]},"profiles":[{"type":"evented","name":"before","unit":"milliseconds","startValue":0,"endValue":10,"events":[{"type":"O","frame":0,"at":0},{"type":"O","frame":1,"at":0},{"type":"C","frame":1,"at":3.8},{"type":"C","frame":0,"at":10}]}]}

@@ -27,4 +27,29 @@ public sealed record RankingDiffResult(
     double BeforeScopeWeight,
     double AfterScopeWeight,
     double ScopeDelta,
-    IReadOnlyList<DiffRow> Rows);
+    IReadOnlyList<DiffRow> Rows)
+{
+    /// <summary>
+    ///  Case-keyed manifest diffs. Empty for a direct trace pair.
+    /// </summary>
+    public IReadOnlyList<RankingDiffCaseResult> Cases { get; init; } = [];
+
+    /// <summary>Baseline records contributing to the ranking, or <see langword="null"/> when unavailable.</summary>
+    public int? BeforeContributingRecordCount { get; init; }
+
+    /// <summary>Current records contributing to the ranking, or <see langword="null"/> when unavailable.</summary>
+    public int? AfterContributingRecordCount { get; init; }
+
+    /// <summary>Unit named by complete per-operation metadata, or <see langword="null"/>.</summary>
+    /// <remarks>Direct trace pairs have no operation metadata and leave this <see langword="null"/>.</remarks>
+    public string? OperationUnit { get; init; }
+
+    /// <summary>Baseline scope weight per operation, or <see langword="null"/>.</summary>
+    public double? BeforeScopeWeightPerOperation { get; init; }
+
+    /// <summary>Current scope weight per operation, or <see langword="null"/>.</summary>
+    public double? AfterScopeWeightPerOperation { get; init; }
+
+    /// <summary>Per-operation scope-weight change, or <see langword="null"/>.</summary>
+    public double? ScopeWeightPerOperationDelta { get; init; }
+}

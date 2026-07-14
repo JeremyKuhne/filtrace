@@ -41,7 +41,7 @@ public sealed class TraceToolsTests
     // assert on the object directly rather than re-parsing JSON.
     private static void AssertEnvelope<T>(AnalysisResult<T> envelope)
     {
-        envelope.SchemaVersion.Should().Be(7);
+        envelope.SchemaVersion.Should().Be(8);
         envelope.Warnings.Should().NotBeNull();
         envelope.Hints.Should().NotBeNull();
         envelope.Result.Should().NotBeNull();
@@ -706,6 +706,85 @@ public sealed class TraceToolsTests
 
         AssertEnvelope(envelope);
         envelope.Result.ScopeDelta.Should().Be(0.0);
+    }
+
+    [TestMethod]
+    public void Diff_PairedManifests_ReturnsCaseKeyedStructuredContent()
+    {
+        TraceStore store = new();
+        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-mcp-diff-{Guid.NewGuid():N}");
+        string beforeDirectory = Path.Combine(directory, "before");
+        string afterDirectory = Path.Combine(directory, "after");
+        Directory.CreateDirectory(beforeDirectory);
+        Directory.CreateDirectory(afterDirectory);
+        string beforeManifest = Path.Combine(beforeDirectory, "manifest.json");
+        string afterManifest = Path.Combine(afterDirectory, "manifest.json");
+        string trace = FixturePath(Speedscope).Replace("\\", "\\\\", StringComparison.Ordinal);
+        try
+        {
+            File.WriteAllText(
+                beforeManifest,
+                $$"""
+                {"schemaVersion":1,"cases":[{"id":"before","benchmark":"Bench.Work","parameters":"Size: 1","benchmarkDisplay":"Work(Size: 1): Job-OLD","speedscope":"{{trace}}","operationCount":10,"operationUnit":"items"}]}
+                """);
+            File.WriteAllText(
+                afterManifest,
+                $$"""
+                {"schemaVersion":1,"cases":[{"id":"after","benchmark":"Bench.Work","parameters":"Size: 1","benchmarkDisplay":"Work(Size: 1): Job-NEW","speedscope":"{{trace}}","operationCount":20,"operationUnit":"items"}]}
+                """);
+
+            AnalysisResult<RankingDiffResult> envelope = TraceTools.Diff(
+                store,
+                beforeManifest,
+                afterManifest);
+
+            AssertEnvelope(envelope);
+            envelope.Result.Cases.Should().ContainSingle();
+            RankingDiffCaseResult captureCase = envelope.Result.Cases[0];
+            captureCase.Benchmark.Should().Be("Bench.Work");
+            captureCase.Parameters.Should().Be("Size: 1");
+            captureCase.OperationUnit.Should().Be("items");
+            captureCase.BeforeScopeWeightPerOperation.Should().Be(2.5);
+            captureCase.AfterScopeWeightPerOperation.Should().Be(1.25);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Batch_Manifest_ReturnsTypedCaseSummary()
+    {
+        TraceStore store = new();
+        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-mcp-batch-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string manifest = Path.Combine(directory, "manifest.json");
+        string trace = FixturePath(Speedscope).Replace("\\", "\\\\", StringComparison.Ordinal);
+        try
+        {
+            File.WriteAllText(
+                manifest,
+                $$"""
+                {"schemaVersion":1,"cases":[{"id":"one","benchmark":"Bench.Work","parameters":"Size: 1","benchmarkDisplay":"Work(Size: 1): Job-A","speedscope":"{{trace}}","operationCount":10,"operationUnit":"items"}]}
+                """);
+
+            AnalysisResult<BatchRankingResult> envelope = TraceTools.Batch(store, manifest);
+
+            AssertEnvelope(envelope);
+            envelope.Result.Cases.Should().ContainSingle();
+            BatchRankingCaseResult captureCase = envelope.Result.Cases[0];
+            captureCase.Benchmark.Should().Be("Bench.Work");
+            captureCase.Parameters.Should().Be("Size: 1");
+            captureCase.TopFrame.Should().Be("MyApp.Inner");
+            captureCase.ScopeWeightPerOperation.Should().Be(2.5);
+            envelope.Hints.Should().ContainSingle(
+                hint => hint.Contains("rank against", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [TestMethod]

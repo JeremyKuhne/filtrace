@@ -48,7 +48,11 @@ try {
         [ref]$tokens,
         [ref]$parseErrors)
     Assert-True ($parseErrors.Count -eq 0) 'Capture helper could not be parsed for command-contract tests.'
-    $commandFunctionNames = @('ConvertTo-PowerShellArgument', 'Test-AnalysisEnabled', 'Get-CaseCommands')
+    $commandFunctionNames = @(
+        'ConvertTo-PowerShellArgument',
+        'Test-AnalysisEnabled',
+        'Get-CaseCommands',
+        'Get-BenchmarkParameters')
     $commandFunctionDefinitions = @(
         $captureAst.FindAll(
             { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $commandFunctionNames },
@@ -58,6 +62,8 @@ try {
     )
     Assert-True ($commandFunctionDefinitions.Count -eq $commandFunctionNames.Count) 'Capture command-builder functions could not be isolated.'
     . ([scriptblock]::Create(($commandFunctionDefinitions -join [Environment]::NewLine)))
+    Assert-True ((Get-BenchmarkParameters 'FakeBench.Work(Size: 1, Mode: Fast): Job-A') -eq 'Size: 1, Mode: Fast') 'Parameterized benchmark identity was not extracted.'
+    Assert-True ((Get-BenchmarkParameters 'FakeBench.Work: Job-A') -eq '') 'Unparameterized benchmark identity was not empty.'
 
     $eventPipeCase = [ordered]@{
         trace = 'C:\capture.nettrace'
@@ -238,7 +244,8 @@ $global:LASTEXITCODE = 0
     try {
         $global:LASTEXITCODE = 0
         $output = & $captureScript -Project $projectPath -Filter '*Work*' -RunId 'current-run' `
-            -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace *>&1 | Out-String
+            -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+            -OperationCount 100 -OperationUnit items *>&1 | Out-String
     }
     finally {
         Pop-Location
@@ -278,13 +285,19 @@ $global:LASTEXITCODE = 0
     Assert-True ($manifest.paths.artifactsDirectory -eq $currentArtifacts) 'Run manifest artifacts path is incorrect.'
     Assert-True ($manifest.cases[0].benchmarkId -eq 10) 'First BenchmarkDotNet case ID was not paired by name and execution order.'
     Assert-True ($manifest.cases[0].benchmark -eq 'Fake.Bench.Work') 'First benchmark name was not recorded.'
+    Assert-True ($manifest.cases[0].parameters -eq 'Size: 1') 'First benchmark parameters were not recorded.'
     Assert-True ($manifest.cases[0].benchmarkDisplay -eq 'FakeBench.Work(Size: 1): Job-A') 'First parameterized display was not recorded.'
     Assert-True ($manifest.cases[1].benchmarkId -eq 11) 'Second parameter ID was not paired in execution order.'
+    Assert-True ($manifest.cases[1].parameters -eq 'Size: 2') 'Second benchmark parameters were not recorded.'
     Assert-True ($manifest.cases[1].benchmarkDisplay -eq 'FakeBench.Work(Size: 2): Job-A') 'Second parameterized display was not recorded.'
     Assert-True ($manifest.cases[2].benchmarkId -eq 4) 'Different benchmark ID was not paired by stable name.'
     Assert-True ($manifest.cases[2].benchmarkDisplay -eq 'FakeBench.Other(Size: 2): Job-A') 'Different benchmark display was not recorded.'
     Assert-True ($manifest.cases[3].benchmarkId -eq 7) 'Speedscope-only BenchmarkDotNet case ID was not paired.'
     Assert-True ($manifest.cases[3].benchmarkDisplay -eq 'FakeBench.ScopeOnly(Size: 3): Job-A') 'Speedscope-only display was not recorded.'
+    foreach ($captureCase in $manifest.cases) {
+        Assert-True ($captureCase.operationCount -eq 100) "Operation count was not recorded for case '$($captureCase.id)'."
+        Assert-True ($captureCase.operationUnit -eq 'items') "Operation unit was not recorded for case '$($captureCase.id)'."
+    }
     Assert-True ($null -eq $manifest.cases[3].trace) 'Speedscope-only case unexpectedly gained a raw trace.'
     Assert-True ($manifest.cases[3].speedscope -eq $scopeOnly) 'Speedscope-only case path was not recorded.'
     Assert-True ($null -eq $manifest.cases[3].symbolsDirectory) 'Speedscope-only case unexpectedly gained source symbols.'
@@ -557,6 +570,28 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     Assert-True ($reuseExitCode -ne 0) 'A reused RunId was accepted.'
     Assert-True ($reuseOutput.Contains('already exists', [StringComparison]::OrdinalIgnoreCase)) 'Reused RunId failure did not explain the existing run.'
     Assert-True (-not (Test-Path -LiteralPath $reuseArgsPath)) 'Reused RunId invoked dotnet before rejection.'
+
+    Push-Location $temporaryRoot
+    try {
+        $hostExe = (Get-Process -Id $PID).Path
+        $countOnlyOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+            -RunId 'count-only-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+            -OperationCount 100 2>&1 | Out-String
+        $countOnlyExitCode = $LASTEXITCODE
+        $unitOnlyOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+            -RunId 'unit-only-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+            -OperationUnit items 2>&1 | Out-String
+        $unitOnlyExitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+    }
+    Assert-True ($countOnlyExitCode -ne 0) 'OperationCount without OperationUnit was accepted.'
+    Assert-True ($unitOnlyExitCode -ne 0) 'OperationUnit without OperationCount was accepted.'
+    Assert-True ($countOnlyOutput.Contains('together', [StringComparison]::OrdinalIgnoreCase)) 'Count-only failure did not explain the parameter relationship.'
+    Assert-True ($unitOnlyOutput.Contains('together', [StringComparison]::OrdinalIgnoreCase)) 'Unit-only failure did not explain the parameter relationship.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/count-only-run'))) 'Count-only rejection created a run directory.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/unit-only-run'))) 'Unit-only rejection created a run directory.'
 
     Push-Location $temporaryRoot
     try {

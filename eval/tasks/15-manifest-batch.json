@@ -1,0 +1,18 @@
+{
+  "id": "manifest-batch",
+  "title": "Rank every parameterized manifest case with one query.",
+  "prompt": "Run one CPU self-time query across every case in this capture manifest. Report the parameter keys, hottest frame, and per-operation scope values.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/manifests/batch/manifest.json",
+  "os": "any",
+  "steps": [
+    { "args": ["batch", "{fixture}"] }
+  ],
+  "assert": [
+    { "field": "result.cases[0].parameters", "equals": "Size: 1" },
+    { "field": "result.cases[0].topFrame", "equals": "MyApp.Inner" },
+    { "field": "result.cases[0].scopeWeightPerOperation", "equals": 2.5 },
+    { "field": "result.cases[1].parameters", "equals": "Size: 2" },
+    { "field": "result.cases[1].scopeWeightPerOperation", "equals": 1.25 }
+  ],
+  "expect": ["Size: 1", "Size: 2", "MyApp.Inner", "2.5", "1.25"]
+}

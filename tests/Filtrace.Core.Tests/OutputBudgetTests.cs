@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Tracing;
+
 namespace Filtrace.Output;
 
 [TestClass]
@@ -88,5 +90,91 @@ public sealed class OutputBudgetTests
     public void DefaultCeiling_Is25000()
     {
         OutputBudget.DefaultCeilingTokens.Should().Be(25_000);
+    }
+
+    [TestMethod]
+    public void ManifestBatch_MaximumBoundedShape_StaysUnderDefaultCeiling()
+    {
+        string longIdentity = new('b', 512);
+        string longPath = $"C:\\{new string('p', 1021)}";
+        string longFrame = new('f', CaptureManifestOutput.MaxFrameLength);
+        string[] warnings =
+        [
+            .. Enumerable.Range(0, CaptureManifestOutput.MaxWarningsPerCase)
+                .Select(_ => new string('w', CaptureManifestOutput.MaxWarningLength))
+        ];
+        BatchRankingCaseResult[] cases =
+        [
+            .. Enumerable.Range(0, CaptureManifestBatchAnalyzer.MaxAnalyzedCases)
+                .Select(_ => new BatchRankingCaseResult(
+                    longIdentity,
+                    longIdentity,
+                    longPath,
+                    100.0,
+                    "ms",
+                    longFrame,
+                    75.0,
+                    75.0,
+                    100,
+                    warnings))
+        ];
+        AnalysisResult<BatchRankingResult> envelope = new(
+            new BatchRankingResult("manifest.json", "cpu", "self", "", cases));
+
+        string json = OutputJson.Serialize(envelope);
+
+        OutputBudget.IsOverBudget(json).Should().BeFalse(
+            $"bounded batch output estimated {OutputBudget.EstimateTokens(json)} tokens");
+    }
+
+    [TestMethod]
+    public void ManifestDiff_MaximumBoundedShape_StaysUnderDefaultCeiling()
+    {
+        string longIdentity = new('b', 512);
+        string longFrame = new('f', CaptureManifestOutput.MaxFrameLength);
+        string[] warnings =
+        [
+            .. Enumerable.Range(0, CaptureManifestOutput.MaxWarningsPerCase)
+                .Select(_ => new string('w', CaptureManifestOutput.MaxWarningLength))
+        ];
+        DiffRow[] rows =
+        [
+            .. Enumerable.Range(0, CaptureManifestDiffAnalyzer.MaxRowsPerCase)
+                .Select(_ => new DiffRow(longFrame, 10.0, 20.0, 10.0)
+                {
+                    BeforePercentOfScope = 10.0,
+                    AfterPercentOfScope = 20.0,
+                    PercentagePointChange = 10.0,
+                    NormalizedWeightChange = 10.0,
+                    BeforeWeightPerOperation = 1.0,
+                    AfterWeightPerOperation = 2.0,
+                    PerOperationDelta = 1.0
+                })
+        ];
+        RankingDiffCaseResult[] cases =
+        [
+            .. Enumerable.Range(0, CaptureManifestDiffAnalyzer.MaxAnalyzedCases)
+                .Select(_ => new RankingDiffCaseResult(
+                    longIdentity,
+                    longIdentity,
+                    100.0,
+                    200.0,
+                    100.0,
+                    rows,
+                    warnings)
+                {
+                    OperationUnit = "items",
+                    BeforeScopeWeightPerOperation = 1.0,
+                    AfterScopeWeightPerOperation = 2.0,
+                    ScopeWeightPerOperationDelta = 1.0
+                })
+        ];
+        AnalysisResult<RankingDiffResult> envelope = new(
+            new RankingDiffResult(0.0, 0.0, 0.0, []) { Cases = cases });
+
+        string json = OutputJson.Serialize(envelope);
+
+        OutputBudget.IsOverBudget(json).Should().BeFalse(
+            $"bounded diff output estimated {OutputBudget.EstimateTokens(json)} tokens");
     }
 }

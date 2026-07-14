@@ -138,6 +138,9 @@ directory in `symbolsDirectory` only when its PDB identity maps sampled frames. 
 same-project/same-TFM file-handle lock rejects overlapping captures immediately;
 different projects or TFMs remain independent. The script never selects a globally
 newest artifact, so stale traces cannot enter the manifest.
+Each case carries explicit benchmark and parameter identity for later pairing.
+Optional `-OperationCount` plus `-OperationUnit` records complete per-operation
+metadata on every case; specify both or neither.
 
 To profile a whole executable project instead of a micro-benchmark, capture its
 running output with `dotnet-trace` (EventPipe) or `filtrace collect` (ETW). Build first
@@ -192,8 +195,10 @@ are named for them:
   calls (`tree`). These tools read CPU stacks only. For alloc, exceptions,
   contention, wait, activity, or threadtime, compare self/inclusive rankings or
   refine `root` / `time` instead of crossing into a CPU drill.
-4. **Compare.** Diff a run against a baseline (`diff`) to see what regressed or
-   improved, or `export` a flame graph for a human.
+4. **Compare.** Diff traces or two capture manifests (`diff`) to see absolute,
+  percentage-point, normalized, appearing, and disappearing changes. Use `batch`
+  for one compact ranking query across every case in one manifest, or `export` a
+  flame graph for a human.
 
 ### Route by symptom
 
@@ -257,7 +262,8 @@ meaningful zero:
 
 | Verb | Does |
 |---|---|
-| `diff <before> <after>` | absolute CPU sampled-time changes between comparable traces |
+| `diff <before> <after>` | absolute and normalized CPU changes; trace pairs or paired manifests |
+| `batch <manifest>` | one compact metric ranking across every parameterized manifest case |
 | `export --format <fmt>` | write a flame graph for a viewer - `speedscope` or `chromium` |
 
 **Structured reports:**
@@ -298,7 +304,7 @@ defaults to scenario scope and lets you tighten further:
 
 - **Process scope** - the verbs that read a
   multi-process `.etl` (`cpu`, `threadtime`, `rank`, `callers`, `lines`,
-  `heatmap`, `tree`, `classify`, `timeline`) auto-scope to the busiest process tree
+  `heatmap`, `tree`, `classify`, `timeline`, `diff`, `batch`) auto-scope to the busiest process tree
   (ranked by CPU-sample count) unless told otherwise. `alloc` and `exceptions` read a
   single-process `.nettrace`, so they have no process options. Run `processes`
   first to see what is in a capture. Both heads accept a named process (`--process
@@ -308,7 +314,8 @@ defaults to scenario scope and lets you tighten further:
 - **BenchmarkDotNet workload scope** - preset the root to the measured-workload
   wrapper, isolating the `[Benchmark]` code from harness and overhead scaffolding.
   Use `--benchmark` in CLI verbs that offer it; in MCP use `benchmark: true` on
-  `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`, and `trace_export`.
+  `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`,
+  `trace_batch`, and `trace_export`.
   The wrapper includes warmup and actual iterations. `lines` / `heatmap` are not
   root-aware; use their method/file filter and treat percentages as whole-trace. A
   benchmark preset is mutually exclusive with an explicit root. When using a root or
@@ -350,7 +357,7 @@ go further:
 <!-- filtrace:begin tools -->
 ### MCP tools
 
-The MCP server exposes the same analysis core as sixteen `trace_*` tools over stdio.
+The MCP server exposes the same analysis core as seventeen `trace_*` tools over stdio.
 Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-step
 `hints`, and the typed result - and the read-only analysis tools are annotated
 `readOnlyHint`.
@@ -365,7 +372,8 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 | `trace_tree` | `tree` | top-down CPU call tree from the root |
 | `trace_processes` | `processes` | processes by weight, to pick a scope |
 | `trace_classify` | `classify` | CPU time by runtime work category |
-| `trace_diff` | `diff` | what changed between two traces |
+| `trace_diff` | `diff` | normalized/scoped trace diff or benchmark+parameter manifest pairing |
+| `trace_batch` | `batch` | one compact ranking query across every manifest case |
 | `trace_export` | `export` | write a speedscope / chromium flame graph (write tool) |
 | `trace_timeline` | `timeline` | per-bucket GC / CPU / exception / allocation / JIT activity over time |
 | `trace_gc` | `gcstats` | GC counts, pauses, % time in GC, induced, heap |
@@ -423,10 +431,15 @@ cleanly and stays cheap in tokens.
   open at trace end may be absent; an empty ranking does not rule out an active
   hang. Use ETW threadtime or a dump/current-state tool when the unfinished state
   itself is the question.
-- `diff` compares absolute CPU sampled weights, not normalized percentages. Compare
-  equivalent workloads, capture lengths, runtime/configuration, symbols, root, fold,
-  and measure. It has no process selector and auto-scopes each ETW input separately,
-  so first confirm the same workload is busiest in both captures.
+- `diff` reports absolute weight, before/after scope share, percentage-point change,
+  and current weight normalized to baseline scope. Scope direct pairs consistently
+  with `root`, `process`, or `benchmark`. When both inputs are capture manifests,
+  cases pair only by exact benchmark plus parameter identity; job/display labels do
+  not pair cases. Per-operation fields appear only when both paired cases provide a
+  positive `operationCount` and the same nonempty `operationUnit`.
+- `batch` / `trace_batch` runs one metric/measure/root query across at most 24
+  manifest cases and returns one compact top-frame row with case-specific warnings.
+  Use the returned trace path with `rank` for full per-case detail.
 - Chromium export reconstructs one aggregate synthetic track whose widths preserve
   sample weight. Its axis is not the capture's original timestamps, thread
   concurrency, or idle gaps; use `timeline` / `--time` for temporal conclusions.

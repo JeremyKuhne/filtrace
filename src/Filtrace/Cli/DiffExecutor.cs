@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Output;
+using Filtrace.Server;
 using Filtrace.Tracing;
 
 namespace Filtrace.Cli;
@@ -42,12 +43,37 @@ internal static class DiffExecutor
             return ExitCodes.UsageError;
         }
 
-        if (!TraceExecution.TryLoad(request.BeforePath, request.Symbols, error, out LoadedTrace? before))
+        bool beforeManifest = CaptureManifestReader.IsManifestPath(request.BeforePath);
+        bool afterManifest = CaptureManifestReader.IsManifestPath(request.AfterPath);
+        if (beforeManifest || afterManifest)
+        {
+            if (!beforeManifest || !afterManifest)
+            {
+                error.WriteLine("Diff inputs must both be traces or both be capture manifest.json files.");
+                return ExitCodes.UsageError;
+            }
+
+            return RunManifest(request, output, error);
+        }
+
+        if (!TraceExecution.TryLoad(
+            request.BeforePath,
+            TraceMetric.Cpu,
+            request.Symbols,
+            error,
+            out LoadedTrace? before,
+            request.Scope))
         {
             return ExitCodes.InputError;
         }
 
-        if (!TraceExecution.TryLoad(request.AfterPath, request.Symbols, error, out LoadedTrace? after))
+        if (!TraceExecution.TryLoad(
+            request.AfterPath,
+            TraceMetric.Cpu,
+            request.Symbols,
+            error,
+            out LoadedTrace? after,
+            request.Scope))
         {
             return ExitCodes.InputError;
         }
@@ -56,7 +82,10 @@ internal static class DiffExecutor
         RankingResult afterRanking = Rank(after, request.Measure, request.Root, request.Fold);
         RankingDiffResult diff = RankingDiff.Diff(beforeRanking, afterRanking, request.Top);
 
-        AnalysisResult<RankingDiffResult> envelope = new(diff, Warnings(before.Info, after.Info), SteeringHints.ForDiff(diff));
+        AnalysisResult<RankingDiffResult> envelope = new(
+            diff,
+            Warnings(before, after, beforeRanking, afterRanking),
+            SteeringHints.ForDiff(diff));
 
         if (request.Format == OutputFormat.Json)
         {
@@ -75,6 +104,75 @@ internal static class DiffExecutor
         return request.Strict && belowThreshold ? ExitCodes.StrictGate : ExitCodes.Success;
     }
 
+    private static int RunManifest(DiffRequest request, TextWriter output, TextWriter error)
+    {
+        try
+        {
+            CaptureManifest beforeManifest = CaptureManifestReader.Read(request.BeforePath);
+            CaptureManifest afterManifest = CaptureManifestReader.Read(request.AfterPath);
+            TraceStore store = new();
+            bool belowThreshold = false;
+            CaptureManifestDiffAnalysis analysis = CaptureManifestDiffAnalyzer.Analyze(
+                beforeManifest,
+                afterManifest,
+                request.Measure == Measure.Inclusive,
+                request.Root,
+                request.Fold,
+                request.Top,
+                (manifest, captureCase) =>
+                {
+                    ScopeRequest? scope = ManifestScope(manifest, request.Scope);
+                    LoadedTrace trace = store.Get(
+                        captureCase.TracePath,
+                        request.Symbols ?? captureCase.SymbolsDirectory,
+                        TraceMetric.Cpu,
+                        scope);
+                    belowThreshold |= SymbolGate.IsBelowThreshold(
+                        trace.Info.SymbolResolutionRate,
+                        trace.Info.SampleCount);
+                    return trace;
+                });
+            AnalysisResult<RankingDiffResult> envelope = new(
+                analysis.Result,
+                analysis.Warnings,
+                SteeringHints.ForDiff(analysis.Result));
+
+            if (request.Format == OutputFormat.Json)
+            {
+                output.WriteLine(OutputJson.Serialize(envelope));
+            }
+            else
+            {
+                DiffTextRenderer.RenderManifest(
+                    envelope,
+                    MetricInfo.Cpu,
+                    request.Measure,
+                    output);
+            }
+
+            return request.Strict && belowThreshold ? ExitCodes.StrictGate : ExitCodes.Success;
+        }
+        catch (Exception exception) when (
+            exception is IOException
+            or UnauthorizedAccessException
+            or InvalidDataException
+            or ArgumentException)
+        {
+            error.WriteLine(exception.Message);
+            return ExitCodes.InputError;
+        }
+    }
+
+    private static ScopeRequest? ManifestScope(CaptureManifest manifest, ScopeRequest? requested)
+    {
+        if (requested is { ProcessName: not null } or { IncludeAll: true })
+        {
+            return requested;
+        }
+
+        return manifest.Process is null ? requested : ScopeRequest.ForProcess(manifest.Process);
+    }
+
     // Rank every frame (no row cap) so the diff is not skewed by per-side truncation;
     // RankingDiff applies the user's top to the changed rows instead.
     private static RankingResult Rank(LoadedTrace trace, Measure measure, string root, IReadOnlyList<string> fold) =>
@@ -82,17 +180,37 @@ internal static class DiffExecutor
             ? trace.Aggregator.InclusiveTime(root, fold, int.MaxValue)
             : trace.Aggregator.SelfTime(root, fold, int.MaxValue);
 
-    private static IReadOnlyList<string> Warnings(TraceInfo before, TraceInfo after)
+    private static IReadOnlyList<string> Warnings(
+        LoadedTrace before,
+        LoadedTrace after,
+        RankingResult beforeRanking,
+        RankingResult afterRanking)
     {
         List<string> warnings = [];
-        foreach (string warning in TraceExecution.ResultWarnings(before))
+        foreach (string warning in TraceExecution.ResultWarnings(before.Info))
         {
             warnings.Add($"baseline: {warning}");
         }
 
-        foreach (string warning in TraceExecution.ResultWarnings(after))
+        foreach (string warning in TraceExecution.ResultWarnings(after.Info))
         {
             warnings.Add($"current: {warning}");
+        }
+
+        if (ContributingRecordQuality.TryGetMethodWarning(
+            before.Source.RecordSemantics,
+            beforeRanking.ContributingRecordCount,
+            out string? beforeRecordWarning))
+        {
+            warnings.Add($"baseline: {beforeRecordWarning}");
+        }
+
+        if (ContributingRecordQuality.TryGetMethodWarning(
+            after.Source.RecordSemantics,
+            afterRanking.ContributingRecordCount,
+            out string? afterRecordWarning))
+        {
+            warnings.Add($"current: {afterRecordWarning}");
         }
 
         return warnings;

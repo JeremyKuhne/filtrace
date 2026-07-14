@@ -314,6 +314,28 @@ public static class SteeringHints
     {
         ArgumentNullException.ThrowIfNull(diff);
 
+        if (diff.Cases.Count > 0)
+        {
+            (RankingDiffCaseResult Case, DiffRow Row)? largest = diff.Cases
+                .SelectMany(static captureCase => captureCase.Rows.Select(row => (captureCase, row)))
+                .OrderByDescending(static pair => Math.Round(Math.Abs(pair.row.PercentagePointChange), 9))
+                .ThenBy(static pair => pair.row.Frame, StringComparer.Ordinal)
+                .Select(static pair => ((RankingDiffCaseResult Case, DiffRow Row)?)pair)
+                .FirstOrDefault();
+            if (largest is null)
+            {
+                return ["paired manifest cases have no changed ranking rows"];
+            }
+
+            string identity = string.IsNullOrEmpty(largest.Value.Case.Parameters)
+                ? largest.Value.Case.Benchmark
+                : $"{largest.Value.Case.Benchmark} ({largest.Value.Case.Parameters})";
+            return
+            [
+                $"largest normalized change is {largest.Value.Row.Frame} in {identity}; drill into the paired traces with callers"
+            ];
+        }
+
         if (diff.Rows.Count == 0)
         {
             return ["the two rankings match in scope; no frames changed"];
@@ -321,6 +343,19 @@ public static class SteeringHints
 
         string top = diff.Rows[0].Frame;
         return [$"the largest change is {top}; drill into it with: callers {top}"];
+    }
+
+    /// <summary>Next step after a manifest batch summary.</summary>
+    public static IReadOnlyList<string> ForBatch(BatchRankingResult batch)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        BatchRankingCaseResult? hottest = batch.Cases
+            .Where(static captureCase => captureCase.TopFrame is not null)
+            .OrderByDescending(static captureCase => captureCase.TopPercentOfScope)
+            .FirstOrDefault();
+        return hottest is null
+            ? ["no manifest case produced a ranked frame; inspect case warnings and capture availability"]
+            : [$"inspect {hottest.Benchmark} in detail with rank against: {hottest.TracePath}"];
     }
 
     /// <summary>

@@ -56,6 +56,14 @@
     "source-quality": {
       "calls": 1,
       "tokens": 755
+    },
+    "manifest-batch": {
+      "calls": 1,
+      "tokens": 292
+    },
+    "manifest-diff": {
+      "calls": 1,
+      "tokens": 458
     }
   }
 }

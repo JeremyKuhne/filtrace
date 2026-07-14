@@ -56,8 +56,12 @@ public sealed class AnalysisResult<T>
     ///   Version 7 added PDB identity mismatch modules, sampled method
     ///   sequence-point coverage, and named managed frames without source.
     ///  </para>
+    ///  <para>
+    ///   Version 8 added normalized and manifest-paired ranking diffs plus compact
+    ///   manifest batch rankings.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 7;
+    public const int CurrentSchemaVersion = 8;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.

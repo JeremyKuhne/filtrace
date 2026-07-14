@@ -56,6 +56,14 @@
 .PARAMETER Top
     Rows per ranking in the printed commands. Default 25.
 
+.PARAMETER OperationCount
+    Optional positive operation count represented by each captured case. Specify
+    together with OperationUnit to enable per-operation manifest comparison.
+
+.PARAMETER OperationUnit
+    Optional operation unit (for example items or requests). Specify together with
+    OperationCount. Both fields are omitted when neither parameter is supplied.
+
 .PARAMETER ElevatedTimeoutSeconds
     How long the non-elevated parent waits for the self-elevated ETW capture to finish
     before it stops blocking and reports the capture.log path. Default 1200 (20 minutes). Only
@@ -98,6 +106,9 @@ param(
     [string]$Tfm = 'net10.0',
     [string]$Process,
     [int]$Top = 25,
+    [ValidateScript({ $_ -gt 0 -and -not [double]::IsNaN($_) -and -not [double]::IsInfinity($_) })]
+    [double]$OperationCount,
+    [ValidateLength(1, 64)][string]$OperationUnit,
     [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1200,
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$')][string]$RunId,
     [string]$DotnetPath = 'dotnet',
@@ -167,11 +178,14 @@ function Get-CaptureCases([string]$ArtifactsDirectory, [string]$CaptureProfiler)
                 id = $stem
                 benchmarkId = $null
                 benchmark = $null
+                parameters = $null
                 benchmarkDisplay = $null
                 capturedUtc = $file.LastWriteTimeUtc.ToString('O')
                 trace = $null
                 speedscope = $null
                 symbolsDirectory = $null
+                operationCount = $null
+                operationUnit = $null
                 symbolCandidates = @()
                 analyses = [ordered]@{}
                 commands = @()
@@ -249,6 +263,7 @@ function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases
                 $benchmarksById[$benchmarkId] = [ordered]@{
                     benchmarkId = $benchmarkId
                     benchmark = $benchmarkName
+                    parameters = Get-BenchmarkParameters $currentDisplay
                     benchmarkDisplay = $currentDisplay
                 }
                 $benchmarksInExecutionOrder.Add($benchmarksById[$benchmarkId])
@@ -277,9 +292,21 @@ function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases
         for ($index = 0; $index -lt $cases.Count; $index++) {
             $cases[$index].benchmarkId = $benchmarks[$index].benchmarkId
             $cases[$index].benchmark = $benchmarks[$index].benchmark
+            $cases[$index].parameters = $benchmarks[$index].parameters
             $cases[$index].benchmarkDisplay = $benchmarks[$index].benchmarkDisplay
         }
     }
+}
+
+function Get-BenchmarkParameters([string]$BenchmarkDisplay) {
+    $close = $BenchmarkDisplay.LastIndexOf('): ', [StringComparison]::Ordinal)
+    if ($close -lt 0) { return '' }
+    $open = $BenchmarkDisplay.IndexOf('(')
+    if ($open -ge 0 -and $open -lt $close) {
+        return $BenchmarkDisplay.Substring($open + 1, $close - $open - 1)
+    }
+
+    return ''
 }
 
 function Get-SourceIdentity([string]$ProjectDirectory) {
@@ -615,6 +642,13 @@ else {
     $projFile = $projItem
 }
 if (-not $Process) { $Process = [System.IO.Path]::GetFileNameWithoutExtension($projFile.Name) }
+$hasOperationCount = $PSBoundParameters.ContainsKey('OperationCount')
+$hasOperationUnit = $PSBoundParameters.ContainsKey('OperationUnit') -and
+    -not [string]::IsNullOrWhiteSpace($OperationUnit)
+if ($hasOperationCount -ne $hasOperationUnit) {
+    Write-Error 'Specify OperationCount and OperationUnit together, or omit both.' -ErrorAction Continue
+    exit 1
+}
 
 $repoRoot = (Get-Location).Path
 if (-not $RunId) {
@@ -651,6 +685,7 @@ if ($Profiler -eq 'ETW') {
         DotnetPath = $DotnetPath
         FiltracePath = $FiltracePath
     }
+    if ($hasOperationUnit) { $elevationArguments.OperationUnit = $OperationUnit }
     foreach ($argument in $elevationArguments.GetEnumerator()) {
         if (-not (Test-SafeElevationArgument ([string]$argument.Value))) {
             Write-Error "ETW elevation argument '$($argument.Key)' cannot contain quotes, newlines, or end in a backslash." -ErrorAction Continue
@@ -687,6 +722,11 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
         '-Filter', "`"$Filter`"", '-Profiler', 'ETW', '-Tfm', "`"$Tfm`"", '-Process', "`"$Process`"", '-Top', $Top,
         '-RunId', $RunId, '-DotnetPath', "`"$DotnetPath`"", '-FiltracePath', "`"$FiltracePath`"", '-Format', $Format,
         '-ElevatedChild')
+    if ($hasOperationCount) {
+        $argList += @(
+            '-OperationCount', $OperationCount.ToString('R', [Globalization.CultureInfo]::InvariantCulture),
+            '-OperationUnit', "`"$OperationUnit`"")
+    }
     if ($Quiet) { $argList += '-Quiet' }
     # Relaunch with the host that is ALREADY running this script, not a hardcoded 'pwsh' -
     # a caller on Windows PowerShell 5.1 without PowerShell 7 installed would otherwise
@@ -816,6 +856,12 @@ if ($captureCases.Count -eq 0) {
     exit 1
 }
 Set-BenchmarkIdentities $captureCases $log
+if ($hasOperationCount) {
+    foreach ($captureCase in $captureCases) {
+        $captureCase.operationCount = $OperationCount
+        $captureCase.operationUnit = $OperationUnit
+    }
+}
 
 # The project build output carries matching PDBs for source lines; --keepFiles also
 # preserves BenchmarkDotNet's generated build output for manual follow-up.
