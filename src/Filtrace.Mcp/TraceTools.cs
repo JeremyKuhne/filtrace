@@ -69,7 +69,7 @@ public sealed class TraceTools
     public static async Task<AnalysisResult<TraceInfoView>> InfoAsync(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
-        [Description("Local build-output directory containing PDBs.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
@@ -148,7 +148,7 @@ public sealed class TraceTools
         [Description("Frame substring that roots the ranking.")] string root = "",
         [Description("Maximum rows.")] int top = 25,
         [Description("Regex fold patterns; omit for defaults.")] string[]? fold = null,
-        [Description("Build-output directory containing PDBs (cpu only).")]
+        [Description("Optional local build-output directory containing PDBs (cpu only).")]
         string symbols = "",
         [Description("Process substring for .etl; omit to auto-scope to the busiest.")]
         string process = "",
@@ -258,7 +258,7 @@ public sealed class TraceTools
         [Description("Substring identifying the focus frame whose callers to report.")] string frame,
         [Description("Optional substring of a frame name to scope the analysis to its subtree.")] string root = "",
         [Description("Maximum number of caller rows to return.")] int top = 25,
-        [Description("Local build-output directory containing PDBs.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
@@ -313,7 +313,7 @@ public sealed class TraceTools
         [Description("Optional substring of a method name to scope the ranking; omit for every method.")] string method = "",
         [Description("Maximum number of rows to return.")] int top = 25,
         [Description("Optional regex fold patterns; omit to use the built-in JIT-helper defaults.")] string[]? fold = null,
-        [Description("Local build-output directory containing PDBs.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
@@ -358,7 +358,7 @@ public sealed class TraceTools
         [Description("Path to a .nettrace or .etl trace file (speedscope carries no line data).")] string path,
         [Description("Path or bare name of the source file to map, e.g. ExtGlob.cs.")] string file,
         [Description("Optional regex fold patterns; omit to use the built-in JIT-helper defaults.")] string[]? fold = null,
-        [Description("Local build-output directory containing PDBs.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "")
@@ -403,7 +403,7 @@ public sealed class TraceTools
         [Description("Optional substring of a frame name to scope both rankings to its subtree.")] string root = "",
         [Description("Maximum number of changed rows to return.")] int top = 25,
         [Description("Optional regex fold patterns; omit to use the built-in JIT-helper defaults.")] string[]? fold = null,
-        [Description("Local build-output directory containing PDBs.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "")
     {
         bool inclusive = ResolveMeasure(measure);
@@ -709,7 +709,7 @@ public sealed class TraceTools
         [Description("The file path to write the flame graph to (it is overwritten if it exists).")] string output,
         [Description("The flame-graph format: speedscope or chromium.")] string format = "speedscope",
         [Description("The profile name embedded in the flame graph, shown in the viewer.")] string name = "filtrace",
-        [Description("Local build-output directory containing PDBs.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
@@ -817,7 +817,7 @@ public sealed class TraceTools
         [Description("Maximum number of frame levels below the root to expand.")] int maxDepth = 10,
         [Description("Minimum share of the scoped total, in percent, a node must have to appear.")] double minPercent = 1.0,
         [Description("Optional regex fold patterns; omit to use the built-in JIT-helper defaults.")] string[]? fold = null,
-        [Description("Local build-output directory containing PDBs.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
@@ -873,7 +873,7 @@ public sealed class TraceTools
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
         [Description("Optional substring of a frame name to scope the classification to its subtree.")] string root = "",
-        [Description("Local build-output directory containing PDBs.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
