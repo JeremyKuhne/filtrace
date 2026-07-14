@@ -28,3 +28,12 @@ downlevel contract.
 Changes to trace readers, event queries, regular expressions, output limits, or
 other caller-supplied input also invoke the security-review skill. Changes under
 `.agents/` additionally invoke agent-files-review.
+
+Any changed `.ps1`, `.psm1`, or `.psd1` also invokes the
+[powershell-scripting skill](../powershell-scripting/SKILL.md). Read its overlay
+and the relevant review/testing pages before the agentic review pass. For every
+changed native-tool or optional-capability boundary, pin the absent, success,
+valid-empty, nonzero/exception, and malformed/incomplete states; do not approve a
+fallback represented only by a shared `$null` sentinel. Put the applicable
+boundary rows, expected policy, and test/manual-gap evidence in working notes
+before the read-only review pass.
