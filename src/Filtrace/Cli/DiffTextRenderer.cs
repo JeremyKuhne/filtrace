@@ -16,6 +16,7 @@ namespace Filtrace.Cli;
 internal static class DiffTextRenderer
 {
     private const int WeightColumnWidth = 14;
+    private const int PercentColumnWidth = 9;
 
     /// <summary>
     ///  Renders the diff envelope to <paramref name="output"/>.
@@ -53,12 +54,59 @@ internal static class DiffTextRenderer
         }
         else
         {
-            output.WriteLine($"  {"before",WeightColumnWidth}  {"after",WeightColumnWidth}  {"delta",WeightColumnWidth}  frame");
-            foreach (DiffRow row in diff.Rows)
+            RenderRows(diff.Rows, unit, diff.OperationUnit, output);
+        }
+
+        foreach (string warning in envelope.Warnings)
+        {
+            output.WriteLine($"! {warning}");
+        }
+
+        foreach (string hint in envelope.Hints)
+        {
+            output.WriteLine($"> {hint}");
+        }
+    }
+
+    /// <summary>Renders case-keyed diffs from paired capture manifests.</summary>
+    public static void RenderManifest(
+        AnalysisResult<RankingDiffResult> envelope,
+        MetricInfo metric,
+        Measure measure,
+        TextWriter output)
+    {
+        string measureLabel = measure == Measure.Inclusive ? "inclusive" : "self";
+        output.WriteLine($"{metric.Name} {measureLabel} manifest diff  -  {envelope.Result.Cases.Count} paired case(s)");
+        foreach (RankingDiffCaseResult captureCase in envelope.Result.Cases)
+        {
+            string identity = string.IsNullOrEmpty(captureCase.Parameters)
+                ? captureCase.Benchmark
+                : $"{captureCase.Benchmark} ({captureCase.Parameters})";
+            output.WriteLine();
+            output.WriteLine(identity);
+            output.WriteLine(
+                $"  scope {captureCase.BeforeScopeWeight:N2} -> {captureCase.AfterScopeWeight:N2} {metric.Unit} "
+                + $"(delta {Signed(captureCase.ScopeDelta)} {metric.Unit})");
+            if (captureCase.OperationUnit is not null)
             {
                 output.WriteLine(
-                    $"  {$"{row.BeforeWeight:N2} {unit}",WeightColumnWidth}  {$"{row.AfterWeight:N2} {unit}",WeightColumnWidth}  "
-                    + $"{$"{Signed(row.Delta)} {unit}",WeightColumnWidth}  {row.Frame}");
+                    $"  per {captureCase.OperationUnit}: {captureCase.BeforeScopeWeightPerOperation:N4} -> "
+                    + $"{captureCase.AfterScopeWeightPerOperation:N4} {metric.Unit} "
+                    + $"(delta {Signed(captureCase.ScopeWeightPerOperationDelta!.Value)} {metric.Unit})");
+            }
+
+            if (captureCase.Rows.Count == 0)
+            {
+                output.WriteLine("  (no changed rows)");
+            }
+            else
+            {
+                RenderRows(captureCase.Rows, metric.Unit, captureCase.OperationUnit, output);
+            }
+
+            foreach (string warning in captureCase.Warnings)
+            {
+                output.WriteLine($"  ! {warning}");
             }
         }
 
@@ -70,6 +118,31 @@ internal static class DiffTextRenderer
         foreach (string hint in envelope.Hints)
         {
             output.WriteLine($"> {hint}");
+        }
+    }
+
+    private static void RenderRows(
+        IReadOnlyList<DiffRow> rows,
+        string unit,
+        string? operationUnit,
+        TextWriter output)
+    {
+        output.WriteLine(
+            $"  {"before",WeightColumnWidth}  {"after",WeightColumnWidth}  {"delta",WeightColumnWidth}  "
+            + $"{"before %",PercentColumnWidth}  {"after %",PercentColumnWidth}  {"pp",PercentColumnWidth}  kind  frame");
+        foreach (DiffRow row in rows)
+        {
+            output.WriteLine(
+                $"  {$"{row.BeforeWeight:N2} {unit}",WeightColumnWidth}  {$"{row.AfterWeight:N2} {unit}",WeightColumnWidth}  "
+                + $"{$"{Signed(row.Delta)} {unit}",WeightColumnWidth}  {row.BeforePercentOfScope,PercentColumnWidth:N2}  "
+                + $"{row.AfterPercentOfScope,PercentColumnWidth:N2}  {Signed(row.PercentagePointChange),PercentColumnWidth}  "
+                + $"{row.ChangeKind,-11}  {row.Frame}");
+            if (operationUnit is not null)
+            {
+                output.WriteLine(
+                    $"  {"",WeightColumnWidth}  per {operationUnit}: {row.BeforeWeightPerOperation:N4} -> "
+                    + $"{row.AfterWeightPerOperation:N4} {unit} (delta {Signed(row.PerOperationDelta!.Value)} {unit})");
+            }
         }
     }
 

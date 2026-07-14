@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Tracing;
+
 namespace Filtrace.Cli;
 
 /// <summary>
@@ -17,6 +19,7 @@ namespace Filtrace.Cli;
 /// <param name="Format">The render format.</param>
 /// <param name="Symbols">Optional build-output directory whose PDBs map managed code to source lines.</param>
 /// <param name="Strict">Whether to trip the strict symbol-resolution exit gate.</param>
+/// <param name="Scope">The process scope applied to both traces.</param>
 internal sealed record DiffRequest(
     string BeforePath,
     string AfterPath,
@@ -26,4 +29,5 @@ internal sealed record DiffRequest(
     Measure Measure,
     OutputFormat Format,
     string? Symbols,
-    bool Strict);
+    bool Strict,
+    ScopeRequest? Scope = null);

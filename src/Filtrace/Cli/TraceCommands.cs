@@ -554,10 +554,10 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Compare two like-for-like CPU traces by absolute sampled-time change.
+    ///  Compare two like-for-like CPU traces or capture manifests by absolute and normalized sampled-time change.
     /// </summary>
-    /// <param name="before">Path to the baseline .speedscope.json, .nettrace, or .etl file.</param>
-    /// <param name="after">Path to the current .speedscope.json, .nettrace, or .etl file.</param>
+    /// <param name="before">Baseline trace or capture manifest.json.</param>
+    /// <param name="after">Current trace or capture manifest.json; both inputs must have the same kind.</param>
     /// <param name="measure">-m, Which measure to compare: self (leaf time, helpers folded) or inclusive.</param>
     /// <param name="root">Substring scoping both rankings to the subtree under a frame.</param>
     /// <param name="top">-n, Maximum number of changed rows to return.</param>
@@ -565,7 +565,14 @@ internal sealed class TraceCommands
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when either trace's symbol resolution is below the trusted threshold.</param>
+    /// <param name="process">Scope both traces to the process tree whose name contains this; omit to auto-scope.</param>
+    /// <param name="allProcesses">Read every process in both traces instead of auto-scoping.</param>
+    /// <param name="benchmark">Scope both traces to the BenchmarkDotNet measured-workload subtree.</param>
     /// <returns>A process exit code.</returns>
+    /// <remarks>
+    ///  Manifest diffs pair at most 24 cases by benchmark plus parameters and show at
+    ///  most 5 changed rows per case. Only manifests can supply per-operation values.
+    /// </remarks>
     [Command("diff")]
     public int Diff(
         [Argument] string before,
@@ -576,11 +583,98 @@ internal sealed class TraceCommands
         string[]? fold = null,
         string? symbols = null,
         OutputFormat format = OutputFormat.Text,
-        bool strict = false)
+        bool strict = false,
+        string process = "",
+        bool allProcesses = false,
+        bool benchmark = false)
     {
+        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        {
+            Console.Error.WriteLine(scopeError);
+            return ExitCodes.UsageError;
+        }
+
+        if (!RankRequestFactory.TryResolveRoot(root, benchmark, out string resolvedRoot, out string? rootError))
+        {
+            Console.Error.WriteLine(rootError);
+            return ExitCodes.UsageError;
+        }
+
         IReadOnlyList<string> foldPatterns = fold is { Length: > 0 } ? fold : FrameNames.DefaultFoldPatterns;
-        DiffRequest request = new(before, after, root, top, foldPatterns, measure, format, symbols, strict);
+        DiffRequest request = new(
+            before,
+            after,
+            resolvedRoot,
+            top,
+            foldPatterns,
+            measure,
+            format,
+            symbols,
+            strict,
+            scope);
         return DiffExecutor.Run(request, Console.Out, Console.Error);
+    }
+
+    /// <summary>Run one compact ranking query across up to 24 cases in a capture manifest.</summary>
+    /// <param name="manifest">Path to a capture helper manifest.json.</param>
+    /// <param name="metric">Provider metric: cpu, threadtime, alloc, exceptions, contention, wait, or activity.</param>
+    /// <param name="measure">-m, self or inclusive.</param>
+    /// <param name="root">Optional root frame applied to every case.</param>
+    /// <param name="fold">Extra leaf-frame fold regexes; omit for defaults.</param>
+    /// <param name="symbols">Optional symbol directory overriding each case's recorded directory.</param>
+    /// <param name="format">Render format: text or json.</param>
+    /// <param name="strict">Exit 3 when any loaded case has poor symbol resolution.</param>
+    /// <param name="process">Process substring overriding the manifest process.</param>
+    /// <param name="allProcesses">Read every process rather than manifest/automatic scope.</param>
+    /// <param name="benchmark">Use the BenchmarkDotNet measured-workload root.</param>
+    /// <returns>A process exit code.</returns>
+    [Command("batch")]
+    public int Batch(
+        [Argument] string manifest,
+        string metric = RankRequestFactory.CpuMetric,
+        Measure measure = Measure.Self,
+        string root = "",
+        string[]? fold = null,
+        string? symbols = null,
+        OutputFormat format = OutputFormat.Text,
+        bool strict = false,
+        string process = "",
+        bool allProcesses = false,
+        bool benchmark = false)
+    {
+        if (!RankRequestFactory.TryResolveMetric(metric, out TraceMetric resolvedMetric))
+        {
+            Console.Error.WriteLine(
+                $"Unknown metric '{metric}'. Valid metrics: {string.Join(", ", TraceMetricSelector.Selectors)}.");
+            return ExitCodes.UsageError;
+        }
+
+        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        {
+            Console.Error.WriteLine(scopeError);
+            return ExitCodes.UsageError;
+        }
+
+        if (!RankRequestFactory.TryResolveRoot(root, benchmark, out string resolvedRoot, out string? rootError))
+        {
+            Console.Error.WriteLine(rootError);
+            return ExitCodes.UsageError;
+        }
+
+        IReadOnlyList<string> foldPatterns = fold is { Length: > 0 }
+            ? fold
+            : FrameNames.DefaultFoldPatterns;
+        BatchRequest request = new(
+            manifest,
+            resolvedMetric,
+            resolvedRoot,
+            foldPatterns,
+            measure,
+            format,
+            symbols,
+            strict,
+            scope);
+        return BatchExecutor.Run(request, Console.Out, Console.Error);
     }
 
     /// <summary>

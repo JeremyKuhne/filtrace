@@ -64,6 +64,9 @@ modes emit a warning; `-Format Json` returns `status: "timeout"`, `runId`, `log`
 detail would exceed that budget, a minimal completed result points to `manifest.json`;
 every compact fallback includes `runDirectory`, using the canonical run-relative path
 if an absolute path cannot fit.
+Manifest cases carry explicit benchmark/parameter identity. Pass both
+`-OperationCount` and `-OperationUnit` to add complete per-operation metadata, or
+omit both.
 Recorder-established command fallback is used only when filtrace is unavailable;
 if `filtrace info` is present but cannot read a case, every analysis is unknown and
 no command is emitted. Recorder fallback never fabricates an `eventCount`; only a
@@ -140,8 +143,10 @@ Almost every investigation is the same four moves:
    lines), or `tree` (what it calls). These tools read CPU stacks only. For alloc,
    exceptions, contention, wait, activity, or threadtime, compare self/inclusive
    rankings or refine `root` / `time` instead of crossing into a CPU drill.
-4. **Compare.** `diff <before> <after>` to see what regressed or improved, or
-   `export --format speedscope` to hand a human a flame graph.
+4. **Compare.** `diff <before> <after>` accepts traces or capture manifests and
+   reports absolute plus normalized changes. `batch <manifest>` runs one compact
+   ranking query across every case; `export --format speedscope` hands a human a
+   flame graph.
 
 ```pwsh
 filtrace info app.nettrace                   # 1. orient: format, symbol rate, analyses
@@ -211,7 +216,8 @@ workload:
 
 | Verb | Does |
 |---|---|
-| `diff <before> <after>` | absolute CPU sampled-time changes between comparable traces |
+| `diff <before> <after>` | absolute and normalized CPU changes; trace pairs or paired manifests |
+| `batch <manifest>` | one compact metric ranking across every parameterized manifest case |
 | `export --format <fmt>` | write a flame graph for a viewer - `speedscope` or `chromium` |
 
 **Structured reports:**
@@ -308,10 +314,13 @@ Run `filtrace <verb> --help` for the full option set of any verb.
    open at trace end may be absent; an empty ranking does not rule out an active
    hang. Use ETW threadtime or a dump/current-state tool when the unfinished state
    itself is the question.
-- `diff` compares absolute CPU sampled weights, not normalized percentages. Compare
-   equivalent workloads, capture lengths, runtime/configuration, symbols, root, fold,
-   and measure. It has no process selector and auto-scopes each ETW input separately,
-   so first confirm the same workload is busiest in both captures.
+- `diff` reports absolute weight, scope shares, percentage-point change, normalized
+   weight change, and appearing/disappearing frames. Scope direct traces consistently
+   with root/process/benchmark. Manifest cases pair only by exact benchmark plus
+   parameters; per-operation fields require complete count and matching unit on both
+   sides.
+- `batch` / `trace_batch` returns one compact top-frame row and case-specific warnings
+   for each of at most 24 manifest cases. Use the returned path with `rank` for detail.
 - Chromium export reconstructs one aggregate synthetic track whose widths preserve
    sample weight. Its axis is not the capture's original timestamps, thread
    concurrency, or idle gaps; use `timeline` / `--time` for temporal conclusions.
@@ -444,10 +453,10 @@ The two heads share one analysis core, with deliberately different operational
 surfaces:
 
 - **CLI** - `dotnet tool install -g KlutzyNinja.Filtrace`, then `filtrace <verb>`.
-- **MCP server** - `dnx KlutzyNinja.Filtrace.Mcp` over stdio, exposing sixteen
+- **MCP server** - `dnx KlutzyNinja.Filtrace.Mcp` over stdio, exposing seventeen
   `trace_*` tools (`trace_info`, `trace_rank`, `trace_callers`, `trace_lines`,
   `trace_heatmap`, `trace_tree`, `trace_processes`, `trace_classify`,
-  `trace_diff`, `trace_export`, `trace_timeline`, `trace_gc`, `trace_jit`,
+   `trace_diff`, `trace_batch`, `trace_export`, `trace_timeline`, `trace_gc`, `trace_jit`,
   `trace_threadpool`, `trace_diskio`, `trace_query_events`).
   Each returns one envelope: a `schemaVersion`, a `warnings` list, next-step
    `hints`, and the typed result. MCP can auto-scope or select a named ETW process;

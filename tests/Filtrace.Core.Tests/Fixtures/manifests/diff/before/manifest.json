@@ -1,0 +1,1 @@
+{"schemaVersion":1,"runId":"diff-before","cases":[{"id":"resize-before","benchmark":"DictionaryBench.Resize","parameters":"Size: 1000","benchmarkDisplay":"Resize(Size: 1000): Job-OLD","speedscope":"case.speedscope.json","operationCount":10,"operationUnit":"items"}]}

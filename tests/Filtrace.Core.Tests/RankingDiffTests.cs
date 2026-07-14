@@ -27,12 +27,21 @@ public sealed class RankingDiffTests
         diff.AfterScopeWeight.Should().Be(150.0);
         diff.ScopeDelta.Should().Be(50.0);
 
-        // B is unchanged and so is dropped; only A moved (+50).
-        diff.Rows.Should().ContainSingle();
+        // B has stable absolute weight but a lower share of the larger current
+        // scope, so normalized diffing keeps it.
+        diff.Rows.Should().HaveCount(2);
         diff.Rows[0].Frame.Should().Be("A");
         diff.Rows[0].BeforeWeight.Should().Be(60.0);
         diff.Rows[0].AfterWeight.Should().Be(110.0);
         diff.Rows[0].Delta.Should().Be(50.0);
+        diff.Rows[0].BeforePercentOfScope.Should().Be(60.0);
+        diff.Rows[0].AfterPercentOfScope.Should().BeApproximately(73.333, 0.001);
+        diff.Rows[0].PercentagePointChange.Should().BeApproximately(13.333, 0.001);
+        diff.Rows[0].NormalizedWeightChange.Should().BeApproximately(13.333, 0.001);
+        diff.Rows[0].ChangeKind.Should().Be("changed");
+        diff.Rows[1].Frame.Should().Be("B");
+        diff.Rows[1].Delta.Should().Be(0.0);
+        diff.Rows[1].PercentagePointChange.Should().BeApproximately(-13.333, 0.001);
     }
 
     [TestMethod]
@@ -58,11 +67,14 @@ public sealed class RankingDiffTests
 
         RankingDiffResult diff = RankingDiff.Diff(before, after, 25);
 
-        diff.Rows.Should().ContainSingle();
-        diff.Rows[0].Frame.Should().Be("New");
-        diff.Rows[0].BeforeWeight.Should().Be(0.0);
-        diff.Rows[0].AfterWeight.Should().Be(30.0);
-        diff.Rows[0].Delta.Should().Be(30.0);
+        diff.Rows.Should().HaveCount(2);
+        DiffRow appeared = diff.Rows.Single(static row => row.Frame == "New");
+        appeared.BeforeWeight.Should().Be(0.0);
+        appeared.AfterWeight.Should().Be(30.0);
+        appeared.Delta.Should().Be(30.0);
+        appeared.ChangeKind.Should().Be("appeared");
+        diff.Rows.Single(static row => row.Frame == "A").PercentagePointChange
+            .Should().Be(-37.5);
     }
 
     [TestMethod]
@@ -73,11 +85,14 @@ public sealed class RankingDiffTests
 
         RankingDiffResult diff = RankingDiff.Diff(before, after, 25);
 
-        diff.Rows.Should().ContainSingle();
-        diff.Rows[0].Frame.Should().Be("Gone");
-        diff.Rows[0].BeforeWeight.Should().Be(30.0);
-        diff.Rows[0].AfterWeight.Should().Be(0.0);
-        diff.Rows[0].Delta.Should().Be(-30.0);
+        diff.Rows.Should().HaveCount(2);
+        DiffRow disappeared = diff.Rows.Single(static row => row.Frame == "Gone");
+        disappeared.BeforeWeight.Should().Be(30.0);
+        disappeared.AfterWeight.Should().Be(0.0);
+        disappeared.Delta.Should().Be(-30.0);
+        disappeared.ChangeKind.Should().Be("disappeared");
+        diff.Rows.Single(static row => row.Frame == "A").PercentagePointChange
+            .Should().Be(37.5);
     }
 
     [TestMethod]
@@ -124,6 +139,30 @@ public sealed class RankingDiffTests
 
         diff.Rows[0].Frame.Should().Be("Aaa");
         diff.Rows[1].Frame.Should().Be("Zzz");
+    }
+
+    [TestMethod]
+    public void DiffPerOperation_CompleteMetadata_ReportsPerOperationValues()
+    {
+        RankingResult before = Ranking(100.0, ("A", 60.0));
+        RankingResult after = Ranking(120.0, ("A", 72.0));
+
+        RankingDiffResult diff = RankingDiff.DiffPerOperation(
+            before,
+            after,
+            25,
+            beforeOperationCount: 10,
+            afterOperationCount: 20,
+            operationUnit: "items");
+
+        diff.OperationUnit.Should().Be("items");
+        diff.BeforeScopeWeightPerOperation.Should().Be(10.0);
+        diff.AfterScopeWeightPerOperation.Should().Be(6.0);
+        diff.ScopeWeightPerOperationDelta.Should().Be(-4.0);
+        diff.Rows.Should().ContainSingle();
+        diff.Rows[0].BeforeWeightPerOperation.Should().Be(6.0);
+        diff.Rows[0].AfterWeightPerOperation.Should().Be(3.6);
+        diff.Rows[0].PerOperationDelta.Should().BeApproximately(-2.4, 0.001);
     }
 
     [TestMethod]

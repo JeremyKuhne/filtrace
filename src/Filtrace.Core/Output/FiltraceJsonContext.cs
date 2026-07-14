@@ -43,6 +43,7 @@ namespace Filtrace.Output;
 [JsonSerializable(typeof(AnalysisResult<ProcessListResult>))]
 [JsonSerializable(typeof(AnalysisResult<ClassifyResult>))]
 [JsonSerializable(typeof(AnalysisResult<RankingDiffResult>))]
+[JsonSerializable(typeof(AnalysisResult<BatchRankingResult>))]
 [JsonSerializable(typeof(AnalysisResult<JitStatsResult>))]
 [JsonSerializable(typeof(AnalysisResult<GcStatsResult>))]
 [JsonSerializable(typeof(AnalysisResult<TimelineResult>))]

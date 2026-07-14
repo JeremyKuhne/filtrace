@@ -99,6 +99,38 @@ public sealed class OutputContractTests
     }
 
     [TestMethod]
+    public void Serialize_DiffRow_EmitsNormalizedAndPerOperationFields()
+    {
+        DiffRow row = new("Frame", 10.0, 20.0, 10.0)
+        {
+            BeforePercentOfScope = 25.0,
+            AfterPercentOfScope = 40.0,
+            PercentagePointChange = 15.0,
+            NormalizedWeightChange = 6.0,
+            ChangeKind = "appeared",
+            BeforeWeightPerOperation = 1.0,
+            AfterWeightPerOperation = 2.0,
+            PerOperationDelta = 1.0
+        };
+        AnalysisResult<RankingDiffResult> envelope = new(
+            new RankingDiffResult(40.0, 50.0, 10.0, [row])
+            {
+                OperationUnit = "items"
+            });
+
+        string json = OutputJson.Serialize(envelope);
+
+        json.Should().Contain("\"beforePercentOfScope\":25");
+        json.Should().Contain("\"afterPercentOfScope\":40");
+        json.Should().Contain("\"percentagePointChange\":15");
+        json.Should().Contain("\"normalizedWeightChange\":6");
+        json.Should().Contain("\"changeKind\":\"appeared\"");
+        json.Should().Contain("\"beforeWeightPerOperation\":1");
+        json.Should().Contain("\"afterWeightPerOperation\":2");
+        json.Should().Contain("\"perOperationDelta\":1");
+    }
+
+    [TestMethod]
     public void Serialize_Envelope_MatchesGolden()
     {
         string goldenPath = Path.Combine(AppContext.BaseDirectory, "Goldens", "ranking-envelope.golden.json");

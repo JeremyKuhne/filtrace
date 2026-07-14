@@ -248,10 +248,8 @@ public sealed class TraceTools
     /// <returns>The caller-breakdown envelope.</returns>
     [McpServerTool(Name = "trace_callers", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Immediate callers of the frame matching 'frame', with the CPU time each contributes. Use it to learn "
-        + "what a JIT-helper or shared-utility frame (e.g. BulkMoveWithWriteBarrier) is really attributable to, "
-        + "or to walk up a hot stack one level at a time. Set callees for a caller/callee view (what it calls too). "
-        + "Scope with root, or set benchmark=true for a BenchmarkDotNet measured workload.")]
+        "Show immediate CPU callers of frame; callees=true also shows immediate callees. Scope with "
+        + "root/process or benchmark=true.")]
     public static AnalysisResult<CallersResult> Callers(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -304,9 +302,8 @@ public sealed class TraceTools
     /// <returns>The line-level self-time envelope.</returns>
     [McpServerTool(Name = "trace_lines", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Rank CPU leaf self-time by source file:line for methods containing 'method'; JIT helpers fold into "
-        + "their caller. Requires .nettrace/.etl and local PDBs via symbols; speedscope is empty. '<no source>' "
-        + "means the matching named frame has no resolved location.")]
+        "Rank CPU leaf self-time by source line for methods containing method. Requires .nettrace/.etl and "
+        + "optional local PDBs; speedscope is empty and unresolved locations are '<no source>'.")]
     public static async Task<AnalysisResult<LineRankingResult>> LinesAsync(
         TraceStore store,
         [Description("Path to a .nettrace or .etl trace file (speedscope carries no line data).")] string path,
@@ -349,10 +346,8 @@ public sealed class TraceTools
     /// <returns>The heat-map envelope.</returns>
     [McpServerTool(Name = "trace_heatmap", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Per-line self-time heat map for one source file: each leaf sample (JIT-helper leaves folded) attributed "
-        + "to the executing line, ordered by line number to overlay onto the source. Matched by file name. Requires "
-        + "a .nettrace or .etl trace whose modules have portable PDBs (pass 'symbols'). Speedscope returns an empty "
-        + "map.")]
+        "CPU self-time heat map for one source filename, ordered by line. Requires .nettrace/.etl and optional "
+        + "local PDBs; speedscope is empty.")]
     public static AnalysisResult<SourceHeatmapResult> Heatmap(
         TraceStore store,
         [Description("Path to a .nettrace or .etl trace file (speedscope carries no line data).")] string path,
@@ -388,13 +383,14 @@ public sealed class TraceTools
     /// <param name="top">Maximum changed rows to return.</param>
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
+    /// <param name="process">Optional process-name substring applied to both traces.</param>
+    /// <param name="benchmark">Use the BenchmarkDotNet workload root; mutually exclusive with <paramref name="root"/>.</param>
     /// <returns>The diff envelope.</returns>
     [McpServerTool(Name = "trace_diff", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Compare two CPU traces and report the per-frame change (regressions and improvements), largest absolute "
-        + "change first. Both sides are ranked fully (no cap) before diffing, so a frame hot on one side is not "
-        + "misreported. measure=self credits the executing leaf (JIT-helper leaves folded); measure=inclusive "
-        + "credits a frame and all it calls. Compare like-for-like workloads: deltas are absolute sampled ms, not normalized.")]
+        "Compare like-for-like CPU traces by absolute and normalized frame change. Both sides are fully ranked "
+        + "before diffing. Scope with root/process or benchmark=true. Manifest pairs are capped to 24 cases and "
+        + "5 rows/case; only manifests can supply per-operation values.")]
     public static AnalysisResult<RankingDiffResult> Diff(
         TraceStore store,
         [Description("Path to the baseline (before) .speedscope.json, .nettrace, or .etl trace file.")] string beforePath,
@@ -404,28 +400,140 @@ public sealed class TraceTools
         [Description("Maximum number of changed rows to return.")] int top = 25,
         [Description("Optional regex fold patterns; omit to use the built-in JIT-helper defaults.")] string[]? fold = null,
         [Description("Optional local build-output directory containing PDBs.")]
-        string symbols = "")
+        string symbols = "",
+        [Description("Process substring for both .etl traces; omit for each busiest tree.")]
+        string process = "",
+        [Description("BenchmarkDotNet workload root; conflicts with root.")]
+        bool benchmark = false)
     {
         bool inclusive = ResolveMeasure(measure);
         RequirePositiveTop(top);
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
         string? resolvedSymbols = NullIfEmpty(symbols);
+        string resolvedRoot = ResolveRoot(root, benchmark);
+        ScopeRequest? scope = ResolveScope(process);
+        bool beforeManifest = CaptureManifestReader.IsManifestPath(beforePath);
+        bool afterManifest = CaptureManifestReader.IsManifestPath(afterPath);
+        if (beforeManifest || afterManifest)
+        {
+            if (!beforeManifest || !afterManifest)
+            {
+                throw new McpException(
+                    "Diff inputs must both be traces or both be capture manifest.json files.");
+            }
 
-        LoadedTrace before = Load(store, beforePath, resolvedSymbols);
-        LoadedTrace after = Load(store, afterPath, resolvedSymbols);
+            try
+            {
+                CaptureManifest beforeCapture = CaptureManifestReader.Read(beforePath);
+                CaptureManifest afterCapture = CaptureManifestReader.Read(afterPath);
+                CaptureManifestDiffAnalysis analysis = CaptureManifestDiffAnalyzer.Analyze(
+                    beforeCapture,
+                    afterCapture,
+                    inclusive,
+                    resolvedRoot,
+                    foldPatterns,
+                    top,
+                    (manifest, captureCase) => store.Get(
+                        captureCase.TracePath,
+                        resolvedSymbols ?? captureCase.SymbolsDirectory,
+                        TraceMetric.Cpu,
+                        ManifestScope(manifest, scope)));
+                return new AnalysisResult<RankingDiffResult>(
+                    analysis.Result,
+                    analysis.Warnings,
+                    SteeringHints.ForDiff(analysis.Result));
+            }
+            catch (Exception exception) when (
+                exception is IOException
+                or UnauthorizedAccessException
+                or InvalidDataException
+                or ArgumentException)
+            {
+                throw new McpException(exception.Message);
+            }
+        }
+
+        LoadedTrace before = Load(store, beforePath, resolvedSymbols, scope: scope);
+        LoadedTrace after = Load(store, afterPath, resolvedSymbols, scope: scope);
 
         // Rank every frame (no row cap) so the diff is not skewed by per-side truncation;
         // RankingDiff applies the requested top to the changed rows instead.
         RankingResult beforeRanking = inclusive
-            ? before.Aggregator.InclusiveTime(root, foldPatterns, int.MaxValue)
-            : before.Aggregator.SelfTime(root, foldPatterns, int.MaxValue);
+            ? before.Aggregator.InclusiveTime(resolvedRoot, foldPatterns, int.MaxValue)
+            : before.Aggregator.SelfTime(resolvedRoot, foldPatterns, int.MaxValue);
         RankingResult afterRanking = inclusive
-            ? after.Aggregator.InclusiveTime(root, foldPatterns, int.MaxValue)
-            : after.Aggregator.SelfTime(root, foldPatterns, int.MaxValue);
+            ? after.Aggregator.InclusiveTime(resolvedRoot, foldPatterns, int.MaxValue)
+            : after.Aggregator.SelfTime(resolvedRoot, foldPatterns, int.MaxValue);
 
         RankingDiffResult diff = RankingDiff.Diff(beforeRanking, afterRanking, top);
+        List<string> warnings = [.. DiffWarnings(before.Info, after.Info)];
+        AddDiffRecordWarning(warnings, "baseline", before.Source, beforeRanking.ContributingRecordCount);
+        AddDiffRecordWarning(warnings, "current", after.Source, afterRanking.ContributingRecordCount);
+        AddFrameMatchWarnings(warnings, before.Source, resolvedRoot, "baseline root", FrameMatchSelection.Outermost);
+        AddFrameMatchWarnings(warnings, after.Source, resolvedRoot, "current root", FrameMatchSelection.Outermost);
 
-        return new AnalysisResult<RankingDiffResult>(diff, DiffWarnings(before.Info, after.Info), SteeringHints.ForDiff(diff));
+        return new AnalysisResult<RankingDiffResult>(diff, warnings, SteeringHints.ForDiff(diff));
+    }
+
+    /// <summary>Runs one compact ranking query across every case in a capture manifest.</summary>
+    /// <param name="store">The trace cache.</param>
+    /// <param name="manifestPath">Path to capture-helper manifest.json.</param>
+    /// <param name="metric">Provider metric selector.</param>
+    /// <param name="measure">Self or inclusive ranking.</param>
+    /// <param name="root">Optional root selector.</param>
+    /// <param name="fold">Optional fold patterns.</param>
+    /// <param name="symbols">Optional symbols override for every case.</param>
+    /// <param name="process">Optional process override.</param>
+    /// <param name="benchmark">Use the BenchmarkDotNet workload root.</param>
+    /// <returns>One bounded ranking summary row per manifest case.</returns>
+    [McpServerTool(Name = "trace_batch", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [Description(
+        "Rank up to 24 manifest cases with one metric/query. Returns case-keyed scope, top frame/share, record "
+        + "count, per-operation values when complete, and case warnings.")]
+    public static AnalysisResult<BatchRankingResult> Batch(
+        TraceStore store,
+        [Description("Path to capture-helper manifest.json.")] string manifestPath,
+        [Description("Metric: cpu, threadtime, alloc, exceptions, contention, wait, or activity.")]
+        string metric = "cpu",
+        [Description("Measure: self or inclusive.")] string measure = "self",
+        [Description("Optional root frame applied to every case.")] string root = "",
+        [Description("Optional fold regexes; omit for defaults.")] string[]? fold = null,
+        [Description("Optional local PDB directory overriding case symbols.")] string symbols = "",
+        [Description("Optional process substring overriding manifest scope.")] string process = "",
+        [Description("BenchmarkDotNet workload root; conflicts with root.")] bool benchmark = false)
+    {
+        TraceMetric resolvedMetric = ResolveMetric(metric);
+        bool inclusive = ResolveMeasure(measure);
+        string resolvedRoot = ResolveRoot(root, benchmark);
+        IReadOnlyList<string> foldPatterns = ResolveFold(fold);
+        ScopeRequest? scope = ResolveScope(process);
+        string? resolvedSymbols = NullIfEmpty(symbols);
+        try
+        {
+            CaptureManifest manifest = CaptureManifestReader.Read(manifestPath);
+            BatchRankingResult result = CaptureManifestBatchAnalyzer.Analyze(
+                manifest,
+                metric.ToLowerInvariant(),
+                inclusive,
+                resolvedRoot,
+                foldPatterns,
+                (captureManifest, captureCase) => store.Get(
+                    captureCase.TracePath,
+                    resolvedSymbols ?? captureCase.SymbolsDirectory,
+                    resolvedMetric,
+                    ManifestScope(captureManifest, scope)));
+            return new AnalysisResult<BatchRankingResult>(
+                result,
+                hints: SteeringHints.ForBatch(result));
+        }
+        catch (Exception exception) when (
+            exception is IOException
+            or UnauthorizedAccessException
+            or InvalidDataException
+            or ArgumentException)
+        {
+            throw new McpException(exception.Message);
+        }
     }
 
     /// <summary>
@@ -437,10 +545,8 @@ public sealed class TraceTools
     /// <returns>The GC-report envelope.</returns>
     [McpServerTool(Name = "trace_gc", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Garbage-collection report for a .nettrace EventPipe trace: aggregate counts (gen 0/1/2), total/max/mean "
-        + "pause time, peak heap size, promoted bytes, and per-collection records capped to the 'top' hottest "
-        + "pauses. Frequent gen-2 collections or long pauses point at allocation problems. Requires a .nettrace "
-        + "trace; .etl and speedscope are rejected.")]
+        "GC summary and top pauses for .nettrace: generation counts, pause time, heap, and promoted bytes. "
+        + ".etl and speedscope are rejected.")]
     public static AnalysisResult<GcStatsResult> Gc(
         [Description("Path to a .nettrace EventPipe trace file.")] string path,
         [Description("Maximum number of per-collection records to return, ranked by pause time.")] int top = 25)
@@ -474,9 +580,8 @@ public sealed class TraceTools
     /// <returns>The timeline envelope.</returns>
     [McpServerTool(Name = "trace_timeline", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Time-bucketed activity across a .nettrace or .etl trace: per-bucket GC, CPU (top method), exception, "
-        + "allocation, and JIT counts on one time axis. An orientation view, not a ranking - find the busy window, "
-        + "then scope a ranking to it (the hint gives the exact rank --time call). A speedscope export is rejected.")]
+        "Time buckets for selected GC/CPU/exception/allocation/JIT lanes in .nettrace/.etl; use the hint to rank "
+        + "the busy window. Speedscope is rejected.")]
     public static AnalysisResult<TimelineResult> Timeline(
         [Description("Path to a .nettrace or .etl trace file.")] string path,
         [Description("Lanes to include: gc, cpu, exceptions, alloc, jit; omit for all.")] string lanes = "",
@@ -526,11 +631,8 @@ public sealed class TraceTools
     /// <returns>The thread-pool report envelope.</returns>
     [McpServerTool(Name = "trace_threadpool", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Thread-pool report for a .nettrace EventPipe trace: worker-thread adjustment counts, how many were "
-        + "Starvation (the pool injecting threads because queued work is not completing - the sync-over-async hang "
-        + "signal), the worker-thread range vs the configured min/max, and adjustments by reason. Use it when a "
-        + "service is slow under load but the CPU is idle. Requires a .nettrace trace; .etl and speedscope are "
-        + "rejected.")]
+        "Thread-pool adjustments, starvation count, worker range, and reasons from .nettrace. .etl and speedscope "
+        + "are rejected.")]
     public static AnalysisResult<ThreadPoolResult> ThreadPool(
         [Description("Path to a .nettrace EventPipe trace file.")] string path)
     {
@@ -554,10 +656,8 @@ public sealed class TraceTools
     /// <returns>The disk-I/O report envelope.</returns>
     [McpServerTool(Name = "trace_diskio", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Disk I/O report for a Windows ETW .etl trace: physical disk reads and writes by file (bytes, op counts, "
-        + "disk service time), capped to the 'top' heaviest files. Physical disk events are after the file-system "
-        + "cache, so they show real disk pressure that logical file calls hide. Requires a .etl trace; .nettrace "
-        + "and speedscope are rejected.")]
+        "Physical disk reads/writes by file from Windows .etl: bytes, operation counts, and service time. "
+        + ".nettrace and speedscope are rejected.")]
     public static AnalysisResult<DiskIoResult> DiskIo(
         [Description("Path to a Windows ETW .etl trace file.")] string path,
         [Description("Maximum number of per-file rows to return, ranked by disk service time.")] int top = 25)
@@ -606,11 +706,8 @@ public sealed class TraceTools
     /// <returns>The events-page envelope.</returns>
     [McpServerTool(Name = "trace_query_events", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Query the raw events of a .nettrace EventPipe or Windows ETW .etl trace - the escape hatch for events the "
-        + "structured reports do not cover. 'name' is a case-insensitive substring matched against Provider/EventName "
-        + "(empty matches all); narrow further with 'payload' (a substring of the event's payload values), 'pid', and "
-        + "'tid'. Paged with 'skip'/'take', each payload truncated to 'maxPayload' chars; a hint gives the next page's "
-        + "skip when more remain. A speedscope export is rejected.")]
+        "Page raw .nettrace/.etl events by name and optional payload/pid/tid filters; skip/take page and maxPayload "
+        + "truncates values. Speedscope is rejected.")]
     public static AnalysisResult<EventQueryResult> QueryEvents(
         [Description("Path to a .nettrace EventPipe or Windows ETW .etl trace file.")] string path,
         [Description("Substring matched against Provider/EventName; omit to match every event.")] string name = "",
@@ -695,37 +792,23 @@ public sealed class TraceTools
     /// <returns>The export-confirmation envelope.</returns>
     [McpServerTool(Name = "trace_export", ReadOnly = false, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description(
-        "Export a trace's CPU samples to a flame-graph file for a human to open in a viewer. format=speedscope "
-        + "(the default) opens at speedscope.app; format=chromium writes the Chrome Trace Event Format for "
-        + "chrome://tracing or Perfetto as a synthetic weight axis, not original chronology. 'output' is the file path to write (required; this writes a file and "
-        + "overwrites an existing one). No folding or ranking is applied. Pass 'process' to scope a machine-wide "
-        + ".etl to one process tree (omit to auto-scope to the busiest), 'root' to scope to a frame's subtree, or "
-        + "'benchmark' to preset the BenchmarkDotNet measured-workload frame (mutually exclusive with 'root'; "
-        + "default it for a BenchmarkDotNet capture). Pass 'nativeSymbols' to resolve unmanaged GC/JIT frames "
-        + "(opt-in, network). The response confirms the path, format, and byte count.")]
+        "Write CPU flame graph to required output, overwriting it; format is speedscope or synthetic chromium. "
+        + "Scope with process/root or benchmark. nativeSymbols is a networked .etl opt-in.")]
     public static AnalysisResult<ExportResult> Export(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
-        [Description("The file path to write the flame graph to (it is overwritten if it exists).")] string output,
+        [Description("Required output path; overwritten if it exists.")] string output,
         [Description("The flame-graph format: speedscope or chromium.")] string format = "speedscope",
-        [Description("The profile name embedded in the flame graph, shown in the viewer.")] string name = "filtrace",
+        [Description("Profile name shown by the viewer.")] string name = "filtrace",
         [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
-        [Description(
-            "Optional substring of a frame name to scope the exported flame graph to its subtree; for a "
-            + "BenchmarkDotNet capture prefer 'benchmark' instead. Mutually exclusive with 'benchmark'.")]
+        [Description("Optional root frame; conflicts with benchmark.")]
         string root = "",
-        [Description(
-            "Scope the exported flame graph to the BenchmarkDotNet measured-workload subtree (a preset root); "
-            + "default to this for any BenchmarkDotNet capture so the harness/warmup does not dominate the "
-            + "graph. Mutually exclusive with 'root'.")]
+        [Description("BenchmarkDotNet workload root; conflicts with root.")]
         bool benchmark = false,
-        [Description(
-            "Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server. "
-            + "Opt-in - it fetches over the network and caches locally. .etl captures only; managed frames "
-            + "already resolve without it.")]
+        [Description("Networked public runtime symbols for .etl; optional.")]
         bool nativeSymbols = false)
     {
         bool chromium = ResolveExportFormat(format);
@@ -772,10 +855,8 @@ public sealed class TraceTools
     /// <returns>The process-inventory envelope.</returns>
     [McpServerTool(Name = "trace_processes", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "List the processes a trace contains, ranked by CPU-sample weight. This is the first move on a "
-        + "machine-wide .etl capture: see who is in it, then scope the ranking and drill-down tools to one with "
-        + "their 'process' parameter. Reads every process - it does not auto-scope to the busiest. A single-process "
-        + ".nettrace or speedscope trace lists just its one process.")]
+        "List every process by CPU-sample weight without auto-scoping; use a process value in later queries. "
+        + "Single-process inputs return one row.")]
     public static AnalysisResult<ProcessListResult> Processes(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path)
@@ -805,11 +886,8 @@ public sealed class TraceTools
     /// <returns>The call-tree envelope.</returns>
     [McpServerTool(Name = "trace_tree", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Top-down CPU call tree from a root frame into its callees, following the hot path down to the work that "
-        + "dominates it - the complement to trace_callers, which walks up. Each node carries its inclusive share; "
-        + "maxDepth caps how far below the root it expands and minPercent prunes nodes below a share of the scoped "
-        + "total so the tree stays to the meaningful paths. Scope with root, or set benchmark=true for a "
-        + "BenchmarkDotNet measured workload. JIT-helper leaves are folded into their caller.")]
+        "Top-down CPU call tree with inclusive shares. maxDepth/minPercent bound output; scope with root/process "
+        + "or benchmark=true. JIT helpers fold by default.")]
     public static AnalysisResult<CallTreeResult> Tree(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -864,11 +942,8 @@ public sealed class TraceTools
     /// <returns>The classification envelope.</returns>
     [McpServerTool(Name = "trace_classify", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description(
-        "Bucket CPU self-time by runtime work category - zeroing, copying, write-barrier, GC, JIT, or other - to "
-        + "answer 'where did the time go: zeroing memory? copying? in the GC?'. The categories are recognized from "
-        + "native runtime frames, so pair this with nativeSymbols=true on an .etl capture; without resolved native "
-        + "symbols the runtime leaves fall in 'other' and the breakdown understates the real cost. Scope with "
-        + "root, or set benchmark=true for a BenchmarkDotNet measured workload.")]
+        "Bucket CPU self-time into zeroing, copying, write barrier, GC, JIT, or other. nativeSymbols=true is the "
+        + "networked .etl path for accurate runtime categories; scope with root/process or benchmark.")]
     public static AnalysisResult<ClassifyResult> Classify(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -877,10 +952,7 @@ public sealed class TraceTools
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
-        [Description(
-            "Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server so "
-            + "they classify instead of falling in 'other'. Opt-in - it fetches over the network and caches "
-            + "locally. cpu over an .etl capture only.")]
+        [Description("Networked public runtime symbols for CPU .etl; optional.")]
         bool nativeSymbols = false,
         [Description("Use the BenchmarkDotNet measured-workload root; mutually exclusive with 'root'.")]
         bool benchmark = false)
@@ -909,11 +981,8 @@ public sealed class TraceTools
     /// <returns>The JIT-report envelope.</returns>
     [McpServerTool(Name = "trace_jit", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "JIT-compilation report for a .nettrace EventPipe trace: the method count, total and mean compile time, "
-        + "and the per-method records capped to the 'top' costliest compiles. Use it to judge startup or first-call "
-        + "JIT cost - a startup trace can compile thousands of methods. The aggregate summary always reflects every "
-        + "method; only the per-method detail is capped. Requires a .nettrace trace; .etl and speedscope inputs are "
-        + "rejected.")]
+        "JIT method count, total/mean compile time, and top costly methods from .nettrace. Aggregate values cover "
+        + "all methods; .etl and speedscope are rejected.")]
     public static AnalysisResult<JitStatsResult> Jit(
         [Description("Path to a .nettrace EventPipe trace file.")] string path,
         [Description("Maximum number of per-method records to return, ranked by compile time.")] int top = 25)
@@ -1403,6 +1472,21 @@ public sealed class TraceTools
         }
     }
 
+    private static void AddDiffRecordWarning(
+        List<string> warnings,
+        string side,
+        StackSampleSource source,
+        int? contributingRecordCount)
+    {
+        if (ContributingRecordQuality.TryGetMethodWarning(
+            source.RecordSemantics,
+            contributingRecordCount,
+            out string? warning))
+        {
+            warnings.Add($"{side}: {warning}");
+        }
+    }
+
     private static void AddLineRecordWarning(
         List<string> warnings,
         StackSampleSource source,
@@ -1424,6 +1508,18 @@ public sealed class TraceTools
     // value scopes a multi-process .etl capture to the named process tree.
     private static ScopeRequest? ResolveScope(string process) =>
         string.IsNullOrEmpty(process) ? null : ScopeRequest.ForProcess(process);
+
+    private static ScopeRequest? ManifestScope(CaptureManifest manifest, ScopeRequest? requested)
+    {
+        // Explicit process input overrides the capture's recorded process; otherwise
+        // preserve the manifest scope, falling back to automatic scope.
+        if (requested is { ProcessName: not null } or { IncludeAll: true })
+        {
+            return requested;
+        }
+
+        return manifest.Process is null ? requested : ScopeRequest.ForProcess(manifest.Process);
+    }
 
     /// <summary>
     ///  Resolves the root-frame scope from the explicit <c>root</c> argument and the

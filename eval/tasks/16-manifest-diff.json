@@ -1,0 +1,20 @@
+{
+  "id": "manifest-diff",
+  "title": "Pair manifest cases and report normalized change.",
+  "prompt": "Compare this baseline capture manifest with ../after/manifest.json. Report the paired benchmark/parameters and Dictionary.Resize's before/after shares, percentage-point change, and per-operation values.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/manifests/diff/before/manifest.json",
+  "os": "any",
+  "steps": [
+    { "args": ["diff", "{fixture}", "tests/Filtrace.Core.Tests/Fixtures/manifests/diff/after/manifest.json"] }
+  ],
+  "assert": [
+    { "field": "result.cases[0].benchmark", "equals": "DictionaryBench.Resize" },
+    { "field": "result.cases[0].parameters", "equals": "Size: 1000" },
+    { "field": "result.cases[0].rows[0].frame", "equals": "Dictionary.Resize" },
+    { "field": "result.cases[0].rows[0].beforePercentOfScope", "equals": 38 },
+    { "field": "result.cases[0].rows[0].afterPercentOfScope", "equals": 2 },
+    { "field": "result.cases[0].rows[0].percentagePointChange", "equals": -36 },
+    { "field": "result.cases[0].operationUnit", "equals": "items" }
+  ],
+  "expect": ["DictionaryBench.Resize", "Size: 1000", "Dictionary.Resize", "38", "2", "-36", "items"]
+}
