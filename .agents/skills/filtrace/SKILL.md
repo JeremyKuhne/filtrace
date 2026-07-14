@@ -53,8 +53,22 @@ blocked?", "GC versus my code?", or a machine-wide capture -> ETW. Two bundled
 scripts wrap the capture-then-analyze loop and print the scoped filtrace commands:
 [scripts/Capture-BenchmarkTrace.ps1](scripts/Capture-BenchmarkTrace.ps1) profiles a
 BenchmarkDotNet micro-benchmark in an isolated run directory, emits an all-case
-manifest, verifies exact generated-child PDBs, and prints `--benchmark`-scoped
-commands. Same-project/same-TFM overlap is rejected rather than sharing outputs. The
+manifest, verifies exact generated-child PDBs, and prints commands only for
+known-enabled analyses. Each command uses the benchmark, process, method, or other
+scope supported by its verb; structured reports and orientation commands keep their
+own syntax. Disabled/unknown states become warnings;
+full BenchmarkDotNet output stays in the run log. Use `-Format Json` for a compact
+handoff or `-Quiet` for warnings only. On a non-fatal elevated wait timeout, text
+modes emit a warning; `-Format Json` returns `status: "timeout"`, `runId`, `log`, and
+`message` instead of empty stdout. JSON stdout stays under 20 KiB; when full case
+detail would exceed that budget, a minimal completed result points to `manifest.json`;
+every compact fallback includes `runDirectory`, using the canonical run-relative path
+if an absolute path cannot fit.
+Recorder-established command fallback is used only when filtrace is unavailable;
+if `filtrace info` is present but cannot read a case, every analysis is unknown and
+no command is emitted. Recorder fallback never fabricates an `eventCount`; only a
+successful `filtrace info` result supplies an observed count, including zero.
+Same-project/same-TFM overlap is rejected rather than sharing outputs. The
 [scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) builds an
 executable project and traces its running output directly - never `dotnet run`,
 whose build/run host is a different process (see the trap catalog).

@@ -109,9 +109,24 @@ it isolates the `[Benchmark]` code from bootstrap and overhead scaffolding, not 
 from measurement. The bundled
 [scripts/Capture-BenchmarkTrace.ps1](../.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1)
 wraps the whole loop: it runs the benchmark under the chosen profiler
-(self-elevating for ETW, with visible progress) in a run-specific artifacts/log
+(self-elevating for ETW) in a run-specific artifacts/log
 directory, emits `manifest.json` with every parameterized case and trace pair, and
-prints next-step commands already scoped with `--process` and `--benchmark`. It parses
+prints only commands whose `captureStatus` is known-enabled. Each command uses the
+benchmark, process, method, or other scope supported by its verb; structured reports
+and orientation commands keep their own syntax. Disabled and unknown analyses become
+explicit warnings.
+Full BenchmarkDotNet output stays in `capture.log`. Use `-Format Json` for a compact
+machine-readable handoff or `-Quiet` to suppress text progress/commands while retaining
+warnings. On a non-fatal elevated wait timeout, text modes emit a warning;
+`-Format Json` returns `status: "timeout"`, `runId`, `log`, and `message` instead of
+empty stdout. JSON stdout stays under 20 KiB; when full case detail would exceed that
+budget, a minimal completed result points to `manifest.json`; if even that path cannot
+fit, `runDirectory` uses the canonical run-relative path derived from `runId`.
+Recorder-established command
+fallback is used only when filtrace is unavailable; if `filtrace info` is present but
+cannot read a case, every analysis is unknown and no command is emitted. Recorder fallback
+does not fabricate `eventCount`; only successful `filtrace info` supplies an observed
+count, including zero. The helper parses
 BenchmarkDotNet's logged child `OutDir` values and uses `filtrace info` to put a
 directory in `symbolsDirectory` only when its PDB identity maps sampled frames. A
 same-project/same-TFM file-handle lock rejects overlapping captures immediately;
