@@ -8,15 +8,15 @@
   Validate filtrace's local and vendored agent skills.
 
 .DESCRIPTION
-  Runs the v0.10.0 bundled validator over every skill, applies strict portfolio
-  policy to the provenance-bearing commons cores, checks their immutable pin and
-  overlays, validates the local tool-shipped filtrace metadata, and resolves every
-  relative Markdown link under .agents.
+    Runs the v0.10.0 bundled validator over every skill, applies strict portfolio
+    policy to the provenance-bearing commons cores and locally authored portable
+    cores, checks their pins and overlays, validates the local tool-shipped filtrace
+    metadata, and resolves every relative Markdown link under .agents.
 
-  -VerifyUpstream installs each commons core into an isolated temporary repository
-    at the expected pin and compares every core file byte-for-byte, except for the
-    recorded pending-upstream HTML-entity substitutions. overlay.md is the only
-    allowed local addition.
+    -VerifyUpstream installs each commons core into an isolated temporary repository
+        at the expected pin and compares every core file after platform line-ending
+        normalization, except for the recorded pending-upstream HTML-entity
+        substitutions. overlay.md is the only allowed local addition.
 
   -ReferenceValidation also runs the pinned agentskills.io reference validator.
 #>
@@ -41,6 +41,9 @@ $expectedCommons = @(
     'performance-testing',
     'pre-pr-self-review',
     'security-review'
+)
+$expectedLocalPortable = @(
+    'powershell-scripting'
 )
 $pendingUpstreamEntityFixes = @(
     'pre-pr-self-review/SKILL.md',
@@ -113,7 +116,7 @@ function Test-PortfolioValue(
     }
 }
 
-function Test-Overlay([string]$skillName) {
+function Test-Overlay([string]$skillName, [string]$expectedCorePin) {
     [string] $overlay = Join-Path $skillsRoot "$skillName/overlay.md"
     if (-not (Test-Path -LiteralPath $overlay -PathType Leaf)) {
         Add-Failure "$skillName is missing overlay.md."
@@ -124,8 +127,8 @@ function Test-Overlay([string]$skillName) {
     if ($text -notmatch "(?m)^core:\s*$([regex]::Escape($skillName))\s*$") {
         Add-Failure "$skillName overlay core does not match the skill name."
     }
-    if ($text -notmatch "(?m)^core-pin:\s*$([regex]::Escape($ExpectedPin))\s*$") {
-        Add-Failure "$skillName overlay core-pin is not '$ExpectedPin'."
+    if ($text -notmatch "(?m)^core-pin:\s*$([regex]::Escape($expectedCorePin))\s*$") {
+        Add-Failure "$skillName overlay core-pin is not '$expectedCorePin'."
     }
 }
 
@@ -186,6 +189,31 @@ function Convert-PendingEntityFixes([string]$text) {
         Replace('&middot;', '*')
 }
 
+function Convert-LineEndings([byte[]]$bytes) {
+    [System.Collections.Generic.List[byte]] $normalized = [System.Collections.Generic.List[byte]]::new($bytes.Length)
+    for ([int] $index = 0; $index -lt $bytes.Length; $index++) {
+        if ($bytes[$index] -eq 13 -and
+            $index + 1 -lt $bytes.Length -and
+            $bytes[$index + 1] -eq 10) {
+            continue
+        }
+
+        $normalized.Add($bytes[$index])
+    }
+
+    return ,$normalized.ToArray()
+}
+
+function Test-BytesEqual([byte[]]$left, [byte[]]$right) {
+    if ($left.Length -ne $right.Length) { return $false }
+
+    for ([int] $index = 0; $index -lt $left.Length; $index++) {
+        if ($left[$index] -ne $right[$index]) { return $false }
+    }
+
+    return $true
+}
+
 function Test-UpstreamMirror {
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
         Add-Failure "Cannot verify upstream skill mirrors: 'gh' is not available."
@@ -238,9 +266,17 @@ function Test-UpstreamMirror {
                 [string] $upstreamHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $upstreamPath).Hash
                 if ($localHash -cne $upstreamHash) {
                     [string] $artifactPath = "$skillName/$($relativePath -replace '\\', '/')"
+                    [byte[]] $localBytes = Convert-LineEndings ([System.IO.File]::ReadAllBytes($localPath))
+                    [byte[]] $upstreamBytes = Convert-LineEndings ([System.IO.File]::ReadAllBytes($upstreamPath))
+                    if (Test-BytesEqual $localBytes $upstreamBytes) {
+                        continue
+                    }
+
                     if ($pendingUpstreamEntityFixes -ccontains $artifactPath) {
-                        [string] $localText = (Get-Content -LiteralPath $localPath -Raw) -replace "`r`n", "`n"
-                        [string] $expectedText = Convert-PendingEntityFixes ((Get-Content -LiteralPath $upstreamPath -Raw) -replace "`r`n", "`n")
+                        [System.Text.UTF8Encoding] $encoding = [System.Text.UTF8Encoding]::new($false, $true)
+                        [string] $localText = $encoding.GetString($localBytes)
+                        [string] $upstreamText = $encoding.GetString($upstreamBytes)
+                        [string] $expectedText = Convert-PendingEntityFixes $upstreamText
                         if ($localText -cne $expectedText) {
                             Add-Failure "$artifactPath differs from $ExpectedPin beyond its recorded HTML-entity substitutions."
                         }
@@ -274,7 +310,7 @@ if (-not (Test-Path -LiteralPath $validator -PathType Leaf)) {
     Get-ChildItem -LiteralPath $skillsRoot -Directory |
         Sort-Object Name |
         ForEach-Object FullName)
-[string[]] $expectedSkillNames = @('filtrace') + $expectedCommons
+[string[]] $expectedSkillNames = @('filtrace') + $expectedCommons + $expectedLocalPortable
 foreach ($skillPath in $skillPaths) {
     [string] $skillName = Split-Path -Leaf $skillPath
     if ($expectedSkillNames -cnotcontains $skillName) {
@@ -302,7 +338,27 @@ foreach ($skillName in $expectedCommons) {
     if ($treeSha -cnotmatch '^[0-9a-f]{40}$') {
         Add-Failure "$skillName metadata.github-tree-sha is missing or invalid."
     }
-    Test-Overlay $skillName
+    Test-Overlay $skillName $ExpectedPin
+}
+
+foreach ($skillName in $expectedLocalPortable) {
+    [string] $skillDirectory = Join-Path $skillsRoot $skillName
+    [string] $skillPath = Join-Path $skillDirectory 'SKILL.md'
+    if (-not (Test-Path -LiteralPath $skillPath -PathType Leaf)) {
+        Add-Failure "Expected locally authored portable skill '$skillName' is missing."
+        continue
+    }
+
+    Invoke-SkillValidator $skillDirectory -Strict
+    [System.Collections.IDictionary] $metadata = Get-Metadata $skillPath
+    Test-PortfolioValue $metadata $skillName 'portability' 'portable'
+    Test-PortfolioValue $metadata $skillName 'applicability' 'universal'
+    Test-PortfolioValue $metadata $skillName 'binding' 'optional-overlay'
+    Test-PortfolioValue $metadata $skillName 'risk' 'local-write'
+    Test-PortfolioValue $metadata $skillName 'maturity' 'experimental'
+    Test-PortfolioValue $metadata $skillName 'requires' 'none'
+    Test-PortfolioValue $metadata $skillName 'related' 'security-review'
+    Test-Overlay $skillName 'local'
 }
 
 [System.Collections.IDictionary] $filtraceMetadata = Get-Metadata (Join-Path $skillsRoot 'filtrace/SKILL.md')
@@ -339,5 +395,5 @@ if ($failures.Count -gt 0) {
     exit 1
 }
 
-Write-Host "Agent skill validation passed ($($skillPaths.Count) skills; $($expectedCommons.Count) commons cores pinned to $ExpectedPin)." -ForegroundColor Green
+Write-Host "Agent skill validation passed ($($skillPaths.Count) skills; $($expectedCommons.Count) commons cores pinned to $ExpectedPin; $($expectedLocalPortable.Count) locally authored portable core)." -ForegroundColor Green
 exit 0
