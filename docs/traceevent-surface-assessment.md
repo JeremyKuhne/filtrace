@@ -426,9 +426,9 @@ The three unshipped items have no independent schedule here:
 - TE-14 physical ETL trim is VC7 and remains blocked on preserving JITted managed
   frame resolution.
 
-Re-audit the public computer/event surface when the pinned TraceEvent version moves.
-New findings enter the v.next backlog only after they are checked against agent value,
-capture feasibility, dependency cost, and response bounds.
+Re-audit TraceEvent's public `Computers` helpers and event types when the pinned
+version moves. New findings enter the v.next backlog only after they are checked
+against agent value, capture feasibility, dependency cost, and response bounds.
 
 ## How to re-verify
 

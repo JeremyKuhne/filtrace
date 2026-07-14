@@ -4,8 +4,8 @@
 
 **Date:** 2026-07-14
 
-This is filtrace's single living improvement roadmap after the issue #42 roadmap
-completed. It combines two questions that were previously split across overlapping
+This is filtrace's single living improvement roadmap now that issue #42 is
+complete. It combines two questions that were previously split across overlapping
 plans: what analysis filtrace should add, and how an agent should discover, invoke,
 and consume that analysis. Completed extraction and capability work is summarized in
 [implementation-plan.md](implementation-plan.md) and
