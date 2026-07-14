@@ -1,24 +1,22 @@
 # TraceEvent surface audit and API-expansion assessment
 
-**Status:** TE-1 to TE-8 (lock contention, waits, GC-report depth, exception-by-type,
-ThreadPool starvation, thread-time blocked-reason leaves, disk-I/O-by-file, and
-request/activity scoping), TE-11 (agentic discoverability), TE-12 (raw event query over
-`.etl`), TE-13 (capture-size cap), and TE-15 (time-window `--time` scope) have landed;
-TE-9, TE-10, and TE-14 are proposed. A living backlog of candidate analysis families and
-enrichments, prioritized against filtrace's design intents.
-**Date:** 2026-07-04
+**Status:** Pinned-version technical assessment. TE-1 through TE-8, TE-11 through
+TE-13, and TE-15 have landed. The remaining candidates are PMC ranking (TE-9),
+retention/leak analysis (TE-10), and physical ETL trim (TE-14); they are tracked
+canonically as VC4, VC5, and VC7 in
+[vnext-improvement-plan.md](vnext-improvement-plan.md).
+**Last updated:** 2026-07-14
 **Basis:** Reflection over the actually-referenced assembly
 `Microsoft.Diagnostics.Tracing.TraceEvent` **3.2.3** (`lib/netstandard2.0`),
 cross-checked against filtrace's current providers and
-[implementation-plan.md](implementation-plan.md) (section 1A and Addendum A).
+[implementation-plan.md](implementation-plan.md), the completed implementation
+history.
 
-This page is ordinary prose (no drift-checked marked blocks). It feeds the
-milestone roadmap in [implementation-plan.md](implementation-plan.md); when an item
-here is scheduled or lands, update its **Status** and reflect it in the plan's
-backlog. Each proposal is framed by the plain-language question a non-expert .NET
-developer would ask; the "Agentic flow" section below shows how an agent routes a
-vague "why is this slow?" prompt to the right feature and discovers features it was
-never told about.
+This page is ordinary prose (no drift-checked marked blocks). It records what the
+pinned TraceEvent package exposes and the evidence behind the TE-1 through TE-15
+decisions; it is not a second roadmap. Each proposal is framed by the plain-language
+question a non-expert .NET developer would ask. Schedule and status for every
+unshipped candidate belong only in the v.next plan.
 
 ## The lens: filtrace's design intents
 
@@ -30,30 +28,32 @@ Every proposal below is judged against the intents the plan already commits to:
   only. A new family reuses the engine, but each public operation still needs an
   explicit metric-aware contract before it is agent-safe.
 2. **Agent-shaped.** Smallest relevant slice, deterministic compact output, a
-   next-step nudge, and a deliberately small tool surface (16 `trace_*` tools).
+  next-step nudge, and a deliberately small tool surface (17 `trace_*` tools).
 3. **The capture axis is the value axis.** EventPipe (`.nettrace`) is no-elevation
    and cross-platform; ETW (`.etl`) is Windows plus Administrator. Extending the
    *default* EventPipe loop is worth more than an ETW-only addition.
 4. **Own analysis; integrate capture and rendering.** Do not reimplement collectors
    or viewers.
-5. **Scope-creep guard.** The plan resists PerfView parity on purpose; the backlog
+5. **Scope-creep guard.** filtrace resists PerfView parity on purpose; the backlog
    is the pressure valve. This list is prioritized, not exhaustive.
 
 ## Baseline: the current surface
 
-Fourteen families over 20 analysis verbs (the 23 CLI verbs less `collect` /
-`convert` / `clean`) / 16 MCP tools:
+The current surface has 21 analysis verbs (the 24 CLI verbs less `collect`,
+`convert`, and `clean`) and 17 MCP tools:
 
 - **Stack families** (ranked by the engine): CPU, ThreadTime (ETW), Alloc,
   Exceptions, Contention, Wait, Activity.
 - **Structured reports:** GcStats, JitStats, ThreadPool, DiskIo, EventQuery.
 - **Temporal correlation:** Timeline.
-- **Engine and inventory:** rank, callers, lines, heatmap, tree, diff, export,
-  processes, classify, info.
+- **Engine, comparison, and inventory:** rank, callers, lines, heatmap, tree,
+  diff, batch, export, processes, classify, info.
 
-Already-catalogued gaps (Addendum A / backlog): net surviving heap
-(`GCHeapSimulator` lift), retention / leak, PMC / CPU counters, any-event (partial
-via EventQuery).
+Unshipped candidates are consolidated in the v.next capability backlog: PMC / CPU
+counters (VC4), retention / leak (VC5), net surviving heap (VC6), physical trim
+(VC7), and lower-priority activity/File-I/O enrichment (VC8). Raw any-event access
+is no longer partial: `events` / `trace_query_events` support `.nettrace` and Windows
+`.etl` with paging and bounded payloads.
 
 ## Key audit findings
 
@@ -133,30 +133,21 @@ surface the option. Four mechanisms, in increasing order of leverage:
    enumerating the tool sees `contention` and `wait` as first-class choices with no
    prose knowledge required - precisely why the P0 items ship as metrics, not new
    tools.
-2. **Format-capability orientation.** `trace_info` reports *which analyses the
-   trace's format can answer* (`availableAnalyses`): allocation, exceptions,
-   contention, wait, and the GC / JIT reports are EventPipe-only; thread time,
-   classify, and the process inventory are ETW-only; a speedscope export is CPU-only.
-   That format constraint is the most common discovery failure - trying `alloc` on an
-   `.etl`, or `threadtime` on a `.nettrace`. It is a *format capability, not an
-   event-presence guarantee*: whether the specific events were actually captured is a
-   separate question each analysis answers with its own "no <x> events found" warning
-   (some, like `wait`, need a non-default capture keyword, so a `.nettrace` still lists
-   `wait` even when it was captured without it). True event-presence probing - so
-   `trace_info` could say "this trace can answer CPU and allocation, but not blocking -
-   recapture with X" - would need an event scan and is a further step.
-3. **Symptom-to-family hints (highest leverage).** filtrace already returns a
-   `hints` channel. Extend it so a *result* points at the next family: a CPU ranking
-   whose total self-time is a small fraction of wall-clock hints "mostly off-CPU;
-   try `metric=contention` / `wait` / `threadtime`"; a ranking dominated by native
-   GC/JIT frames hints "runtime overhead is high; try `classify` and `gcstats`"; an
-   exception count over a threshold hints "high throw rate; rank
-   `metric=exceptions`." The agent follows a lead it did not have to know in advance.
-4. **A single triage entry point (TE-11).** For the bare "why is this slow?" prompt,
-   one `trace_triage` call runs orient plus the cheap dominant-resource checks and
-   returns a ranked list of likely causes, each with the tool to confirm it - the
-   most direct answer to the discovery problem: one vague question, one call, a
-   prioritized menu.
+2. **Capability and capture-state orientation.** `trace_info` reports
+  `availableAnalyses` for format support and a per-analysis record with
+  `formatSupported`, `captureStatus`, and `eventCount`. Observed events or recorder
+  metadata distinguish enabled-zero, disabled, and unknown capture state. This
+  prevents a supported file extension from being mistaken for proof that a provider
+  was enabled; analyses such as `wait` can remain unknown when the required
+  non-default keyword was not recorded and no sidecar establishes the state.
+3. **Symptom-to-family hints.** `trace_info` routes symptoms only to known-enabled
+  analyses (or labels legacy format-only evidence honestly), while ranking hints
+  preserve metric and scope boundaries. The v.next plan evaluates structured
+  diagnostics and next-step records so agents no longer need to parse prose hints.
+4. **No generic triage tool.** A `trace_triage` entry point was considered for
+  TE-11 but intentionally not shipped: orientation plus hints delivered discovery
+  without another permanent MCP schema. v.next comprehension evals must show a
+  concrete call or accuracy win before adding such a surface.
 
 ### The two loops
 
@@ -341,8 +332,8 @@ exceptions, ...) and the `.etl` path are the noted follow-ups.
 can't see why this loop is expensive - is it cache misses or branch mispredicts?"
 *Applicability to .NET:* advanced / niche - tight numeric or data-structure loops.
 Fully supported analysis-side (`TraceEventProfileSources`, `ProfileSourceInfo`,
-`PMCCounterProfTraceData`); the cost is ETW capture-side. Stays backlog, as the plan
-already has it.
+`PMCCounterProfTraceData`); the cost is ETW capture-side. It remains VC4 in the
+v.next capability backlog.
 
 **TE-10. Retention / leak - re-scope, do not assume it is free.** *A developer
 asks:* "My memory never comes back down - what is holding all these objects alive?"
@@ -369,7 +360,7 @@ engine and needs its own object model, a `retention` verb / tool, and the path-t
 primitive. It also requires `AllowUnsafeBlocks`, and its AOT/trimming posture needs
 verifying. This corrects Addendum A's "analysis ships without the lift" claim: it is
 the heaviest item in the backlog - a vendored dependency *and* a new analysis engine.
-*Status:* proposed (dependency-gated).
+*Status:* tracked as dependency-gated VC5 in v.next.
 
 **TE-12. Raw event query over `.etl`.** *A developer asks:* "I have an ETW capture -
 can I inspect its raw events by name the way I can for a `.nettrace`?" *Applicability
@@ -402,9 +393,9 @@ would put the shrink in users' hands. Because analysis-time `--process` scoping 
 already lossless, physical trim is a *transport* optimization, not an analysis one,
 and it carries a known limitation: the raw relogger does not rebuild the
 managed-method address map, so a trimmed `.etl` resolves native modules but drops
-JITted managed frames (see [filtrace-etl-trimming.md](filtrace-etl-trimming.md)). P3
-until that rebuild is solved - resolving it would make the shrink lossless and raise
-the priority. *Status:* proposed.
+JITted managed frames (see [filtrace-etl-trimming.md](filtrace-etl-trimming.md)). It
+remains VC7 until that rebuild is solved; resolving it would make the shrink lossless
+and raise the priority.
 
 **TE-15. Time-window scope.** *A developer asks:* "Only the few seconds around
 the spike matter - can I keep just that slice?" *Applicability to .NET:* long captures
@@ -421,29 +412,23 @@ profile's own unit, not milliseconds, so `--time` is a no-op there (with a warni
 Extending it to the metric-shortcut and drill-down verbs, and the physical `[t0, t1]`
 relog (TE-14's sibling), remain follow-ups.
 
-## Recommended next step
+## Current disposition
 
-**Progress:** the full "why is this slow?" increment has landed - TE-1 to TE-4 on the
-`.nettrace` path (the `contention` and `wait` metrics sharing a `LatencyStackReader`,
-GC-report depth, exception-by-type ranking) plus TE-11 (content-aware `trace_info` +
-symptom-routing hints), TE-5 (the `threadpool` starvation report), and the ETW
-follow-on TE-6 (thread-time blocked-reason leaves) and TE-7 (the `diskio` report,
-unblocked by teaching the `trim` fixture tool to keep a process tree's disk I/O). TE-8
-to TE-10 remain; TE-13 (the capture-size cap) landed, and TE-12, TE-14, and TE-15 are
-proposed lower-priority follow-ups (a raw `.etl` event query, plus the trimming items
-surfaced by the TE-7 fixture work).
+The diagnostic expansion represented by TE-1 through TE-8, TE-11 through TE-13,
+and TE-15 is complete. This assessment retains their implementation evidence so a
+future TraceEvent upgrade can be compared against the decisions that were made.
 
-Land **TE-11 alongside TE-1 through TE-4** as one increment aimed squarely at the
-"why is this slow?" flow: the two new stack providers (`ContentionProvider`,
-`WaitProvider`) exposed as `metric=contention|wait` on the existing `rank` /
-`trace_rank`, the two enrichments to `gcstats` and `exceptions`, and the
-discoverability layer (content-aware `trace_info` plus symptom-routing hints) that
-lets an agent reach them from a vague prompt. This adds two genuinely new diagnostic
-families to the *default cross-platform EventPipe loop*, spends almost nothing on
-agent-facing surface (enum values, not tools), and each family reuses the proven
-`ThreadTimeProvider` integration pattern. TE-11's hints are what make the new metrics
-discoverable, so shipping them together is what turns "why is this slow?" into a
-guided path rather than a guess.
+The three unshipped items have no independent schedule here:
+
+- TE-9 PMC / CPU counters is VC4 in the v.next capability backlog;
+- TE-10 retention / leak analysis is VC5 and remains PerfView-graph dependency
+  gated;
+- TE-14 physical ETL trim is VC7 and remains blocked on preserving JITted managed
+  frame resolution.
+
+Re-audit TraceEvent's public `Computers` helpers and event types when the pinned
+version moves. New findings enter the v.next backlog only after they are checked
+against agent value, capture feasibility, dependency cost, and response bounds.
 
 ## How to re-verify
 
