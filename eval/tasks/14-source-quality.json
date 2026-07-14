@@ -1,7 +1,7 @@
 {
   "id": "source-quality",
   "title": "Separate method-name resolution from source/PDB quality.",
-  "prompt": "This trace reports fully resolved frame names. Does that prove source lines are available? Report the sampled managed source-mapping rate and name a highest-impact unmapped workload module.",
+  "prompt": "This trace reports fully resolved frame names. Does that prove source lines are available? Report sampled managed source mapping, sampled methods with sequence points, named managed frame occurrences without source, and a highest-impact unmapped workload module.",
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/activity.nettrace",
   "os": "any",
   "steps": [
@@ -10,8 +10,12 @@
   "assert": [
     { "field": "result.symbolResolutionRate", "equals": 1 },
     { "field": "result.sourceResolution.sourceResolutionRate", "equals": 0 },
+    { "field": "result.sourceResolution.sampledManagedMethodCount", "equals": 210 },
+    { "field": "result.sourceResolution.sourceMappedManagedMethodCount", "equals": 0 },
+    { "field": "result.sourceResolution.unmappedNamedManagedFrameCount", "equals": 4309 },
     { "hintContains": "separate from source mapping" },
+    { "jsonContains": "highestUnmappedMethods" },
     { "jsonContains": "HotLoopBench" }
   ],
-  "expect": ["100%", "0%", "HotLoopBench"]
+  "expect": ["100%", "0%", "210", "4309", "HotLoopBench"]
 }

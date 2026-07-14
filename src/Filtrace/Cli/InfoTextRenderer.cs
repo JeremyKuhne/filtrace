@@ -71,7 +71,25 @@ internal static class InfoTextRenderer
             output.WriteLine(
                 $"matching PDB modules: {ListOrNone(source.MatchingPdbModules)}");
             output.WriteLine(
+                $"PDB identity mismatch modules: {ListOrNone(source.PdbIdentityMismatchModules)}");
+            if (source.SampledManagedMethodCount is int sampledMethods
+                && source.SourceMappedManagedMethodCount is int mappedMethods)
+            {
+                double rate = sampledMethods > 0 ? (double)mappedMethods / sampledMethods : 0.0;
+                output.WriteLine(
+                    $"methods with sequence points: {mappedMethods}/{sampledMethods} ({FormatRate(rate)})");
+            }
+            else
+            {
+                output.WriteLine("methods with sequence points: unavailable");
+            }
+
+            output.WriteLine(
+                $"named managed frames without source: {source.UnmappedNamedManagedFrameCount}");
+            output.WriteLine(
                 $"highest unmapped modules: {ListOrNone(source.HighestUnmappedModules)}");
+            output.WriteLine(
+                $"highest unmapped methods: {ListOrNone(source.HighestUnmappedMethods)}");
         }
 
         output.WriteLine("threads:");

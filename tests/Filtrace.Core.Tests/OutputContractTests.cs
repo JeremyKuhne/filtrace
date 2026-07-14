@@ -136,6 +136,13 @@ public sealed class OutputContractTests
                 25,
                 ["MyApp"],
                 ["OtherLibrary (0/75 mapped)"])
+            {
+                PdbIdentityMismatchModules = ["WrongBuild"],
+                SampledManagedMethodCount = 12,
+                SourceMappedManagedMethodCount = 4,
+                UnmappedNamedManagedFrameCount = 60,
+                HighestUnmappedMethods = ["OtherLibrary!Run (0/40 mapped)"]
+            }
         };
         AnalysisResult<TraceInfoView> envelope = new(view);
 
@@ -159,6 +166,27 @@ public sealed class OutputContractTests
         JsonElement source = result.GetProperty("sourceResolution");
         source.GetProperty("sourceResolutionRate").GetDouble().Should().Be(0.25);
         source.GetProperty("matchingPdbModules")[0].GetString().Should().Be("MyApp");
+        source.GetProperty("pdbIdentityMismatchModules")[0].GetString().Should().Be("WrongBuild");
+        source.GetProperty("sampledManagedMethodCount").GetInt32().Should().Be(12);
+        source.GetProperty("sourceMappedManagedMethodCount").GetInt32().Should().Be(4);
+        source.GetProperty("unmappedNamedManagedFrameCount").GetInt32().Should().Be(60);
+        source.GetProperty("highestUnmappedMethods")[0].GetString()
+            .Should().Be("OtherLibrary!Run (0/40 mapped)");
+
+        TraceInfoView unavailableView = view with
+        {
+            SourceResolution = new SourceResolutionInfo([], 100, 0, [], [])
+        };
+        string unavailableJson = OutputJson.Serialize(
+            new AnalysisResult<TraceInfoView>(unavailableView));
+        using JsonDocument unavailableDoc = JsonDocument.Parse(unavailableJson);
+        JsonElement unavailableSource = unavailableDoc.RootElement
+            .GetProperty("result")
+            .GetProperty("sourceResolution");
+        unavailableSource.GetProperty("sampledManagedMethodCount").ValueKind
+            .Should().Be(JsonValueKind.Null);
+        unavailableSource.GetProperty("sourceMappedManagedMethodCount").ValueKind
+            .Should().Be(JsonValueKind.Null);
     }
 
     [TestMethod]

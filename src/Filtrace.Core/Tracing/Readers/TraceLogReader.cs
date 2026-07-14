@@ -326,7 +326,7 @@ internal abstract class TraceLogReader : ITraceReader
                 leafToRoot.Add(name);
                 string location = ResolveLocation(symbolReader, address, locationCache);
                 leafToRootLocations.Add(location);
-                sourceResolution.Observe(address, location.Length > 0);
+                sourceResolution.Observe(address, method, location.Length > 0);
             }
 
             if (leafToRoot.Count == 0)

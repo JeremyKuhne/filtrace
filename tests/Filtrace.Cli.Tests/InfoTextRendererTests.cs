@@ -94,6 +94,13 @@ public sealed class InfoTextRendererTests
                 25,
                 ["MyApp"],
                 ["GeneratedChild (0/75 mapped)"])
+            {
+                PdbIdentityMismatchModules = ["WrongBuild"],
+                SampledManagedMethodCount = 12,
+                SourceMappedManagedMethodCount = 4,
+                UnmappedNamedManagedFrameCount = 60,
+                HighestUnmappedMethods = ["GeneratedChild!Run (0/40 mapped)"]
+            }
         };
         StringWriter output = new();
 
@@ -113,6 +120,10 @@ public sealed class InfoTextRendererTests
         text.Should().Contain("source: 25/100 sampled managed frames (25%)");
         text.Should().Contain("symbol directories: /child-output");
         text.Should().Contain("matching PDB modules: MyApp");
+        text.Should().Contain("PDB identity mismatch modules: WrongBuild");
+        text.Should().Contain("methods with sequence points: 4/12 (33%)");
+        text.Should().Contain("named managed frames without source: 60");
         text.Should().Contain("highest unmapped modules: GeneratedChild (0/75 mapped)");
+        text.Should().Contain("highest unmapped methods: GeneratedChild!Run (0/40 mapped)");
     }
 }

@@ -63,17 +63,15 @@ public sealed class TraceTools
     /// <returns>The trace summary envelope.</returns>
     [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Load a trace and return format, weight, sample/thread counts, frame/source quality, available analyses, "
-        + "and per-analysis captureStatus/eventCount. captureStatus is enabled, disabled, or unknown; zero is "
-        + "reported only when enablement is known. Also returns etlxCacheState. Call this first.")]
+        "Load a trace first. Returns format, weight, sample/thread counts, frame/source/PDB quality, analysis "
+        + "availability, event counts, and etlxCacheState. captureStatus is enabled, disabled, or unknown; zero "
+        + "is reported only when enablement is known.")]
     public static async Task<AnalysisResult<TraceInfoView>> InfoAsync(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
-        [Description("Optional build-output directory whose PDBs map managed code to source lines.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
-        [Description(
-            "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
-            + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
+        [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
         CancellationToken cancellationToken = default)
     {
@@ -150,7 +148,7 @@ public sealed class TraceTools
         [Description("Frame substring that roots the ranking.")] string root = "",
         [Description("Maximum rows.")] int top = 25,
         [Description("Regex fold patterns; omit for defaults.")] string[]? fold = null,
-        [Description("Build-output directory containing PDBs (cpu only).")]
+        [Description("Optional local build-output directory containing PDBs (cpu only).")]
         string symbols = "",
         [Description("Process substring for .etl; omit to auto-scope to the busiest.")]
         string process = "",
@@ -260,11 +258,9 @@ public sealed class TraceTools
         [Description("Substring identifying the focus frame whose callers to report.")] string frame,
         [Description("Optional substring of a frame name to scope the analysis to its subtree.")] string root = "",
         [Description("Maximum number of caller rows to return.")] int top = 25,
-        [Description("Optional build-output directory whose PDBs map managed code to source lines.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
-        [Description(
-            "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
-            + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
+        [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
         [Description("Also return the frame's immediate callees (a caller/callee view); off by default.")]
         bool callees = false,
@@ -308,22 +304,18 @@ public sealed class TraceTools
     /// <returns>The line-level self-time envelope.</returns>
     [McpServerTool(Name = "trace_lines", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
-        "Line-level self time: each leaf sample (JIT-helper leaves folded into their caller) attributed to the "
-        + "source file:line that was executing, scoped to methods whose name contains 'method'. Requires a "
-        + ".nettrace or .etl trace whose modules have portable PDBs; pass 'symbols' pointing at the build-output "
-        + "directory. Speedscope inputs carry no line data and return an empty ranking. A '<no source>' row is "
-        + "time in matching methods whose PDB was not found.")]
+        "Rank CPU leaf self-time by source file:line for methods containing 'method'; JIT helpers fold into "
+        + "their caller. Requires .nettrace/.etl and local PDBs via symbols; speedscope is empty. '<no source>' "
+        + "means the matching named frame has no resolved location.")]
     public static async Task<AnalysisResult<LineRankingResult>> LinesAsync(
         TraceStore store,
         [Description("Path to a .nettrace or .etl trace file (speedscope carries no line data).")] string path,
         [Description("Optional substring of a method name to scope the ranking; omit for every method.")] string method = "",
         [Description("Maximum number of rows to return.")] int top = 25,
         [Description("Optional regex fold patterns; omit to use the built-in JIT-helper defaults.")] string[]? fold = null,
-        [Description("Optional build-output directory whose PDBs map managed code to source lines.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
-        [Description(
-            "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
-            + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
+        [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
         CancellationToken cancellationToken = default)
     {
@@ -366,11 +358,9 @@ public sealed class TraceTools
         [Description("Path to a .nettrace or .etl trace file (speedscope carries no line data).")] string path,
         [Description("Path or bare name of the source file to map, e.g. ExtGlob.cs.")] string file,
         [Description("Optional regex fold patterns; omit to use the built-in JIT-helper defaults.")] string[]? fold = null,
-        [Description("Optional build-output directory whose PDBs map managed code to source lines.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
-        [Description(
-            "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
-            + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
+        [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "")
     {
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
@@ -413,7 +403,7 @@ public sealed class TraceTools
         [Description("Optional substring of a frame name to scope both rankings to its subtree.")] string root = "",
         [Description("Maximum number of changed rows to return.")] int top = 25,
         [Description("Optional regex fold patterns; omit to use the built-in JIT-helper defaults.")] string[]? fold = null,
-        [Description("Optional build-output directory whose PDBs map managed code to source lines.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "")
     {
         bool inclusive = ResolveMeasure(measure);
@@ -719,11 +709,9 @@ public sealed class TraceTools
         [Description("The file path to write the flame graph to (it is overwritten if it exists).")] string output,
         [Description("The flame-graph format: speedscope or chromium.")] string format = "speedscope",
         [Description("The profile name embedded in the flame graph, shown in the viewer.")] string name = "filtrace",
-        [Description("Optional build-output directory whose PDBs map managed code to source lines.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
-        [Description(
-            "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
-            + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
+        [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
         [Description(
             "Optional substring of a frame name to scope the exported flame graph to its subtree; for a "
@@ -829,11 +817,9 @@ public sealed class TraceTools
         [Description("Maximum number of frame levels below the root to expand.")] int maxDepth = 10,
         [Description("Minimum share of the scoped total, in percent, a node must have to appear.")] double minPercent = 1.0,
         [Description("Optional regex fold patterns; omit to use the built-in JIT-helper defaults.")] string[]? fold = null,
-        [Description("Optional build-output directory whose PDBs map managed code to source lines.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
-        [Description(
-            "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
-            + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
+        [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
         [Description("Use the BenchmarkDotNet measured-workload root; mutually exclusive with 'root'.")]
         bool benchmark = false)
@@ -887,11 +873,9 @@ public sealed class TraceTools
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
         [Description("Optional substring of a frame name to scope the classification to its subtree.")] string root = "",
-        [Description("Optional build-output directory whose PDBs map managed code to source lines.")]
+        [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
-        [Description(
-            "Optional process-name substring scoping a multi-process .etl capture to one process tree; omit "
-            + "to auto-scope to the busiest. Ignored for single-process .nettrace/speedscope traces.")]
+        [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
         [Description(
             "Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server so "

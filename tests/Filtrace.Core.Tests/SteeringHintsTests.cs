@@ -166,6 +166,13 @@ public sealed class SteeringHintsTests
                 0,
                 [],
                 ["GeneratedChild (0/75 mapped)", "MyApp (0/25 mapped)"])
+            {
+                PdbIdentityMismatchModules = ["GeneratedChild"],
+                SampledManagedMethodCount = 10,
+                SourceMappedManagedMethodCount = 0,
+                UnmappedNamedManagedFrameCount = 100,
+                HighestUnmappedMethods = ["GeneratedChild!Run (0/75 mapped)"]
+            }
         };
 
         CultureInfo originalCulture = CultureInfo.CurrentCulture;
@@ -184,6 +191,12 @@ public sealed class SteeringHintsTests
             hint.Contains("method-name resolution (100%) is separate from source mapping (0%)", StringComparison.Ordinal)
             && hint.Contains("GeneratedChild", StringComparison.Ordinal)
             && hint.Contains("generated child output", StringComparison.Ordinal));
+        hints.Should().Contain(hint =>
+            hint.Contains("PDB identity mismatch for: GeneratedChild", StringComparison.Ordinal)
+            && hint.Contains("trace-recorded GUID/age", StringComparison.Ordinal));
+        hints.Should().Contain(hint =>
+            hint.Contains("named managed frames without source: 100", StringComparison.Ordinal)
+            && hint.Contains("sourceResolution.highestUnmappedMethods", StringComparison.Ordinal));
     }
 
     [TestMethod]

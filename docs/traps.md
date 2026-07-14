@@ -26,9 +26,14 @@ embeds the marked block below verbatim and
    Conversely, 100% method-name resolution does not prove that any source line is
    available. Before `lines` or `heatmap`, inspect `trace_info.sourceResolution`:
    require the relevant module in `matchingPdbModules`, then report mapped versus
-   sampled managed frames and `highestUnmappedModules`. PDB identity must match the
-   captured module; for BenchmarkDotNet this usually means the generated child output
-   retained with `--keepFiles`, not the outer project output.
+   sampled managed frames and `highestUnmappedModules`. When
+   `pdbIdentityMismatchModules` names the module, the expected PDB filename exists
+   but its GUID or age differs from the trace. For BenchmarkDotNet, use the generated
+   child output retained with `--keepFiles`, not the outer project output. Once the
+   relevant module appears in `matchingPdbModules`, compare
+   `sourceMappedManagedMethodCount` with `sampledManagedMethodCount`; then use
+   `unmappedNamedManagedFrameCount` and `highestUnmappedMethods` to quantify and
+   identify named frames that still map to `<no source>`.
 
 3. **On a machine-wide `.etl`, confirm the process before scoping.** filtrace
    auto-scopes to the busiest process tree ranked by **CPU-sample count** (a
