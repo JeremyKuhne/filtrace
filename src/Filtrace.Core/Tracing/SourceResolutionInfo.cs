@@ -50,6 +50,7 @@ public sealed record SourceResolutionInfo(
     /// <summary>
     ///  Bounded highest-impact named sampled methods with frame occurrences that
     ///  did not resolve to source. Overloads sharing a display name are grouped.
+    ///  Empty when unique method diagnostics are unavailable.
     /// </summary>
     public IReadOnlyList<string> HighestUnmappedMethods { get; init; } = [];
 
