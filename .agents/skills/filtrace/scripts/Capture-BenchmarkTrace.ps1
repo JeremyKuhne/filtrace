@@ -256,7 +256,10 @@ function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases
             $line -match '--benchmarkName\s+(?:"((?:[^"\\]|\\.)*)"|(\S+)).*--benchmarkId\s+(\d+)') {
             $benchmarkId = [int]$Matches[3]
             if (-not $benchmarksById.ContainsKey($benchmarkId)) {
-                $rawName = if ($Matches[1]) { $Matches[1] -replace '\\"', '"' } else { $Matches[2] }
+                # The regex accepts any backslash-escaped character. Strip the backslash
+                # prefix so that \" becomes " and \\ becomes \; other sequences (rare in
+                # benchmark names) are handled the same way.
+                $rawName = if ($Matches[1]) { [regex]::Replace($Matches[1], '\\(.)', '$1') } else { $Matches[2] }
                 # Strip parenthesized or bracketed parameter suffixes from the method name so
                 # it can serve as a stable file-prefix for trace discovery.
                 $parenPos = $rawName.IndexOf('(')
@@ -791,18 +794,23 @@ if ($filtraceAvailable) {
     $minFiltraceVersion = [Version]'0.6.0'
     $versionOutput = & $FiltracePath --version 2>$null | Out-String
     if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($versionOutput)) {
-        try {
-            # Strip build metadata and pre-release suffix so [Version] can parse semver.
-            $versionCore = $versionOutput.Trim().Split('+')[0].Split('-')[0]
-            $installedVersion = [Version]$versionCore
-            if ($installedVersion -lt $minFiltraceVersion) {
-                Write-Error ("filtrace $($versionOutput.Trim()) is installed; version $minFiltraceVersion or later is required. " +
-                    "Run 'dotnet tool update -g KlutzyNinja.Filtrace' to upgrade.") -ErrorAction Continue
-                exit 1
+        # Extract the major.minor.patch core from a semver string that may carry a
+        # pre-release label and build metadata (e.g., "0.6.1-alpha.0.1+abcdef").
+        if ($versionOutput.Trim() -match '^(\d+\.\d+\.\d+)') {
+            try {
+                $installedVersion = [Version]$Matches[1]
+                if ($installedVersion -lt $minFiltraceVersion) {
+                    Write-Error ("filtrace $($versionOutput.Trim()) is installed; version $minFiltraceVersion or later is required. " +
+                        "Run 'dotnet tool update -g KlutzyNinja.Filtrace' to upgrade.") -ErrorAction Continue
+                    exit 1
+                }
+            }
+            catch {
+                Write-Warning "Could not parse filtrace version '$($versionOutput.Trim())'; skipping compatibility check."
             }
         }
-        catch {
-            # Version string not parseable as a semantic version; skip compatibility check.
+        else {
+            Write-Warning "Could not parse filtrace version '$($versionOutput.Trim())'; skipping compatibility check."
         }
     }
 }
