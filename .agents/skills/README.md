@@ -9,7 +9,7 @@ recorded as pending-upstream divergences until the next reviewed commons release
 
 | Skill | Source | Pin | Local binding |
 | --- | --- | --- | --- |
-| [filtrace](filtrace/SKILL.md) | this repository / MCP package | local | Canonical trace-analysis workflow and packaged scripts. |
+| [filtrace](filtrace/SKILL.md) | this repository / MCP package | local | Canonical trace-analysis workflow and packaged scripts; consumers may add an optional overlay. |
 | [powershell-scripting](powershell-scripting/SKILL.md) | this repository / portable core | local | Binds cross-version guidance to filtrace's scripts and contract checks. |
 | [manage-skills](manage-skills/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.10.0` | Distinguishes commons cores from the tool-shipped skill. |
 | [agent-files-review](agent-files-review/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.10.0` | Runs filtrace's skill and documentation contracts. |
@@ -23,6 +23,11 @@ Use `powershell-scripting` for PowerShell implementation and behavior review.
 Use `security-review` for the wider product threat model, and
 `agent-files-review` for skill/frontmatter/link validation even when its validator
 happens to be implemented in PowerShell.
+
+The filtrace skill is complete as shipped. A consuming repository may add an
+`overlay.md` beside `SKILL.md` for project paths, capture defaults, symbol locations,
+or local safety policy without editing the packaged core. The overlay is optional
+and is not shipped by this repository.
 
 ## Updating
 

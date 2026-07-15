@@ -82,7 +82,7 @@ internal static class EmbeddedPdbExtractor
                     }
 
                     tempDirectory ??= CreateTempDirectory();
-                    string pdbPath = Path.Combine(
+                    string pdbPath = Path.Join(
                         tempDirectory,
                         Path.GetFileNameWithoutExtension(dll) + ".pdb");
 
@@ -106,7 +106,7 @@ internal static class EmbeddedPdbExtractor
 
     private static string CreateTempDirectory()
     {
-        string path = Path.Combine(Path.GetTempPath(), "filtrace-pdb-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Join(Path.GetTempPath(), $"filtrace-pdb-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
     }

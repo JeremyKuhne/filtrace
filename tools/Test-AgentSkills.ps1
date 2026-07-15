@@ -364,7 +364,7 @@ foreach ($skillName in $expectedLocalPortable) {
 [System.Collections.IDictionary] $filtraceMetadata = Get-Metadata (Join-Path $skillsRoot 'filtrace/SKILL.md')
 Test-PortfolioValue $filtraceMetadata 'filtrace' 'portability' 'repo-specific'
 Test-PortfolioValue $filtraceMetadata 'filtrace' 'applicability' 'tool-shipped'
-Test-PortfolioValue $filtraceMetadata 'filtrace' 'binding' 'none'
+Test-PortfolioValue $filtraceMetadata 'filtrace' 'binding' 'optional-overlay'
 Test-PortfolioValue $filtraceMetadata 'filtrace' 'risk' 'local-write'
 Test-PortfolioValue $filtraceMetadata 'filtrace' 'maturity' 'stable'
 Test-PortfolioValue $filtraceMetadata 'filtrace' 'requires' 'none'
