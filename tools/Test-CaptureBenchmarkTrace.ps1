@@ -283,6 +283,76 @@ $tracePath = if ($args.Count -gt 1) { $args[1] } else { '' }
 $isSpeedscope = $tracePath -like '*.speedscope.json'
 $isPreflight = [System.IO.Path]::GetFileName($tracePath) -like 'filtrace-preflight-*.speedscope.json'
 if ($isPreflight) {
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'missing-result') {
+        [ordered]@{ schemaVersion = 8 } | ConvertTo-Json -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'missing-analyses') {
+        [ordered]@{ schemaVersion = 8; result = [ordered]@{} } | ConvertTo-Json -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'missing-cpu') {
+        [ordered]@{
+            schemaVersion = 8
+            result = [ordered]@{ analyses = [ordered]@{} }
+        } | ConvertTo-Json -Depth 4 -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'incomplete-cpu') {
+        [ordered]@{
+            schemaVersion = 8
+            result = [ordered]@{
+                analyses = [ordered]@{
+                    cpu = [ordered]@{ captureStatus = 'enabled' }
+                }
+            }
+        } | ConvertTo-Json -Depth 6 -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'array-result') {
+        [ordered]@{
+            schemaVersion = 8
+            result = @(
+                [ordered]@{
+                    analyses = [ordered]@{
+                        cpu = [ordered]@{ captureStatus = 'enabled'; eventCount = 1 }
+                    }
+                }
+            )
+        } | ConvertTo-Json -Depth 7 -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'array-analyses') {
+        [ordered]@{
+            schemaVersion = 8
+            result = [ordered]@{
+                analyses = @(
+                    [ordered]@{
+                        cpu = [ordered]@{ captureStatus = 'enabled'; eventCount = 1 }
+                    }
+                )
+            }
+        } | ConvertTo-Json -Depth 7 -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'array-cpu') {
+        [ordered]@{
+            schemaVersion = 8
+            result = [ordered]@{
+                analyses = [ordered]@{
+                    cpu = @([ordered]@{ captureStatus = 'enabled'; eventCount = 1 })
+                }
+            }
+        } | ConvertTo-Json -Depth 7 -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
     $schemaVersion = if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'incompatible-schema') { 7 } else { 8 }
     [ordered]@{
         schemaVersion = $schemaVersion
@@ -367,6 +437,41 @@ $global:LASTEXITCODE = 0
             [ordered]@{
                 mode = 'incompatible-schema'
                 runId = 'incompatible-schema-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'missing-result'
+                runId = 'missing-result-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'missing-analyses'
+                runId = 'missing-analyses-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'missing-cpu'
+                runId = 'missing-cpu-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'incomplete-cpu'
+                runId = 'incomplete-cpu-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'array-result'
+                runId = 'array-result-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'array-analyses'
+                runId = 'array-analyses-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'array-cpu'
+                runId = 'array-cpu-run'
                 expected = 'did not match schema 8'
             }
         )

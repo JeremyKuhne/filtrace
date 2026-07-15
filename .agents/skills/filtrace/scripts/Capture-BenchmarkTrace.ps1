@@ -460,6 +460,11 @@ function Get-TraceInfoResult(
     }
 }
 
+function Get-ObjectPropertyInfo($Object, [string]$Name) {
+    if ($null -eq $Object) { return $null }
+    return $Object.PSObject.Properties[$Name]
+}
+
 function Assert-FiltraceCompatibility([string]$FiltraceCommand) {
     $minimumVersion = [Version]'0.6.0'
     $expectedSchemaVersion = 8
@@ -514,13 +519,25 @@ function Assert-FiltraceCompatibility([string]$FiltraceCommand) {
         }
 
         $infoEnvelope = $infoJson | ConvertFrom-Json
-        $cpuAnalysis = $infoEnvelope.result.analyses.cpu
-        if ([int]$infoEnvelope.schemaVersion -ne $expectedSchemaVersion -or
-            $null -eq $infoEnvelope.result -or
-            $null -eq $infoEnvelope.result.analyses -or
-            $null -eq $cpuAnalysis -or
-            $cpuAnalysis.PSObject.Properties.Name -notcontains 'captureStatus' -or
-            $cpuAnalysis.PSObject.Properties.Name -notcontains 'eventCount') {
+        $schemaVersionProperty = Get-ObjectPropertyInfo $infoEnvelope 'schemaVersion'
+        $resultProperty = Get-ObjectPropertyInfo $infoEnvelope 'result'
+        $infoResult = $null
+        if ($null -ne $resultProperty) { $infoResult = $resultProperty.Value }
+        $analysesProperty = Get-ObjectPropertyInfo $infoResult 'analyses'
+        $analyses = $null
+        if ($null -ne $analysesProperty) { $analyses = $analysesProperty.Value }
+        $cpuProperty = Get-ObjectPropertyInfo $analyses 'cpu'
+        $cpuAnalysis = $null
+        if ($null -ne $cpuProperty) { $cpuAnalysis = $cpuProperty.Value }
+        $captureStatusProperty = Get-ObjectPropertyInfo $cpuAnalysis 'captureStatus'
+        $eventCountProperty = Get-ObjectPropertyInfo $cpuAnalysis 'eventCount'
+        if ($null -eq $schemaVersionProperty -or
+            [int]$schemaVersionProperty.Value -ne $expectedSchemaVersion -or
+            $null -eq $resultProperty -or
+            $null -eq $analysesProperty -or
+            $null -eq $cpuProperty -or
+            $null -eq $captureStatusProperty -or
+            $null -eq $eventCountProperty) {
             throw "info --format json did not match schema $expectedSchemaVersion"
         }
     }
