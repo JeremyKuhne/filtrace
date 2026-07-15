@@ -29,7 +29,7 @@ public static class CaptureManifestPairer
                 AddWarning(
                     warnings,
                     ref omittedWarnings,
-                    $"current case '{afterCase.Id}' has no benchmark identity and was not paired");
+                    $"current case '{afterCase.Id}' has no benchmark identity and was not paired; analyze its trace directly");
             }
         }
 
@@ -44,7 +44,7 @@ public static class CaptureManifestPairer
                 AddWarning(
                     warnings,
                     ref omittedWarnings,
-                    $"baseline case '{beforeCase.Id}' has no benchmark identity and was not paired");
+                    $"baseline case '{beforeCase.Id}' has no benchmark identity and was not paired; analyze its trace directly");
                 continue;
             }
 

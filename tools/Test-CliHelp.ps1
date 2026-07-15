@@ -64,7 +64,14 @@ foreach ($verb in $verbs) {
     }
 }
 
-# 2. Per-verb help: succeeds, has a Usage line, stays within the line budget.
+$scopeVerbs = [ordered]@{
+    process = [System.Collections.Generic.List[string]]::new()
+    root = [System.Collections.Generic.List[string]]::new()
+    benchmark = [System.Collections.Generic.List[string]]::new()
+}
+
+# 2. Per-verb help: succeeds, has a Usage line, stays within the line budget, and
+# records the implemented scope surface for the documentation inventory check.
 foreach ($verb in $verbs) {
     $verbHelp = (& dotnet $cliDll $verb --help 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) {
@@ -79,6 +86,11 @@ foreach ($verb in $verbs) {
     if ($lineCount -gt $MaxVerbHelpLines) {
         Add-Failure "'$verb --help' is $lineCount lines (budget $MaxVerbHelpLines)."
     }
+    foreach ($scope in $scopeVerbs.Keys) {
+        if ($verbHelp -match "(?m)(?:^|\s)--$scope(?:\s|,|$)") {
+            $scopeVerbs[$scope].Add($verb)
+        }
+    }
 }
 
 # 3. README documents every verb with a runnable example and carries the workflow.
@@ -90,6 +102,39 @@ foreach ($verb in $verbs) {
     # A documented example is a `filtrace <verb> ...` invocation somewhere in the README.
     if ($readme -notmatch "filtrace $([regex]::Escape($verb))(\s|``)") {
         Add-Failure "README has no 'filtrace $verb' example."
+    }
+}
+
+$scopeBlockMatch = [regex]::Match(
+    $readme,
+    '(?s)<!-- filtrace:begin scopes -->\r?\n(.*?)\r?\n<!-- filtrace:end scopes -->')
+if (-not $scopeBlockMatch.Success) {
+    Add-Failure "README has no synchronized 'scopes' block."
+}
+else {
+    $scopeBlock = $scopeBlockMatch.Groups[1].Value
+    $scopeSections = [ordered]@{
+        process = [regex]::Match(
+            $scopeBlock,
+            '(?s)- \*\*Named process:\*\*(.*?)(?=\r?\n- \*\*Root subtree:\*\*)').Groups[1].Value
+        root = [regex]::Match(
+            $scopeBlock,
+            '(?s)- \*\*Root subtree:\*\*(.*?)(?=\r?\n- \*\*BenchmarkDotNet workload:\*\*)').Groups[1].Value
+        benchmark = [regex]::Match(
+            $scopeBlock,
+            '(?s)- \*\*BenchmarkDotNet workload:\*\*(.*)$').Groups[1].Value
+    }
+    foreach ($scope in $scopeVerbs.Keys) {
+        if ([string]::IsNullOrWhiteSpace($scopeSections[$scope])) {
+            Add-Failure "README scope inventory has no '$scope' section."
+            continue
+        }
+        foreach ($verb in $scopeVerbs[$scope]) {
+            $token = '`' + $verb + '`'
+            if (-not $scopeSections[$scope].Contains($token, [StringComparison]::Ordinal)) {
+                Add-Failure "CLI verb '$verb' implements --$scope but is absent from the scope inventory."
+            }
+        }
     }
 }
 

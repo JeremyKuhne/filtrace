@@ -10,7 +10,7 @@ namespace Filtrace.Tracing;
 public static class CaptureManifestReader
 {
     /// <summary>Maximum UTF-8 manifest size accepted by the analyzer.</summary>
-    public const int MaxManifestBytes = 20 * 1024;
+    public const int MaxManifestBytes = 16 * 1024 * 1024;
 
     /// <summary>Maximum cases accepted from one manifest.</summary>
     public const int MaxCases = 256;
@@ -171,6 +171,15 @@ public static class CaptureManifestReader
 
     internal static string ExtractParameters(string display)
     {
+        if (display.EndsWith(']'))
+        {
+            int openBracket = display.LastIndexOf('[');
+            if (openBracket >= 0)
+            {
+                return display[(openBracket + 1)..^1];
+            }
+        }
+
         int close = display.LastIndexOf("): ", StringComparison.Ordinal);
         if (close < 0)
         {

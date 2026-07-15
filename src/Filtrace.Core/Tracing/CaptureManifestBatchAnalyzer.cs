@@ -45,7 +45,19 @@ public static class CaptureManifestBatchAnalyzer
             {
                 CaptureManifestOutput.AddWarning(
                     warnings,
-                    "benchmark identity is unresolved; case id is used as the row key");
+                    "benchmark identity is unresolved; manifest batch skipped this case; analyze the trace directly");
+                cases.Add(new BatchRankingCaseResult(
+                    benchmark,
+                    captureCase.Parameters,
+                    captureCase.TracePath,
+                    0.0,
+                    string.Empty,
+                    null,
+                    0.0,
+                    0.0,
+                    null,
+                    warnings));
+                continue;
             }
 
             try

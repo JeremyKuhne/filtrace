@@ -54,10 +54,11 @@ same core rules even when they are not shipped in the filtrace skill.
   may supply the documented fallback; when `filtrace info` is present but exits
   nonzero, throws, or returns no analyses, mark every selector unknown, suppress
   commands, and retain an explicit warning in the manifest and handoff.
-- Manifest JSON and the stdout JSON handoff each own an independent 20 KiB budget
-  measured as exact UTF-8 bytes. Test a complete manifest below the limit while
-  repeated warning/case wrappers push the full handoff over it; the measured
-  fallback stays valid and routes the caller to the complete manifest.
+- Durable manifest JSON has a 16 MiB safety ceiling so the complete bounded case set
+  remains available to `batch` / `diff`; only the stdout JSON handoff owns the 20 KiB
+  agent-context budget, measured as exact UTF-8 bytes. Test a manifest above 20 KiB
+  while the measured handoff fallback stays below its budget and routes the caller
+  to that complete manifest.
 - Reject remote/UNC symbol candidates before passing them to analysis commands.
   Resolve accepted candidates through `[System.IO.Path]::GetFullPath()`.
 - ETW self-elevation uses the current PowerShell host, an explicit repository
