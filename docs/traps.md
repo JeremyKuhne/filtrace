@@ -44,12 +44,14 @@ embeds the marked block below verbatim and
 4. **BenchmarkDotNet captures include the harness - scope with `--benchmark` by
    default, not as an afterthought.** A raw ranking (or export) of a BDN trace is
    mixed with orchestrator and overhead scaffolding outside your `[Benchmark]`.
-   In the CLI, pass `--benchmark` to every verb that offers it; in MCP, pass
-   `benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`,
-   `trace_classify`, and `trace_export`. The wrapper includes warmup and actual
-   workload iterations; it excludes harness/overhead scaffolding, not warmup. This
-   applies especially to export - a flame graph with the harness left in is not just
-   noisy, its proportions are wrong. Do not substitute a benchmark method substring:
+   In the CLI, pass `--benchmark` to `rank`, `cpu`, `alloc`, `exceptions`,
+   `threadtime`, `callers`, `tree`, `classify`, `diff`, `batch`, and `export`; in
+   MCP, pass `benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`,
+   `trace_classify`, `trace_diff`, `trace_batch`, and `trace_export`. The wrapper
+   includes warmup and actual workload iterations; it excludes harness/overhead
+   scaffolding, not warmup. This applies especially to export - a flame graph with
+   the harness left in is not just noisy, its proportions are wrong. Do not
+   substitute a benchmark method substring:
    if root/frame warnings report multiple definitions or depths, narrow the selector
    before trusting the result. `lines` / `heatmap` cannot preserve root scope; narrow
    them with their method/file filter and treat percentages as whole-trace.

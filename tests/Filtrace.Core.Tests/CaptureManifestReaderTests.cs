@@ -69,6 +69,46 @@ public sealed class CaptureManifestReaderTests
     }
 
     [TestMethod]
+    [DataRow("BinaryFormattedObjectPerf.Parse: Dry(...) [Scenario=SerializableCallback]")]
+    [DataRow("BinaryFormattedObjectPerf.Parse: Dry(...) [Scenario=SerializableCallback] ")]
+    public void ExtractParameters_BracketedDisplay_ReturnsParameters(string display)
+    {
+        CaptureManifestReader.ExtractParameters(display).Should().Be("Scenario=SerializableCallback");
+    }
+
+    [TestMethod]
+    public void Read_DurableManifestSizeBoundary_AcceptsCompleteLargeFileAndRejectsLimit()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}.json");
+        const string prefix = "{\"schemaVersion\":1,\"padding\":\"";
+        const string suffix = "\",\"cases\":[{\"id\":\"a\",\"benchmark\":\"Bench.Work\",\"trace\":\"a.nettrace\"}]}";
+        try
+        {
+            int acceptedPaddingLength = CaptureManifestReader.MaxManifestBytes
+                - 1
+                - prefix.Length
+                - suffix.Length;
+            string accepted = $"{prefix}{new string('x', acceptedPaddingLength)}{suffix}";
+            File.WriteAllText(path, accepted);
+            new FileInfo(path).Length.Should().Be(CaptureManifestReader.MaxManifestBytes - 1);
+
+            CaptureManifest manifest = CaptureManifestReader.Read(path);
+
+            manifest.Cases.Should().ContainSingle();
+            new FileInfo(path).Length.Should().BeGreaterThan(20 * 1024);
+
+            string rejected = $"{prefix}{new string('x', acceptedPaddingLength + 1)}{suffix}";
+            File.WriteAllText(path, rejected);
+            Action atLimit = () => CaptureManifestReader.Read(path);
+            atLimit.Should().Throw<InvalidDataException>();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [TestMethod]
     public void Read_MalformedAndOversizedInput_ThrowsInvalidDataException()
     {
         string path = Path.Combine(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}.json");
@@ -204,7 +244,8 @@ public sealed class CaptureManifestReaderTests
                 null,
                 [new CaptureManifestCase("unknown", null, "", "Unknown", "trace.nettrace", null, null, null)]));
         unresolvedCurrent.Warnings.Should().ContainSingle(
-            warning => warning.Contains("current case 'unknown'", StringComparison.Ordinal));
+            warning => warning.Contains("current case 'unknown'", StringComparison.Ordinal)
+                && warning.Contains("analyze its trace directly", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -338,6 +379,35 @@ public sealed class CaptureManifestReaderTests
                 && warning.Contains("at least 200", StringComparison.Ordinal));
         result.Cases[2].Warnings.Should().ContainSingle("missing case trace");
         result.Cases[2].TopFrame.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void AnalyzeBatch_UnresolvedIdentity_SkipsCaseAndRequiresDirectTraceAnalysis()
+    {
+        CaptureManifest manifest = new(
+            "manifest.json",
+            null,
+            [new CaptureManifestCase("unknown", null, "", "Unknown", "unknown.nettrace", null, null, null)]);
+        int loadCount = 0;
+
+        BatchRankingResult result = CaptureManifestBatchAnalyzer.Analyze(
+            manifest,
+            "cpu",
+            inclusive: false,
+            root: "",
+            FrameNames.DefaultFoldPatterns,
+            (_, _) =>
+            {
+                loadCount++;
+                return Loaded("unknown", 1.0, 1.0);
+            });
+
+        loadCount.Should().Be(0);
+        BatchRankingCaseResult unresolved = result.Cases.Should().ContainSingle().Subject;
+        unresolved.TopFrame.Should().BeNull();
+        unresolved.Warnings.Should().ContainSingle(
+            warning => warning.Contains("manifest batch skipped", StringComparison.Ordinal)
+                && warning.Contains("analyze the trace directly", StringComparison.Ordinal));
     }
 
     private static CaptureManifest Manifest(params CaptureManifestCase[] cases) =>

@@ -93,15 +93,32 @@ config and tool workflow.
 | `exceptions` | Exception types by count; inclusive view reveals throw paths | `filtrace exceptions app.nettrace` |
 | `threadtime` | Wall-clock (running + blocked), Windows `.etl` | `filtrace threadtime app.etl` |
 
-Every ranking verb accepts `--root` (scope to a frame subtree) and `--benchmark`
-(scope a BenchmarkDotNet capture to the measured workload, past the harness). The
-verbs that can read a multi-process ETW `.etl` - `cpu`, `threadtime`, `rank`,
-`callers`, `lines`, `heatmap`, `tree`, `classify`, and the `timeline` overview - also
-accept `--process` / `--all-processes` (the busiest process tree, ranked by CPU sample count, is
-auto-scoped by default); `alloc` and `exceptions` read single-process
-`.nettrace` only, so they have no process options. To see what is in a
-multi-process capture before scoping, run `filtrace processes` (below). The `rank`
-verb adds two more scopes: `--activity <name>` (the CPU samples taken inside one
+<!-- filtrace:begin scopes -->
+**Implemented scope inventory:**
+
+- **Named process:** CLI `info`, `rank`, `cpu`, `threadtime`, `callers`, `lines`,
+  `heatmap`, `tree`, `classify`, `timeline`, `diff`, `batch`, and `export`; MCP
+  `trace_info`, `trace_rank`, `trace_callers`, `trace_lines`, `trace_heatmap`,
+  `trace_tree`, `trace_classify`, `trace_timeline`, `trace_diff`, `trace_batch`, and
+  `trace_export`. These auto-scope a multi-process `.etl` to the busiest process tree.
+  Run `processes` / `trace_processes` first to inspect the capture, then set
+  `--process <name>` / `process` to override. CLI verbs expose `--all-processes`
+  where an aggregate is supported; MCP has no all-process aggregate.
+- **Root subtree:** CLI `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`,
+  `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
+  `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and
+  `trace_export`. Set `--root <frame>` / `root` to keep the subtree under a frame.
+- **BenchmarkDotNet workload:** CLI `rank`, `cpu`, `alloc`, `exceptions`,
+  `threadtime`, `callers`, `tree`, `classify`, `diff`, `batch`, and `export` accept
+  `--benchmark`; MCP `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`,
+  `trace_diff`, `trace_batch`, and `trace_export` accept `benchmark: true`. The
+  preset isolates the `WorkloadAction` subtree from harness and overhead scaffolding;
+  it is mutually exclusive with an explicit root. `lines` / `heatmap` are not
+  root-aware, so narrow them by method/file and treat percentages as process-scoped
+  whole-trace values.
+<!-- filtrace:end scopes -->
+
+The `rank` verb adds two more scopes: `--activity <name>` (the CPU samples taken inside one
 start-stop request/job) and `--time <start>,<end>` (milliseconds from the trace
 start, either bound optional; any metric on `.nettrace` / `.etl`), to zoom in on one
 request or the slice around a latency spike. Speedscope input is aggregate-only for

@@ -49,6 +49,7 @@ function Add-Failure([string]$message) { $failures.Add($message) }
 # the consumer surfaces that embed a verbatim copy.
 $blocks = @(
     @{ Id = 'verbs'; Source = 'docs/workflow.md'; Consumers = @('.agents/skills/filtrace/SKILL.md') }
+    @{ Id = 'scopes'; Source = 'docs/workflow.md'; Consumers = @('.agents/skills/filtrace/SKILL.md', 'README.md') }
     @{ Id = 'traps'; Source = 'docs/traps.md'; Consumers = @('.agents/skills/filtrace/SKILL.md') }
     @{ Id = 'agents-snippet'; Source = 'docs/workflow.md'; Consumers = @('README.md') }
 )

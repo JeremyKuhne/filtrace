@@ -27,16 +27,23 @@ function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
 
+function Test-StringContains(
+    [string]$Text,
+    [string]$Value,
+    [StringComparison]$Comparison = [StringComparison]::OrdinalIgnoreCase) {
+    return $null -ne $Text -and $Text.IndexOf($Value, $Comparison) -ge 0
+}
+
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 try {
-    $help = Get-Help $captureScript -Full | Out-String
-    Assert-True ($help.Contains('[-ElevatedChild]', [StringComparison]::OrdinalIgnoreCase)) 'ElevatedChild was not discoverable in Get-Help syntax.'
+    $help = Get-Help $captureScript -Full | Out-String -Width 4096
+    Assert-True (Test-StringContains $help '[-ElevatedChild]') 'ElevatedChild was not discoverable in Get-Help syntax.'
     $captureSource = Get-Content -LiteralPath $captureScript -Raw
-    Assert-True ($captureSource.Contains('.PARAMETER ElevatedChild', [StringComparison]::Ordinal)) 'ElevatedChild has no comment-based help entry.'
-    Assert-True ($captureSource.Contains('Internal switch reserved for the self-elevated ETW child process', [StringComparison]::OrdinalIgnoreCase)) 'ElevatedChild help did not identify the switch as internal.'
-    Assert-True ($captureSource.Contains('reports the capture.log path', [StringComparison]::OrdinalIgnoreCase)) 'Elevated timeout help did not describe reporting capture.log.'
+    Assert-True (Test-StringContains $captureSource '.PARAMETER ElevatedChild' ([StringComparison]::Ordinal)) 'ElevatedChild has no comment-based help entry.'
+    Assert-True (Test-StringContains $captureSource 'Internal switch reserved for the self-elevated ETW child process') 'ElevatedChild help did not identify the switch as internal.'
+    Assert-True (Test-StringContains $captureSource 'reports the capture.log path') 'Elevated timeout help did not describe reporting capture.log.'
     foreach ($staleElevationPhrase in @('surfaces the log tail', 'live progress', 'references for progress', 'log still surfaces', 'hang/no-tail')) {
-        Assert-True (-not $captureSource.Contains($staleElevationPhrase, [StringComparison]::OrdinalIgnoreCase)) "Stale ETW elevation wording remained: '$staleElevationPhrase'."
+        Assert-True (-not (Test-StringContains $captureSource $staleElevationPhrase)) "Stale ETW elevation wording remained: '$staleElevationPhrase'."
     }
 
     # Execute the trusted command-builder functions directly so ETW syntax is covered
@@ -52,7 +59,13 @@ try {
         'ConvertTo-PowerShellArgument',
         'Test-AnalysisEnabled',
         'Get-CaseCommands',
-        'Get-BenchmarkParameters')
+        'ConvertFrom-BenchmarkNameArgument',
+        'Get-BenchmarkParameters',
+        'Get-DefaultCaptureStatuses',
+        'ConvertTo-CaptureStatus',
+        'Test-HasAnalysisInfo',
+        'ConvertTo-AnalysisMap',
+        'Get-CaseWarnings')
     $commandFunctionDefinitions = @(
         $captureAst.FindAll(
             { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $commandFunctionNames },
@@ -63,7 +76,39 @@ try {
     Assert-True ($commandFunctionDefinitions.Count -eq $commandFunctionNames.Count) 'Capture command-builder functions could not be isolated.'
     . ([scriptblock]::Create(($commandFunctionDefinitions -join [Environment]::NewLine)))
     Assert-True ((Get-BenchmarkParameters 'FakeBench.Work(Size: 1, Mode: Fast): Job-A') -eq 'Size: 1, Mode: Fast') 'Parameterized benchmark identity was not extracted.'
+    Assert-True ((Get-BenchmarkParameters 'BinaryFormattedObjectPerf.Parse: Dry(...) [Scenario=SerializableCallback]') -eq 'Scenario=SerializableCallback') 'Bracketed BenchmarkDotNet parameters were not extracted.'
     Assert-True ((Get-BenchmarkParameters 'FakeBench.Work: Job-A') -eq '') 'Unparameterized benchmark identity was not empty.'
+    $escapedBenchmarkName = '\u0026#34;touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize(Scenario: \\\\u0026#34;SerializableCallback\\\\u0026#34;)\u0026#34;'
+    Assert-True (
+        (ConvertFrom-BenchmarkNameArgument $escapedBenchmarkName) -eq
+            'touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize') `
+        'Escaped quoted BenchmarkDotNet name and parameters were not decoded.'
+
+    $eventPipeDefaults = Get-DefaultCaptureStatuses 'EP' $true
+    Assert-True ($eventPipeDefaults.activity -eq 'unknown') 'Default EventPipe capture claimed activity without provider evidence.'
+    foreach ($activityStatus in @('enabled', 'disabled', 'unknown')) {
+        $traceInfo = [pscustomobject]@{
+            analyses = [pscustomobject]@{
+                activity = [pscustomobject]@{ captureStatus = $activityStatus; eventCount = $null }
+            }
+        }
+        $analysisMap = ConvertTo-AnalysisMap $traceInfo $eventPipeDefaults $false
+        Assert-True ($analysisMap.activity.captureStatus -eq $activityStatus) "Provider activity status '$activityStatus' was not preserved."
+    }
+
+    $unidentifiedCase = [ordered]@{
+        benchmarkId = $null
+        benchmark = $null
+        parameters = $null
+        benchmarkDisplay = $null
+        trace = 'C:\unidentified.nettrace'
+        symbolsDirectory = $null
+        analyses = [ordered]@{}
+    }
+    Assert-True (
+        @(Get-CaseWarnings $unidentifiedCase) -contains
+            'benchmark identity unavailable or ambiguous; do not use this case with manifest batch/diff; analyze the trace directly') `
+        'Unidentified benchmark case did not require direct-trace analysis.'
 
     $eventPipeCase = [ordered]@{
         trace = 'C:\capture.nettrace'
@@ -127,6 +172,15 @@ New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
 $childSymbols = $env:FILTRACE_CAPTURE_CHILD_SYMBOLS
 New-Item -ItemType Directory -Force -Path $childSymbols | Out-Null
 [System.IO.File]::WriteAllText((Join-Path $childSymbols 'Fake-Job.pdb'), 'pdb')
+$isToukiRun = $artifacts -like '*touki-run*'
+$isIdentityWarningRun = $artifacts -like '*identity-warning-run*'
+$toukiScenarios = @(
+    'Int32Array_1K',
+    'StringList_128',
+    'CustomObject',
+    'ObjectTree_127',
+    'SharedCycle_128',
+    'SerializableCallback')
 if ($artifacts -like '*oversize-run*') {
     for ($index = 0; $index -lt 64; $index++) {
         $timestamp = [DateTime]::new(2026, 7, 13, 2, 0, 0, [DateTimeKind]::Utc).AddSeconds($index)
@@ -141,6 +195,18 @@ elseif ($artifacts -like '*handoff-budget-run*') {
         $name = "Fake.Bench.Handoff.$padding.$($index.ToString('D2'))-$($timestamp.ToString('yyyyMMdd-HHmmss')).nettrace"
         [System.IO.File]::WriteAllText((Join-Path $artifacts $name), 'handoff budget raw')
     }
+}
+elseif ($isToukiRun) {
+    for ($index = 0; $index -lt $toukiScenarios.Count; $index++) {
+        $timestamp = [DateTime]::new(2026, 7, 15, 1, 0, 0, [DateTimeKind]::Utc).AddSeconds($index)
+        $scenario = $toukiScenarios[$index]
+        $name = "touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize(Scenario_ _$scenario_)-$($timestamp.ToString('yyyyMMdd-HHmmss')).nettrace"
+        [System.IO.File]::WriteAllText((Join-Path $artifacts $name), 'touki parameterized raw')
+    }
+}
+elseif ($isIdentityWarningRun) {
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Ambiguous-20260715-020000.nettrace'), 'ambiguous raw')
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Missing-20260715-020001.nettrace'), 'missing raw')
 }
 else {
     [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Work-20260713-010203.nettrace'), 'current raw')
@@ -165,26 +231,142 @@ foreach ($file in Get-ChildItem -LiteralPath $artifacts -File) {
 $global:LASTEXITCODE = 0
 Write-Output "// start dotnet build /p:OutDir=`"$childSymbols`""
 Write-Output '// malicious build output /p:OutDir="\\evil.example\share\symbols"'
-Write-Output '// Benchmark: FakeBench.Work(Size: 1): Job-A'
-Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Work --job Job-A --benchmarkId 10 in fake'
-Write-Output '// Benchmark: FakeBench.Work(Size: 2): Job-A'
-Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Work --job Job-A --benchmarkId 11 in fake'
-Write-Output '// Benchmark: FakeBench.Other(Size: 2): Job-A'
-Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Other --job Job-A --benchmarkId 4 in fake'
-Write-Output '// Benchmark: FakeBench.ScopeOnly(Size: 3): Job-A'
-Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.ScopeOnly --job Job-A --benchmarkId 7 in fake'
-Write-Output 'Runtime = .NET 10.0.0, X64 RyuJIT'
+if ($isToukiRun) {
+    $outerQuote = '"'
+    $escapedQuote = '\"'
+    for ($index = 0; $index -lt $toukiScenarios.Count; $index++) {
+        $scenario = $toukiScenarios[$index]
+        Write-Output "// Benchmark: BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize: DefaultJob [Scenario=$scenario]"
+        $benchmarkName = "touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize(Scenario: $escapedQuote$scenario$escapedQuote)"
+        Write-Output "// Execute: dotnet Fake-Job.dll --benchmarkName $outerQuote$benchmarkName$outerQuote --job Default --diagnoserRunMode 3 --benchmarkId $index in fake"
+        Write-Output '// Runtime=.NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3'
+    }
+}
+elseif ($isIdentityWarningRun) {
+    Write-Output '// Benchmark: FakeBench.Ambiguous: Job-A [Scenario=A]'
+    Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Ambiguous --job Job-A --benchmarkId 20 in fake'
+    Write-Output '// Benchmark: FakeBench.Ambiguous: Job-A [Scenario=B]'
+    Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Ambiguous --job Job-A --benchmarkId 21 in fake'
+    Write-Output '// Runtime=.NET 10.0.9, X64 RyuJIT x86-64-v3'
+}
+else {
+    Write-Output '// Benchmark: FakeBench.Work(Size: 1): Job-A'
+    Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Work --job Job-A --benchmarkId 10 in fake'
+    Write-Output '// Benchmark: FakeBench.Work(Size: 2): Job-A'
+    Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Work --job Job-A --benchmarkId 11 in fake'
+    Write-Output '// Benchmark: FakeBench.Other(Size: 2): Job-A'
+    Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Other --job Job-A --benchmarkId 4 in fake'
+    Write-Output '// Benchmark: FakeBench.ScopeOnly(Size: 3): Job-A'
+    Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.ScopeOnly --job Job-A --benchmarkId 7 in fake'
+    Write-Output 'Runtime = .NET 10.0.0, X64 RyuJIT'
+}
 Write-Output 'fake BenchmarkDotNet capture completed'
 '@
     [System.IO.File]::WriteAllText($fakeDotnet, $fakeDotnetText)
 
     $fakeFiltrace = Join-Path $temporaryRoot 'Fake-Filtrace.ps1'
     $fakeFiltraceText = @'
+if ($args[0] -eq '--version') {
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'old-version') {
+        Write-Output '0.5.0'
+    }
+    else {
+        Write-Output '0.6.0'
+    }
+    $global:LASTEXITCODE = 0
+    return
+}
 $symbolIndex = [Array]::IndexOf($args, '--symbols')
 $symbols = if ($symbolIndex -ge 0) { $args[$symbolIndex + 1] } else { '' }
 $isExact = $symbols -eq $env:FILTRACE_CAPTURE_CHILD_SYMBOLS
 $tracePath = if ($args.Count -gt 1) { $args[1] } else { '' }
 $isSpeedscope = $tracePath -like '*.speedscope.json'
+$isPreflight = [System.IO.Path]::GetFileName($tracePath) -like 'filtrace-preflight-*.speedscope.json'
+if ($isPreflight) {
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'missing-result') {
+        [ordered]@{ schemaVersion = 8 } | ConvertTo-Json -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'missing-analyses') {
+        [ordered]@{ schemaVersion = 8; result = [ordered]@{} } | ConvertTo-Json -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'missing-cpu') {
+        [ordered]@{
+            schemaVersion = 8
+            result = [ordered]@{ analyses = [ordered]@{} }
+        } | ConvertTo-Json -Depth 4 -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'incomplete-cpu') {
+        [ordered]@{
+            schemaVersion = 8
+            result = [ordered]@{
+                analyses = [ordered]@{
+                    cpu = [ordered]@{ captureStatus = 'enabled' }
+                }
+            }
+        } | ConvertTo-Json -Depth 6 -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'array-result') {
+        [ordered]@{
+            schemaVersion = 8
+            result = @(
+                [ordered]@{
+                    analyses = [ordered]@{
+                        cpu = [ordered]@{ captureStatus = 'enabled'; eventCount = 1 }
+                    }
+                }
+            )
+        } | ConvertTo-Json -Depth 7 -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'array-analyses') {
+        [ordered]@{
+            schemaVersion = 8
+            result = [ordered]@{
+                analyses = @(
+                    [ordered]@{
+                        cpu = [ordered]@{ captureStatus = 'enabled'; eventCount = 1 }
+                    }
+                )
+            }
+        } | ConvertTo-Json -Depth 7 -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'array-cpu') {
+        [ordered]@{
+            schemaVersion = 8
+            result = [ordered]@{
+                analyses = [ordered]@{
+                    cpu = @([ordered]@{ captureStatus = 'enabled'; eventCount = 1 })
+                }
+            }
+        } | ConvertTo-Json -Depth 7 -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    $schemaVersion = if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'incompatible-schema') { 7 } else { 8 }
+    [ordered]@{
+        schemaVersion = $schemaVersion
+        warnings = @()
+        hints = @()
+        result = [ordered]@{
+            analyses = [ordered]@{
+                cpu = [ordered]@{ captureStatus = 'enabled'; eventCount = 1 }
+            }
+        }
+    } | ConvertTo-Json -Depth 6 -Compress
+    $global:LASTEXITCODE = 0
+    return
+}
 if ($env:FILTRACE_CAPTURE_INFO_FAILURE -eq '1') {
     $global:LASTEXITCODE = 1
     return
@@ -223,7 +405,12 @@ else {
         events = [ordered]@{ captureStatus = 'enabled'; eventCount = 10 }
     }
 }
-[ordered]@{ result = [ordered]@{ sourceResolution = $source; analyses = $analyses } } | ConvertTo-Json -Depth 6 -Compress
+[ordered]@{
+    schemaVersion = 8
+    warnings = @()
+    hints = @()
+    result = [ordered]@{ sourceResolution = $source; analyses = $analyses }
+} | ConvertTo-Json -Depth 6 -Compress
 $global:LASTEXITCODE = 0
 '@
     [System.IO.File]::WriteAllText($fakeFiltrace, $fakeFiltraceText)
@@ -238,6 +425,97 @@ $global:LASTEXITCODE = 0
     $previousArgsPath = $env:FILTRACE_CAPTURE_ARGS
     $previousChildSymbols = $env:FILTRACE_CAPTURE_CHILD_SYMBOLS
     $childSymbols = Join-Path $projectDirectory 'custom-output/Fake-Job/bin/Release/net10.0'
+    $previousPreflightMode = $env:FILTRACE_CAPTURE_PREFLIGHT_MODE
+    $hostExe = (Get-Process -Id $PID).Path
+    try {
+        $preflightCases = @(
+            [ordered]@{
+                mode = 'old-version'
+                runId = 'old-version-run'
+                expected = 'older than required version 0.6.0'
+            },
+            [ordered]@{
+                mode = 'incompatible-schema'
+                runId = 'incompatible-schema-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'missing-result'
+                runId = 'missing-result-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'missing-analyses'
+                runId = 'missing-analyses-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'missing-cpu'
+                runId = 'missing-cpu-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'incomplete-cpu'
+                runId = 'incomplete-cpu-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'array-result'
+                runId = 'array-result-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'array-analyses'
+                runId = 'array-analyses-run'
+                expected = 'did not match schema 8'
+            },
+            [ordered]@{
+                mode = 'array-cpu'
+                runId = 'array-cpu-run'
+                expected = 'did not match schema 8'
+            }
+        )
+        foreach ($preflightCase in $preflightCases) {
+            $preflightArgsPath = Join-Path $temporaryRoot "$($preflightCase.mode)-dotnet-args.txt"
+            $env:FILTRACE_CAPTURE_ARGS = $preflightArgsPath
+            $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
+            $env:FILTRACE_CAPTURE_PREFLIGHT_MODE = $preflightCase.mode
+            Push-Location $temporaryRoot
+            try {
+                $previousErrorActionPreference = $ErrorActionPreference
+                try {
+                    $ErrorActionPreference = 'Continue'
+                    $preflightOutput = @(
+                        & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+                            -RunId $preflightCase.runId -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 |
+                            ForEach-Object { $_.ToString() }
+                    ) -join [Environment]::NewLine
+                    $preflightExitCode = $LASTEXITCODE
+                }
+                finally {
+                    $ErrorActionPreference = $previousErrorActionPreference
+                }
+            }
+            finally {
+                Pop-Location
+            }
+
+            Assert-True ($preflightExitCode -ne 0) "Incompatible filtrace mode '$($preflightCase.mode)' was accepted."
+            Assert-True (Test-StringContains $preflightOutput $preflightCase.expected) "Incompatible filtrace mode '$($preflightCase.mode)' did not explain the failed contract."
+            Assert-True (
+                (Test-StringContains $preflightOutput 'Upgrade') -and
+                (Test-StringContains $preflightOutput 'KlutzyNinja.Filtrace')) `
+                "Incompatible filtrace mode '$($preflightCase.mode)' omitted upgrade guidance. Output: $preflightOutput"
+            Assert-True (-not (Test-Path -LiteralPath $preflightArgsPath)) "Incompatible filtrace mode '$($preflightCase.mode)' started BenchmarkDotNet."
+            Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts "filtrace-runs/$($preflightCase.runId)"))) "Incompatible filtrace mode '$($preflightCase.mode)' created a run directory."
+        }
+    }
+    finally {
+        $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+        $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $previousChildSymbols
+        $env:FILTRACE_CAPTURE_PREFLIGHT_MODE = $previousPreflightMode
+    }
+
     $env:FILTRACE_CAPTURE_ARGS = $argsPath
     $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
     Push-Location $temporaryRoot
@@ -245,7 +523,7 @@ $global:LASTEXITCODE = 0
         $global:LASTEXITCODE = 0
         $output = & $captureScript -Project $projectPath -Filter '*Work*' -RunId 'current-run' `
             -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
-            -OperationCount 100 -OperationUnit items *>&1 | Out-String
+            -OperationCount 100 -OperationUnit items *>&1 | Out-String -Width 4096
     }
     finally {
         Pop-Location
@@ -263,12 +541,12 @@ $global:LASTEXITCODE = 0
     Assert-True (Test-Path -LiteralPath "$currentTrace.filtrace.json") 'Capture metadata was not written beside the current trace.'
     Assert-True (Test-Path -LiteralPath "$secondParameterTrace.filtrace.json") 'Capture metadata was not written beside the second parameter trace.'
     Assert-True (Test-Path -LiteralPath "$otherTrace.filtrace.json") 'Capture metadata was not written beside the other trace.'
-    Assert-True ($output.Contains($currentTrace, [StringComparison]::OrdinalIgnoreCase)) 'Current-run trace was not selected.'
-    Assert-True ($output.Contains($secondParameterTrace, [StringComparison]::OrdinalIgnoreCase)) 'Second parameter trace was not reported.'
-    Assert-True ($output.Contains($otherTrace, [StringComparison]::OrdinalIgnoreCase)) 'Other current-run trace was not reported.'
-    Assert-True ($output.Contains($scopeOnly, [StringComparison]::OrdinalIgnoreCase)) 'Speedscope-only case was not reported.'
-    Assert-True (-not $output.Contains('stale-global', [StringComparison]::OrdinalIgnoreCase)) 'A stale global trace was selected.'
-    Assert-True (-not $output.Contains('stale-old-run', [StringComparison]::OrdinalIgnoreCase)) 'A stale prior-run trace was selected.'
+    Assert-True (Test-StringContains $output $currentTrace) 'Current-run trace was not selected.'
+    Assert-True (Test-StringContains $output $secondParameterTrace) 'Second parameter trace was not reported.'
+    Assert-True (Test-StringContains $output $otherTrace) 'Other current-run trace was not reported.'
+    Assert-True (Test-StringContains $output $scopeOnly) 'Speedscope-only case was not reported.'
+    Assert-True (-not (Test-StringContains $output 'stale-global')) 'A stale global trace was selected.'
+    Assert-True (-not (Test-StringContains $output 'stale-old-run')) 'A stale prior-run trace was selected.'
 
     [string[]]$dotnetArguments = [System.IO.File]::ReadAllLines($argsPath)
     $artifactIndex = [Array]::IndexOf($dotnetArguments, '--artifacts')
@@ -277,7 +555,6 @@ $global:LASTEXITCODE = 0
 
     $manifestPath = Join-Path $currentRun 'manifest.json'
     Assert-True (Test-Path -LiteralPath $manifestPath) 'Run manifest was not created.'
-    Assert-True ((Get-Item -LiteralPath $manifestPath).Length -lt 20KB) 'Run manifest exceeded the 20 KiB compact-output target.'
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     Assert-True ($manifest.schemaVersion -eq 1) 'Run manifest schema version is incorrect.'
     Assert-True ($manifest.runId -eq 'current-run') 'Run manifest ID is incorrect.'
@@ -302,6 +579,7 @@ $global:LASTEXITCODE = 0
     Assert-True ($manifest.cases[3].speedscope -eq $scopeOnly) 'Speedscope-only case path was not recorded.'
     Assert-True ($null -eq $manifest.cases[3].symbolsDirectory) 'Speedscope-only case unexpectedly gained source symbols.'
     Assert-True ($manifest.runtimes.Count -eq 1) 'Runtime identity was not recorded.'
+    Assert-True ($null -eq $manifest.cases[3].runtime) 'Manifest-wide runtime summary was assigned to the last case.'
     Assert-True ($manifest.cases[0].symbolsDirectory -eq $childSymbols) 'Exact child symbols were not discovered.'
     Assert-True ($manifest.cases[1].symbolsDirectory -eq $childSymbols) 'Exact child symbols were not paired with every matching trace.'
     Assert-True ($manifest.cases[2].symbolsDirectory -eq $childSymbols) 'Exact child symbols were not paired with the other trace.'
@@ -320,7 +598,7 @@ $global:LASTEXITCODE = 0
     Assert-True ($manifest.cases[0].warnings -contains 'jitstats capture status unknown; no command emitted') 'Normalized missing capture status did not emit a warning.'
     Assert-True ($manifest.cases[0].symbolCandidates -contains $childSymbols) 'Logged child output was not recorded as a symbol candidate.'
     Assert-True (-not (($manifest.cases[0].symbolCandidates -join ';') -match 'evil\.example')) 'Remote logged OutDir entered symbol candidates.'
-    Assert-True ($output.Contains($childSymbols, [StringComparison]::OrdinalIgnoreCase)) 'Printed source command did not use exact child symbols.'
+    Assert-True (Test-StringContains $output $childSymbols) 'Printed source command did not use exact child symbols.'
     Assert-True (([regex]::Matches($output, 'filtrace lines ')).Count -eq 3) 'Expected one filtrace lines command per raw trace and none for the speedscope-only case.'
     Assert-True (([regex]::Matches($output, 'filtrace cpu ')).Count -eq 4) 'Enabled-zero CPU did not emit one command per case.'
     Assert-True (([regex]::Matches($output, 'filtrace rank .*--metric contention')).Count -eq 3) 'Enabled contention did not emit one command per raw trace.'
@@ -338,27 +616,77 @@ $global:LASTEXITCODE = 0
             Assert-True ($command -notmatch '(?:^|\s)--benchmark(?:\s|$)') "Source-line command used unsupported benchmark scope: $command"
         }
     }
-    Assert-True (-not $output.Contains('filtrace alloc ', [StringComparison]::OrdinalIgnoreCase)) 'Disabled allocation emitted a command.'
-    Assert-True (-not $output.Contains('filtrace exceptions ', [StringComparison]::OrdinalIgnoreCase)) 'Unknown exceptions emitted a command.'
-    Assert-True ($output.Contains('alloc capture disabled', [StringComparison]::OrdinalIgnoreCase)) 'Disabled allocation was not explained.'
-    Assert-True ($output.Contains('exceptions capture status unknown', [StringComparison]::OrdinalIgnoreCase)) 'Unknown exceptions were not explained.'
-    Assert-True (-not $output.Contains('fake BenchmarkDotNet capture completed', [StringComparison]::OrdinalIgnoreCase)) 'BenchmarkDotNet chatter leaked to stdout.'
-    Assert-True ((Get-Content -LiteralPath (Join-Path $currentRun 'capture.log') -Raw).Contains('fake BenchmarkDotNet capture completed', [StringComparison]::OrdinalIgnoreCase)) 'Full BenchmarkDotNet output was not retained in capture.log.'
+    Assert-True (-not (Test-StringContains $output 'filtrace alloc ')) 'Disabled allocation emitted a command.'
+    Assert-True (-not (Test-StringContains $output 'filtrace exceptions ')) 'Unknown exceptions emitted a command.'
+    Assert-True (Test-StringContains $output 'alloc capture disabled') 'Disabled allocation was not explained.'
+    Assert-True (Test-StringContains $output 'exceptions capture status unknown') 'Unknown exceptions were not explained.'
+    Assert-True (-not (Test-StringContains $output 'fake BenchmarkDotNet capture completed')) 'BenchmarkDotNet chatter leaked to stdout.'
+    Assert-True (Test-StringContains (Get-Content -LiteralPath (Join-Path $currentRun 'capture.log') -Raw) 'fake BenchmarkDotNet capture completed') 'Full BenchmarkDotNet output was not retained in capture.log.'
     Assert-True (-not (($manifest | ConvertTo-Json -Depth 8) -match 'stale-global|stale-old-run')) 'Stale captures entered the manifest.'
 
     $hostExe = (Get-Process -Id $PID).Path
+    $toukiArgsPath = Join-Path $temporaryRoot 'touki-dotnet-args.txt'
+    $env:FILTRACE_CAPTURE_ARGS = $toukiArgsPath
+    $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
+    Push-Location $temporaryRoot
+    try {
+        $toukiOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*BinaryFormattedObject*' `
+            -RunId 'touki-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json | Out-String -Width 4096
+        $toukiExitCode = $LASTEXITCODE
+        $identityWarningOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Identity*' `
+            -RunId 'identity-warning-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json | Out-String -Width 4096
+        $identityWarningExitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+        $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+        $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $previousChildSymbols
+    }
+
+    Assert-True ($toukiExitCode -eq 0) "Touki parameterized capture failed: $($toukiOutput.Trim())"
+    $toukiManifestPath = Join-Path $globalArtifacts 'filtrace-runs/touki-run/manifest.json'
+    $toukiManifest = Get-Content -LiteralPath $toukiManifestPath -Raw | ConvertFrom-Json
+    Assert-True ($toukiManifest.cases.Count -eq 6) 'Touki parameterized capture did not emit six cases.'
+    $expectedToukiScenarios = @(
+        'Int32Array_1K',
+        'StringList_128',
+        'CustomObject',
+        'ObjectTree_127',
+        'SharedCycle_128',
+        'SerializableCallback')
+    for ($index = 0; $index -lt $expectedToukiScenarios.Count; $index++) {
+        $toukiCase = $toukiManifest.cases[$index]
+        Assert-True ($toukiCase.benchmarkId -eq $index) "Touki case $index was paired with the wrong BenchmarkDotNet ID."
+        Assert-True ($toukiCase.benchmark -eq 'touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize') "Touki case $index lost its benchmark identity."
+        Assert-True ($toukiCase.parameters -eq "Scenario=$($expectedToukiScenarios[$index])") "Touki case $index lost its parameter identity."
+        Assert-True (-not [string]::IsNullOrWhiteSpace($toukiCase.benchmarkDisplay)) "Touki case $index lost its display identity."
+        Assert-True ($toukiCase.runtime -eq '// Runtime=.NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3') "Touki case $index lost its runtime identity."
+    }
+    Assert-True ($toukiManifest.runtimes.Count -eq 1) 'Touki runtime metadata was not recorded.'
+    Assert-True ($toukiManifest.runtimes[0] -eq '// Runtime=.NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3') 'Touki runtime metadata was recorded incorrectly.'
+
+    Assert-True ($identityWarningExitCode -eq 0) "Incomplete-identity capture failed: $($identityWarningOutput.Trim())"
+    $identityWarningManifestPath = Join-Path $globalArtifacts 'filtrace-runs/identity-warning-run/manifest.json'
+    $identityWarningManifest = Get-Content -LiteralPath $identityWarningManifestPath -Raw | ConvertFrom-Json
+    Assert-True ($identityWarningManifest.cases.Count -eq 2) 'Incomplete-identity fixture did not emit both cases.'
+    foreach ($identityWarningCase in $identityWarningManifest.cases) {
+        Assert-True ($null -eq $identityWarningCase.benchmarkId) "Unidentified case '$($identityWarningCase.id)' was silently paired."
+        Assert-True ($null -eq $identityWarningCase.benchmark) "Unidentified case '$($identityWarningCase.id)' gained a benchmark name."
+        Assert-True (@($identityWarningCase.warnings) -contains 'benchmark identity unavailable or ambiguous; do not use this case with manifest batch/diff; analyze the trace directly') "Unidentified case '$($identityWarningCase.id)' omitted direct-trace guidance."
+    }
+
     $env:FILTRACE_CAPTURE_ARGS = $argsPath
     $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
     Push-Location $temporaryRoot
     try {
         $jsonOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
-            -RunId 'json-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json | Out-String
+            -RunId 'json-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json | Out-String -Width 4096
         $jsonExitCode = $LASTEXITCODE
         $quietOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
-            -RunId 'quiet-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Quiet 2>&1 | Out-String
+            -RunId 'quiet-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Quiet 2>&1 | Out-String -Width 4096
         $quietExitCode = $LASTEXITCODE
         $boundedJsonOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Handoff*' `
-            -RunId 'handoff-budget-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json 2>&1 | Out-String
+            -RunId 'handoff-budget-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json 2>&1 | Out-String -Width 4096
         $boundedJsonExitCode = $LASTEXITCODE
     }
     finally {
@@ -374,22 +702,21 @@ $global:LASTEXITCODE = 0
     Assert-True ($jsonResult.cases.Count -eq 4) 'JSON output did not include every case.'
     Assert-True ($jsonResult.warnings.Count -gt 0) 'JSON output omitted provider warnings.'
     Assert-True ($jsonResult.cases[0].commands -contains "filtrace gcstats '$($jsonResult.cases[0].trace)'") 'JSON output omitted an enabled-zero command.'
-    Assert-True (-not $jsonOutput.Contains('fake BenchmarkDotNet capture completed', [StringComparison]::OrdinalIgnoreCase)) 'BenchmarkDotNet chatter polluted JSON output.'
+    Assert-True (-not (Test-StringContains $jsonOutput 'fake BenchmarkDotNet capture completed')) 'BenchmarkDotNet chatter polluted JSON output.'
     Assert-True ([Text.Encoding]::UTF8.GetByteCount($jsonOutput.Trim()) -lt 20KB) 'JSON handoff exceeded 20 KiB.'
 
     Assert-True ($boundedJsonExitCode -eq 0) "Bounded JSON capture failed: $($boundedJsonOutput.Trim())"
     $boundedJsonResult = $boundedJsonOutput | ConvertFrom-Json
     $boundedManifestPath = Join-Path $globalArtifacts 'filtrace-runs/handoff-budget-run/manifest.json'
     Assert-True (Test-Path -LiteralPath $boundedManifestPath) 'Bounded JSON capture did not write its manifest.'
-    Assert-True ((Get-Item -LiteralPath $boundedManifestPath).Length -lt 20KB) 'Bounded JSON fixture exceeded the manifest budget instead of only the handoff budget.'
     $boundedManifest = Get-Content -LiteralPath $boundedManifestPath -Raw | ConvertFrom-Json
     Assert-True ($boundedManifest.cases.Count -eq 4) 'Bounded JSON manifest omitted capture cases.'
-    Assert-True (@($boundedManifest.cases[0].warnings).Count -eq 23) 'Bounded JSON manifest omitted the full warning detail.'
+    Assert-True (@($boundedManifest.cases[0].warnings).Count -eq 24) 'Bounded JSON manifest omitted the full warning detail.'
     Assert-True ($boundedJsonResult.status -eq 'completed') 'Bounded JSON fallback did not preserve completed status.'
     Assert-True ($boundedJsonResult.runId -eq 'handoff-budget-run') 'Bounded JSON fallback omitted the run ID.'
     Assert-True ($boundedJsonResult.manifest -eq $boundedManifestPath) 'Bounded JSON fallback omitted the manifest path.'
     Assert-True ($boundedJsonResult.runDirectory -eq (Split-Path -Parent $boundedManifestPath)) 'Bounded JSON fallback omitted the canonical run directory.'
-    Assert-True ($boundedJsonResult.message.Contains('read the manifest', [StringComparison]::OrdinalIgnoreCase)) 'Bounded JSON fallback did not direct the caller to the manifest.'
+    Assert-True (Test-StringContains $boundedJsonResult.message 'read the manifest') 'Bounded JSON fallback did not direct the caller to the manifest.'
     Assert-True ($boundedJsonResult.PSObject.Properties.Name -notcontains 'cases') 'Bounded JSON fallback retained oversized case detail.'
     Assert-True ($boundedJsonResult.PSObject.Properties.Name -notcontains 'warnings') 'Bounded JSON fallback retained oversized warning detail.'
     Assert-True ([Text.Encoding]::UTF8.GetByteCount($boundedJsonOutput.Trim()) -lt 20KB) 'Bounded JSON fallback exceeded 20 KiB.'
@@ -401,7 +728,7 @@ $global:LASTEXITCODE = 0
     Push-Location $temporaryRoot
     try {
         $infoFailureOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
-            -RunId 'info-failure-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json | Out-String
+            -RunId 'info-failure-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json | Out-String -Width 4096
         $infoFailureExitCode = $LASTEXITCODE
     }
     finally {
@@ -477,15 +804,15 @@ if ($Quiet) { $captureParameters.Quiet = $true }
         try {
             $timeoutJson = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $captureScript `
                 -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
-                -RunId 'timeout-json-run' -OutputFormat Json | Out-String
+                -RunId 'timeout-json-run' -OutputFormat Json | Out-String -Width 4096
             $timeoutExitCode = $LASTEXITCODE
             $timeoutText = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $captureScript `
                 -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
-                -RunId 'timeout-text-run' -OutputFormat Text 2>&1 | Out-String
+                -RunId 'timeout-text-run' -OutputFormat Text 2>&1 | Out-String -Width 4096
             $timeoutTextExitCode = $LASTEXITCODE
             $timeoutQuiet = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $captureScript `
                 -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
-                -RunId 'timeout-quiet-run' -OutputFormat Text -Quiet 2>&1 | Out-String
+                -RunId 'timeout-quiet-run' -OutputFormat Text -Quiet 2>&1 | Out-String -Width 4096
             $timeoutQuietExitCode = $LASTEXITCODE
         }
         finally {
@@ -498,24 +825,24 @@ if ($Quiet) { $captureParameters.Quiet = $true }
         Assert-True ($timeoutResult.status -eq 'timeout') 'Elevated JSON timeout did not report timeout status.'
         Assert-True ($timeoutResult.runId -eq 'timeout-json-run') 'Elevated JSON timeout omitted the run ID.'
         Assert-True ($timeoutResult.log -eq $timeoutLog) 'Elevated JSON timeout omitted the capture log path.'
-        Assert-True ($timeoutResult.message.Contains('did not signal completion', [StringComparison]::OrdinalIgnoreCase)) 'Elevated JSON timeout omitted its diagnostic message.'
+        Assert-True (Test-StringContains $timeoutResult.message 'did not signal completion') 'Elevated JSON timeout omitted its diagnostic message.'
         Assert-True ($null -eq $timeoutResult.manifest) 'Elevated JSON timeout reported a manifest that was never observed.'
         Assert-True ($timeoutResult.cases.Count -eq 0) 'Elevated JSON timeout reported capture cases that were never observed.'
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/timeout-json-run'))) 'Elevated timeout unexpectedly created a run directory in the parent.'
         Assert-True ($timeoutTextExitCode -eq 0) 'Elevated text timeout did not preserve its non-fatal exit status.'
-        Assert-True ($timeoutText.Contains('did not signal completion', [StringComparison]::OrdinalIgnoreCase)) 'Elevated text timeout did not emit a warning.'
-        Assert-True (-not $timeoutText.Contains('"status"', [StringComparison]::OrdinalIgnoreCase)) 'Elevated text timeout emitted JSON.'
+        Assert-True (Test-StringContains $timeoutText 'did not signal completion') 'Elevated text timeout did not emit a warning.'
+        Assert-True (-not (Test-StringContains $timeoutText '"status"')) 'Elevated text timeout emitted JSON.'
         Assert-True ($timeoutQuietExitCode -eq 0) 'Elevated quiet timeout did not preserve its non-fatal exit status.'
-        Assert-True ($timeoutQuiet.Contains('did not signal completion', [StringComparison]::OrdinalIgnoreCase)) 'Elevated quiet timeout suppressed its warning.'
-        Assert-True (-not $timeoutQuiet.Contains('Captured ', [StringComparison]::OrdinalIgnoreCase)) 'Elevated quiet timeout emitted a capture summary.'
+        Assert-True (Test-StringContains $timeoutQuiet 'did not signal completion') 'Elevated quiet timeout suppressed its warning.'
+        Assert-True (-not (Test-StringContains $timeoutQuiet 'Captured ')) 'Elevated quiet timeout emitted a capture summary.'
     }
 
     Assert-True ($quietExitCode -eq 0) 'Quiet capture failed.'
-    Assert-True ($quietOutput.Contains('capture disabled', [StringComparison]::OrdinalIgnoreCase)) 'Quiet mode suppressed warnings.'
-    Assert-True (-not $quietOutput.Contains('Captured ', [StringComparison]::OrdinalIgnoreCase)) 'Quiet mode emitted capture summary.'
-    Assert-True (-not $quietOutput.Contains('Manifest:', [StringComparison]::OrdinalIgnoreCase)) 'Quiet mode emitted the manifest summary.'
-    Assert-True (-not $quietOutput.Contains('filtrace cpu ', [StringComparison]::OrdinalIgnoreCase)) 'Quiet mode emitted commands.'
-    Assert-True (-not $quietOutput.Contains('fake BenchmarkDotNet capture completed', [StringComparison]::OrdinalIgnoreCase)) 'BenchmarkDotNet chatter polluted quiet output.'
+    Assert-True (Test-StringContains $quietOutput 'capture disabled') 'Quiet mode suppressed warnings.'
+    Assert-True (-not (Test-StringContains $quietOutput 'Captured ')) 'Quiet mode emitted capture summary.'
+    Assert-True (-not (Test-StringContains $quietOutput 'Manifest:')) 'Quiet mode emitted the manifest summary.'
+    Assert-True (-not (Test-StringContains $quietOutput 'filtrace cpu ')) 'Quiet mode emitted commands.'
+    Assert-True (-not (Test-StringContains $quietOutput 'fake BenchmarkDotNet capture completed')) 'BenchmarkDotNet chatter polluted quiet output.'
 
     $missingFiltrace = Join-Path $temporaryRoot 'missing-filtrace'
     $env:FILTRACE_CAPTURE_ARGS = $argsPath
@@ -523,7 +850,7 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     Push-Location $temporaryRoot
     try {
         $fallbackOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
-            -RunId 'fallback-run' -DotnetPath $fakeDotnet -FiltracePath $missingFiltrace -Format Json | Out-String
+            -RunId 'fallback-run' -DotnetPath $fakeDotnet -FiltracePath $missingFiltrace -Format Json | Out-String -Width 4096
         $fallbackExitCode = $LASTEXITCODE
     }
     finally {
@@ -547,6 +874,9 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     Assert-True ($null -eq $fallbackManifest.cases[0].analyses.exceptions.eventCount) 'Recorder-established exceptions fabricated an observed event count.'
     Assert-True ($fallbackManifest.cases[0].analyses.alloc.captureStatus -eq 'disabled') 'Recorder-disabled allocation status was not preserved.'
     Assert-True ($null -eq $fallbackManifest.cases[0].analyses.alloc.eventCount) 'Recorder-disabled allocation unexpectedly gained an event count.'
+    Assert-True ($fallbackManifest.cases[0].analyses.activity.captureStatus -eq 'unknown') 'Recorder fallback claimed activity without provider evidence.'
+    Assert-True ($null -eq $fallbackManifest.cases[0].analyses.activity.eventCount) 'Recorder fallback fabricated an activity event count.'
+    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace rank .*--metric activity' }).Count -eq 0) 'Recorder fallback emitted an activity command without provider evidence.'
     foreach ($captureCase in $fallbackManifest.cases) {
         Assert-True (@($captureCase.analyses.PSObject.Properties.Value.eventCount | Where-Object { $null -ne $_ }).Count -eq 0) "Recorder fallback fabricated an observed event count for case '$($captureCase.id)'."
     }
@@ -557,9 +887,19 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     Push-Location $temporaryRoot
     try {
         $hostExe = (Get-Process -Id $PID).Path
-        $reuseOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
-            -RunId 'current-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 | Out-String
-        $reuseExitCode = $LASTEXITCODE
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $reuseOutput = @(
+                & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+                    -RunId 'current-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 |
+                    ForEach-Object { $_.ToString() }
+            ) -join [Environment]::NewLine
+            $reuseExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
     }
     finally {
         Pop-Location
@@ -568,43 +908,82 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     }
 
     Assert-True ($reuseExitCode -ne 0) 'A reused RunId was accepted.'
-    Assert-True ($reuseOutput.Contains('already exists', [StringComparison]::OrdinalIgnoreCase)) 'Reused RunId failure did not explain the existing run.'
+    Assert-True (Test-StringContains $reuseOutput 'already exists') 'Reused RunId failure did not explain the existing run.'
     Assert-True (-not (Test-Path -LiteralPath $reuseArgsPath)) 'Reused RunId invoked dotnet before rejection.'
 
     Push-Location $temporaryRoot
     try {
         $hostExe = (Get-Process -Id $PID).Path
-        $countOnlyOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
-            -RunId 'count-only-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
-            -OperationCount 100 2>&1 | Out-String
-        $countOnlyExitCode = $LASTEXITCODE
-        $unitOnlyOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
-            -RunId 'unit-only-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
-            -OperationUnit items 2>&1 | Out-String
-        $unitOnlyExitCode = $LASTEXITCODE
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $countOnlyOutput = @(
+                & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+                    -RunId 'count-only-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                    -OperationCount 100 2>&1 |
+                    ForEach-Object { $_.ToString() }
+            ) -join [Environment]::NewLine
+            $countOnlyExitCode = $LASTEXITCODE
+            $unitOnlyOutput = @(
+                & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+                    -RunId 'unit-only-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                    -OperationUnit items 2>&1 |
+                    ForEach-Object { $_.ToString() }
+            ) -join [Environment]::NewLine
+            $unitOnlyExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
     }
     finally {
         Pop-Location
     }
     Assert-True ($countOnlyExitCode -ne 0) 'OperationCount without OperationUnit was accepted.'
     Assert-True ($unitOnlyExitCode -ne 0) 'OperationUnit without OperationCount was accepted.'
-    Assert-True ($countOnlyOutput.Contains('together', [StringComparison]::OrdinalIgnoreCase)) 'Count-only failure did not explain the parameter relationship.'
-    Assert-True ($unitOnlyOutput.Contains('together', [StringComparison]::OrdinalIgnoreCase)) 'Unit-only failure did not explain the parameter relationship.'
+    Assert-True (Test-StringContains $countOnlyOutput 'together') 'Count-only failure did not explain the parameter relationship.'
+    Assert-True (Test-StringContains $unitOnlyOutput 'together') 'Unit-only failure did not explain the parameter relationship.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/count-only-run'))) 'Count-only rejection created a run directory.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/unit-only-run'))) 'Unit-only rejection created a run directory.'
 
+    $unsafeWrapper = Join-Path $temporaryRoot 'Invoke-UnsafeCapture.ps1'
+    $unsafeWrapperText = @'
+param(
+    [string]$CaptureScript,
+    [string]$ProjectPath,
+    [string]$DotnetPath,
+    [string]$FiltracePath)
+
+& $CaptureScript -Project $ProjectPath -Filter '*Work*"' -Profiler ETW `
+    -RunId 'unsafe-etw-run' -DotnetPath $DotnetPath -FiltracePath $FiltracePath
+exit $LASTEXITCODE
+'@
+    [System.IO.File]::WriteAllText($unsafeWrapper, $unsafeWrapperText)
     Push-Location $temporaryRoot
     try {
         $hostExe = (Get-Process -Id $PID).Path
-        $unsafeOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*"' `
-            -Profiler ETW -RunId 'unsafe-etw-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 | Out-String
-        $unsafeExitCode = $LASTEXITCODE
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $unsafeOutput = @(
+                & $hostExe -NoProfile -File $unsafeWrapper -CaptureScript $captureScript `
+                    -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 |
+                    ForEach-Object { $_.ToString() }
+            ) -join [Environment]::NewLine
+            $unsafeExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
     }
     finally {
         Pop-Location
     }
     Assert-True ($unsafeExitCode -ne 0) 'Unsafe ETW elevation argument was accepted.'
-    Assert-True ($unsafeOutput.Contains('cannot contain quotes', [StringComparison]::OrdinalIgnoreCase)) 'Unsafe ETW argument failure was not explained.'
+    Assert-True (
+        (Test-StringContains $unsafeOutput 'ETW elevation argument') -and
+        (Test-StringContains $unsafeOutput 'quotes')) `
+        'Unsafe ETW argument failure was not explained.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/unsafe-etw-run'))) 'Unsafe ETW argument created a run directory.'
 
     $env:FILTRACE_CAPTURE_ARGS = $argsPath
@@ -613,7 +992,7 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     try {
         $hostExe = (Get-Process -Id $PID).Path
         $oversizeOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Oversize*' `
-            -RunId 'oversize-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 | Out-String
+            -RunId 'oversize-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json 2>&1 | Out-String -Width 4096
         $oversizeExitCode = $LASTEXITCODE
     }
     finally {
@@ -623,9 +1002,14 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     }
 
     $oversizeManifest = Join-Path $globalArtifacts 'filtrace-runs/oversize-run/manifest.json'
-    Assert-True ($oversizeExitCode -ne 0) 'An oversized capture manifest was accepted.'
-    Assert-True ($oversizeOutput.Contains('must stay under 20 KiB', [StringComparison]::OrdinalIgnoreCase)) 'Oversized manifest failure did not explain the budget.'
-    Assert-True (-not (Test-Path -LiteralPath $oversizeManifest)) 'Oversized manifest was written before budget validation.'
+    Assert-True ($oversizeExitCode -eq 0) "Large durable manifest capture failed: $($oversizeOutput.Trim())"
+    Assert-True (Test-Path -LiteralPath $oversizeManifest) 'Large durable manifest was not written.'
+    Assert-True ((Get-Item -LiteralPath $oversizeManifest).Length -gt 20KB) 'Large durable manifest fixture did not exceed the stdout budget.'
+    $oversizeResult = $oversizeOutput | ConvertFrom-Json
+    Assert-True ($oversizeResult.status -eq 'completed') 'Large-manifest JSON handoff did not preserve completed status.'
+    Assert-True ($oversizeResult.manifest -eq $oversizeManifest) 'Large-manifest JSON handoff omitted the manifest path.'
+    Assert-True ($oversizeResult.PSObject.Properties.Name -notcontains 'cases') 'Large-manifest JSON handoff retained oversized case detail.'
+    Assert-True ([Text.Encoding]::UTF8.GetByteCount($oversizeOutput.Trim()) -lt 20KB) 'Large-manifest JSON handoff exceeded 20 KiB.'
 
     $lockPath = Get-ChildItem -LiteralPath (Join-Path $projectDirectory 'obj/filtrace-capture-locks') -Filter '*.lock' |
         Select-Object -ExpandProperty FullName -First 1
@@ -644,11 +1028,21 @@ if ($Quiet) { $captureParameters.Quiet = $true }
         Push-Location $temporaryRoot
         try {
             $siblingOutput = & $hostExe -NoProfile -File $captureScript -Project $siblingProjectPath -Filter '*Work*' `
-                -RunId 'sibling-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 | Out-String
+                -RunId 'sibling-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 | Out-String -Width 4096
             $siblingExitCode = $LASTEXITCODE
-            $overlapOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
-                -RunId 'overlap-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 | Out-String
-            $overlapExitCode = $LASTEXITCODE
+            $previousErrorActionPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                $overlapOutput = @(
+                    & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+                        -RunId 'overlap-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 |
+                        ForEach-Object { $_.ToString() }
+                ) -join [Environment]::NewLine
+                $overlapExitCode = $LASTEXITCODE
+            }
+            finally {
+                $ErrorActionPreference = $previousErrorActionPreference
+            }
         }
         finally {
             Pop-Location
@@ -663,7 +1057,7 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     Assert-True ($siblingExitCode -eq 0) 'A sibling project in the same directory incorrectly shared the capture lock.'
     Assert-True (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/sibling-run/manifest.json')) 'Sibling project capture did not complete.'
     Assert-True ($overlapExitCode -ne 0) 'A concurrent same-project/TFM capture was not rejected.'
-    Assert-True ($overlapOutput.Contains('capture is already active', [StringComparison]::OrdinalIgnoreCase)) 'Overlap rejection did not explain the active capture.'
+    Assert-True (Test-StringContains $overlapOutput 'capture is already active') 'Overlap rejection did not explain the active capture.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/overlap-run'))) 'Rejected overlap created a run directory.'
 
     $global:LASTEXITCODE = 0

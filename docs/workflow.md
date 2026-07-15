@@ -102,15 +102,17 @@ unique sampled methods with at least one address resolved through a sequence poi
 occurrences still become `<no source>`. Scope every
 **root-aware stack analysis** to the generated `WorkloadAction*` wrapper - not just
 rankings, export too, and not just when the result looks noisy. In the CLI,
-`--benchmark` supplies that preset to every verb that offers it. In MCP, pass
+pass `--benchmark` to `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`,
+`callers`, `tree`, `classify`, `diff`, `batch`, and `export`. In MCP, pass
 `benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`,
-and `trace_export`. Do not guess a benchmark method substring: root/frame warnings
-report the total match count and list up to 25 full frame definitions with up to 10
-observed depths each, marking omitted definitions/depths, plus which outermost/deepest
-definition the query selected. Narrow an ambiguous selector before trusting
-percentages. `lines` and `heatmap` have no root scope in either head: narrow them with
-their method/file filter and remember their percentages still describe the
-process-scoped whole trace. The workload wrapper includes warmup and actual iterations;
+`trace_diff`, `trace_batch`, and `trace_export`. Do not guess a benchmark method
+substring: root/frame warnings report the total match count and list up to 25 full
+frame definitions with up to 10 observed depths each, marking omitted
+definitions/depths, plus which outermost/deepest definition the query selected.
+Narrow an ambiguous selector before trusting percentages. `lines` and `heatmap`
+have no root scope in either head: narrow them with their method/file filter and
+remember their percentages still describe the process-scoped whole trace. The
+workload wrapper includes warmup and actual iterations;
 it isolates the `[Benchmark]` code from bootstrap and overhead scaffolding, not warmup
 from measurement. The bundled
 [scripts/Capture-BenchmarkTrace.ps1](../.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1)
@@ -302,27 +304,35 @@ verb report `hit`, `waited`, `converted`, or `recovered` (`null` for speedscope)
 An agent wants the smallest relevant slice, not a machine-wide firehose. filtrace
 defaults to scenario scope and lets you tighten further:
 
-- **Process scope** - the verbs that read a
-  multi-process `.etl` (`cpu`, `threadtime`, `rank`, `callers`, `lines`,
-  `heatmap`, `tree`, `classify`, `timeline`, `diff`, `batch`) auto-scope to the busiest process tree
-  (ranked by CPU-sample count) unless told otherwise. `alloc` and `exceptions` read a
-  single-process `.nettrace`, so they have no process options. Run `processes`
-  first to see what is in a capture. Both heads accept a named process (`--process
-  <name>` in the CLI, `process` in MCP); only the CLI accepts `--all-processes` to
-  widen an analysis to the aggregate capture.
-- **`--root <frame>`** - scope a ranking to the subtree under a frame.
-- **BenchmarkDotNet workload scope** - preset the root to the measured-workload
-  wrapper, isolating the `[Benchmark]` code from harness and overhead scaffolding.
-  Use `--benchmark` in CLI verbs that offer it; in MCP use `benchmark: true` on
-  `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`,
-  `trace_batch`, and `trace_export`.
-  The wrapper includes warmup and actual iterations. `lines` / `heatmap` are not
-  root-aware; use their method/file filter and treat percentages as whole-trace. A
-  benchmark preset is mutually exclusive with an explicit root. When using a root or
-  frame substring, inspect warnings: they report the total match count, then list up
-  to 25 full definitions and 10 depths per definition with omitted-count markers, plus
-  the per-stack selection rule. Narrow an ambiguous selector before treating its
-  percentages as evidence.
+<!-- filtrace:begin scopes -->
+**Implemented scope inventory:**
+
+- **Named process:** CLI `info`, `rank`, `cpu`, `threadtime`, `callers`, `lines`,
+  `heatmap`, `tree`, `classify`, `timeline`, `diff`, `batch`, and `export`; MCP
+  `trace_info`, `trace_rank`, `trace_callers`, `trace_lines`, `trace_heatmap`,
+  `trace_tree`, `trace_classify`, `trace_timeline`, `trace_diff`, `trace_batch`, and
+  `trace_export`. These auto-scope a multi-process `.etl` to the busiest process tree.
+  Run `processes` / `trace_processes` first to inspect the capture, then set
+  `--process <name>` / `process` to override. CLI verbs expose `--all-processes`
+  where an aggregate is supported; MCP has no all-process aggregate.
+- **Root subtree:** CLI `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`,
+  `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
+  `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and
+  `trace_export`. Set `--root <frame>` / `root` to keep the subtree under a frame.
+- **BenchmarkDotNet workload:** CLI `rank`, `cpu`, `alloc`, `exceptions`,
+  `threadtime`, `callers`, `tree`, `classify`, `diff`, `batch`, and `export` accept
+  `--benchmark`; MCP `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`,
+  `trace_diff`, `trace_batch`, and `trace_export` accept `benchmark: true`. The
+  preset isolates the `WorkloadAction` subtree from harness and overhead scaffolding;
+  it is mutually exclusive with an explicit root. `lines` / `heatmap` are not
+  root-aware, so narrow them by method/file and treat percentages as process-scoped
+  whole-trace values.
+<!-- filtrace:end scopes -->
+
+When using a root or frame substring, inspect warnings: they report the total match
+count, then list up to 25 full definitions and 10 depths per definition with
+omitted-count markers, plus the per-stack selection rule. Narrow an ambiguous
+selector before treating its percentages as evidence.
 - **`--activity <name>`** (`rank`, cpu metric) - scope the CPU view to the samples
   taken inside one start-stop activity - a request, job, or operation - or a child
   of it. Answers "why is *this* request slow?".

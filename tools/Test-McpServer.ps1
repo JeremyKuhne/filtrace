@@ -213,10 +213,30 @@ foreach ($line in $stdout) {
 
 # 2. schema budget: measure the serialized tools array from the tools/list response.
 $toolNames = @()
+$scopeTools = [ordered]@{
+    process = [System.Collections.Generic.List[string]]::new()
+    root = [System.Collections.Generic.List[string]]::new()
+    benchmark = [System.Collections.Generic.List[string]]::new()
+}
 if ($null -ne $toolsLine) {
     $doc = [System.Text.Json.JsonDocument]::Parse($toolsLine)
     $tools = $doc.RootElement.GetProperty('result').GetProperty('tools')
-    foreach ($t in $tools.EnumerateArray()) { $toolNames += $t.GetProperty('name').GetString() }
+    foreach ($tool in $tools.EnumerateArray()) {
+        $toolName = $tool.GetProperty('name').GetString()
+        $toolNames += $toolName
+        $inputSchema = $tool.GetProperty('inputSchema')
+        $properties = [System.Text.Json.JsonElement]::new()
+        if (-not $inputSchema.TryGetProperty('properties', [ref]$properties)) {
+            continue
+        }
+        foreach ($scope in $scopeTools.Keys) {
+            try {
+                $null = $properties.GetProperty($scope)
+                $scopeTools[$scope].Add($toolName)
+            }
+            catch { }
+        }
+    }
 
     $serialized = $tools.GetRawText()
     $chars = $serialized.Length
@@ -225,6 +245,40 @@ if ($null -ne $toolsLine) {
     Write-Host "Schema size: $chars chars, ~$estimatedTokens tokens (budget $MaxSchemaTokens)"
     if ($estimatedTokens -gt $MaxSchemaTokens) {
         Add-Failure "Tool-list schema is ~$estimatedTokens tokens (budget $MaxSchemaTokens). Tighten descriptions or trim the surface."
+    }
+
+    $workflow = Get-Content -LiteralPath (Join-Path $root 'docs/workflow.md') -Raw
+    $scopeBlockMatch = [regex]::Match(
+        $workflow,
+        '(?s)<!-- filtrace:begin scopes -->\r?\n(.*?)\r?\n<!-- filtrace:end scopes -->')
+    if (-not $scopeBlockMatch.Success) {
+        Add-Failure "docs/workflow.md has no synchronized 'scopes' block."
+    }
+    else {
+        $scopeBlock = $scopeBlockMatch.Groups[1].Value
+        $scopeSections = [ordered]@{
+            process = [regex]::Match(
+                $scopeBlock,
+                '(?s)- \*\*Named process:\*\*(.*?)(?=\r?\n- \*\*Root subtree:\*\*)').Groups[1].Value
+            root = [regex]::Match(
+                $scopeBlock,
+                '(?s)- \*\*Root subtree:\*\*(.*?)(?=\r?\n- \*\*BenchmarkDotNet workload:\*\*)').Groups[1].Value
+            benchmark = [regex]::Match(
+                $scopeBlock,
+                '(?s)- \*\*BenchmarkDotNet workload:\*\*(.*)$').Groups[1].Value
+        }
+        foreach ($scope in $scopeTools.Keys) {
+            if ([string]::IsNullOrWhiteSpace($scopeSections[$scope])) {
+                Add-Failure "docs/workflow.md scope inventory has no '$scope' section."
+                continue
+            }
+            foreach ($toolName in $scopeTools[$scope]) {
+                $token = '`' + $toolName + '`'
+                if (-not $scopeSections[$scope].Contains($token, [StringComparison]::Ordinal)) {
+                    Add-Failure "MCP tool '$toolName' implements '$scope' but is absent from the scope inventory."
+                }
+            }
+        }
     }
 }
 else {

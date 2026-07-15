@@ -10,7 +10,7 @@ namespace Filtrace.Tracing;
 public static class CaptureManifestReader
 {
     /// <summary>Maximum UTF-8 manifest size accepted by the analyzer.</summary>
-    public const int MaxManifestBytes = 20 * 1024;
+    public const int MaxManifestBytes = 16 * 1024 * 1024;
 
     /// <summary>Maximum cases accepted from one manifest.</summary>
     public const int MaxCases = 256;
@@ -171,14 +171,24 @@ public static class CaptureManifestReader
 
     internal static string ExtractParameters(string display)
     {
-        int close = display.LastIndexOf("): ", StringComparison.Ordinal);
+        string trimmedDisplay = display.TrimEnd();
+        if (trimmedDisplay.EndsWith(']'))
+        {
+            int openBracket = trimmedDisplay.LastIndexOf('[');
+            if (openBracket >= 0)
+            {
+                return trimmedDisplay[(openBracket + 1)..^1];
+            }
+        }
+
+        int close = trimmedDisplay.LastIndexOf("): ", StringComparison.Ordinal);
         if (close < 0)
         {
             return string.Empty;
         }
 
-        int open = display.IndexOf('(');
-        return open >= 0 && open < close ? display[(open + 1)..close] : string.Empty;
+        int open = trimmedDisplay.IndexOf('(');
+        return open >= 0 && open < close ? trimmedDisplay[(open + 1)..close] : string.Empty;
     }
 
     private static string RequiredBoundedString(JsonElement element, string name, int maxLength) =>
