@@ -6,7 +6,7 @@ compatibility: Pairs with the filtrace MCP server (the KlutzyNinja.Filtrace.Mcp 
 metadata:
    portability: repo-specific
    applicability: tool-shipped
-   binding: none
+   binding: optional-overlay
    risk: local-write
    maturity: stable
    requires: none
@@ -14,6 +14,9 @@ metadata:
 ---
 
 # Analyzing .NET traces with filtrace
+
+If `overlay.md` exists beside this file, read it before acting; it contains
+consumer-specific bindings. This core remains usable without it.
 
 filtrace ranks CPU / allocation / exception / contention / wait / activity /
 thread-time data, reports GC / JIT / thread-pool / disk activity, and drills into,
