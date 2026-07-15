@@ -474,6 +474,7 @@ $global:LASTEXITCODE = 0
     Assert-True ($manifest.cases[3].speedscope -eq $scopeOnly) 'Speedscope-only case path was not recorded.'
     Assert-True ($null -eq $manifest.cases[3].symbolsDirectory) 'Speedscope-only case unexpectedly gained source symbols.'
     Assert-True ($manifest.runtimes.Count -eq 1) 'Runtime identity was not recorded.'
+    Assert-True ($null -eq $manifest.cases[3].runtime) 'Manifest-wide runtime summary was assigned to the last case.'
     Assert-True ($manifest.cases[0].symbolsDirectory -eq $childSymbols) 'Exact child symbols were not discovered.'
     Assert-True ($manifest.cases[1].symbolsDirectory -eq $childSymbols) 'Exact child symbols were not paired with every matching trace.'
     Assert-True ($manifest.cases[2].symbolsDirectory -eq $childSymbols) 'Exact child symbols were not paired with the other trace.'

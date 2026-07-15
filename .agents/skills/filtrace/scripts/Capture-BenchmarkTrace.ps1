@@ -265,6 +265,8 @@ function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases
             continue
         }
 
+        # Comment-prefixed runtime rows belong to the active Execute block. The
+        # unprefixed Runtime rows are the final report table and stay manifest-wide.
         if ($null -ne $pendingBenchmark -and $line -match '^//\s*Runtime\s*=') {
             $pendingBenchmark.runtime = [string]::new($line.ToCharArray())
             $pendingBenchmark = $null

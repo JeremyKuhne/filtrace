@@ -224,7 +224,11 @@ if ($null -ne $toolsLine) {
     foreach ($tool in $tools.EnumerateArray()) {
         $toolName = $tool.GetProperty('name').GetString()
         $toolNames += $toolName
-        $properties = $tool.GetProperty('inputSchema').GetProperty('properties')
+        $inputSchema = $tool.GetProperty('inputSchema')
+        $properties = [System.Text.Json.JsonElement]::new()
+        if (-not $inputSchema.TryGetProperty('properties', [ref]$properties)) {
+            continue
+        }
         foreach ($scope in $scopeTools.Keys) {
             try {
                 $null = $properties.GetProperty($scope)

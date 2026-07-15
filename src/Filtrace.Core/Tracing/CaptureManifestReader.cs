@@ -171,23 +171,24 @@ public static class CaptureManifestReader
 
     internal static string ExtractParameters(string display)
     {
-        if (display.EndsWith(']'))
+        string trimmedDisplay = display.TrimEnd();
+        if (trimmedDisplay.EndsWith(']'))
         {
-            int openBracket = display.LastIndexOf('[');
+            int openBracket = trimmedDisplay.LastIndexOf('[');
             if (openBracket >= 0)
             {
-                return display[(openBracket + 1)..^1];
+                return trimmedDisplay[(openBracket + 1)..^1];
             }
         }
 
-        int close = display.LastIndexOf("): ", StringComparison.Ordinal);
+        int close = trimmedDisplay.LastIndexOf("): ", StringComparison.Ordinal);
         if (close < 0)
         {
             return string.Empty;
         }
 
-        int open = display.IndexOf('(');
-        return open >= 0 && open < close ? display[(open + 1)..close] : string.Empty;
+        int open = trimmedDisplay.IndexOf('(');
+        return open >= 0 && open < close ? trimmedDisplay[(open + 1)..close] : string.Empty;
     }
 
     private static string RequiredBoundedString(JsonElement element, string name, int maxLength) =>

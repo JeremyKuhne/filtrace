@@ -61,14 +61,19 @@ public sealed class CaptureManifestReaderTests
             manifest.Cases[2].OperationUnit.Should().Be("items");
             manifest.Cases[2].TracePath.Should().Be(Path.Combine(directory, "c.speedscope.json"));
             manifest.Cases[2].SymbolsDirectory.Should().Be(Path.Combine(directory, "symbols"));
-            CaptureManifestReader.ExtractParameters(
-                "BinaryFormattedObjectPerf.Parse: Dry(...) [Scenario=SerializableCallback]").Should()
-                .Be("Scenario=SerializableCallback");
         }
         finally
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [TestMethod]
+    [DataRow("BinaryFormattedObjectPerf.Parse: Dry(...) [Scenario=SerializableCallback]")]
+    [DataRow("BinaryFormattedObjectPerf.Parse: Dry(...) [Scenario=SerializableCallback] ")]
+    public void ExtractParameters_BracketedDisplay_ReturnsParameters(string display)
+    {
+        CaptureManifestReader.ExtractParameters(display).Should().Be("Scenario=SerializableCallback");
     }
 
     [TestMethod]
