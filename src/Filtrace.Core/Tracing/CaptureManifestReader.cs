@@ -171,14 +171,24 @@ public static class CaptureManifestReader
 
     internal static string ExtractParameters(string display)
     {
+        // Primary format: "MethodName(params): JobName"
         int close = display.LastIndexOf("): ", StringComparison.Ordinal);
-        if (close < 0)
+        if (close >= 0)
         {
-            return string.Empty;
+            int open = display.IndexOf('(');
+            if (open >= 0 && open < close)
+            {
+                return display[(open + 1)..close];
+            }
         }
 
-        int open = display.IndexOf('(');
-        return open >= 0 && open < close ? display[(open + 1)..close] : string.Empty;
+        // BDN 0.16+ bracket format: "MethodName: JobName [Key=Value, ...]"
+        if (display.EndsWith(']') && display.LastIndexOf('[') is int bracketOpen and >= 0)
+        {
+            return display[(bracketOpen + 1)..^1];
+        }
+
+        return string.Empty;
     }
 
     private static string RequiredBoundedString(JsonElement element, string name, int maxLength) =>

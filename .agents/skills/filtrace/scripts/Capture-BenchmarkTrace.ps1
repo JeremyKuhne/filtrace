@@ -136,14 +136,8 @@ function Write-CaptureMetadata([string]$TracePath, [System.Collections.IDictiona
 }
 
 function Write-RunManifest([string]$Path, [System.Collections.IDictionary]$Manifest) {
-    $maxManifestBytes = 20KB
     $json = $Manifest | ConvertTo-Json -Depth 8 -Compress
     $encoding = New-Object System.Text.UTF8Encoding($false)
-    $manifestBytes = $encoding.GetByteCount($json)
-    if ($manifestBytes -ge $maxManifestBytes) {
-        throw "Capture manifest is $manifestBytes UTF-8 bytes; it must stay under 20 KiB. Narrow the benchmark filter or split the capture into fewer cases."
-    }
-
     [System.IO.File]::WriteAllText($Path, $json, $encoding)
 }
 
@@ -255,11 +249,22 @@ function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases
             continue
         }
 
+        # BDN 0.16+ quotes the benchmark name and may include escaped quotes inside it;
+        # use (?:[^"\\]|\\.)*  to walk past escaped characters rather than stopping at the
+        # first '"', which would truncate names like Name(Param: \"Value\").
         if ($null -ne $currentDisplay -and
-            $line -match '--benchmarkName\s+(?:"([^"]+)"|(\S+)).*--benchmarkId\s+(\d+)') {
+            $line -match '--benchmarkName\s+(?:"((?:[^"\\]|\\.)*)"|(\S+)).*--benchmarkId\s+(\d+)') {
             $benchmarkId = [int]$Matches[3]
             if (-not $benchmarksById.ContainsKey($benchmarkId)) {
-                $benchmarkName = if ($Matches[1]) { $Matches[1] } else { $Matches[2] }
+                $rawName = if ($Matches[1]) { $Matches[1] -replace '\\"', '"' } else { $Matches[2] }
+                # Strip parenthesized or bracketed parameter suffixes from the method name so
+                # it can serve as a stable file-prefix for trace discovery.
+                $parenPos = $rawName.IndexOf('(')
+                $bracketPos = $rawName.IndexOf('[')
+                $cutPos = -1
+                if ($parenPos -ge 0) { $cutPos = $parenPos }
+                if ($bracketPos -ge 0 -and ($cutPos -lt 0 -or $bracketPos -lt $cutPos)) { $cutPos = $bracketPos }
+                $benchmarkName = if ($cutPos -ge 0) { $rawName.Substring(0, $cutPos).TrimEnd() } else { $rawName }
                 $benchmarksById[$benchmarkId] = [ordered]@{
                     benchmarkId = $benchmarkId
                     benchmark = $benchmarkName
@@ -299,11 +304,18 @@ function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases
 }
 
 function Get-BenchmarkParameters([string]$BenchmarkDisplay) {
+    # Primary format: MethodName(params): JobName
     $close = $BenchmarkDisplay.LastIndexOf('): ', [StringComparison]::Ordinal)
-    if ($close -lt 0) { return '' }
-    $open = $BenchmarkDisplay.IndexOf('(')
-    if ($open -ge 0 -and $open -lt $close) {
-        return $BenchmarkDisplay.Substring($open + 1, $close - $open - 1)
+    if ($close -ge 0) {
+        $open = $BenchmarkDisplay.IndexOf('(')
+        if ($open -ge 0 -and $open -lt $close) {
+            return $BenchmarkDisplay.Substring($open + 1, $close - $open - 1)
+        }
+    }
+
+    # BDN 0.16+ bracket format: MethodName: JobName [Key=Value, ...]
+    if ($BenchmarkDisplay -match '\[([^\[\]]+)\]$') {
+        return $Matches[1]
     }
 
     return ''
@@ -339,7 +351,7 @@ function Get-DefaultCaptureStatuses([string]$CaptureProfiler, [bool]$HasRawTrace
 
     return [ordered]@{
         cpu = 'enabled'; alloc = 'disabled'; exceptions = 'enabled';
-        contention = 'enabled'; wait = 'disabled'; activity = 'enabled';
+        contention = 'enabled'; wait = 'disabled'; activity = 'unknown';
         gcstats = 'enabled'; jitstats = 'enabled'; threadpool = 'enabled';
         events = 'enabled'
     }
@@ -772,6 +784,29 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     exit 0
 }
 
+# Preflight: verify the resolved filtrace meets the minimum version requirement
+# before starting the expensive benchmark capture.
+$filtraceAvailable = $null -ne (Get-Command $FiltracePath -ErrorAction SilentlyContinue)
+if ($filtraceAvailable) {
+    $minFiltraceVersion = [Version]'0.6.0'
+    $versionOutput = & $FiltracePath --version 2>$null | Out-String
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($versionOutput)) {
+        try {
+            # Strip build metadata and pre-release suffix so [Version] can parse semver.
+            $versionCore = $versionOutput.Trim().Split('+')[0].Split('-')[0]
+            $installedVersion = [Version]$versionCore
+            if ($installedVersion -lt $minFiltraceVersion) {
+                Write-Error ("filtrace $($versionOutput.Trim()) is installed; version $minFiltraceVersion or later is required. " +
+                    "Run 'dotnet tool update -g KlutzyNinja.Filtrace' to upgrade.") -ErrorAction Continue
+                exit 1
+            }
+        }
+        catch {
+            # Version string not parseable as a semantic version; skip compatibility check.
+        }
+    }
+}
+
 $projectLockName = [regex]::Replace(
     [System.IO.Path]::GetFileNameWithoutExtension($projFile.Name),
     '[^A-Za-z0-9._-]',
@@ -867,7 +902,6 @@ if ($hasOperationCount) {
 # preserves BenchmarkDotNet's generated build output for manual follow-up.
 $symbols = Join-Path (Split-Path -Parent $projFile.FullName) "bin/Release/$Tfm"
 $symbolCandidates = @(Get-SymbolCandidates $log $symbols)
-$filtraceAvailable = $null -ne (Get-Command $FiltracePath -ErrorAction SilentlyContinue)
 foreach ($captureCase in $captureCases) {
     $captureCase.symbolCandidates = $symbolCandidates
     if ($captureCase.trace -and $filtraceAvailable) {
@@ -919,7 +953,7 @@ $manifest = [ordered]@{
     source = Get-SourceIdentity $projFile.DirectoryName
     runtimes = @(
         Get-Content -LiteralPath $log |
-            Where-Object { $_ -match '^Runtime = ' } |
+            Where-Object { $_ -match '^Runtime = |^// Runtime=' } |
             Sort-Object -Unique
     )
     paths = [ordered]@{

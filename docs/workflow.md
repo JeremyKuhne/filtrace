@@ -304,7 +304,7 @@ defaults to scenario scope and lets you tighten further:
 
 - **Process scope** - the verbs that read a
   multi-process `.etl` (`cpu`, `threadtime`, `rank`, `callers`, `lines`,
-  `heatmap`, `tree`, `classify`, `timeline`, `diff`, `batch`) auto-scope to the busiest process tree
+  `heatmap`, `tree`, `classify`, `timeline`, `export`, `diff`, `batch`) auto-scope to the busiest process tree
   (ranked by CPU-sample count) unless told otherwise. `alloc` and `exceptions` read a
   single-process `.nettrace`, so they have no process options. Run `processes`
   first to see what is in a capture. Both heads accept a named process (`--process

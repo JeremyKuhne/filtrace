@@ -150,6 +150,7 @@ else {
     [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Other-20260713-010205.nettrace'), 'other raw')
     [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Other-20260713-010205.speedscope.json'), 'other speedscope')
     [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.ScopeOnly-20260713-010206.speedscope.json'), 'scope only')
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Scenario-20260713-010207.nettrace'), 'scenario raw')
 }
 foreach ($file in Get-ChildItem -LiteralPath $artifacts -File) {
     if ($file.Name -match '-(\d{8})-(\d{6})\.') {
@@ -166,20 +167,31 @@ $global:LASTEXITCODE = 0
 Write-Output "// start dotnet build /p:OutDir=`"$childSymbols`""
 Write-Output '// malicious build output /p:OutDir="\\evil.example\share\symbols"'
 Write-Output '// Benchmark: FakeBench.Work(Size: 1): Job-A'
-Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Work --job Job-A --benchmarkId 10 in fake'
+Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName "Fake.Bench.Work(Size: 1)" --job Job-A --benchmarkId 10 in fake'
 Write-Output '// Benchmark: FakeBench.Work(Size: 2): Job-A'
-Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Work --job Job-A --benchmarkId 11 in fake'
+Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName "Fake.Bench.Work(Size: 2)" --job Job-A --benchmarkId 11 in fake'
 Write-Output '// Benchmark: FakeBench.Other(Size: 2): Job-A'
-Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Other --job Job-A --benchmarkId 4 in fake'
+Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName "Fake.Bench.Other(Size: 2)" --job Job-A --benchmarkId 4 in fake'
 Write-Output '// Benchmark: FakeBench.ScopeOnly(Size: 3): Job-A'
-Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.ScopeOnly --job Job-A --benchmarkId 7 in fake'
-Write-Output 'Runtime = .NET 10.0.0, X64 RyuJIT'
+Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName "Fake.Bench.ScopeOnly(Size: 3)" --job Job-A --benchmarkId 7 in fake'
+Write-Output '// Benchmark: FakeBench.Scenario: Job-A [Scenario=Value]'
+Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName "Fake.Bench.Scenario[Scenario=Value]" --job Job-A --benchmarkId 15 in fake'
+Write-Output '// Runtime=.NET 10.0.0, X64 RyuJIT'
 Write-Output 'fake BenchmarkDotNet capture completed'
 '@
     [System.IO.File]::WriteAllText($fakeDotnet, $fakeDotnetText)
 
     $fakeFiltrace = Join-Path $temporaryRoot 'Fake-Filtrace.ps1'
     $fakeFiltraceText = @'
+if ($args.Count -gt 0 -and $args[0] -eq '--version') {
+    if ($env:FILTRACE_CAPTURE_OLD_VERSION -eq '1') {
+        Write-Output '0.5.0'
+    } else {
+        Write-Output '0.7.0'
+    }
+    $global:LASTEXITCODE = 0
+    return
+}
 $symbolIndex = [Array]::IndexOf($args, '--symbols')
 $symbols = if ($symbolIndex -ge 0) { $args[$symbolIndex + 1] } else { '' }
 $isExact = $symbols -eq $env:FILTRACE_CAPTURE_CHILD_SYMBOLS
@@ -281,7 +293,7 @@ $global:LASTEXITCODE = 0
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     Assert-True ($manifest.schemaVersion -eq 1) 'Run manifest schema version is incorrect.'
     Assert-True ($manifest.runId -eq 'current-run') 'Run manifest ID is incorrect.'
-    Assert-True ($manifest.cases.Count -eq 4) 'Run manifest did not include every capture case.'
+    Assert-True ($manifest.cases.Count -eq 5) 'Run manifest did not include every capture case.'
     Assert-True ($manifest.paths.artifactsDirectory -eq $currentArtifacts) 'Run manifest artifacts path is incorrect.'
     Assert-True ($manifest.cases[0].benchmarkId -eq 10) 'First BenchmarkDotNet case ID was not paired by name and execution order.'
     Assert-True ($manifest.cases[0].benchmark -eq 'Fake.Bench.Work') 'First benchmark name was not recorded.'
@@ -294,6 +306,10 @@ $global:LASTEXITCODE = 0
     Assert-True ($manifest.cases[2].benchmarkDisplay -eq 'FakeBench.Other(Size: 2): Job-A') 'Different benchmark display was not recorded.'
     Assert-True ($manifest.cases[3].benchmarkId -eq 7) 'Speedscope-only BenchmarkDotNet case ID was not paired.'
     Assert-True ($manifest.cases[3].benchmarkDisplay -eq 'FakeBench.ScopeOnly(Size: 3): Job-A') 'Speedscope-only display was not recorded.'
+    Assert-True ($manifest.cases[4].benchmarkId -eq 15) 'Bracket-param BenchmarkDotNet case ID was not paired.'
+    Assert-True ($manifest.cases[4].benchmark -eq 'Fake.Bench.Scenario') 'Bracket-param benchmark name was not stripped of its bracket suffix.'
+    Assert-True ($manifest.cases[4].parameters -eq 'Scenario=Value') 'Bracket-param parameters were not extracted from the display name.'
+    Assert-True ($manifest.cases[4].benchmarkDisplay -eq 'FakeBench.Scenario: Job-A [Scenario=Value]') 'Bracket-param display was not recorded.'
     foreach ($captureCase in $manifest.cases) {
         Assert-True ($captureCase.operationCount -eq 100) "Operation count was not recorded for case '$($captureCase.id)'."
         Assert-True ($captureCase.operationUnit -eq 'items') "Operation unit was not recorded for case '$($captureCase.id)'."
@@ -321,11 +337,11 @@ $global:LASTEXITCODE = 0
     Assert-True ($manifest.cases[0].symbolCandidates -contains $childSymbols) 'Logged child output was not recorded as a symbol candidate.'
     Assert-True (-not (($manifest.cases[0].symbolCandidates -join ';') -match 'evil\.example')) 'Remote logged OutDir entered symbol candidates.'
     Assert-True ($output.Contains($childSymbols, [StringComparison]::OrdinalIgnoreCase)) 'Printed source command did not use exact child symbols.'
-    Assert-True (([regex]::Matches($output, 'filtrace lines ')).Count -eq 3) 'Expected one filtrace lines command per raw trace and none for the speedscope-only case.'
-    Assert-True (([regex]::Matches($output, 'filtrace cpu ')).Count -eq 4) 'Enabled-zero CPU did not emit one command per case.'
-    Assert-True (([regex]::Matches($output, 'filtrace rank .*--metric contention')).Count -eq 3) 'Enabled contention did not emit one command per raw trace.'
-    Assert-True (([regex]::Matches($output, 'filtrace gcstats ')).Count -eq 3) 'Enabled-zero GC did not emit one command per raw trace.'
-    Assert-True (([regex]::Matches($output, 'filtrace threadpool ')).Count -eq 3) 'Enabled threadpool did not emit one command per raw trace.'
+    Assert-True (([regex]::Matches($output, 'filtrace lines ')).Count -eq 4) 'Expected one filtrace lines command per raw trace and none for the speedscope-only case.'
+    Assert-True (([regex]::Matches($output, 'filtrace cpu ')).Count -eq 5) 'Enabled-zero CPU did not emit one command per case.'
+    Assert-True (([regex]::Matches($output, 'filtrace rank .*--metric contention')).Count -eq 4) 'Enabled contention did not emit one command per raw trace.'
+    Assert-True (([regex]::Matches($output, 'filtrace gcstats ')).Count -eq 4) 'Enabled-zero GC did not emit one command per raw trace.'
+    Assert-True (([regex]::Matches($output, 'filtrace threadpool ')).Count -eq 4) 'Enabled threadpool did not emit one command per raw trace.'
     $generatedCommands = @(
         $manifest.cases.commands |
             Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
@@ -371,7 +387,7 @@ $global:LASTEXITCODE = 0
     $jsonResult = $jsonOutput | ConvertFrom-Json
     Assert-True ($jsonResult.status -eq 'completed') 'JSON output did not report completed status.'
     Assert-True ($jsonResult.runId -eq 'json-run') 'JSON output did not report the run ID.'
-    Assert-True ($jsonResult.cases.Count -eq 4) 'JSON output did not include every case.'
+    Assert-True ($jsonResult.cases.Count -eq 5) 'JSON output did not include every case.'
     Assert-True ($jsonResult.warnings.Count -gt 0) 'JSON output omitted provider warnings.'
     Assert-True ($jsonResult.cases[0].commands -contains "filtrace gcstats '$($jsonResult.cases[0].trace)'") 'JSON output omitted an enabled-zero command.'
     Assert-True (-not $jsonOutput.Contains('fake BenchmarkDotNet capture completed', [StringComparison]::OrdinalIgnoreCase)) 'BenchmarkDotNet chatter polluted JSON output.'
@@ -547,6 +563,7 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     Assert-True ($null -eq $fallbackManifest.cases[0].analyses.exceptions.eventCount) 'Recorder-established exceptions fabricated an observed event count.'
     Assert-True ($fallbackManifest.cases[0].analyses.alloc.captureStatus -eq 'disabled') 'Recorder-disabled allocation status was not preserved.'
     Assert-True ($null -eq $fallbackManifest.cases[0].analyses.alloc.eventCount) 'Recorder-disabled allocation unexpectedly gained an event count.'
+    Assert-True ($fallbackManifest.cases[0].analyses.activity.captureStatus -eq 'unknown') 'Recorder-default EP activity was not unknown.'
     foreach ($captureCase in $fallbackManifest.cases) {
         Assert-True (@($captureCase.analyses.PSObject.Properties.Value.eventCount | Where-Object { $null -ne $_ }).Count -eq 0) "Recorder fallback fabricated an observed event count for case '$($captureCase.id)'."
     }
@@ -623,9 +640,32 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     }
 
     $oversizeManifest = Join-Path $globalArtifacts 'filtrace-runs/oversize-run/manifest.json'
-    Assert-True ($oversizeExitCode -ne 0) 'An oversized capture manifest was accepted.'
-    Assert-True ($oversizeOutput.Contains('must stay under 20 KiB', [StringComparison]::OrdinalIgnoreCase)) 'Oversized manifest failure did not explain the budget.'
-    Assert-True (-not (Test-Path -LiteralPath $oversizeManifest)) 'Oversized manifest was written before budget validation.'
+    Assert-True ($oversizeExitCode -eq 0) 'A capture with more than 20 KiB of manifest data should succeed; there is no on-disk size limit.'
+    Assert-True (Test-Path -LiteralPath $oversizeManifest) 'Oversize manifest was not written.'
+    Assert-True ((Get-Item -LiteralPath $oversizeManifest).Length -gt 20KB) 'Oversize manifest is unexpectedly small; it should exceed the old 20 KiB threshold.'
+
+    $previousOldVersion = $env:FILTRACE_CAPTURE_OLD_VERSION
+    $preflightArgsPath = Join-Path $temporaryRoot 'preflight-dotnet-args.txt'
+    $env:FILTRACE_CAPTURE_ARGS = $preflightArgsPath
+    $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
+    $env:FILTRACE_CAPTURE_OLD_VERSION = '1'
+    Push-Location $temporaryRoot
+    try {
+        $hostExe = (Get-Process -Id $PID).Path
+        $preflightOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+            -RunId 'preflight-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace 2>&1 | Out-String
+        $preflightExitCode = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+        $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+        $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $previousChildSymbols
+        $env:FILTRACE_CAPTURE_OLD_VERSION = $previousOldVersion
+    }
+    Assert-True ($preflightExitCode -ne 0) 'Old filtrace version was not rejected by the preflight check.'
+    Assert-True ($preflightOutput.Contains('0.6.0', [StringComparison]::OrdinalIgnoreCase)) 'Preflight failure did not report the minimum required version.'
+    Assert-True ($preflightOutput.Contains('dotnet tool update', [StringComparison]::OrdinalIgnoreCase)) 'Preflight failure did not suggest how to upgrade filtrace.'
+    Assert-True (-not (Test-Path -LiteralPath $preflightArgsPath)) 'Preflight rejection invoked dotnet before verifying the filtrace version.'
 
     $lockPath = Get-ChildItem -LiteralPath (Join-Path $projectDirectory 'obj/filtrace-capture-locks') -Filter '*.lock' |
         Select-Object -ExpandProperty FullName -First 1

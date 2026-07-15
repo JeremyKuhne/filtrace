@@ -374,4 +374,29 @@ public sealed class CaptureManifestReaderTests
             info,
             new StackSampleSource(MetricInfo.Cpu, samples, recordSemantics));
     }
+
+    [TestMethod]
+    public void ExtractParameters_ClassicParenthesisFormat_ReturnsContentBetweenParenAndColon()
+    {
+        // Primary BDN display format: "MethodName(params): JobName"
+        CaptureManifestReader.ExtractParameters("Work(Size: 1): Job-A").Should().Be("Size: 1");
+        CaptureManifestReader.ExtractParameters("Bench.Method(X: 10, Y: 20): Dry").Should().Be("X: 10, Y: 20");
+        CaptureManifestReader.ExtractParameters("NoParams(): Job").Should().Be(string.Empty);
+    }
+
+    [TestMethod]
+    public void ExtractParameters_BracketFormat_ReturnsContentInsideBrackets()
+    {
+        // BDN 0.16+ display format: "MethodName: JobName [Key=Value]"
+        CaptureManifestReader.ExtractParameters("Scenario: Job-A [Scenario=Value]").Should().Be("Scenario=Value");
+        CaptureManifestReader.ExtractParameters("Work: Dry [Size=1, Mode=Async]").Should().Be("Size=1, Mode=Async");
+    }
+
+    [TestMethod]
+    public void ExtractParameters_NoParamsOrBrackets_ReturnsEmpty()
+    {
+        CaptureManifestReader.ExtractParameters("Work: Job-A").Should().Be(string.Empty);
+        CaptureManifestReader.ExtractParameters("SimpleMethod").Should().Be(string.Empty);
+        CaptureManifestReader.ExtractParameters(string.Empty).Should().Be(string.Empty);
+    }
 }

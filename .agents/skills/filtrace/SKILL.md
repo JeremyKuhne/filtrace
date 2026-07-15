@@ -260,7 +260,7 @@ Run `filtrace <verb> --help` for the full option set of any verb.
 
 - **Scope to one process.** The verbs that read a multi-process `.etl`
   (`cpu`, `threadtime`, `rank`, `callers`, `lines`, `heatmap`, `tree`, `classify`,
-  `timeline`) auto-scope to the busiest process tree. Run `processes` first to see the
+  `timeline`, `export`, `diff`, `batch`) auto-scope to the busiest process tree. Run `processes` first to see the
    capture, then `--process <name>` to override. The CLI also accepts `--all-processes`
    to widen; MCP tools support automatic or named-process scope, not an all-process
    aggregate.
@@ -270,7 +270,7 @@ Run `filtrace <verb> --help` for the full option set of any verb.
    BenchmarkDotNet capture, scope to its `WorkloadAction` wrapper. In the CLI, pass
    `--benchmark` to every verb that offers it. In MCP, pass
    `benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`,
-   `trace_classify`, and `trace_export`. The wrapper includes warmup and actual
+   `trace_classify`, `trace_diff`, `trace_batch`, and `trace_export`. The wrapper includes warmup and actual
    iterations and excludes harness/overhead scaffolding. Do not guess a benchmark
    method substring: root/frame warnings report the total match count, then list up to
    25 full definitions and 10 depths per definition with omitted-count markers, plus
