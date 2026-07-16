@@ -274,7 +274,7 @@ if ($isToukiRun) {
         Write-Output "// Benchmark: BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize: DefaultJob [Scenario=$scenario]"
         $benchmarkName = "touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize(Scenario: $escapedQuote$scenario$escapedQuote)"
         Write-Output "// Execute: dotnet Fake-Job.dll --benchmarkName $outerQuote$benchmarkName$outerQuote --job Default --diagnoserRunMode 3 --benchmarkId $index in fake"
-        Write-Output '// Runtime=.NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3'
+        Write-Output '  // Runtime=.NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3'
     }
     Write-Output 'Runtime = .NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3; GC = Concurrent Workstation'
 }

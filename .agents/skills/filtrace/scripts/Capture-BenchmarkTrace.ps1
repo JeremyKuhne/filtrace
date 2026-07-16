@@ -318,7 +318,7 @@ function Set-BenchmarkIdentities(
         # Comment-prefixed runtime rows belong to the active Execute block. Spaced
         # unprefixed `Runtime =` rows are final summaries handled manifest-wide;
         # compact `Runtime=` rows are job characteristics and are not summaries.
-        if ($null -ne $pendingBenchmark -and $line -match '^//\s*Runtime\s*=') {
+        if ($null -ne $pendingBenchmark -and $line -match '^\s*//\s*Runtime\s*=') {
             $pendingBenchmark.runtime = ConvertTo-RuntimeSummary $line
             $pendingBenchmark = $null
             continue
