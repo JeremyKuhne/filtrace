@@ -56,6 +56,7 @@ try {
         [ref]$parseErrors)
     Assert-True ($parseErrors.Count -eq 0) 'Capture helper could not be parsed for command-contract tests.'
     $commandFunctionNames = @(
+        'ConvertTo-RuntimeSummary',
         'ConvertTo-PowerShellArgument',
         'Get-RuntimeSummaries',
         'Test-AnalysisEnabled',
@@ -82,8 +83,8 @@ try {
     [System.IO.File]::WriteAllLines(
         $runtimeLog,
         @(
-            '// Runtime=.NET 10.0.9 (10.0.9), X64 RyuJIT',
-            'Runtime = .NET 10.0.9 (10.0.9), X64 RyuJIT; GC = Concurrent Workstation',
+            '  // Runtime=.NET 10.0.9 (10.0.9), X64 RyuJIT',
+            '  Runtime = .NET 10.0.9 (10.0.9), X64 RyuJIT; GC = Concurrent Workstation',
             '// Runtime=.NET Framework 4.8.1 (4.8.9325.0), X64 RyuJIT',
             'Runtime=.NET 10.0 InvocationCount=1 IterationCount=1'))
     $runtimeSummaries = @(Get-RuntimeSummaries $runtimeLog)
@@ -273,7 +274,7 @@ if ($isToukiRun) {
         Write-Output "// Benchmark: BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize: DefaultJob [Scenario=$scenario]"
         $benchmarkName = "touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize(Scenario: $escapedQuote$scenario$escapedQuote)"
         Write-Output "// Execute: dotnet Fake-Job.dll --benchmarkName $outerQuote$benchmarkName$outerQuote --job Default --diagnoserRunMode 3 --benchmarkId $index in fake"
-        Write-Output '// Runtime=.NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3'
+        Write-Output '  // Runtime=.NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3'
     }
     Write-Output 'Runtime = .NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3; GC = Concurrent Workstation'
 }
@@ -767,7 +768,10 @@ $global:LASTEXITCODE = 0
         Assert-True ($toukiCase.benchmark -eq 'touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize') "Touki case $index lost its benchmark identity."
         Assert-True ($toukiCase.parameters -eq "Scenario=$($expectedToukiScenarios[$index])") "Touki case $index lost its parameter identity."
         Assert-True (-not [string]::IsNullOrWhiteSpace($toukiCase.benchmarkDisplay)) "Touki case $index lost its display identity."
-        Assert-True ($toukiCase.runtime -eq '// Runtime=.NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3') "Touki case $index lost its runtime identity."
+        Assert-True (
+            $toukiCase.runtime -eq
+                'Runtime = .NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3') `
+            "Touki case $index lost its canonical runtime identity."
     }
     Assert-True ($toukiManifest.runtimes.Count -eq 1) 'Touki runtime metadata was not recorded.'
     Assert-True (
