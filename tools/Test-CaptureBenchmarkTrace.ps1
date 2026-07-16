@@ -83,8 +83,8 @@ try {
     [System.IO.File]::WriteAllLines(
         $runtimeLog,
         @(
-            '// Runtime=.NET 10.0.9 (10.0.9), X64 RyuJIT',
-            'Runtime = .NET 10.0.9 (10.0.9), X64 RyuJIT; GC = Concurrent Workstation',
+            '  // Runtime=.NET 10.0.9 (10.0.9), X64 RyuJIT',
+            '  Runtime = .NET 10.0.9 (10.0.9), X64 RyuJIT; GC = Concurrent Workstation',
             '// Runtime=.NET Framework 4.8.1 (4.8.9325.0), X64 RyuJIT',
             'Runtime=.NET 10.0 InvocationCount=1 IterationCount=1'))
     $runtimeSummaries = @(Get-RuntimeSummaries $runtimeLog)
