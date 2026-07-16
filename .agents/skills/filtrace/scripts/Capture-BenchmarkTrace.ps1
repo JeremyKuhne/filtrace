@@ -169,12 +169,11 @@ function Get-RuntimeSummaries([string]$LogPath) {
     $finalSummaries = New-Object 'System.Collections.Generic.List[string]'
     $caseSummaries = New-Object 'System.Collections.Generic.List[string]'
     foreach ($logLine in Get-Content -LiteralPath $LogPath) {
-        $line = [string]::new($logLine.ToCharArray()).Trim()
-        if ($line -match '^Runtime\s+=\s*(.+)$') {
-            $finalSummaries.Add((ConvertTo-RuntimeSummary $line))
+        if ($logLine -match '^Runtime\s+=\s*(.+)$') {
+            $finalSummaries.Add((ConvertTo-RuntimeSummary $logLine))
         }
-        elseif ($line -match '^//\s*Runtime\s*=\s*(.+)$') {
-            $caseSummaries.Add((ConvertTo-RuntimeSummary $line))
+        elseif ($logLine -match '^//\s*Runtime\s*=\s*(.+)$') {
+            $caseSummaries.Add((ConvertTo-RuntimeSummary $logLine))
         }
     }
 
