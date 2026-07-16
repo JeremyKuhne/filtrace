@@ -57,6 +57,7 @@ try {
     Assert-True ($parseErrors.Count -eq 0) 'Capture helper could not be parsed for command-contract tests.'
     $commandFunctionNames = @(
         'ConvertTo-PowerShellArgument',
+        'Get-RuntimeSummaries',
         'Test-AnalysisEnabled',
         'Get-CaseCommands',
         'ConvertFrom-BenchmarkNameArgumentFull',
@@ -77,6 +78,27 @@ try {
     )
     Assert-True ($commandFunctionDefinitions.Count -eq $commandFunctionNames.Count) 'Capture command-builder functions could not be isolated.'
     . ([scriptblock]::Create(($commandFunctionDefinitions -join [Environment]::NewLine)))
+    $runtimeLog = Join-Path $temporaryRoot 'runtime-summaries.log'
+    [System.IO.File]::WriteAllLines(
+        $runtimeLog,
+        @(
+            '// Runtime=.NET 10.0.9 (10.0.9), X64 RyuJIT',
+            'Runtime = .NET 10.0.9 (10.0.9), X64 RyuJIT; GC = Concurrent Workstation',
+            '// Runtime=.NET Framework 4.8.1 (4.8.9325.0), X64 RyuJIT',
+            'Runtime=.NET 10.0 InvocationCount=1 IterationCount=1'))
+    $runtimeSummaries = @(Get-RuntimeSummaries $runtimeLog)
+    Assert-True ($runtimeSummaries.Count -eq 2) 'Runtime summaries were not merged per runtime identity.'
+    Assert-True (
+        $runtimeSummaries -contains
+            'Runtime = .NET 10.0.9 (10.0.9), X64 RyuJIT; GC = Concurrent Workstation') `
+        'The richer final runtime summary was not retained.'
+    Assert-True (
+        $runtimeSummaries -contains
+            'Runtime = .NET Framework 4.8.1 (4.8.9325.0), X64 RyuJIT') `
+        'An unmatched per-case runtime summary was not retained.'
+    Assert-True (
+        -not ($runtimeSummaries -match 'InvocationCount')) `
+        'A BenchmarkDotNet job characteristic row was treated as a runtime summary.'
     Assert-True ((Get-BenchmarkParameters 'FakeBench.Work(Size: 1, Mode: Fast): Job-A') -eq 'Size: 1, Mode: Fast') 'Parameterized benchmark identity was not extracted.'
     Assert-True ((Get-BenchmarkParameters 'BinaryFormattedObjectPerf.Parse: Dry(...) [Scenario=SerializableCallback]') -eq 'Scenario=SerializableCallback') 'Bracketed BenchmarkDotNet parameters were not extracted.'
     Assert-True ((Get-BenchmarkParameters 'FakeBench.Work: Job-A') -eq '') 'Unparameterized benchmark identity was not empty.'
@@ -253,6 +275,7 @@ if ($isToukiRun) {
         Write-Output "// Execute: dotnet Fake-Job.dll --benchmarkName $outerQuote$benchmarkName$outerQuote --job Default --diagnoserRunMode 3 --benchmarkId $index in fake"
         Write-Output '// Runtime=.NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3'
     }
+    Write-Output 'Runtime = .NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3; GC = Concurrent Workstation'
 }
 elseif ($isIdentityWarningRun) {
     Write-Output '// Benchmark: FakeBench.Ambiguous: Job-A [Scenario=A]'
@@ -747,12 +770,19 @@ $global:LASTEXITCODE = 0
         Assert-True ($toukiCase.runtime -eq '// Runtime=.NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3') "Touki case $index lost its runtime identity."
     }
     Assert-True ($toukiManifest.runtimes.Count -eq 1) 'Touki runtime metadata was not recorded.'
-    Assert-True ($toukiManifest.runtimes[0] -eq '// Runtime=.NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3') 'Touki runtime metadata was recorded incorrectly.'
+    Assert-True (
+        $toukiManifest.runtimes[0] -eq
+            'Runtime = .NET 10.0.9 (10.0.9, 10.0.926.27113), X64 RyuJIT x86-64-v3; GC = Concurrent Workstation') `
+        'Touki runtime metadata did not prefer the richer final summary.'
 
     Assert-True ($identityWarningExitCode -eq 0) "Incomplete-identity capture failed: $($identityWarningOutput.Trim())"
     $identityWarningManifestPath = Join-Path $globalArtifacts 'filtrace-runs/identity-warning-run/manifest.json'
     $identityWarningManifest = Get-Content -LiteralPath $identityWarningManifestPath -Raw | ConvertFrom-Json
     Assert-True ($identityWarningManifest.cases.Count -eq 3) 'Incomplete-identity fixture did not emit every case.'
+    Assert-True ($identityWarningManifest.runtimes.Count -eq 1) 'Per-case runtime fallback was not recorded.'
+    Assert-True (
+        $identityWarningManifest.runtimes[0] -eq 'Runtime = .NET 10.0.9, X64 RyuJIT x86-64-v3') `
+        'Per-case runtime fallback was not canonicalized.'
     foreach ($identityWarningCase in $identityWarningManifest.cases) {
         Assert-True ($null -eq $identityWarningCase.benchmarkId) "Unidentified case '$($identityWarningCase.id)' was silently paired."
         Assert-True ($null -eq $identityWarningCase.benchmark) "Unidentified case '$($identityWarningCase.id)' gained a benchmark name."
