@@ -154,18 +154,27 @@ function Write-RunManifest([string]$Path, [System.Collections.IDictionary]$Manif
     [System.IO.File]::WriteAllText($Path, $json, $encoding)
 }
 
+function ConvertTo-RuntimeSummary([string]$LogLine) {
+    # Strip Get-Content's provider ETS properties; the 5.1 JSON serializer
+    # otherwise recurses through PSProvider and can exhaust memory.
+    $line = [string]::new($LogLine.ToCharArray()).Trim()
+    if ($line -match '^(?://\s*)?Runtime\s*=\s*(.+)$') {
+        return "Runtime = $($Matches[1].Trim())"
+    }
+
+    return $null
+}
+
 function Get-RuntimeSummaries([string]$LogPath) {
     $finalSummaries = New-Object 'System.Collections.Generic.List[string]'
     $caseSummaries = New-Object 'System.Collections.Generic.List[string]'
     foreach ($logLine in Get-Content -LiteralPath $LogPath) {
-        # Strip Get-Content's provider ETS properties; the 5.1 JSON serializer
-        # otherwise recurses through PSProvider and can exhaust memory.
         $line = [string]::new($logLine.ToCharArray()).Trim()
         if ($line -match '^Runtime\s+=\s*(.+)$') {
-            $finalSummaries.Add("Runtime = $($Matches[1].Trim())")
+            $finalSummaries.Add((ConvertTo-RuntimeSummary $line))
         }
         elseif ($line -match '^//\s*Runtime\s*=\s*(.+)$') {
-            $caseSummaries.Add("Runtime = $($Matches[1].Trim())")
+            $caseSummaries.Add((ConvertTo-RuntimeSummary $line))
         }
     }
 
@@ -307,10 +316,11 @@ function Set-BenchmarkIdentities(
             continue
         }
 
-        # Comment-prefixed runtime rows belong to the active Execute block. The
-        # unprefixed Runtime rows are the final report table and stay manifest-wide.
+        # Comment-prefixed runtime rows belong to the active Execute block. Spaced
+        # unprefixed `Runtime =` rows are final summaries handled manifest-wide;
+        # compact `Runtime=` rows are job characteristics and are not summaries.
         if ($null -ne $pendingBenchmark -and $line -match '^//\s*Runtime\s*=') {
-            $pendingBenchmark.runtime = [string]::new($line.ToCharArray())
+            $pendingBenchmark.runtime = ConvertTo-RuntimeSummary $line
             $pendingBenchmark = $null
             continue
         }
