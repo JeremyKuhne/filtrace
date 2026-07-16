@@ -59,7 +59,9 @@ try {
         'ConvertTo-PowerShellArgument',
         'Test-AnalysisEnabled',
         'Get-CaseCommands',
+        'ConvertFrom-BenchmarkNameArgumentFull',
         'ConvertFrom-BenchmarkNameArgument',
+        'Get-BenchmarkName',
         'Get-BenchmarkParameters',
         'Get-DefaultCaptureStatuses',
         'ConvertTo-CaptureStatus',
@@ -83,6 +85,10 @@ try {
         (ConvertFrom-BenchmarkNameArgument $escapedBenchmarkName) -eq
             'touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize') `
         'Escaped quoted BenchmarkDotNet name and parameters were not decoded.'
+    Assert-True (
+        (ConvertFrom-BenchmarkNameArgumentFull $escapedBenchmarkName) -eq
+            'touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize(Scenario: "SerializableCallback")') `
+        'Escaped BenchmarkDotNet full identity was not decoded.'
 
     $eventPipeDefaults = Get-DefaultCaptureStatuses 'EP' $true
     Assert-True ($eventPipeDefaults.activity -eq 'unknown') 'Default EventPipe capture claimed activity without provider evidence.'
@@ -200,13 +206,19 @@ elseif ($isToukiRun) {
     for ($index = 0; $index -lt $toukiScenarios.Count; $index++) {
         $timestamp = [DateTime]::new(2026, 7, 15, 1, 0, 0, [DateTimeKind]::Utc).AddSeconds($index)
         $scenario = $toukiScenarios[$index]
-        $name = "touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize(Scenario_ _$scenario_)-$($timestamp.ToString('yyyyMMdd-HHmmss')).nettrace"
+        $name = if ($scenario -eq 'SerializableCallback') {
+            "BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize-hash1429199657-$($timestamp.ToString('yyyyMMdd-HHmmss')).nettrace"
+        }
+        else {
+            "touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize(Scenario_ _$scenario_)-$($timestamp.ToString('yyyyMMdd-HHmmss')).nettrace"
+        }
         [System.IO.File]::WriteAllText((Join-Path $artifacts $name), 'touki parameterized raw')
     }
 }
 elseif ($isIdentityWarningRun) {
-    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Ambiguous-20260715-020000.nettrace'), 'ambiguous raw')
-    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Missing-20260715-020001.nettrace'), 'missing raw')
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Bench.Ambiguous-hash123456789-20260715-020000.nettrace'), 'ambiguous raw')
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Bench.Missing-hash987654321-20260715-020001.nettrace'), 'missing raw')
+    [System.IO.File]::WriteAllText((Join-Path $artifacts 'Bench.ScopeOnly-hash555555555-20260715-020002.speedscope.json'), 'scope only')
 }
 else {
     [System.IO.File]::WriteAllText((Join-Path $artifacts 'Fake.Bench.Work-20260713-010203.nettrace'), 'current raw')
@@ -244,9 +256,9 @@ if ($isToukiRun) {
 }
 elseif ($isIdentityWarningRun) {
     Write-Output '// Benchmark: FakeBench.Ambiguous: Job-A [Scenario=A]'
-    Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Ambiguous --job Job-A --benchmarkId 20 in fake'
-    Write-Output '// Benchmark: FakeBench.Ambiguous: Job-A [Scenario=B]'
-    Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName Fake.Bench.Ambiguous --job Job-A --benchmarkId 21 in fake'
+    Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName "One.Bench.Ambiguous(Scenario: \"A\")" --job Job-A --benchmarkId 20 in fake'
+    Write-Output '// Benchmark: FakeBench.Ambiguous: Job-B [Scenario=A]'
+    Write-Output '// Execute: dotnet Fake-Job.dll --benchmarkName "One.Bench.Ambiguous(Scenario: \"A\")" --job Job-B --benchmarkId 20 in fake'
     Write-Output '// Runtime=.NET 10.0.9, X64 RyuJIT x86-64-v3'
 }
 else {
@@ -361,6 +373,77 @@ if ($isPreflight) {
         result = [ordered]@{
             analyses = [ordered]@{
                 cpu = [ordered]@{ captureStatus = 'enabled'; eventCount = 1 }
+            }
+        }
+    } | ConvertTo-Json -Depth 6 -Compress
+    $global:LASTEXITCODE = 0
+    return
+}
+if ($args[0] -eq 'events') {
+    if ($env:FILTRACE_CAPTURE_EVENTS_MODE -eq 'failure') {
+        $global:LASTEXITCODE = 1
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_EVENTS_MODE -eq 'malformed') {
+        Write-Output '{not json'
+        $global:LASTEXITCODE = 0
+        return
+    }
+    if ($env:FILTRACE_CAPTURE_EVENTS_MODE -eq 'incomplete') {
+        [ordered]@{ schemaVersion = 8; result = [ordered]@{} } | ConvertTo-Json -Compress
+        $global:LASTEXITCODE = 0
+        return
+    }
+    $event = $null
+    if ($tracePath -like '*touki-run*' -and
+        $tracePath -match '-(\d{8})-(\d{6})\.nettrace$') {
+        $scenarioIndex = [int]$Matches[2].Substring(4, 2)
+        $scenarios = @(
+            'Int32Array_1K',
+            'StringList_128',
+            'CustomObject',
+            'ObjectTree_127',
+            'SharedCycle_128',
+            'SerializableCallback')
+        if ($scenarioIndex -ge 0 -and $scenarioIndex -lt $scenarios.Count) {
+            $scenario = $scenarios[$scenarioIndex]
+            $event = [ordered]@{
+                provider = 'BenchmarkDotNet.EngineEventSource'
+                eventName = 'Benchmark/Start'
+                payload = "benchmarkName=touki.perf.BinaryFormattedObjectPerf.BinaryFormattedObject_ParseAndDeserialize(Scenario: `"$scenario`")"
+            }
+        }
+    }
+    elseif ($tracePath -like '*identity-warning-run*' -and
+        [System.IO.Path]::GetFileName($tracePath) -like 'Bench.Ambiguous-hash*.nettrace') {
+        $event = [ordered]@{
+            provider = 'BenchmarkDotNet.EngineEventSource'
+            eventName = 'Benchmark/Start'
+            payload = 'benchmarkName=One.Bench.Ambiguous(Scenario: "A")'
+        }
+    }
+    [ordered]@{
+        schemaVersion = 8
+        warnings = @()
+        hints = @()
+        result = [ordered]@{
+            totalMatched = if ($env:FILTRACE_CAPTURE_EVENTS_MODE -eq 'truncated') {
+                2
+            }
+            elseif ($null -eq $event) {
+                0
+            }
+            else {
+                1
+            }
+            events = if ($env:FILTRACE_CAPTURE_EVENTS_MODE -eq 'duplicate') {
+                @($event, $event)
+            }
+            elseif ($null -eq $event) {
+                @()
+            }
+            else {
+                @($event)
             }
         }
     } | ConvertTo-Json -Depth 6 -Compress
@@ -626,6 +709,7 @@ $global:LASTEXITCODE = 0
 
     $hostExe = (Get-Process -Id $PID).Path
     $toukiArgsPath = Join-Path $temporaryRoot 'touki-dotnet-args.txt'
+    $missingFiltrace = Join-Path $temporaryRoot 'missing-filtrace'
     $env:FILTRACE_CAPTURE_ARGS = $toukiArgsPath
     $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
     Push-Location $temporaryRoot
@@ -668,11 +752,55 @@ $global:LASTEXITCODE = 0
     Assert-True ($identityWarningExitCode -eq 0) "Incomplete-identity capture failed: $($identityWarningOutput.Trim())"
     $identityWarningManifestPath = Join-Path $globalArtifacts 'filtrace-runs/identity-warning-run/manifest.json'
     $identityWarningManifest = Get-Content -LiteralPath $identityWarningManifestPath -Raw | ConvertFrom-Json
-    Assert-True ($identityWarningManifest.cases.Count -eq 2) 'Incomplete-identity fixture did not emit both cases.'
+    Assert-True ($identityWarningManifest.cases.Count -eq 3) 'Incomplete-identity fixture did not emit every case.'
     foreach ($identityWarningCase in $identityWarningManifest.cases) {
         Assert-True ($null -eq $identityWarningCase.benchmarkId) "Unidentified case '$($identityWarningCase.id)' was silently paired."
         Assert-True ($null -eq $identityWarningCase.benchmark) "Unidentified case '$($identityWarningCase.id)' gained a benchmark name."
         Assert-True (@($identityWarningCase.warnings) -contains 'benchmark identity unavailable or ambiguous; do not use this case with manifest batch/diff; analyze the trace directly') "Unidentified case '$($identityWarningCase.id)' omitted direct-trace guidance."
+    }
+
+    $previousEventsMode = $env:FILTRACE_CAPTURE_EVENTS_MODE
+    $identityFailureModes = @('failure', 'malformed', 'incomplete', 'duplicate', 'truncated', 'absent')
+    try {
+        foreach ($identityFailureMode in $identityFailureModes) {
+            $failureRunId = "identity-warning-run-$identityFailureMode"
+            $env:FILTRACE_CAPTURE_ARGS = Join-Path $temporaryRoot "$failureRunId-dotnet-args.txt"
+            $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
+            $env:FILTRACE_CAPTURE_EVENTS_MODE = if ($identityFailureMode -eq 'absent') {
+                $null
+            }
+            else {
+                $identityFailureMode
+            }
+            $failureFiltrace = if ($identityFailureMode -eq 'absent') {
+                $missingFiltrace
+            }
+            else {
+                $fakeFiltrace
+            }
+            Push-Location $temporaryRoot
+            try {
+                $failureOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Identity*' `
+                    -RunId $failureRunId -DotnetPath $fakeDotnet -FiltracePath $failureFiltrace -Format Json | Out-String -Width 4096
+                $failureExitCode = $LASTEXITCODE
+            }
+            finally {
+                Pop-Location
+            }
+            Assert-True ($failureExitCode -eq 0) "Identity mode '$identityFailureMode' capture failed: $($failureOutput.Trim())"
+            $failureManifestPath = Join-Path $globalArtifacts "filtrace-runs/$failureRunId/manifest.json"
+            $failureManifest = Get-Content -LiteralPath $failureManifestPath -Raw | ConvertFrom-Json
+            Assert-True ($failureManifest.cases.Count -eq 3) "Identity mode '$identityFailureMode' omitted cases."
+            foreach ($failureCase in $failureManifest.cases) {
+                Assert-True ($null -eq $failureCase.benchmarkId) "Identity mode '$identityFailureMode' silently paired '$($failureCase.id)'."
+                Assert-True (@($failureCase.warnings) -contains 'benchmark identity unavailable or ambiguous; do not use this case with manifest batch/diff; analyze the trace directly') "Identity mode '$identityFailureMode' omitted guidance for '$($failureCase.id)'."
+            }
+        }
+    }
+    finally {
+        $env:FILTRACE_CAPTURE_EVENTS_MODE = $previousEventsMode
+        $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+        $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $previousChildSymbols
     }
 
     $env:FILTRACE_CAPTURE_ARGS = $argsPath
@@ -844,7 +972,6 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     Assert-True (-not (Test-StringContains $quietOutput 'filtrace cpu ')) 'Quiet mode emitted commands.'
     Assert-True (-not (Test-StringContains $quietOutput 'fake BenchmarkDotNet capture completed')) 'BenchmarkDotNet chatter polluted quiet output.'
 
-    $missingFiltrace = Join-Path $temporaryRoot 'missing-filtrace'
     $env:FILTRACE_CAPTURE_ARGS = $argsPath
     $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
     Push-Location $temporaryRoot
@@ -980,9 +1107,10 @@ exit $LASTEXITCODE
         Pop-Location
     }
     Assert-True ($unsafeExitCode -ne 0) 'Unsafe ETW elevation argument was accepted.'
+    $normalizedUnsafeOutput = [regex]::Replace($unsafeOutput, '\s+', ' ')
     Assert-True (
-        (Test-StringContains $unsafeOutput 'ETW elevation argument') -and
-        (Test-StringContains $unsafeOutput 'quotes')) `
+        (Test-StringContains $normalizedUnsafeOutput 'ETW elevation argument') -and
+        (Test-StringContains $normalizedUnsafeOutput 'quotes')) `
         'Unsafe ETW argument failure was not explained.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/unsafe-etw-run'))) 'Unsafe ETW argument created a run directory.'
 
@@ -1057,7 +1185,8 @@ exit $LASTEXITCODE
     Assert-True ($siblingExitCode -eq 0) 'A sibling project in the same directory incorrectly shared the capture lock.'
     Assert-True (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/sibling-run/manifest.json')) 'Sibling project capture did not complete.'
     Assert-True ($overlapExitCode -ne 0) 'A concurrent same-project/TFM capture was not rejected.'
-    Assert-True (Test-StringContains $overlapOutput 'capture is already active') 'Overlap rejection did not explain the active capture.'
+    $normalizedOverlapOutput = [regex]::Replace($overlapOutput, '\s+', ' ')
+    Assert-True (Test-StringContains $normalizedOverlapOutput 'capture is already active') 'Overlap rejection did not explain the active capture.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/overlap-run'))) 'Rejected overlap created a run directory.'
 
     $global:LASTEXITCODE = 0

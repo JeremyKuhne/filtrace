@@ -253,8 +253,11 @@ function Get-LocalDirectoryCandidate([string]$Path) {
     }
 }
 
-function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases, [string]$CaptureLog) {
-    $benchmarksById = @{}
+function Set-BenchmarkIdentities(
+    [System.Collections.IDictionary[]]$CaptureCases,
+    [string]$CaptureLog,
+    [string]$FiltraceCommand,
+    [bool]$CanInspectTraces) {
     $benchmarksInExecutionOrder = New-Object 'System.Collections.Generic.List[System.Collections.IDictionary]'
     $currentDisplay = $null
     $pendingBenchmark = $null
@@ -278,31 +281,56 @@ function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases
             $benchmarkNameArgument = $Matches[1]
             if ($line -notmatch '--benchmarkId\s+(\d+)') { continue }
             $benchmarkId = [int]$Matches[1]
-            if (-not $benchmarksById.ContainsKey($benchmarkId)) {
-                $benchmarkName = ConvertFrom-BenchmarkNameArgument $benchmarkNameArgument
-                $benchmarksById[$benchmarkId] = [ordered]@{
-                    benchmarkId = $benchmarkId
-                    benchmark = $benchmarkName
-                    parameters = Get-BenchmarkParameters $currentDisplay
-                    benchmarkDisplay = $currentDisplay
-                    runtime = $null
-                }
-                $benchmarksInExecutionOrder.Add($benchmarksById[$benchmarkId])
+            $fullBenchmarkName = ConvertFrom-BenchmarkNameArgumentFull $benchmarkNameArgument
+            $benchmark = [ordered]@{
+                benchmarkId = $benchmarkId
+                benchmark = Get-BenchmarkName $fullBenchmarkName
+                fullBenchmarkName = $fullBenchmarkName
+                parameters = Get-BenchmarkParameters $currentDisplay
+                benchmarkDisplay = $currentDisplay
+                runtime = $null
+                assigned = $false
             }
-            $pendingBenchmark = $benchmarksById[$benchmarkId]
+            $benchmarksInExecutionOrder.Add($benchmark)
+            $pendingBenchmark = $benchmark
         }
     }
 
-    foreach ($benchmarkName in @(
+    if ($CanInspectTraces) {
+        foreach ($captureCase in $CaptureCases) {
+            if (-not $captureCase.trace) { continue }
+            $traceBenchmarkName = Get-TraceBenchmarkName $captureCase.trace $FiltraceCommand
+            if ([string]::IsNullOrWhiteSpace($traceBenchmarkName)) { continue }
+            $matches = @(
+                $benchmarksInExecutionOrder |
+                    Where-Object {
+                        -not $_.assigned -and
+                        $_.fullBenchmarkName -ceq $traceBenchmarkName
+                    }
+            )
+            if ($matches.Count -ne 1) { continue }
+            Set-CaptureCaseIdentity $captureCase $matches[0]
+            $matches[0].assigned = $true
+        }
+    }
+
+    $benchmarkNames = @(
         $benchmarksInExecutionOrder.benchmark |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-            Select-Object -Unique)) {
-        $benchmarks = @($benchmarksInExecutionOrder | Where-Object { $_.benchmark -eq $benchmarkName })
+            Select-Object -Unique
+    )
+    foreach ($benchmarkName in $benchmarkNames) {
+        $benchmarks = @(
+            $benchmarksInExecutionOrder |
+                Where-Object { -not $_.assigned -and $_.benchmark -eq $benchmarkName }
+        )
         $cases = @(
             $CaptureCases |
                 Where-Object {
-                    $_.id.StartsWith("$benchmarkName-", [StringComparison]::Ordinal) -or
-                    $_.id.StartsWith("$benchmarkName(", [StringComparison]::Ordinal)
+                    $null -eq $_.benchmarkId -and
+                    $_.id -notmatch '-hash\d+(?:-|$)' -and
+                    ($_.id.StartsWith("$benchmarkName-", [StringComparison]::Ordinal) -or
+                        $_.id.StartsWith("$benchmarkName(", [StringComparison]::Ordinal))
                 } |
                 Sort-Object { $_.capturedUtc }, { $_.id }
         )
@@ -317,29 +345,70 @@ function Set-BenchmarkIdentities([System.Collections.IDictionary[]]$CaptureCases
         }
 
         for ($index = 0; $index -lt $cases.Count; $index++) {
-            $cases[$index].benchmarkId = $benchmarks[$index].benchmarkId
-            $cases[$index].benchmark = $benchmarks[$index].benchmark
-            $cases[$index].parameters = $benchmarks[$index].parameters
-            $cases[$index].benchmarkDisplay = $benchmarks[$index].benchmarkDisplay
-            $cases[$index].runtime = $benchmarks[$index].runtime
+            Set-CaptureCaseIdentity $cases[$index] $benchmarks[$index]
+            $benchmarks[$index].assigned = $true
         }
     }
 }
 
-function ConvertFrom-BenchmarkNameArgument([string]$BenchmarkNameArgument) {
+function Set-CaptureCaseIdentity(
+    [System.Collections.IDictionary]$CaptureCase,
+    [System.Collections.IDictionary]$Benchmark) {
+    $CaptureCase.benchmarkId = $Benchmark.benchmarkId
+    $CaptureCase.benchmark = $Benchmark.benchmark
+    $CaptureCase.parameters = $Benchmark.parameters
+    $CaptureCase.benchmarkDisplay = $Benchmark.benchmarkDisplay
+    $CaptureCase.runtime = $Benchmark.runtime
+}
+
+function Get-TraceBenchmarkName([string]$TracePath, [string]$FiltraceCommand) {
+    try {
+        $global:LASTEXITCODE = 0
+        $json = & $FiltraceCommand events $TracePath `
+            --name 'BenchmarkDotNet.EngineEventSource/Benchmark/Start' `
+            --take 2 --max-payload 4096 --format json 2>$null | Out-String
+        if ($LASTEXITCODE -ne 0) { return $null }
+        $result = ($json | ConvertFrom-Json).result
+        $events = @(
+            $result.events |
+                Where-Object {
+                    $_.provider -ceq 'BenchmarkDotNet.EngineEventSource' -and
+                    $_.eventName -ceq 'Benchmark/Start'
+                }
+        )
+            if ([int]$result.totalMatched -ne 1 -or $events.Count -ne 1) { return $null }
+        $payload = [string]$events[0].payload
+        $prefix = 'benchmarkName='
+        if (-not $payload.StartsWith($prefix, [StringComparison]::Ordinal)) { return $null }
+        return $payload.Substring($prefix.Length)
+    }
+    catch {
+        return $null
+    }
+}
+
+function ConvertFrom-BenchmarkNameArgumentFull([string]$BenchmarkNameArgument) {
     if ([string]::IsNullOrWhiteSpace($BenchmarkNameArgument)) { return $null }
 
     $decoded = [regex]::Replace(
         $BenchmarkNameArgument.Trim(),
         '(?:\\+u0026#34;|&#34;|&quot;)',
-        '"').Trim('"')
-    $parameters = $decoded.IndexOf('(')
-    if ($parameters -ge 0) {
-        $decoded = $decoded.Substring(0, $parameters)
-    }
-
+        '"').Trim('"').Replace('\"', '"')
     if ([string]::IsNullOrWhiteSpace($decoded)) { return $null }
     return $decoded
+}
+
+function ConvertFrom-BenchmarkNameArgument([string]$BenchmarkNameArgument) {
+    return Get-BenchmarkName (ConvertFrom-BenchmarkNameArgumentFull $BenchmarkNameArgument)
+}
+
+function Get-BenchmarkName([string]$FullBenchmarkName) {
+    if ([string]::IsNullOrWhiteSpace($FullBenchmarkName)) { return $null }
+    $parameters = $FullBenchmarkName.IndexOf('(')
+    if ($parameters -ge 0) {
+        return $FullBenchmarkName.Substring(0, $parameters)
+    }
+    return $FullBenchmarkName
 }
 
 function Get-BenchmarkParameters([string]$BenchmarkDisplay) {
@@ -1009,7 +1078,7 @@ if ($captureCases.Count -eq 0) {
     Write-Error "No capture files found in $artifacts. Did the capture run?" -ErrorAction Continue
     exit 1
 }
-Set-BenchmarkIdentities $captureCases $log
+Set-BenchmarkIdentities $captureCases $log $FiltracePath $filtraceAvailable
 if ($hasOperationCount) {
     foreach ($captureCase in $captureCases) {
         $captureCase.operationCount = $OperationCount
