@@ -8,21 +8,20 @@
   Validate filtrace's local and vendored agent skills.
 
 .DESCRIPTION
-    Runs the v0.10.0 bundled validator over every skill, applies strict portfolio
+    Runs the v0.13.0 bundled validator over every skill, applies strict portfolio
     policy to the provenance-bearing commons cores and locally authored portable
     cores, checks their pins and overlays, validates the local tool-shipped filtrace
     metadata, and resolves every relative Markdown link under .agents.
 
     -VerifyUpstream installs each commons core into an isolated temporary repository
         at the expected pin and compares every core file after platform line-ending
-        normalization, except for the recorded pending-upstream HTML-entity
-        substitutions. overlay.md is the only allowed local addition.
+        normalization. overlay.md is the only allowed local addition.
 
   -ReferenceValidation also runs the pinned agentskills.io reference validator.
 #>
 [CmdletBinding()]
 param(
-    [string]$ExpectedPin = 'v0.10.0',
+    [string]$ExpectedPin = 'v0.13.0',
     [switch]$VerifyUpstream,
     [switch]$ReferenceValidation
 )
@@ -36,7 +35,9 @@ $validator = Join-Path $skillsRoot 'manage-skills/scripts/Validate-Skills.ps1'
 $expectedCommons = @(
     'address-pr-feedback',
     'agent-files-review',
+    'code-comprehension',
     'create-pr',
+    'github-actions-cost-optimization',
     'manage-skills',
     'performance-testing',
     'pre-pr-self-review',
@@ -44,11 +45,6 @@ $expectedCommons = @(
 )
 $expectedLocalPortable = @(
     'powershell-scripting'
-)
-$pendingUpstreamEntityFixes = @(
-    'pre-pr-self-review/SKILL.md',
-    'security-review/checklist.md',
-    'security-review/unsafe-apis.md'
 )
 $failures = [System.Collections.Generic.List[string]]::new()
 
@@ -180,15 +176,6 @@ function Test-MarkdownReadability([string]$directory) {
     }
 }
 
-function Convert-PendingEntityFixes([string]$text) {
-    return $text.Replace('&sect;1, &sect;4', 'sections 1 and 4').
-        Replace('&sect;2, &sect;5, &sect;9', 'sections 2, 5, and 9').
-        Replace('O(n&middot;m)', 'O(n * m)').
-        Replace('&sect;', 'section ').
-        Replace('&le;', '<=').
-        Replace('&middot;', '*')
-}
-
 function Convert-LineEndings([byte[]]$bytes) {
     [System.Collections.Generic.List[byte]] $normalized = [System.Collections.Generic.List[byte]]::new($bytes.Length)
     for ([int] $index = 0; $index -lt $bytes.Length; $index++) {
@@ -221,7 +208,6 @@ function Test-UpstreamMirror {
     }
 
     [string] $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace-skills-$([guid]::NewGuid().ToString('N'))"
-    [System.Collections.Generic.HashSet[string]] $observedPendingFixes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
     try {
         Push-Location $temporaryRoot
@@ -272,28 +258,8 @@ function Test-UpstreamMirror {
                         continue
                     }
 
-                    if ($pendingUpstreamEntityFixes -ccontains $artifactPath) {
-                        [System.Text.UTF8Encoding] $encoding = [System.Text.UTF8Encoding]::new($false, $true)
-                        [string] $localText = $encoding.GetString($localBytes)
-                        [string] $upstreamText = $encoding.GetString($upstreamBytes)
-                        [string] $expectedText = Convert-PendingEntityFixes $upstreamText
-                        if ($localText -cne $expectedText) {
-                            Add-Failure "$artifactPath differs from $ExpectedPin beyond its recorded HTML-entity substitutions."
-                        }
-                        else {
-                            [void]$observedPendingFixes.Add($artifactPath)
-                        }
-                    }
-                    else {
-                        Add-Failure "$artifactPath differs from the $ExpectedPin artifact."
-                    }
+                    Add-Failure "$artifactPath differs from the $ExpectedPin artifact."
                 }
-            }
-        }
-
-        foreach ($artifactPath in $pendingUpstreamEntityFixes) {
-            if (-not $observedPendingFixes.Contains($artifactPath)) {
-                Add-Failure "Pending upstream divergence '$artifactPath' is stale or was not verified; remove or update its allowance."
             }
         }
     }

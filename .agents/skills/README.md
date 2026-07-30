@@ -1,28 +1,32 @@
 # Filtrace agent skills
 
 Filtrace carries one tool-shipped local skill, one locally authored portable core,
-and seven portable cores vendored from the
+and nine portable cores vendored from the
 [agent-skills commons](https://github.com/JeremyKuhne/agent-skills). Commons cores
 are immutable mirrors carrying provenance metadata; repository paths and
-conventions belong in each sibling `overlay.md`. Three no-HTML-entity fixes are
-recorded as pending-upstream divergences until the next reviewed commons release.
+conventions belong in each sibling `overlay.md`.
 
 | Skill | Source | Pin | Local binding |
 | --- | --- | --- | --- |
 | [filtrace](filtrace/SKILL.md) | this repository / MCP package | local | Canonical trace-analysis workflow and packaged scripts; consumers may add an optional overlay. |
 | [powershell-scripting](powershell-scripting/SKILL.md) | this repository / portable core | local | Binds cross-version guidance to filtrace's scripts and contract checks. |
-| [manage-skills](manage-skills/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.10.0` | Distinguishes commons cores from the tool-shipped skill. |
-| [agent-files-review](agent-files-review/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.10.0` | Runs filtrace's skill and documentation contracts. |
-| [pre-pr-self-review](pre-pr-self-review/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.10.0` | Binds the repository's tests and all product/agent gates. |
-| [create-pr](create-pr/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.10.0` | Uses filtrace's explicit publishing boundary. |
-| [address-pr-feedback](address-pr-feedback/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.10.0` | Uses the same boundary for PR follow-up. |
-| [security-review](security-review/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.10.0` | Focuses on untrusted trace and event input. |
-| [performance-testing](performance-testing/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.10.0` | Binds the manual HotLoopBench fixture generator and hands traces to filtrace. |
+| [manage-skills](manage-skills/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Distinguishes commons cores from the tool-shipped skill. |
+| [agent-files-review](agent-files-review/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Runs filtrace's skill and documentation contracts. |
+| [pre-pr-self-review](pre-pr-self-review/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Binds the repository's tests and all product/agent gates. |
+| [create-pr](create-pr/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Uses filtrace's explicit publishing boundary. |
+| [address-pr-feedback](address-pr-feedback/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Uses the same boundary for PR follow-up. |
+| [security-review](security-review/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Focuses on untrusted trace and event input. |
+| [performance-testing](performance-testing/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Binds the manual HotLoopBench fixture generator and hands traces to filtrace. |
+| [code-comprehension](code-comprehension/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Defers to filtrace's style rules and the analysis vocabulary. |
+| [github-actions-cost-optimization](github-actions-cost-optimization/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Protects the required `ci` check and the Windows-only ETW leg. |
 
 Use `powershell-scripting` for PowerShell implementation and behavior review.
 Use `security-review` for the wider product threat model, and
 `agent-files-review` for skill/frontmatter/link validation even when its validator
 happens to be implemented in PowerShell.
+Use `code-comprehension` for readability and cognitive load, and
+`performance-testing` for runtime cost; use `github-actions-cost-optimization` for
+CI spend, never for filtrace's own runtime performance.
 
 The filtrace skill is complete as shipped. A consuming repository may add an
 `overlay.md` beside `SKILL.md` for project paths, capture defaults, symbol locations,
