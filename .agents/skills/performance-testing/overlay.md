@@ -1,6 +1,6 @@
 ---
 core: performance-testing
-core-pin: v0.10.0
+core-pin: v0.13.0
 ---
 
 # Performance testing overlay

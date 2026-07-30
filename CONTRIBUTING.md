@@ -24,13 +24,14 @@ dotnet build filtrace.slnx -c Release
 dotnet test filtrace.slnx -c Release
 ```
 
-CI also runs five contract/eval checks that must stay green; run them locally before
+CI also runs six contract/eval checks that must stay green; run them locally before
 opening a PR:
 
 ```pwsh
 ./tools/Test-CliHelp.ps1 -Configuration Release
 ./tools/Test-McpServer.ps1 -Configuration Release
 ./tools/Test-Docs.ps1
+./tools/Test-CaptureBenchmarkTrace.ps1
 ./eval/Invoke-Eval.ps1
 ./tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation
 ```
@@ -42,12 +43,13 @@ The first asserts every CLI verb is documented and within the help budget; the
 second drives the MCP server over stdio and checks stdout purity, the tool-list
 schema budget, and a real `tools/call` round-trip. The docs check guards shared
 workflow blocks, skill links, command/tool coverage, and packaged skill contents.
+The capture helper check verifies run-artifact isolation, overlap rejection, and
+manifest completeness.
 The deterministic eval runs the canonical trace-analysis tasks and enforces answer,
 call-count, and output-token baselines without invoking an LLM.
-The agent-skill check validates the v0.10.0 commons pins and overlays, compares
-vendored cores with fresh upstream installs (including recorded pending-upstream
-entity fixes), runs the reference validator, and checks readability and
-repository-relative links.
+The agent-skill check validates the v0.13.0 commons pins and overlays, compares
+vendored cores with fresh upstream installs, runs the reference validator, and
+checks readability and repository-relative links.
 
 ## Conventions
 

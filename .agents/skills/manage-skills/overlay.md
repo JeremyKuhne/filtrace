@@ -1,6 +1,6 @@
 ---
 core: manage-skills
-core-pin: v0.10.0
+core-pin: v0.13.0
 ---
 
 # Manage skills overlay
@@ -32,17 +32,3 @@ Review the vendored diff, update the overlay's `core-pin`, and run
 [Test-AgentSkills.ps1](../../../tools/Test-AgentSkills.ps1) with
 `-VerifyUpstream -ReferenceValidation`. Never move a local filtrace binding into
 the vendored core.
-
-## Pending upstream divergence
-
-Until the commons publishes its next reviewed release after `v0.10.0`, filtrace
-mirrors the no-HTML-entity readability fixes prepared in commons source commit
-[`1b3da57`](https://github.com/JeremyKuhne/agent-skills/commit/1b3da57) for:
-
-- `pre-pr-self-review/SKILL.md`;
-- `security-review/checklist.md`;
-- `security-review/unsafe-apis.md`.
-
-[Test-AgentSkills.ps1](../../../tools/Test-AgentSkills.ps1) permits only the
-deterministic entity substitutions in those files and fails when this temporary
-allowance becomes stale.
