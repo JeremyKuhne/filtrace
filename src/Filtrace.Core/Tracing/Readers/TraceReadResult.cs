@@ -22,4 +22,11 @@ internal sealed record TraceReadResult(
     StackRecordSemantics RecordSemantics,
     EtlxCacheState? EtlxCacheState = null,
     IReadOnlyDictionary<string, int>? AnalysisEventCounts = null,
-    SourceResolutionInfo? SourceResolution = null);
+    SourceResolutionInfo? SourceResolution = null)
+{
+    /// <summary>
+    ///  Local native symbol lookup results, or <see langword="null"/> when no local
+    ///  symbol directory was supplied or the trace had no unresolved native frames.
+    /// </summary>
+    public NativeSymbolInfo? NativeSymbols { get; init; }
+}

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Native AOT fixture (see filtrace/fixtures/README.md). Deliberately excluded from
+    filtrace.slnx, like HotLoopBench: it is a manual capture target, not part of the
+    build/test loop.
+
+    Its reason to exist is the pairing that no other fixture provides - a product
+    native module with a matching local PDB - so an analysis can be checked against
+    symbols that are neither in the trace nor on the public symbol server.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Filtrace.Fixtures.AotStartup</RootNamespace>
+    <AssemblyName>AotStartup</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+
+    <!-- The point of the fixture: one native image, with its own PDB beside it. -->
+    <PublishAot>true</PublishAot>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <!-- A capture must profile optimized code, and the frame names have to survive. -->
+    <Optimize>true</Optimize>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

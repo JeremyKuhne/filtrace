@@ -22,6 +22,16 @@ then run the full test/eval suite and review every changed assertion or baseline
   fixture.
 - `capture-diskio.ps1` - elevated Windows generator for the trimmed disk-I/O ETW
   fixture.
+- `NativeLoop/` - a small C++ console workload with named, non-inlined hot functions.
+  [../tools/Test-NativeSymbolResolution.ps1](../tools/Test-NativeSymbolResolution.ps1)
+  builds it, captures it, and checks that its frames resolve only when `--symbols` is
+  supplied. Nothing here is committed as a binary: a filtrace capture records no PDB
+  identity, so it resolves native modules by reading the binary back from the absolute
+  path it recorded, and a committed capture would only resolve on the machine that took
+  it. Capturing and checking in the same run avoids that.
+- `AotStartup/` - a Native AOT console workload, kept for manual investigation of the
+  AOT symbol case. It is not part of any gate; a Native AOT publish needs the ILC
+  toolchain and mints a new PDB identity every time.
 
 ## Regenerating
 

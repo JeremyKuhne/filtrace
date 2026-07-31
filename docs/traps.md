@@ -114,11 +114,12 @@ embeds the marked block below verbatim and
    `filtrace collect` enables only the sampled-profile, process, thread, and image-load
    kernel keywords - never the File/Disk or network ones - and stacks just the sampled
    events, so prefer it and bound open-ended runs with `--duration` or `--max-size-mb`
-   (a circular buffer that keeps the last N MB). Pick the provider set with
-   `--profile`: `cpu` (default), `threadtime` (adds context switches, the most
-   expensive), or `startup`, which keeps only the CLR keywords that name managed
-   methods - use it when instrumentation must not change the lifetime of a short
-   process, and expect the GC, contention, and exception analyses to have no events.
+   (a circular buffer keeping the last N MB). Its CLR keywords are narrowed the same way,
+   to managed-method naming plus the GC and exception events the timeline lanes read.
+   Pick the set with `--profile`: `cpu` (default), `threadtime` (adds context switches,
+   the most expensive), or `startup`, which keeps only the managed-naming keywords - use
+   it when instrumentation must not change a short process's lifetime, and expect the GC,
+   contention, and exception analyses to have no events.
    A `diskio` capture needs the File/Disk keywords, and `filtrace collect` has no
    switch for them: that capture comes from another recorder (PerfView, `wpr`, or a
    custom BenchmarkDotNet `EtwProfilerConfig` enabling `DiskIO` / `DiskFileIO`; plain

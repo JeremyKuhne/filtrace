@@ -80,6 +80,61 @@ public sealed class CaptureProvidersTests
     }
 
     [TestMethod]
+    [DataRow(CollectProfile.Cpu)]
+    [DataRow(CollectProfile.ThreadTime)]
+    [DataRow(CollectProfile.Startup)]
+    public void For_AnyProfile_EnablesNoUnreadClrKeywords(CollectProfile profile)
+    {
+        CaptureProviders providers = CaptureProviders.For(profile);
+
+        // ClrTraceEventParser.Keywords.Default carries all of these, and none of them
+        // feed an analysis TraceCapabilities.AnalysesFor offers on an .etl. They are not
+        // free: GCHeapSurvivalAndMovement makes the runtime walk moved and surviving
+        // object ranges on every collection, and Stack adds a stack walk to CLR events.
+        foreach (ClrTraceEventParser.Keywords unread in new[]
+        {
+            ClrTraceEventParser.Keywords.GCHeapSurvivalAndMovement,
+            ClrTraceEventParser.Keywords.GCHeapAndTypeNames,
+            ClrTraceEventParser.Keywords.GCHeapDump,
+            ClrTraceEventParser.Keywords.Type,
+            ClrTraceEventParser.Keywords.Stack,
+            ClrTraceEventParser.Keywords.Contention,
+            ClrTraceEventParser.Keywords.Threading,
+        })
+        {
+            providers.ClrKeywords.Should().NotHaveFlag(unread);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(CollectProfile.Cpu)]
+    [DataRow(CollectProfile.ThreadTime)]
+    [DataRow(CollectProfile.Startup)]
+    public void For_AnyProfile_EnablesTheManagedNamingKeywords(CollectProfile profile)
+    {
+        CaptureProviders providers = CaptureProviders.For(profile);
+
+        // Without these every managed frame in the capture is an unnamed address.
+        providers.ClrKeywords.Should().HaveFlag(ClrTraceEventParser.Keywords.Jit);
+        providers.ClrKeywords.Should().HaveFlag(ClrTraceEventParser.Keywords.NGen);
+        providers.ClrKeywords.Should().HaveFlag(ClrTraceEventParser.Keywords.Loader);
+        providers.ClrKeywords.Should().HaveFlag(ClrTraceEventParser.Keywords.JittedMethodILToNativeMap);
+    }
+
+    [TestMethod]
+    [DataRow(CollectProfile.Cpu)]
+    [DataRow(CollectProfile.ThreadTime)]
+    public void For_AnalysisProfile_EnablesTheTimelineLaneKeywords(CollectProfile profile)
+    {
+        CaptureProviders providers = CaptureProviders.For(profile);
+
+        // The timeline's gc and alloc lanes read GC events; its exception lane reads
+        // Exception events. Startup deliberately drops both.
+        providers.ClrKeywords.Should().HaveFlag(ClrTraceEventParser.Keywords.GC);
+        providers.ClrKeywords.Should().HaveFlag(ClrTraceEventParser.Keywords.Exception);
+    }
+
+    [TestMethod]
     public void For_Startup_DiffersFromCpuOnlyInItsClrKeywords()
     {
         CaptureProviders startup = CaptureProviders.For(CollectProfile.Startup);
@@ -97,25 +152,12 @@ public sealed class CaptureProvidersTests
         CaptureProviders providers = CaptureProviders.For(CollectProfile.Startup);
 
         // Jit/NGen name the methods, Loader names their modules, and the IL-to-native map
-        // is what turns a native address into a source line.
+        // is what turns a native address into a source line. Nothing else.
         providers.ClrKeywords.Should().Be(
             ClrTraceEventParser.Keywords.Jit
             | ClrTraceEventParser.Keywords.NGen
             | ClrTraceEventParser.Keywords.Loader
             | ClrTraceEventParser.Keywords.JittedMethodILToNativeMap);
-
-        foreach (ClrTraceEventParser.Keywords volume in new[]
-        {
-            ClrTraceEventParser.Keywords.GC,
-            ClrTraceEventParser.Keywords.Type,
-            ClrTraceEventParser.Keywords.Contention,
-            ClrTraceEventParser.Keywords.Exception,
-            ClrTraceEventParser.Keywords.Threading,
-            ClrTraceEventParser.Keywords.Stack,
-        })
-        {
-            providers.ClrKeywords.Should().NotHaveFlag(volume);
-        }
     }
 
     [TestMethod]

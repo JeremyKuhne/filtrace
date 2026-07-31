@@ -51,11 +51,11 @@
     },
     "trace-info-orientation": {
       "calls": 1,
-      "tokens": 121
+      "tokens": 127
     },
     "source-quality": {
       "calls": 1,
-      "tokens": 755
+      "tokens": 761
     },
     "manifest-batch": {
       "calls": 1,
@@ -63,7 +63,7 @@
     },
     "manifest-diff": {
       "calls": 1,
-      "tokens": 458
+      "tokens": 394
     }
   }
 }
