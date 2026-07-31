@@ -764,55 +764,66 @@ capabilities filtrace already claims, and none of them depend on the transport o
 output-schema decisions, so they can ship before VN1. SC4-SC7 add surface and are
 therefore subject to the same gates as the VC backlog.
 
-| ID | Gap | Proposed surface | Priority | Main gate |
+| ID | Gap | Proposed surface | Priority | Status |
 |---|---|---|:---:|---|
-| SC1 | Scope cannot name exact processes | `--pid` / `--children` on the scope-aware verbs and tools | High | Public `ProcessScope` break |
-| SC2 | Local native PDBs are never applied to non-runtime modules | `--symbols` behavior fix plus per-module status | High | None |
-| SC3 | Capture always enables CLR plus disk and network keywords | `collect --profile` | High | None |
-| SC4 | One ETW session per short invocation | `collect --iterations` plus a command-matrix script | Medium | SC1, SC3 |
-| SC5 | No wall-clock phase report | Lifecycle verb and tool over process/image events | Medium | Tool-list budget |
-| SC6 | Sub-millisecond sampling rejected before collection | Widened range plus effective-interval reporting | Low | Platform measurement |
-| SC7 | No short-startup recipe for agents | `workflow.md`, `traps.md`, shipped skill | Low | SC1-SC6 |
+| SC1 | Scope cannot name exact processes | `--pid` / `--children` on the scope-aware verbs and tools | High | Shipped (#63) |
+| SC2 | Local native PDBs are never applied to non-runtime modules | `--symbols` behavior fix plus per-module status | High | Open; no gate |
+| SC3 | Capture always enables CLR plus disk and network keywords | `collect --profile` | High | Open; no gate |
+| SC4 | One ETW session per short invocation | `collect --iterations` plus a command-matrix script | Medium | Open; gated on SC3 |
+| SC5 | No wall-clock phase report | Lifecycle verb and tool over process/image events | Medium | Open; gated on SC4 |
+| SC6 | Sub-millisecond sampling rejected before collection | Widened range plus effective-interval reporting | Low | Open; needs platform measurement |
+| SC7 | No short-startup recipe for agents | `workflow.md`, `traps.md`, shipped skill | Low | Open; gated on SC1-SC6 |
 
-### SC1 - Exact process-identity scope
+### SC1 - Exact process-identity scope - shipped (#63)
 
-[ProcessScope](../src/Filtrace.Core/Tracing/ProcessScope.cs) stores a process-name
-substring, so `--process dotnet` selects every matching root in a machine-wide trace
+[ProcessScope](../src/Filtrace.Core/Tracing/ProcessScope.cs) stored a process-name
+substring, so `--process dotnet` selected every matching root in a machine-wide trace
 and, by default, all of their descendants. On a development machine that silently
-mixes unrelated hosts into a ranking. Two further limits compound it: `ScopeRequest`
-already carries `IncludeChildren`, but no verb or tool exposes it, and the resolved
-scope reaches the caller only as the warning prose built in
-[TraceLogReader](../src/Filtrace.Core/Tracing/Readers/TraceLogReader.cs).
+mixed unrelated hosts into a ranking. Two further limits compounded it: `ScopeRequest`
+already carried `IncludeChildren`, but no verb or tool exposed it, and the resolved
+scope reached the caller only as warning prose.
+
+What shipped:
 
 Implementation shape:
 
-- Replace the name string in `ProcessScope` with a `ProcessSelector` union - a name
+- Replaced the name string in `ProcessScope` with a `ProcessSelector` union - a name
   selector and a process-id selector - so an exact identity is represented rather
-  than encoded into a substring. This is a breaking change to the public
-  `ProcessScope` constructor and belongs to v.next.
-- Add `ScopeRequest.ForProcessIds`, branch [ProcessTree.ResolvePids](../src/Filtrace.Core/Tracing/Readers/ProcessTree.cs)
-  on the selector, and leave the three existing consumers (`TraceLogReader`,
-  `ThreadTimeProvider`, `TimelineProvider`) reading the same resolved pid set.
-- Expose `--pid` (one comma-separated list; ConsoleAppFramework binds an array option
+  than encoded into a substring. This broke the public `ProcessScope` constructor and
+  the `ScopeRequest.ProcessName` property, which `Selector` replaces.
+- Added `ScopeRequest.ForProcessIds` and `ScopeRequest.AutoScope(includeChildren)`.
+  [ProcessTree.ResolveScope](../src/Filtrace.Core/Tracing/Readers/ProcessTree.cs) now
+  returns a `ScopeResolution` (pids, label, prose phrase, advisories) so the three
+  consumers (`TraceLogReader`, `ThreadTimeProvider`, `TimelineProvider`) report an id
+  scope without duplicating message construction.
+- Exposed `--pid` (one comma-separated list; ConsoleAppFramework binds an array option
   from a single value, and a repeated option silently keeps only the last) and
   `--children include|exclude` on the scope-aware verbs, and the same two parameters
   on the corresponding `trace_*` tools. `--children exclude` is what produces a
   parent-only CPU ranking.
-- Guard process-id reuse. A reused pid appears as more than one `TraceProcess` in the
-  same trace, so a `--pid` selector that matches several must fail with the candidate
-  start times rather than quietly union them.
-- Warn when a name selector resolves to more than one root tree, listing the matched
-  roots and naming `--pid` as the exact alternative.
+- Guarded process-id reuse: a reused pid appears as more than one `TraceProcess` in
+  the same trace, so a `--pid` selector that matches several fails with the candidate
+  start times rather than quietly unioning them. Ids absent from the trace are named.
+- Warned when a name selector resolves to more than one independent root tree,
+  listing the matched roots and naming `--pid` as the exact alternative.
 
 Decided: descendants stay included by default for both selector kinds, so `--pid`
 differs from `--process` only in how roots are chosen. Interactive discovery keeps
 the name selector; exact scope is for manifests and automation.
 
+Two defects surfaced only under a real CLI/server run, not under unit tests: a
+repeated `--pid` silently keeps the last value (so every generated hint must join ids
+with a comma), and the MCP head needs each tool-parameter type registered in the
+source-generated `FiltraceJsonContext` or the server fails at startup. Both are pinned
+by tests now. The descendant mode also has to key every axis that resolves to a
+process set - the cache key, the manifest-scope fallback, and the drill-down hints all
+had to stop branching on `Selector` alone.
+
 The resolved scope must also be readable without parsing prose. That is the same
 requirement as [effective query context](#effective-query-context) in output contract
-v9, so SC1 extends that `scope` object with the applied selector and the resolved
-root and descendant ids rather than inventing a second channel. SC1 may therefore
-land its analysis behavior before VN2 and its structured reporting with VN2.
+v9, so SC1's structured reporting is deferred to VN2, which extends that `scope`
+object with the applied selector and the resolved root and descendant ids rather than
+adding a second channel.
 
 ### SC2 - Local native symbols for arbitrary modules
 
@@ -965,24 +976,26 @@ lands last. Run `tools/Test-Docs.ps1 -Fix` after editing a marked block.
 
 - `tools/Test-CliHelp.ps1` requires each verb's help to stay within 60 lines, every
   verb to appear in top-level help with a README example, and the README scope
-  inventory to list every verb implementing a scope option. SC1 adds two options to
-  roughly fifteen verbs; check the `rank` help line count first, since it is already
-  the largest.
+  inventory to list every verb implementing a scope option. SC1's two extra options
+  across thirteen verbs fit; `rank` is the one to re-check first on any further
+  option addition, since it is the largest.
 - `tools/Test-McpServer.ps1` gates the tool-list token budget; see SC5.
 - `tools/Test-CaptureBenchmarkTrace.ps1` is the model for a `Capture-CommandTrace.ps1`
   contract test, and SC4's manifest change touches its schema assertions.
-- Fixture coverage is the open item. SC1 needs a capture with several same-named roots
-  and a real parent/child pair; SC2 needs a native module with a matching local PDB;
-  SC5 needs process start and stop events for repeated invocations. Committed ETW
-  captures cannot be regenerated without elevation, so decide per test whether to
-  capture and commit a new fixture or to build the case from the existing corpus.
+- Fixture coverage is the open item for the remaining items. SC1 was covered from the
+  existing corpus; SC2 needs a native module with a matching local PDB, SC3 needs a
+  kernel-only capture to compare against the default one, and SC5 needs process start
+  and stop events for repeated invocations. Committed ETW captures cannot be
+  regenerated without elevation, so decide per test whether to capture and commit a
+  new fixture or to build the case from the existing corpus.
 
 ### SC sequencing
 
-SC1, SC2, and SC3 ship first and independently; together they remove the
-investigation-specific filtrace fork. SC4 follows, since its manifest is only useful
-once exact scope and a low-perturbation profile exist. SC5 follows SC4 and the
-tool-list budget decision. SC6 and SC7 close the initiative.
+SC1 shipped in #63. SC2 and SC3 remain independent of each other and of the transport
+and schema decisions; together with SC1 they remove the investigation-specific
+filtrace fork. SC4 follows, since its manifest is only useful once exact scope and a
+low-perturbation profile exist. SC5 follows SC4 and the tool-list budget decision.
+SC6 and SC7 close the initiative.
 
 ## Eval and measurement plan
 

@@ -251,7 +251,7 @@ meaningful zero:
 
 | Verb | Shows |
 |---|---|
-| `processes` | processes by CPU-sample weight, to pick a `--process` target |
+| `processes` | processes by CPU-sample weight, to pick a `--process` or `--pid` target |
 | `classify` | CPU time by runtime work category (zeroing / copying / GC / JIT) |
 
 **Temporal** - see what happened when, to find the window to drill:

@@ -206,7 +206,7 @@ workload:
 
 | Verb | Shows |
 |---|---|
-| `processes` | processes by CPU-sample weight, to pick a `--process` target |
+| `processes` | processes by CPU-sample weight, to pick a `--process` or `--pid` target |
 | `classify` | CPU time by runtime work category (zeroing / copying / GC / JIT) |
 
 **Temporal** - see what happened when, to find the window to drill:
@@ -387,7 +387,9 @@ The recurring ways a .NET trace investigation goes wrong:
    auto-scopes to the busiest process tree ranked by **CPU-sample count** (a
    long-lived background service wins a wall-clock race but owns few samples), and
    that default is usually right - but run `processes` first to see what is in the
-   capture, then pass `--process <name>` if the auto-pick is wrong.
+   capture, then pass `--process <name>` if the auto-pick is wrong. A common host
+   name matches every unrelated instance of it; when that happens, scope to the exact
+   `name(pid)` values the inventory printed with `--pid`.
 
 4. **BenchmarkDotNet captures include the harness - scope with `--benchmark` by
    default, not as an afterthought.** A raw ranking (or export) of a BDN trace is
