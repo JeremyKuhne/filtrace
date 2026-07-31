@@ -206,6 +206,22 @@ public sealed class TraceStoreTests
     }
 
     [TestMethod]
+    public void Get_ParentOnlyAutomaticScope_CachesSeparatelyFromTheTreeScope()
+    {
+        TraceStore store = new();
+        string path = FixturePath("activity.nettrace");
+
+        // Both requests carry no selector, but they resolve to different process sets -
+        // the busiest process's whole tree versus that process alone. Keying only on the
+        // selector would let the first read's entry serve the second.
+        LoadedTrace tree = store.Get(path, metric: TraceMetric.Cpu, scope: ScopeRequest.Auto);
+        LoadedTrace parentOnly = store.Get(
+            path, metric: TraceMetric.Cpu, scope: ScopeRequest.AutoScope(includeChildren: false));
+
+        parentOnly.Should().NotBeSameAs(tree);
+    }
+
+    [TestMethod]
     public void Get_TimeWindowOnNonCpuMetric_CachesSeparately()
     {
         TraceStore store = new();

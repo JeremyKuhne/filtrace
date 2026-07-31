@@ -278,8 +278,9 @@ Run `filtrace <verb> --help` for the full option set of any verb.
   that is not in the trace is reported.
 - **Descendants:** the same verbs and tools accept `--children include|exclude` /
   `children`. Both selectors follow descendants by default, because the common capture
-  shapes put the measured work in a child the host launched. Pass `exclude` to
-  separate a parent's own CPU from a child runtime's - the reading a native host needs.
+  shapes put the measured work in a child the host launched. Pass `exclude` to separate
+  a parent's own CPU from a child runtime's; without it a native host's own cost is
+  blended with the CoreCLR frames of the child it launched.
 - **Root subtree:** CLI `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`,
   `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
   `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and

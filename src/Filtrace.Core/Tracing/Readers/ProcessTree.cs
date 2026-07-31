@@ -357,15 +357,16 @@ internal static class ProcessTree
             // Windows reuses process ids, and a long capture can hold two unrelated
             // processes under one id. Silently unioning them would attribute a stranger's
             // samples to the workload under the exact selector chosen to prevent that,
-            // so refuse and hand back what is needed to disambiguate.
+            // so refuse and hand back what is needed to disambiguate. No parameter name:
+            // the ids are well formed, it is this trace that cannot resolve them, and the
+            // CLI and MCP heads surface this message verbatim.
             if (sameId.Count > 1)
             {
                 throw new ArgumentException(
                     $"Process id {processId} was reused in this trace by {sameId.Count} processes "
                     + $"({string.Join("; ", sameId.Select(static process =>
                         $"'{process.Name}' started at {process.StartTimeRelativeMsec.ToString("F3", CultureInfo.InvariantCulture)} ms"))}). "
-                    + "Scope to a time window that contains only one of them, or select by process name.",
-                    nameof(selector));
+                    + "Scope to a time window that contains only one of them, or select by process name.");
             }
 
             roots.Add(processId);

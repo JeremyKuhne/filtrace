@@ -793,9 +793,11 @@ Implementation shape:
 - Add `ScopeRequest.ForProcessIds`, branch [ProcessTree.ResolvePids](../src/Filtrace.Core/Tracing/Readers/ProcessTree.cs)
   on the selector, and leave the three existing consumers (`TraceLogReader`,
   `ThreadTimeProvider`, `TimelineProvider`) reading the same resolved pid set.
-- Expose `--pid` (repeatable) and `--children auto|include|exclude` on the
-  scope-aware verbs, and the same two parameters on the corresponding `trace_*`
-  tools. `--children exclude` is what produces a parent-only CPU ranking.
+- Expose `--pid` (one comma-separated list; ConsoleAppFramework binds an array option
+  from a single value, and a repeated option silently keeps only the last) and
+  `--children include|exclude` on the scope-aware verbs, and the same two parameters
+  on the corresponding `trace_*` tools. `--children exclude` is what produces a
+  parent-only CPU ranking.
 - Guard process-id reuse. A reused pid appears as more than one `TraceProcess` in the
   same trace, so a `--pid` selector that matches several must fail with the candidate
   start times rather than quietly union them.

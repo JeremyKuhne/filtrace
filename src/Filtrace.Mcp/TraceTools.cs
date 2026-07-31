@@ -1593,13 +1593,16 @@ public sealed class TraceTools
     private static ScopeRequest? ManifestScope(CaptureManifest manifest, ScopeRequest? requested)
     {
         // Explicit process input overrides the capture's recorded process; otherwise
-        // preserve the manifest scope, falling back to automatic scope.
+        // preserve the manifest scope, falling back to automatic scope. The descendant
+        // mode is an independent axis, so it survives the fallback.
         if (requested is { Selector: not null } or { IncludeAll: true })
         {
             return requested;
         }
 
-        return manifest.Process is null ? requested : ScopeRequest.ForProcess(manifest.Process);
+        return manifest.Process is null
+            ? requested
+            : ScopeRequest.ForProcess(manifest.Process, requested?.IncludeChildren ?? true);
     }
 
     /// <summary>

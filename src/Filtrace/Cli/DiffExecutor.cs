@@ -170,7 +170,11 @@ internal static class DiffExecutor
             return requested;
         }
 
-        return manifest.Process is null ? requested : ScopeRequest.ForProcess(manifest.Process);
+        // The descendant mode is an independent axis, so it survives the fallback to the
+        // manifest's recorded process.
+        return manifest.Process is null
+            ? requested
+            : ScopeRequest.ForProcess(manifest.Process, requested?.IncludeChildren ?? true);
     }
 
     // Rank every frame (no row cap) so the diff is not skewed by per-side truncation;
