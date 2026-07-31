@@ -18,12 +18,19 @@ namespace Filtrace.Tracing;
 /// <remarks>
 ///  <para>
 ///   A single session enables the kernel CPU (and, for thread time, context-switch) events
-///   with stacks, plus the CLR <c>Jit</c> / <c>Loader</c> events that name managed methods.
-///   Because a launch capture starts tracing before the process exists, every method is
-///   jitted (and its name logged) after tracing begins, so the live method events resolve
-///   the managed frames with no CLR rundown pass. Cross-machine native-symbol injection (the
-///   PerfView "merge" step) is a deliberate follow-up; on the capture machine
-///   <c>--native-symbols</c> already names native frames.
+///   with stacks, plus the CLR events that name managed methods. Because a launch capture
+///   starts tracing before the process exists, every method is jitted (and its name logged)
+///   after tracing begins, so the live method events resolve the managed frames with no CLR
+///   rundown pass. Cross-machine native-symbol injection (the PerfView "merge" step) is a
+///   deliberate follow-up; on the capture machine <c>--native-symbols</c> already names
+///   native frames.
+///  </para>
+///  <para>
+///   Which providers a capture enables is chosen by <see cref="CollectProfile"/>. No profile
+///   enables the disk, network, or memory keywords: ETW is machine-wide, so those are paid
+///   for by the whole box, and no analysis of a <c>collect</c> capture reads them. A
+///   <c>diskio</c> capture therefore has to come from a recorder that asks for them
+///   explicitly.
 ///  </para>
 ///  <para>
 ///   ETW kernel tracing is Windows-only and needs Administrator; both are checked up front
@@ -112,23 +119,14 @@ public static class EtwCollector
 
         // ThreadTime = Default | ContextSwitch | Dispatcher; Default already carries the
         // Profile (CPU sampling), Process, Thread, and ImageLoad keywords.
-        KernelTraceEventParser.Keywords kernelKeywords = request.Metric == CollectMetric.ThreadTime
-            ? KernelTraceEventParser.Keywords.ThreadTime
-            : KernelTraceEventParser.Keywords.Default;
-
-        // Attach stacks only to the CPU-sample (and, for thread time, context-switch)
-        // events - the ones whose call stacks the rankings and thread-time attribution
-        // read. Stacking every Default event would bloat the trace without helping
-        // analysis. This mirrors the repo's own ETW fixture capture.
-        KernelTraceEventParser.Keywords stackKeywords = request.Metric == CollectMetric.ThreadTime
-            ? KernelTraceEventParser.Keywords.Profile | KernelTraceEventParser.Keywords.ContextSwitch
-            : KernelTraceEventParser.Keywords.Profile;
+        CaptureProviders providers = CaptureProviders.For(request.Profile);
 
         string processName = Path.GetFileNameWithoutExtension(request.LaunchExecutable);
         string sessionName = $"filtrace-collect-{Environment.ProcessId}";
 
         int processId;
         int exitCode;
+        float effectiveCpuSampleMSec;
 
         using (TraceEventSession session = new(sessionName, outputPath)
         {
@@ -137,6 +135,12 @@ public static class EtwCollector
             CpuSampleIntervalMSec = (float)request.CpuSampleMSec,
         })
         {
+            // Windows clamps the sampling interval to what the platform and the caller's
+            // privileges allow, so report what the session took rather than what was asked
+            // for - a silently clamped interval changes how many samples a short capture
+            // gets.
+            effectiveCpuSampleMSec = session.CpuSampleIntervalMSec;
+
             // A size cap records into a fixed-size ring so an open-ended capture is bounded
             // to the last MaxSizeMB megabytes on disk. Set before enabling the providers so
             // the session starts circular.
@@ -145,11 +149,14 @@ public static class EtwCollector
                 session.CircularBufferMB = maxSizeMB;
             }
 
-            session.EnableKernelProvider(kernelKeywords, stackKeywords);
-            session.EnableProvider(
-                ClrTraceEventParser.ProviderGuid,
-                TraceEventLevel.Verbose,
-                (ulong)ClrTraceEventParser.Keywords.Default);
+            session.EnableKernelProvider(providers.KernelKeywords, providers.StackKeywords);
+            if (providers.EnablesClr)
+            {
+                session.EnableProvider(
+                    ClrTraceEventParser.ProviderGuid,
+                    providers.ClrLevel,
+                    (ulong)providers.ClrKeywords);
+            }
 
             ProcessStartInfo startInfo = new(request.LaunchExecutable)
             {
@@ -208,6 +215,10 @@ public static class EtwCollector
             ProcessName = processName,
             ProcessExitCode = exitCode,
             FileSizeBytes = fileSize,
+            Profile = request.Profile,
+            KernelKeywords = providers.KernelKeywords.ToString(),
+            ClrKeywords = providers.EnablesClr ? providers.ClrKeywords.ToString() : "none",
+            EffectiveCpuSampleMSec = effectiveCpuSampleMSec,
         };
     }
 }

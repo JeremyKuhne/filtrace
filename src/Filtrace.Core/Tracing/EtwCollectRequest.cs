@@ -23,9 +23,9 @@ public sealed class EtwCollectRequest
     public string LaunchArguments { get; init; } = "";
 
     /// <summary>
-    ///  The metric the capture is tuned for. Defaults to <see cref="CollectMetric.Cpu"/>.
+    ///  The provider set the capture enables. Defaults to <see cref="CollectProfile.Cpu"/>.
     /// </summary>
-    public CollectMetric Metric { get; init; } = CollectMetric.Cpu;
+    public CollectProfile Profile { get; init; } = CollectProfile.Cpu;
 
     /// <summary>
     ///  The CPU sample interval in milliseconds. Defaults to 1 ms (the ETW default).

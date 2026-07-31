@@ -201,11 +201,12 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 
 | Verb | Purpose | Example |
 |---|---|---|
-| `collect` | Launch an executable and record a CPU / thread-time `.etl` | `filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl --metric threadtime` |
+| `collect` | Launch an executable and record a CPU / thread-time `.etl` | `filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl --profile threadtime` |
 
 ```pwsh
 filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl              # CPU
-filtrace collect --launch dotnet --launch-args MyApp.dll --output tt.etl --metric threadtime
+filtrace collect --launch dotnet --launch-args MyApp.dll --output tt.etl --profile threadtime
+filtrace collect --launch MyApp.exe --output start.etl --profile startup                # low perturbation
 filtrace collect --launch MyApp.exe --output ring.etl --max-size-mb 512                 # bounded ring buffer
 ```
 

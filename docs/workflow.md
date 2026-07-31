@@ -37,11 +37,16 @@ lighter, no-elevation choice. Reading an `.etl` through filtrace is Windows-only
 direct `.etlx` input is not part of the current CLI or MCP surface.
 
 A machine-wide `.etl` also grows fast, so keep the capture lean. `filtrace collect`
-enables only the CPU (and, for `threadtime`, context-switch) keywords and stacks only
-the sampled events; it never turns on the File/Disk keywords, whose system-wide *name*
-rundown enumerates every open file on the machine - hundreds of thousands of events
-that dominate the trace no matter how short the window. Bound an open-ended run with
-`--duration` (by time) or `--max-size-mb` (a circular buffer that keeps the last N MB).
+enables only the sampled-profile, process, thread, and image-load kernel keywords and
+stacks only the sampled events; it never turns on the File/Disk or network keywords,
+whose system-wide *name* rundown enumerates every open file on the machine - hundreds
+of thousands of events that dominate the trace no matter how short the window. Choose
+the provider set with `--profile`: `cpu` (the default), `threadtime` (adds the
+context-switch and dispatcher keywords for wall-clock time, and is the most expensive),
+or `startup` (keeps only the CLR keywords that name managed methods, for a short
+process where instrumentation must not change what it measures). Bound an open-ended
+run with `--duration` (by time) or `--max-size-mb` (a circular buffer that keeps the
+last N MB).
 Only a `diskio` capture needs those File/Disk keywords, and `collect` has
 no switch for them: that capture comes from another recorder (PerfView, `wpr`, or
 a custom BenchmarkDotNet `EtwProfilerConfig` enabling `DiskIO` / `DiskFileIO`;
@@ -251,7 +256,7 @@ meaningful zero:
 
 | Verb | Shows |
 |---|---|
-| `processes` | processes by CPU-sample weight, to pick a `--process` target |
+| `processes` | processes by CPU-sample weight, to pick a `--process` or `--pid` target |
 | `classify` | CPU time by runtime work category (zeroing / copying / GC / JIT) |
 
 **Temporal** - see what happened when, to find the window to drill:

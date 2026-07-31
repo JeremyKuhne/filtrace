@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using Filtrace.Tracing;
 
 namespace Filtrace.Cli;
@@ -42,11 +43,25 @@ internal static class CollectExecutor
             output.WriteLine(
                 $"Captured {result.FileSizeBytes:N0} bytes to {trace} " +
                 $"(process {result.ProcessName} [{result.ProcessId}] exited {result.ProcessExitCode}).");
+
+            // What the session actually enabled, so a trace can be audited after the fact
+            // rather than inferred from the verb that wrote it.
+            output.WriteLine(
+                $"  profile {result.Profile.ToString().ToLowerInvariant()}; kernel {result.KernelKeywords}; " +
+                $"clr {result.ClrKeywords}; cpu sample {result.EffectiveCpuSampleMSec.ToString("0.###", CultureInfo.InvariantCulture)} ms");
+
+            if (result.Profile == CollectProfile.Startup)
+            {
+                output.WriteLine(
+                    "  startup keeps only the managed-naming CLR keywords, so GC, contention, and exception "
+                    + "analyses have no events in this capture.");
+            }
+
             output.WriteLine();
             output.WriteLine("Next-step filtrace commands:");
             output.WriteLine($"  filtrace processes \"{trace}\"");
             output.WriteLine($"  filtrace cpu \"{trace}\" --process \"{result.ProcessName}\"");
-            if (request.Metric == CollectMetric.ThreadTime)
+            if (request.Profile == CollectProfile.ThreadTime)
             {
                 output.WriteLine($"  filtrace threadtime \"{trace}\" --process \"{result.ProcessName}\"");
             }

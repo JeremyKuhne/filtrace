@@ -993,7 +993,7 @@ internal sealed class TraceCommands
     /// </summary>
     /// <param name="launch">Path to the executable to launch and trace (the built app, never 'dotnet run').</param>
     /// <param name="output">Path of the .etl file to write.</param>
-    /// <param name="metric">What to tune the capture for: cpu (default) or threadtime (adds context switches for wall-clock time).</param>
+    /// <param name="profile">Providers to enable: cpu (default), threadtime (adds context switches for wall-clock time), or startup (low-perturbation; only the CLR keywords that name managed methods).</param>
     /// <param name="launchArgs">Arguments passed to the launched executable, as one command-line string.</param>
     /// <param name="cpuMs">CPU sample interval in milliseconds.</param>
     /// <param name="duration">Optional cap on capture length in seconds; 0 (default) captures until the process exits.</param>
@@ -1003,21 +1003,22 @@ internal sealed class TraceCommands
     ///  Reproduces a PerfView-style capture with TraceEvent's session API, so no external
     ///  recorder is needed. A launch capture needs no CLR rundown; managed frames resolve
     ///  from the live JIT events. The written .etl is machine-wide, so the printed commands
-    ///  scope to the launched process with --process.
+    ///  scope to the launched process with --process. No profile enables the disk or network
+    ///  keywords, so a diskio capture must come from a recorder that asks for them.
     /// </remarks>
     [Command("collect")]
     public int Collect(
         string launch,
         string output,
-        string metric = "cpu",
+        string profile = "cpu",
         string launchArgs = "",
         [Range(1, 1000)] double cpuMs = 1.0,
         [Range(0, int.MaxValue)] int duration = 0,
         [Range(0, int.MaxValue)] int maxSizeMb = 0)
     {
-        if (!TryResolveCollectMetric(metric, out CollectMetric resolved))
+        if (!TryResolveCollectProfile(profile, out CollectProfile resolved))
         {
-            Console.Error.WriteLine($"Unknown metric '{metric}'. Supported capture metrics: cpu, threadtime.");
+            Console.Error.WriteLine($"Unknown profile '{profile}'. Supported capture profiles: cpu, threadtime, startup.");
             return ExitCodes.UsageError;
         }
 
@@ -1025,7 +1026,7 @@ internal sealed class TraceCommands
         {
             LaunchExecutable = launch,
             LaunchArguments = launchArgs,
-            Metric = resolved,
+            Profile = resolved,
             CpuSampleMSec = cpuMs,
             DurationSeconds = duration > 0 ? duration : null,
             MaxSizeMB = maxSizeMb > 0 ? maxSizeMb : null,
@@ -1035,19 +1036,22 @@ internal sealed class TraceCommands
         return CollectExecutor.Run(request, Console.Out, Console.Error);
     }
 
-    // Resolve the collect --metric selector to its capture keyword set.
-    private static bool TryResolveCollectMetric(string metric, out CollectMetric result)
+    // Resolve the collect --profile selector to its provider set.
+    private static bool TryResolveCollectProfile(string profile, out CollectProfile result)
     {
-        switch (metric?.Trim().ToLowerInvariant())
+        switch (profile?.Trim().ToLowerInvariant())
         {
             case "cpu":
-                result = CollectMetric.Cpu;
+                result = CollectProfile.Cpu;
                 return true;
             case "threadtime":
-                result = CollectMetric.ThreadTime;
+                result = CollectProfile.ThreadTime;
+                return true;
+            case "startup":
+                result = CollectProfile.Startup;
                 return true;
             default:
-                result = CollectMetric.Cpu;
+                result = CollectProfile.Cpu;
                 return false;
         }
     }

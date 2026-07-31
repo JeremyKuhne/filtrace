@@ -187,14 +187,15 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 | **Events** | | | |
 | List event types | Y | Y | Both |
 | Filter by name/provider | Y | Y | Both |
-| Filter by PID/TID | Y | Y | Both explicit flags; filtrace `events --pid` / `--tid` |
+| Filter by PID/TID | Y | Y | Both explicit flags; filtrace `events --pid` / `--tid`, plus `--pid` on every scope-aware verb |
 | Payload content search | Y | Y | Both `--payload` substring search |
 | **Cross-cutting temporal** | | | |
 | Multi-lane timeline correlation | **Y** | **Y** | Both `timeline`; filtrace lanes gc/cpu/exceptions/alloc/jit |
 | Point-in-time snapshot window | **Y** | **-** | pvanalyze `snapshot` |
 | Time-window scoping | Y | Y | pvanalyze `--from/--to`; filtrace `--time` |
 | **Scoping** | | | |
-| Multi-process CPU scoping | ~ | Y | filtrace auto-scopes to busiest + `--process` |
+| Multi-process CPU scoping | ~ | Y | filtrace auto-scopes to busiest, or `--process` name / `--pid` exact ids |
+| Descendant control | - | Y | filtrace `--children include\|exclude` isolates a parent from its children |
 | Root / subtree scoping | - | Y | filtrace `--root` |
 | BenchmarkDotNet scoping | - | Y | filtrace `--benchmark` |
 | Activity (request/job) scoping | - | Y | filtrace `--activity` |
@@ -258,14 +259,16 @@ Legend: **Y** = present, **-** = absent, **~** = partial / indirect.
 4. **Source-line drill.** CPU `lines` and `heatmap` extract embedded PDBs and attribute
    cost to source lines and files - the last mile from "hot method" to "fix this
    line."
-5. **ETW breadth.** Multi-process scoping (auto-scope to the busiest tree +
-   `--process`), native GC/JIT/`memcpy` frames (`--native-symbols`), work-category
+5. **ETW breadth.** Multi-process scoping (auto-scope to the busiest tree, an explicit
+   `--process` name, or an exact `--pid` set with `--children` control), native
+   GC/JIT/`memcpy` frames (`--native-symbols`), work-category
    `classify`, physical `diskio`, and a built-in `collect` capture verb.
 6. **Compare across runs and cases.** CPU `diff` reports absolute and normalized
    scope changes for direct traces or exact benchmark/parameter manifest pairs;
    `batch` runs one bounded ranking query across every manifest case.
 7. **Scoping vocabulary.** `--root`, `--benchmark` (BDN workload), `--activity`
-   (one request/job), and `--time` let an agent zoom to exactly the relevant slice.
+   (one request/job), `--time`, and the process axis (`--process` / `--pid` /
+   `--children`) let an agent zoom to exactly the relevant slice.
 8. **Engineering rigor for agents.** Deterministic rounding, an output **token
    budget**, parity tests against frozen oracles, an eval harness, and a shipped
    skill with CI drift checks.
@@ -341,7 +344,9 @@ Priority order reflects value to pvanalyze's cross-platform, agent-driven audien
    EventPipe subset answers "am I CPU-bound or blocked?".
 6. **Multi-process CPU scoping.** `cpustacks`/`calltree` currently build a global
    stack source; adopt filtrace's auto-scope-to-busiest-process plus a `--process`
-   selector so a multi-process capture is not silently blended.
+   selector so a multi-process capture is not silently blended. An exact process-id
+   selector and explicit descendant control matter as much on a developer machine,
+   where a common host name matches unrelated trees.
 7. **A `diff` command.** Compare two traces' `cpustacks`/`gcstats`/`alloc` and report
    what moved. Regression triage is a common CI use case pvanalyze is otherwise well
    placed for.

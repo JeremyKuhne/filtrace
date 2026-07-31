@@ -29,4 +29,25 @@ public sealed class EtwCollectResult
 
     /// <summary>The size of the written <c>.etl</c> in bytes.</summary>
     public required long FileSizeBytes { get; init; }
+
+    /// <summary>The profile the capture was recorded with.</summary>
+    public required CollectProfile Profile { get; init; }
+
+    /// <summary>
+    ///  The kernel provider keywords the capture enabled, comma-separated.
+    /// </summary>
+    public required string KernelKeywords { get; init; }
+
+    /// <summary>
+    ///  The CLR provider keywords the capture enabled, comma-separated, or <c>"none"</c>
+    ///  when the CLR provider was left off.
+    /// </summary>
+    public required string ClrKeywords { get; init; }
+
+    /// <summary>
+    ///  The CPU sample interval the session actually applied, in milliseconds, read back
+    ///  after the request was set. Windows clamps the interval to what the platform and
+    ///  the caller's privileges allow, so this can differ from what was asked for.
+    /// </summary>
+    public required double EffectiveCpuSampleMSec { get; init; }
 }

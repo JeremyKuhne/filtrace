@@ -287,7 +287,7 @@ else {
     $launchArgs = (@($runPrefixArgs) + $AppArgs | ForEach-Object {
             if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
         }) -join ' '
-    $collectArgs = @('collect', '--launch', $runExe, '--output', $Output, '--metric', 'threadtime')
+    $collectArgs = @('collect', '--launch', $runExe, '--output', $Output, '--profile', 'threadtime')
     if ($launchArgs) { $collectArgs += @('--launch-args', $launchArgs) }
     filtrace @collectArgs | Out-Host
     if ($LASTEXITCODE -ne 0) { Write-Error "filtrace collect failed (exit $LASTEXITCODE)." -ErrorAction Continue ; exit $LASTEXITCODE }
