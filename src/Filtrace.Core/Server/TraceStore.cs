@@ -187,24 +187,29 @@ public sealed class TraceStore
 
     // A stable cache-key fragment for a scope request: the process axis ('all' for
     // all-processes, 'auto' for the automatic busiest-process default - a null request
-    // is unspecified, the same default - or the explicit process name) followed by the
+    // is unspecified, the same default - or the explicit selector) followed by the
     // activity axis ('-' for none or when not keyed, or the activity task name). Because
     // the load path treats a null request as the automatic default, null and
-    // ScopeRequest.Auto resolve to the same trace and so share the 'auto' fragment by
-    // design. Both names are length-prefixed so they cannot be confused with the
-    // sentinels, each other, or the following key segment. The activity is keyed only
-    // when includeActivity is set (the CPU metric): the CPU reader filters samples by it,
-    // so a trace scoped to an activity must not serve an unscoped read; thread time
-    // ignores it, so keying it there would only fragment the cache.
+    // ScopeRequest.Auto resolve to the same trace and so share the 'auto+' fragment by
+    // design. The descendant mode keys every process axis including 'auto', which
+    // carries no selector but still resolves to one process's tree. Names are
+    // length-prefixed so they cannot be confused with the sentinels, each other, or the
+    // following key segment; id sets are decimal integers joined by a comma, which their
+    // digits cannot contain. The activity is keyed only when includeActivity is set (the
+    // CPU metric): the CPU reader filters samples by it, so a trace scoped to an activity
+    // must not serve an unscoped read; thread time ignores it, so keying it there would
+    // only fragment the cache.
     private static string ScopeKey(ScopeRequest? scope, bool includeActivity)
     {
         string activity = includeActivity && scope?.ActivityName is string name && name.Length > 0
             ? $"a{name.Length}:{name}"
             : "-";
 
-        if (scope is null || (scope.ProcessName is null && !scope.IncludeAll))
+        string children = scope is null || scope.IncludeChildren ? "+" : "-";
+
+        if (scope is null || (scope.Selector is null && !scope.IncludeAll))
         {
-            return $"auto:{activity}";
+            return $"auto{children}:{activity}";
         }
 
         if (scope.IncludeAll)
@@ -212,8 +217,13 @@ public sealed class TraceStore
             return $"all:{activity}";
         }
 
-        string processName = scope.ProcessName!;
-        return $"p{(scope.IncludeChildren ? "+" : "-")}{processName.Length}:{processName}:{activity}";
+        if (scope.Selector is ProcessIdSelector ids)
+        {
+            return $"i{children}{string.Join(",", ids.ProcessIds)}:{activity}";
+        }
+
+        string processName = ((ProcessNameSelector)scope.Selector!).NameSubstring;
+        return $"p{children}{processName.Length}:{processName}:{activity}";
     }
 
     // A stable cache-key fragment for a time window: '-' when unbounded (no time scope),

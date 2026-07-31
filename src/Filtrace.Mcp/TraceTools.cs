@@ -48,8 +48,10 @@ public sealed class TraceTools
         TraceStore store,
         string path,
         string symbols = "",
-        string process = "") =>
-        InfoAsync(store, path, symbols, process).GetAwaiter().GetResult();
+        string process = "",
+        int[]? pid = null,
+        bool children = true) =>
+        InfoAsync(store, path, symbols, process, pid, children).GetAwaiter().GetResult();
 
     /// <summary>
     ///  Loads a trace and returns its format, total weight, sample count, frame-name
@@ -59,6 +61,8 @@ public sealed class TraceTools
     /// <param name="path">Path to the trace file.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
+    /// <param name="pid">Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.</param>
+    /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The trace summary envelope.</returns>
     [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
@@ -73,13 +77,17 @@ public sealed class TraceTools
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
+        [Description("Exact process ids; excludes process.")]
+        int[]? pid = null,
+        [Description("Follow descendants of the matched processes.")]
+        bool children = true,
         CancellationToken cancellationToken = default)
     {
         TraceStoreLoadResult load = await LoadAsync(
             store,
             path,
             NullIfEmpty(symbols),
-            scope: ResolveScope(process),
+            scope: ResolveScope(process, pid, children),
             cancellationToken: cancellationToken).ConfigureAwait(false);
         TraceInfo info = load.Trace.Info;
         TraceInfoView view = TraceInfoView.FromTraceInfo(info, load.EtlxCacheState);
@@ -97,6 +105,8 @@ public sealed class TraceTools
         string[]? fold = null,
         string symbols = "",
         string process = "",
+        int[]? pid = null,
+        bool children = true,
         string activity = "",
         string time = "",
         bool nativeSymbols = false,
@@ -111,6 +121,8 @@ public sealed class TraceTools
             fold,
             symbols,
             process,
+            pid,
+            children,
             activity,
             time,
             nativeSymbols,
@@ -129,6 +141,8 @@ public sealed class TraceTools
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
+    /// <param name="pid">Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.</param>
+    /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="activity">Optional start-stop activity task name scoping the CPU ranking to that request/job.</param>
     /// <param name="time">Optional time window 'start,end' in ms scoping the ranking to that slice; any metric.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.</param>
@@ -152,6 +166,10 @@ public sealed class TraceTools
         string symbols = "",
         [Description("Process substring for .etl; omit to auto-scope to the busiest.")]
         string process = "",
+        [Description("Exact process ids; excludes process.")]
+        int[]? pid = null,
+        [Description("Follow descendants of the matched processes.")]
+        bool children = true,
         [Description("Activity task name (cpu only).")]
         string activity = "",
         [Description("Time window 'start,end' ms; either bound optional. Speedscope ignores it.")]
@@ -176,7 +194,7 @@ public sealed class TraceTools
                 "The activity scope applies to the cpu metric only. Use metric=cpu (or omit metric) to scope to an activity.");
         }
 
-        ScopeRequest? scope = ResolveScope(process);
+        ScopeRequest? scope = ResolveScope(process, pid, children);
         if (!string.IsNullOrEmpty(activity))
         {
             scope = (scope ?? ScopeRequest.Auto).WithActivity(activity);
@@ -230,8 +248,10 @@ public sealed class TraceTools
         int top = 25,
         string[]? fold = null,
         string symbols = "",
-        string process = "") =>
-        LinesAsync(store, path, method, top, fold, symbols, process).GetAwaiter().GetResult();
+        string process = "",
+        int[]? pid = null,
+        bool children = true) =>
+        LinesAsync(store, path, method, top, fold, symbols, process, pid, children).GetAwaiter().GetResult();
 
     /// <summary>
     ///  Reports the immediate callers of the frame matching <paramref name="frame"/>,
@@ -244,6 +264,8 @@ public sealed class TraceTools
     /// <param name="top">Maximum caller rows to return.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
+    /// <param name="pid">Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.</param>
+    /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
     /// <returns>The caller-breakdown envelope.</returns>
     [McpServerTool(Name = "trace_callers", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
@@ -260,6 +282,10 @@ public sealed class TraceTools
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
+        [Description("Exact process ids; excludes process.")]
+        int[]? pid = null,
+        [Description("Follow descendants of the matched processes.")]
+        bool children = true,
         [Description("Also return the frame's immediate callees (a caller/callee view); off by default.")]
         bool callees = false,
         [Description("Use the BenchmarkDotNet measured-workload root; mutually exclusive with 'root'.")]
@@ -267,7 +293,7 @@ public sealed class TraceTools
     {
         RequirePositiveTop(top);
         string resolvedRoot = ResolveRoot(root, benchmark);
-        ScopeRequest? scope = ResolveScope(process);
+        ScopeRequest? scope = ResolveScope(process, pid, children);
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: scope);
         TraceInfo info = trace.Info;
         CallersResult callers = trace.Aggregator.CallersOf(frame, resolvedRoot, top, callees);
@@ -298,6 +324,8 @@ public sealed class TraceTools
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
+    /// <param name="pid">Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.</param>
+    /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The line-level self-time envelope.</returns>
     [McpServerTool(Name = "trace_lines", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
@@ -314,6 +342,10 @@ public sealed class TraceTools
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
+        [Description("Exact process ids; excludes process.")]
+        int[]? pid = null,
+        [Description("Follow descendants of the matched processes.")]
+        bool children = true,
         CancellationToken cancellationToken = default)
     {
         RequirePositiveTop(top);
@@ -322,7 +354,7 @@ public sealed class TraceTools
             store,
             path,
             NullIfEmpty(symbols),
-            scope: ResolveScope(process),
+            scope: ResolveScope(process, pid, children),
             cancellationToken: cancellationToken).ConfigureAwait(false);
         LoadedTrace trace = load.Trace;
         TraceInfo info = trace.Info;
@@ -343,6 +375,8 @@ public sealed class TraceTools
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
+    /// <param name="pid">Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.</param>
+    /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <returns>The heat-map envelope.</returns>
     [McpServerTool(Name = "trace_heatmap", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description(
@@ -356,10 +390,14 @@ public sealed class TraceTools
         [Description("Optional local build-output directory containing PDBs.")]
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
-        string process = "")
+        string process = "",
+        [Description("Exact process ids; excludes process.")]
+        int[]? pid = null,
+        [Description("Follow descendants of the matched processes.")]
+        bool children = true)
     {
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
-        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process));
+        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process, pid, children));
         TraceInfo info = trace.Info;
 
         // The trace records the build-time file name, not its full path, so match on the file name.
@@ -403,6 +441,10 @@ public sealed class TraceTools
         string symbols = "",
         [Description("Process substring for both .etl traces; omit for each busiest tree.")]
         string process = "",
+        [Description("Exact process ids; excludes process.")]
+        int[]? pid = null,
+        [Description("Follow descendants of the matched processes.")]
+        bool children = true,
         [Description("BenchmarkDotNet workload root; conflicts with root.")]
         bool benchmark = false)
     {
@@ -411,7 +453,7 @@ public sealed class TraceTools
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
         string? resolvedSymbols = NullIfEmpty(symbols);
         string resolvedRoot = ResolveRoot(root, benchmark);
-        ScopeRequest? scope = ResolveScope(process);
+        ScopeRequest? scope = ResolveScope(process, pid, children);
         bool beforeManifest = CaptureManifestReader.IsManifestPath(beforePath);
         bool afterManifest = CaptureManifestReader.IsManifestPath(afterPath);
         if (beforeManifest || afterManifest)
@@ -500,13 +542,15 @@ public sealed class TraceTools
         [Description("Optional fold regexes; omit for defaults.")] string[]? fold = null,
         [Description("Optional local PDB directory overriding case symbols.")] string symbols = "",
         [Description("Optional process substring overriding manifest scope.")] string process = "",
+        [Description("Exact process ids; excludes process.")] int[]? pid = null,
+        [Description("Follow descendants of the matched processes.")] bool children = true,
         [Description("BenchmarkDotNet workload root; conflicts with root.")] bool benchmark = false)
     {
         TraceMetric resolvedMetric = ResolveMetric(metric);
         bool inclusive = ResolveMeasure(measure);
         string resolvedRoot = ResolveRoot(root, benchmark);
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
-        ScopeRequest? scope = ResolveScope(process);
+        ScopeRequest? scope = ResolveScope(process, pid, children);
         string? resolvedSymbols = NullIfEmpty(symbols);
         try
         {
@@ -587,7 +631,9 @@ public sealed class TraceTools
         [Description("Lanes to include: gc, cpu, exceptions, alloc, jit; omit for all.")] string lanes = "",
         [Description("Number of time buckets (clamped to 5-200).")] int buckets = TimelineProvider.DefaultBucketCount,
         [Description("Optional time window 'start,end' in ms; either bound may be omitted.")] string time = "",
-        [Description("Process-name substring scoping a multi-process .etl to one tree; omit to auto-scope to the busiest.")] string process = "")
+        [Description("Process-name substring scoping a multi-process .etl to one tree; omit to auto-scope to the busiest.")] string process = "",
+        [Description("Exact process ids; excludes process.")] int[]? pid = null,
+        [Description("Follow descendants of the matched processes.")] bool children = true)
     {
         if (!TimeWindow.TryParse(NullIfEmpty(time), out double? startMSec, out double? endMSec, out string? timeError))
         {
@@ -610,7 +656,7 @@ public sealed class TraceTools
             ? null
             : new TimeWindow(startMSec, endMSec);
 
-        TimelineResult result = ReadTimeline(path, window, resolvedLanes, resolvedBuckets, ResolveScope(process));
+        TimelineResult result = ReadTimeline(path, window, resolvedLanes, resolvedBuckets, ResolveScope(process, pid, children));
 
         // Surface the process the scope resolved to (an explicit name or the automatic
         // busiest) so a narrowed machine-wide capture is not silently one process's view.
@@ -804,6 +850,10 @@ public sealed class TraceTools
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
+        [Description("Exact process ids; excludes process.")]
+        int[]? pid = null,
+        [Description("Follow descendants of the matched processes.")]
+        bool children = true,
         [Description("Optional root frame; conflicts with benchmark.")]
         string root = "",
         [Description("BenchmarkDotNet workload root; conflicts with root.")]
@@ -819,7 +869,7 @@ public sealed class TraceTools
         }
 
         string resolvedRoot = ResolveRoot(root, benchmark);
-        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process), symbolOptions: ResolveSymbols(nativeSymbols));
+        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process, pid, children), symbolOptions: ResolveSymbols(nativeSymbols));
         TraceInfo info = trace.Info;
 
         StackSampleSource scoped = RootScope.Apply(trace.Source, resolvedRoot);
@@ -899,6 +949,10 @@ public sealed class TraceTools
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
+        [Description("Exact process ids; excludes process.")]
+        int[]? pid = null,
+        [Description("Follow descendants of the matched processes.")]
+        bool children = true,
         [Description("Use the BenchmarkDotNet measured-workload root; mutually exclusive with 'root'.")]
         bool benchmark = false)
     {
@@ -914,7 +968,7 @@ public sealed class TraceTools
 
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
         string resolvedRoot = ResolveRoot(root, benchmark);
-        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process));
+        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process, pid, children));
         TraceInfo info = trace.Info;
         CallTreeResult tree = trace.Aggregator.CallTree(resolvedRoot, foldPatterns, maxDepth, minPercent);
         List<string> warnings = [.. info.Warnings];
@@ -952,13 +1006,17 @@ public sealed class TraceTools
         string symbols = "",
         [Description("Process substring for .etl; omit for busiest tree.")]
         string process = "",
+        [Description("Exact process ids; excludes process.")]
+        int[]? pid = null,
+        [Description("Follow descendants of the matched processes.")]
+        bool children = true,
         [Description("Networked public runtime symbols for CPU .etl; optional.")]
         bool nativeSymbols = false,
         [Description("Use the BenchmarkDotNet measured-workload root; mutually exclusive with 'root'.")]
         bool benchmark = false)
     {
         string resolvedRoot = ResolveRoot(root, benchmark);
-        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), TraceMetric.Cpu, ResolveScope(process), ResolveSymbols(nativeSymbols));
+        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), TraceMetric.Cpu, ResolveScope(process, pid, children), ResolveSymbols(nativeSymbols));
         TraceInfo info = trace.Info;
         ClassifyResult classification = trace.Aggregator.Classify(resolvedRoot);
         List<string> warnings = [.. info.Warnings];
@@ -1503,22 +1561,48 @@ public sealed class TraceTools
 
     private static string? NullIfEmpty(string value) => string.IsNullOrEmpty(value) ? null : value;
 
-    // An empty process selector means "auto-scope to the busiest process tree" (the
-    // Load default), a no-op on a single-process .nettrace/speedscope trace; a non-empty
-    // value scopes a multi-process .etl capture to the named process tree.
-    private static ScopeRequest? ResolveScope(string process) =>
-        string.IsNullOrEmpty(process) ? null : ScopeRequest.ForProcess(process);
+    // An empty selector means "auto-scope to the busiest process tree" (the Load
+    // default), a no-op on a single-process .nettrace/speedscope trace. A process name
+    // scopes a multi-process .etl to the matching trees; exact ids scope to those
+    // processes and cannot pick up an unrelated instance of a common host name.
+    private static ScopeRequest? ResolveScope(string process, int[]? processIds = null, bool children = true)
+    {
+        if (processIds is { Length: > 0 })
+        {
+            if (!string.IsNullOrEmpty(process))
+            {
+                throw new McpException("Specify only one of process and pid.");
+            }
+
+            foreach (int processId in processIds)
+            {
+                if (processId <= 0)
+                {
+                    throw new McpException($"pid {processId} is not a valid process id; ids must be positive.");
+                }
+            }
+
+            return ScopeRequest.ForProcessIds(processIds, children);
+        }
+
+        return string.IsNullOrEmpty(process)
+            ? (children ? null : ScopeRequest.AutoScope(includeChildren: false))
+            : ScopeRequest.ForProcess(process, children);
+    }
 
     private static ScopeRequest? ManifestScope(CaptureManifest manifest, ScopeRequest? requested)
     {
         // Explicit process input overrides the capture's recorded process; otherwise
-        // preserve the manifest scope, falling back to automatic scope.
-        if (requested is { ProcessName: not null } or { IncludeAll: true })
+        // preserve the manifest scope, falling back to automatic scope. The descendant
+        // mode is an independent axis, so it survives the fallback.
+        if (requested is { Selector: not null } or { IncludeAll: true })
         {
             return requested;
         }
 
-        return manifest.Process is null ? requested : ScopeRequest.ForProcess(manifest.Process);
+        return manifest.Process is null
+            ? requested
+            : ScopeRequest.ForProcess(manifest.Process, requested?.IncludeChildren ?? true);
     }
 
     /// <summary>

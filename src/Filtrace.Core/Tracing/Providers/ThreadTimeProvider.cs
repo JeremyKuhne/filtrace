@@ -62,23 +62,26 @@ public sealed class ThreadTimeProvider
     ///  machine-wide capture to one scenario.
     /// </param>
     /// <param name="appliedProcessName">
-    ///  The name of the process the scope resolved to, or <see langword="null"/> when
-    ///  no scope applied (all-processes, or no busy process found).
+    ///  A short identity for the scope the read resolved to, or <see langword="null"/>
+    ///  when no scope applied (all-processes, or no busy process found).
     /// </param>
     /// <returns>The thread-time source: elapsed-millisecond-weighted stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public StackSampleSource Read(string path, ScopeRequest? scope, out string? appliedProcessName) =>
-        Read(path, scope, out appliedProcessName, out _);
+    public StackSampleSource Read(string path, ScopeRequest? scope, out string? appliedProcessName)
+    {
+        StackSampleSource source = Read(path, scope, out ScopeResolution resolved, out _);
+        appliedProcessName = resolved.Label;
+        return source;
+    }
 
     internal StackSampleSource Read(
         string path,
         ScopeRequest? scope,
-        out string? appliedProcessName,
+        out ScopeResolution scopeResolution,
         out int recordCount)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        appliedProcessName = null;
 
         string fullPath = Path.GetFullPath(path);
         if (!File.Exists(fullPath))
@@ -94,8 +97,8 @@ public sealed class ThreadTimeProvider
         // A null request is "unspecified", which is the automatic default (the same as
         // ScopeRequest.Auto): a caller that passes nothing still gets scenario scope. A
         // null pid set means no scoping (every process, the all-processes opt-out).
-        HashSet<int>? scopePids = ProcessTree.ResolveScope(
-            traceLog, scope ?? ScopeRequest.Auto, out appliedProcessName);
+        scopeResolution = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
+        HashSet<int>? scopePids = scopeResolution.ProcessIds;
 
         MutableTraceEventStackSource stackSource = new(traceLog);
 

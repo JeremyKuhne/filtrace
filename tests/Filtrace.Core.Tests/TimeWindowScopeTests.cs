@@ -31,7 +31,7 @@ public sealed class TimeWindowScopeTests
     {
         ScopeRequest scope = ScopeRequest.ForProcess("MyApp").WithActivity("Order").WithTimeWindow(1000.0, null);
 
-        scope.ProcessName.Should().Be("MyApp");
+        scope.Selector.Should().BeOfType<ProcessNameSelector>().Which.NameSubstring.Should().Be("MyApp");
         scope.ActivityName.Should().Be("Order");
         scope.Window!.Value.StartMSec.Should().Be(1000.0);
         scope.Window!.Value.EndMSec.Should().BeNull();

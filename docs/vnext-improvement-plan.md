@@ -69,14 +69,12 @@ new analysis capabilities. MCP already presents these metrics through one
 ### Permanent MCP schema cost
 
 `tools/list` is presented to the model independently of which operation it will
-call. The current list measures 33,764 characters and approximately 8,301 tokens
-against the 9,000-token CI ceiling in
-[Test-McpServer.ps1](../tools/Test-McpServer.ps1).
-
-The script's comment still cites an older approximately 8,770-token, 16-tool
-measurement. That figure predates `trace_batch` and the description compaction in
-#52. The live 17-tool `tools/list` round trip is the baseline for this plan; VN0
-must update the stale script rationale when it adds the per-tool breakdown.
+call. At the time of this baseline the list measured 33,764 characters and
+approximately 8,301 tokens against what was then a 9,000-token CI ceiling in
+[Test-McpServer.ps1](../tools/Test-McpServer.ps1). [SC1](#sc1---exact-process-identity-scope)
+has since added the exact-scope parameters, taking the list to approximately 8,950
+tokens against the raised 9,800-token interim ceiling; the component shares below are
+unchanged in shape.
 
 | Component | Approx. tokens | Share |
 |---|---:|---:|
@@ -153,8 +151,12 @@ v.next should improve efficacy, not merely reduce counts.
 5. Keep human CLI workflows terse and discoverable.
 6. Keep the Core result model typed, deterministic, AOT-safe, and shared by both
    heads.
-7. Keep the existing 9,000-token tool-list and 25,000-token response ceilings. A
-   redesign must create headroom rather than move the limits.
+7. Hold the tool-list and 25,000-token response ceilings. A redesign must create
+   headroom rather than move the limits. The one recorded exception is
+   [SC5](#sc5---process-lifecycle-report), which raised the tool-list gate from 9,000
+   to 9,800 to admit a capability the v.next surface work does not deliver; it does not
+   change the VN3 targets, and v.next is still expected to return the list to 9,000 or
+   below.
 
 ## Non-goals
 
@@ -743,7 +745,244 @@ VN0 and VN1 come first because transport and schema decisions determine how new
 capabilities should be exposed. VC1 (DATAS) is the first capability candidate after
 the report surface is selected. VC2 and VC3 are eval-gated temporal alternatives;
 build at most one before measuring real demand. VC4-VC8 remain demand- or
-dependency-gated and must not delay the v.next surface cleanup.
+dependency-gated and must not delay the v.next surface cleanup. The SC items below
+are tracked separately because they are issue-driven correctness gaps rather than new
+analytical capabilities.
+
+## Startup and short-command capture (#62)
+
+[Issue #62](https://github.com/JeremyKuhne/filtrace/issues/62) records what filtrace
+could not do while profiling the cached Native AOT file-run path for
+[dotnet/sdk#55529](https://github.com/dotnet/sdk/pull/55529): explain an end-to-end
+command that completes in roughly 55 ms and launches a short-lived apphost child.
+Filtrace 0.6.3 read the traces, but reaching trustworthy parent CPU and wall-clock
+phases required an isolated filtrace build plus investigation-specific capture and
+aggregation scripts.
+
+The goal of this initiative is to delete that fork. SC1-SC3 are correctness gaps in
+capabilities filtrace already claims, and none of them depend on the transport or
+output-schema decisions, so they can ship before VN1. SC4-SC7 add surface and are
+therefore subject to the same gates as the VC backlog.
+
+| ID | Gap | Proposed surface | Priority | Main gate |
+|---|---|---|:---:|---|
+| SC1 | Scope cannot name exact processes | `--pid` / `--children` on the scope-aware verbs and tools | High | Public `ProcessScope` break |
+| SC2 | Local native PDBs are never applied to non-runtime modules | `--symbols` behavior fix plus per-module status | High | None |
+| SC3 | Capture always enables CLR plus disk and network keywords | `collect --profile` | High | None |
+| SC4 | One ETW session per short invocation | `collect --iterations` plus a command-matrix script | Medium | SC1, SC3 |
+| SC5 | No wall-clock phase report | Lifecycle verb and tool over process/image events | Medium | Tool-list budget |
+| SC6 | Sub-millisecond sampling rejected before collection | Widened range plus effective-interval reporting | Low | Platform measurement |
+| SC7 | No short-startup recipe for agents | `workflow.md`, `traps.md`, shipped skill | Low | SC1-SC6 |
+
+### SC1 - Exact process-identity scope
+
+[ProcessScope](../src/Filtrace.Core/Tracing/ProcessScope.cs) stores a process-name
+substring, so `--process dotnet` selects every matching root in a machine-wide trace
+and, by default, all of their descendants. On a development machine that silently
+mixes unrelated hosts into a ranking. Two further limits compound it: `ScopeRequest`
+already carries `IncludeChildren`, but no verb or tool exposes it, and the resolved
+scope reaches the caller only as the warning prose built in
+[TraceLogReader](../src/Filtrace.Core/Tracing/Readers/TraceLogReader.cs).
+
+Implementation shape:
+
+- Replace the name string in `ProcessScope` with a `ProcessSelector` union - a name
+  selector and a process-id selector - so an exact identity is represented rather
+  than encoded into a substring. This is a breaking change to the public
+  `ProcessScope` constructor and belongs to v.next.
+- Add `ScopeRequest.ForProcessIds`, branch [ProcessTree.ResolvePids](../src/Filtrace.Core/Tracing/Readers/ProcessTree.cs)
+  on the selector, and leave the three existing consumers (`TraceLogReader`,
+  `ThreadTimeProvider`, `TimelineProvider`) reading the same resolved pid set.
+- Expose `--pid` (one comma-separated list; ConsoleAppFramework binds an array option
+  from a single value, and a repeated option silently keeps only the last) and
+  `--children include|exclude` on the scope-aware verbs, and the same two parameters
+  on the corresponding `trace_*` tools. `--children exclude` is what produces a
+  parent-only CPU ranking.
+- Guard process-id reuse. A reused pid appears as more than one `TraceProcess` in the
+  same trace, so a `--pid` selector that matches several must fail with the candidate
+  start times rather than quietly union them.
+- Warn when a name selector resolves to more than one root tree, listing the matched
+  roots and naming `--pid` as the exact alternative.
+
+Decided: descendants stay included by default for both selector kinds, so `--pid`
+differs from `--process` only in how roots are chosen. Interactive discovery keeps
+the name selector; exact scope is for manifests and automation.
+
+The resolved scope must also be readable without parsing prose. That is the same
+requirement as [effective query context](#effective-query-context) in output contract
+v9, so SC1 extends that `scope` object with the applied selector and the resolved
+root and descendant ids rather than inventing a second channel. SC1 may therefore
+land its analysis behavior before VN2 and its structured reporting with VN2.
+
+### SC2 - Local native symbols for arbitrary modules
+
+`--symbols` adds a directory to the `SymbolReader` symbol path, but
+[ResolveNativeRuntimeSymbols](../src/Filtrace.Core/Tracing/Readers/TraceLogReader.cs)
+is the only caller of `LookupSymbolsForModule`, it runs only under `--native-symbols`,
+and it filters modules through a runtime allowlist (`coreclr`, `clr`, `clrjit`,
+`ntdll`, `kernelbase`, `kernel32`, `ucrtbase`, `msvcrt`). Nothing ever asks TraceEvent
+to apply a local PDB to a product-specific native module, so a matching local
+`dotnet-aot.pdb` can sit in the supplied directory and never resolve
+`dotnet-aot.dll`. In the investigation that hid the inclusive Native AOT ancestors -
+`NativeEntryPoint.Execute` among them - that separate host startup from command code.
+
+Implementation shape:
+
+- Add a local native lookup pass that runs whenever `--symbols` is supplied, ordered
+  before the `srv*` element is appended to the symbol path, so the pass runs against
+  a path with no server element on it.
+- Bound the pass by unresolved sample weight per module rather than by module count.
+  The pre-pass that ranks modules by unresolved frames is also what produces the
+  "highest-sample unresolved native modules" list the issue asks for.
+- Report per-module lookup status - resolved, no PDB found, identity mismatch, not
+  attempted - with the module's unresolved sample share. `SymbolReader` is currently
+  constructed with `TextWriter.Null`; capturing that log is where the identity
+  mismatch detail comes from.
+- Keep `--native-symbols` as the only network gate. Local paths and the public cache
+  already compose, because native resolution appends the server rather than replacing
+  the local path.
+
+`pdb_identity_mismatch` is already a planned stable diagnostic code in
+[structured diagnostics](#structured-diagnostics); SC2 supplies its `data` payload.
+
+### SC3 - Capture provider profiles
+
+[EtwCollector](../src/Filtrace.Core/Tracing/EtwCollector.cs) always enables the CLR
+`Default` provider at `Verbose` after the kernel provider. For a Native AOT parent
+those events are pure perturbation. The issue reports a default capture showing a
+197.2 ms root lifetime and 138.7 ms before child creation, against 27.86 ms for a
+comparable kernel-only recapture and a 24.33 ms uninstrumented wrapper-overhead
+estimate, and roughly 8 GB across the discarded capture set. Those captures were
+discarded rather than compensated for.
+
+The CLR provider is only half of it. `KernelTraceEventParser.Keywords.Default` is
+`0x0101270F` in the pinned TraceEvent 3.2.3 - `Process | Thread | ImageLoad |
+ProcessCounters | DiskIO | DiskFileIO | DiskIOInit | MemoryHardFaults |
+NetworkTCPIP | Profile` - so today's CPU capture also enables the machine-wide
+`DiskFileIO` name rundown that
+[traceevent-surface-assessment.md](traceevent-surface-assessment.md) measures at over
+650,000 events, plus TCP/IP, for a capture that reads none of them.
+
+Decided: named capture profiles rather than a single CLR toggle.
+
+| Profile | Kernel keywords | CLR | Purpose |
+|---|---|---|---|
+| `default` | `Keywords.Default` | Default at Verbose | Today's behavior, unchanged |
+| `startup` | `Process \| Thread \| ImageLoad \| Profile` (`0x01000007`) | Off | Low-perturbation startup and CPU |
+| `threadtime` | `Keywords.ThreadTime` | Default at Verbose | Today's `--metric threadtime` |
+
+`startup` keeps every event the CPU, thread-time, and lifecycle analyses read.
+Record the selected and observed providers, the sample interval, and the effective
+sample interval in the collect result and in the capture sidecar, so a trace can be
+audited after the fact. Reconcile `--profile` with the existing `--metric` before
+implementation; two options selecting overlapping keyword sets is worse than one.
+
+### SC4 - Repeated invocations in one session
+
+An ETW session costs roughly 900 ms of startup and flush, which dominates a 30-100 ms
+process and produces many thin traces and ETLX conversions. The investigation instead
+ran 25 sequential invocations inside one session per scenario: eight sessions, eight
+conversions, hundreds of parent samples.
+
+`EtwCollector` already creates and enables the session before launching, so this is a
+loop around the launch and wait, not a restructure. Split the work:
+
+- The CLI owns session-level correctness: an iteration count, and a per-invocation
+  record carrying ordinal, executable, arguments, root process id, start and stop
+  timestamps, and exit code.
+- A `Capture-CommandTrace.ps1` skill script owns the scenario matrix, one tested
+  elevation handoff for the whole run, `capture.log`, environment and working
+  directory identity, symbols, tool version, and a partial manifest when one
+  invocation fails. [Capture-BenchmarkTrace.ps1](../.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1)
+  is the working precedent for all of those.
+
+The manifest records root process ids only. Descendants are resolved from the trace
+by SC1, so capture never has to track children. Decided: extend the existing capture
+manifest with an `invocations` array and a `kind` discriminator and bump
+`schemaVersion`, so `batch` and `diff` keep working across command scenarios instead
+of needing a parallel consumer.
+
+### SC5 - Process lifecycle report
+
+The `events` verb exposes the kernel `Process/Start`, `Process/Stop`, and image-load
+events, but deriving phases and medians required a custom aggregator. The useful
+per-invocation split is root start to child start, child lifetime, child stop to root
+stop, and optional image milestones such as hostfxr or the target native module load.
+
+The report emits per-invocation values plus p50, min, and max, presents process-event
+wall time separately from sampled CPU, and states that inclusive CPU rows overlap.
+This is the item that answers where a 50 ms command sits blocked, in the loader, in a
+child, and in teardown - which sampled CPU alone cannot.
+
+Decided: raise the `tools/list` ceiling in
+[Test-McpServer.ps1](../tools/Test-McpServer.ps1) with a written justification rather
+than defer the tool. SC1's exact-scope parameters took the list from approximately
+8,301 to approximately 8,950 tokens, leaving too little headroom for a new tool, so the
+gate moved from 9,000 to 9,800 - the measurement plus the largest existing definition
+(`trace_diff`, approximately 830 tokens). That admits exactly one more tool and no
+general slack.
+
+This is a knowing departure from goal 7 and from the backlog rule that no capability
+adds a standalone MCP tool before VN3. Three conditions bound it: the raise is an
+interim gate rather than a new target, the VN3 targets of 7,500 and 5,000 are
+unchanged, and VN3 must evaluate folding lifecycle into the report family the same
+way it evaluates every other tool. SC5 makes the output-schema reduction more urgent;
+it does not excuse it.
+
+### SC6 - CPU sample interval
+
+The request layer accepts any positive finite interval; the CLI applies
+`[Range(1, 1000)]`, which is what rejected an attempted 0.125 ms capture before
+collection. For a 30-100 ms process, 1 ms leaves few samples and is one reason
+consolidation was necessary.
+
+Do not pick a floor from documentation. Set the interval, read the effective interval
+back from the session, and record requested and effective values in the collect
+result and sidecar. Then either widen the CLI range to the measured floor and warn
+when the OS clamps, or keep 1 ms and state the reason in help, in API validation, and
+in the skill. Either outcome is acceptable; an unexplained 1 ms minimum is not.
+
+### SC7 - Short-startup workflow and skill guidance
+
+Add a short-process recipe to [workflow.md](workflow.md), which is the source the
+shipped skill embeds from, and add the traps this investigation exposed to
+[traps.md](traps.md):
+
+- verify instrumentation did not materially change process lifetime before trusting a
+  trace, by comparing captured lifetime against an uninstrumented smoke run;
+- prefer a kernel-only profile when the parent is native or CLR events are not needed;
+- put repeated invocations in one session rather than opening many;
+- record exact process identities and analyze parent and child separately;
+- combine local product-native PDBs with public host, runtime, and OS symbols;
+- use inclusive CPU rankings for Native AOT ancestor attribution;
+- derive wall-clock phases from process and image events, never from sampled CPU;
+- treat 1 ms samples as approximate counts and do not add overlapping inclusive rows.
+
+Every one of these is only writable after the capability it describes exists, so SC7
+lands last. Run `tools/Test-Docs.ps1 -Fix` after editing a marked block.
+
+### SC contract and test impact
+
+- `tools/Test-CliHelp.ps1` requires each verb's help to stay within 60 lines, every
+  verb to appear in top-level help with a README example, and the README scope
+  inventory to list every verb implementing a scope option. SC1 adds two options to
+  roughly fifteen verbs; check the `rank` help line count first, since it is already
+  the largest.
+- `tools/Test-McpServer.ps1` gates the tool-list token budget; see SC5.
+- `tools/Test-CaptureBenchmarkTrace.ps1` is the model for a `Capture-CommandTrace.ps1`
+  contract test, and SC4's manifest change touches its schema assertions.
+- Fixture coverage is the open item. SC1 needs a capture with several same-named roots
+  and a real parent/child pair; SC2 needs a native module with a matching local PDB;
+  SC5 needs process start and stop events for repeated invocations. Committed ETW
+  captures cannot be regenerated without elevation, so decide per test whether to
+  capture and commit a new fixture or to build the case from the existing corpus.
+
+### SC sequencing
+
+SC1, SC2, and SC3 ship first and independently; together they remove the
+investigation-specific filtrace fork. SC4 follows, since its manifest is only useful
+once exact scope and a low-perturbation profile exist. SC5 follows SC4 and the
+tool-list budget decision. SC6 and SC7 close the initiative.
 
 ## Eval and measurement plan
 
@@ -792,7 +1031,7 @@ A v.next candidate is acceptable only when:
 - median tool calls do not increase;
 - p95 calls remain within the current six-call ceiling;
 - total investigation tokens fall by at least 20% on the multi-model suite;
-- the tool-list stays below 9,000 tokens without raising the ceiling;
+- the tool-list returns to 9,000 tokens or below, retiring the interim SC5 raise;
 - no standard result exceeds 25,000 tokens;
 - summary-mode JIT and raw-event count tasks fall below 500 response tokens;
 - CLI help remains within its line budget and documents every advertised command;
@@ -885,6 +1124,8 @@ into agent guidance.
 | CLI grouping hurts shell discoverability | Compare top-level help/completion and retain intent-bearing commands such as `diff` and `timeline`. |
 | Compatibility aliases erase token gains | Never advertise old and new MCP tools together; bound CLI aliases to one preview. |
 | Eval overfits one model | Run multiple model families and repeat each task; reject any per-model success drop. |
+| Raising the tool-list gate for SC5 becomes the new normal | Record the raise as interim in the script rationale, keep the VN3 targets unchanged, and require VN3 to re-evaluate the lifecycle tool for consolidation. |
+| SC1 scope options inflate per-verb help past the 60-line budget | Add the options to `rank` first and measure; consolidate child control into one enum option rather than a flag pair. |
 
 ## Open decisions
 

@@ -52,10 +52,12 @@ namespace Filtrace.Output;
 [JsonSerializable(typeof(AnalysisResult<EventQueryResult>))]
 [JsonSerializable(typeof(AnalysisResult<ExportResult>))]
 // Tool-parameter types the MCP head binds through these same options but that no result
-// type reaches transitively: the optional `fold` regex array, and `bool` (the
-// `nativeSymbols` tool parameter - no result record carries a bool). The other scalar
-// parameter types (string, int) are already reached through the result records above.
+// type reaches transitively: the optional `fold` regex array, the exact `pid` array, and
+// `bool` (the `nativeSymbols` and `children` tool parameters - no result record carries a
+// bool). The other scalar parameter types (string, int) are already reached through the
+// result records above.
 [JsonSerializable(typeof(string[]))]
+[JsonSerializable(typeof(int[]))]
 [JsonSerializable(typeof(bool))]
 internal sealed partial class FiltraceJsonContext : JsonSerializerContext
 {

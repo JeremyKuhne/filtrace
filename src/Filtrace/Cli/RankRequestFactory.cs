@@ -172,39 +172,72 @@ internal static class RankRequestFactory
     }
 
     /// <summary>
-    ///  Builds the process-scope request from the two mutually exclusive verb options:
-    ///  an explicit <c>--process</c> name and the <c>--all-processes</c> opt-out.
+    ///  Builds the process-scope request from the mutually exclusive verb selectors -
+    ///  an explicit <c>--process</c> name, an exact <c>--pid</c> set, and the
+    ///  <c>--all-processes</c> opt-out - plus the <c>--children</c> descendant mode.
     /// </summary>
     /// <param name="process">The <c>--process</c> name substring, or empty when not given.</param>
+    /// <param name="processIds">The <c>--pid</c> values, or <see langword="null"/>/empty when not given.</param>
+    /// <param name="children">Whether the scope follows the matched processes' descendants.</param>
     /// <param name="allProcesses">Whether <c>--all-processes</c> was set.</param>
     /// <param name="scope">
-    ///  The resolved scope on success: an explicit process scope, the all-processes
-    ///  opt-out, or the automatic default when neither option was given.
+    ///  The resolved scope on success: an explicit name or id scope, the all-processes
+    ///  opt-out, or the automatic default when no selector was given.
     /// </param>
-    /// <param name="errorMessage">The usage error when both options were given.</param>
+    /// <param name="errorMessage">The usage error when the options conflict.</param>
     /// <returns>
     ///  <see langword="true"/> when the options are valid; otherwise <see langword="false"/>,
     ///  and the caller should report <paramref name="errorMessage"/> as a usage error.
     /// </returns>
     public static bool TryResolveScope(
         string process,
+        int[]? processIds,
+        Children children,
         bool allProcesses,
         out ScopeRequest scope,
         [NotNullWhen(false)] out string? errorMessage)
     {
+        scope = ScopeRequest.Auto;
+
         bool hasProcess = !string.IsNullOrEmpty(process);
-        if (hasProcess && allProcesses)
+        bool hasIds = processIds is { Length: > 0 };
+        if ((hasProcess ? 1 : 0) + (hasIds ? 1 : 0) + (allProcesses ? 1 : 0) > 1)
         {
-            scope = ScopeRequest.Auto;
-            errorMessage = "Specify only one of --process and --all-processes.";
+            errorMessage = "Specify only one of --process, --pid, and --all-processes.";
             return false;
         }
 
-        scope = hasProcess
-            ? ScopeRequest.ForProcess(process)
-            : allProcesses
-                ? ScopeRequest.AllProcesses
-                : ScopeRequest.Auto;
+        bool includeChildren = children == Children.Include;
+        if (allProcesses && !includeChildren)
+        {
+            errorMessage = "--children applies to --process, --pid, or the automatic scope; --all-processes already reads every process.";
+            return false;
+        }
+
+        if (hasIds)
+        {
+            foreach (int processId in processIds!)
+            {
+                // Caught here rather than at the selector so a typo is a usage error with
+                // the offending value, not an unhandled argument exception.
+                if (processId <= 0)
+                {
+                    errorMessage = $"--pid {processId} is not a valid process id; ids must be positive.";
+                    return false;
+                }
+            }
+
+            scope = ScopeRequest.ForProcessIds(processIds, includeChildren);
+        }
+        else if (hasProcess)
+        {
+            scope = ScopeRequest.ForProcess(process, includeChildren);
+        }
+        else
+        {
+            scope = allProcesses ? ScopeRequest.AllProcesses : ScopeRequest.AutoScope(includeChildren);
+        }
+
         errorMessage = null;
         return true;
     }

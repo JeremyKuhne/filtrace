@@ -30,7 +30,7 @@ public sealed class ActivityScopeTests
     {
         ScopeRequest scope = ScopeRequest.ForProcess("MyApp").WithActivity("Order");
 
-        scope.ProcessName.Should().Be("MyApp");
+        scope.Selector.Should().BeOfType<ProcessNameSelector>().Which.NameSubstring.Should().Be("MyApp");
         scope.ActivityName.Should().Be("Order");
     }
 

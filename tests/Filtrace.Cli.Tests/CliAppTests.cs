@@ -266,7 +266,7 @@ public sealed class CliAppTests
         (int exit, _, string error) = Run("rank", Speedscope, "--process", "MyApp", "--all-processes");
 
         exit.Should().Be(ExitCodes.UsageError);
-        error.Should().Contain("only one of --process and --all-processes");
+        error.Should().Contain("only one of --process, --pid, and --all-processes");
     }
 
     [TestMethod]
@@ -449,7 +449,7 @@ public sealed class CliAppTests
         (int exit, _, string error) = Run("lines", Speedscope, "--process", "MyApp", "--all-processes");
 
         exit.Should().Be(ExitCodes.UsageError);
-        error.Should().Contain("only one of --process and --all-processes");
+        error.Should().Contain("only one of --process, --pid, and --all-processes");
     }
 
     [TestMethod]
@@ -458,7 +458,7 @@ public sealed class CliAppTests
         (int exit, _, string error) = Run("callers", Speedscope, "Frame", "--process", "MyApp", "--all-processes");
 
         exit.Should().Be(ExitCodes.UsageError);
-        error.Should().Contain("only one of --process and --all-processes");
+        error.Should().Contain("only one of --process, --pid, and --all-processes");
     }
 
     [TestMethod]
@@ -467,7 +467,7 @@ public sealed class CliAppTests
         (int exit, _, string error) = Run("tree", Speedscope, "--process", "MyApp", "--all-processes");
 
         exit.Should().Be(ExitCodes.UsageError);
-        error.Should().Contain("only one of --process and --all-processes");
+        error.Should().Contain("only one of --process, --pid, and --all-processes");
     }
 
     [TestMethod]
@@ -491,7 +491,7 @@ public sealed class CliAppTests
         (int exit, _, string error) = Run("heatmap", Speedscope, "Foo.cs", "--process", "MyApp", "--all-processes");
 
         exit.Should().Be(ExitCodes.UsageError);
-        error.Should().Contain("only one of --process and --all-processes");
+        error.Should().Contain("only one of --process, --pid, and --all-processes");
     }
 
     [TestMethod]
@@ -515,6 +515,62 @@ public sealed class CliAppTests
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("Scoped to the");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_PidScope_OnMachineWideCapture_BindsEveryCommaSeparatedId()
+    {
+        // ConsoleAppFramework binds an int[] option from one comma-separated value, and
+        // a REPEATED --pid silently keeps only the last one. Pin that here: the scope
+        // notice names both ids only if the comma form bound both, and the repeated form
+        // is the shape every generated hint must therefore avoid.
+        (int exit, string commaOutput, _) = Run("cpu", Etw, "--pid", "9144,40356");
+        (_, string repeatedOutput, _) = Run("cpu", Etw, "--pid", "9144", "--pid", "40356");
+
+        exit.Should().Be(ExitCodes.Success);
+        commaOutput.Should().Contain("Scoped to the process tree of pids 9144, 40356");
+        repeatedOutput.Should().Contain("Scoped to the process tree of pid 40356");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_PidScopeExcludingChildren_OnMachineWideCapture_ReportsParentOnly()
+    {
+        (int exit, string output, _) = Run("cpu", Etw, "--pid", "40356", "--children", "exclude");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("Scoped to pid 40356 (no children)");
+    }
+
+    [TestMethod]
+    public void Run_PidAndProcess_ReturnsUsageError()
+    {
+        // The three selectors are mutually exclusive; the conflict is caught before any
+        // trace read, so it runs on every CI leg. A verb missing --pid would instead
+        // fail with an unknown-option error, so the message also proves the option binds.
+        (int exit, _, string error) = Run("cpu", Speedscope, "--pid", "42", "--process", "MyApp");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("only one of --process, --pid, and --all-processes");
+    }
+
+    [TestMethod]
+    public void Run_NonPositivePid_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run("cpu", Speedscope, "--pid", "0");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("not a valid process id");
+    }
+
+    [TestMethod]
+    public void Run_ChildrenWithAllProcesses_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run("cpu", Speedscope, "--children", "exclude", "--all-processes");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--all-processes already reads every process");
     }
 
     [TestMethod]
@@ -830,7 +886,7 @@ public sealed class CliAppTests
         (int exit, _, string error) = Run("export", Speedscope, "--process", "x", "--all-processes");
 
         exit.Should().Be(ExitCodes.UsageError);
-        error.Should().Contain("only one of --process and --all-processes");
+        error.Should().Contain("only one of --process, --pid, and --all-processes");
     }
 
     [TestMethod]

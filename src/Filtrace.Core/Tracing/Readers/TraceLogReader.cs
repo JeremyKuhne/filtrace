@@ -77,10 +77,6 @@ internal abstract class TraceLogReader : ITraceReader
             : EmbeddedPdbExtractor.Extract(symbolsDirectory);
         string? localSymbolPath = null;
 
-        // The name the scope resolved to (set by ResolveScope below), surfaced as a
-        // warning so the caller knows a machine-wide capture was narrowed automatically.
-        string? appliedScopeName = null;
-
         try
         {
             if (extractedPdbDirectory is not null)
@@ -106,15 +102,14 @@ internal abstract class TraceLogReader : ITraceReader
                 ResolveNativeRuntimeSymbols(traceLog, symbolReader, symbolOptions);
             }
 
-            // Resolve the scope intent (an explicit name, the busiest process under the
-            // automatic default, or every process when opted out) to the set of process
-            // IDs to keep. A null request means "unspecified", which is the automatic
-            // default - the same as ScopeRequest.Auto - so a caller that passes nothing
-            // still gets scenario scope. A null pid set means no scoping (every process,
-            // the all-processes opt-out). This is lossless: the trace is fully
+            // Resolve the scope intent (an explicit selector, the busiest process under
+            // the automatic default, or every process when opted out) to the set of
+            // process IDs to keep. A null request means "unspecified", which is the
+            // automatic default - the same as ScopeRequest.Auto - so a caller that passes
+            // nothing still gets scenario scope. A null pid set means no scoping (every
+            // process, the all-processes opt-out). This is lossless: the trace is fully
             // symbol-resolved by TraceLog before any sample is dropped.
-            HashSet<int>? scopePids = ProcessTree.ResolveScope(
-                traceLog, scope ?? ScopeRequest.Auto, out appliedScopeName);
+            ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
 
             // When an activity scope is requested, pre-pass the trace to find which CPU
             // samples were taken inside that activity (or one nested under it), so the
@@ -128,8 +123,9 @@ internal abstract class TraceLogReader : ITraceReader
             return ReadCore(
                 traceLog,
                 symbolReader,
-                scopePids,
-                appliedScopeName,
+                resolved.ProcessIds,
+                resolved.Phrase,
+                resolved.Warnings,
                 activitySamples,
                 activityName,
                 scope?.Window,
@@ -242,7 +238,8 @@ internal abstract class TraceLogReader : ITraceReader
         TraceLog traceLog,
         SymbolReader symbolReader,
         HashSet<int>? scopePids,
-        string? appliedScopeName,
+        string? appliedScope,
+        IReadOnlyList<string> scopeWarnings,
         HashSet<EventIndex>? activitySamples,
         string? activityName,
         TimeWindow? window,
@@ -360,7 +357,7 @@ internal abstract class TraceLogReader : ITraceReader
 
         double resolutionRate = totalFrames > 0 ? (double)resolvedFrames / totalFrames : 0.0;
 
-        List<string> warnings = [];
+        List<string> warnings = [.. scopeWarnings];
         if (samples.Count == 0)
         {
             // An empty result can come from a scope dropping every sample or an absent
@@ -368,9 +365,9 @@ internal abstract class TraceLogReader : ITraceReader
             // capture when a scope is at fault. With more than one scope applied, name
             // them all - any one could be responsible - rather than guess.
             List<string> scopes = [];
-            if (appliedScopeName is not null)
+            if (appliedScope is not null)
             {
-                scopes.Add($"the '{appliedScopeName}' process tree");
+                scopes.Add(appliedScope);
             }
 
             if (activityName is not null)
@@ -403,18 +400,18 @@ internal abstract class TraceLogReader : ITraceReader
             }
             else
             {
-                warnings.Add(appliedScopeName is not null
-                    ? $"No samples remained after scoping to the '{appliedScopeName}' process tree; "
+                warnings.Add(appliedScope is not null
+                    ? $"No samples remained after scoping to {appliedScope}; "
                         + "the scope may match no process with samples - pass --all-processes to read every process."
                     : "No sampled-profile (CPU) events were found. Was the trace captured with a CPU sampler?");
             }
         }
         else
         {
-            if (appliedScopeName is not null)
+            if (appliedScope is not null)
             {
                 warnings.Add(
-                    $"Scoped to the '{appliedScopeName}' process tree; pass --all-processes to read every process.");
+                    $"Scoped to {appliedScope}; pass --all-processes to read every process.");
             }
 
             if (activityName is not null)

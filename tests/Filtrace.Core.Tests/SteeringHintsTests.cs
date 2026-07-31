@@ -76,6 +76,46 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForRanking_PidScopedCpu_EmitsOneCommaSeparatedPidOption()
+    {
+        RankingResult ranking = new(25.0, "", [new RankRow("MyApp.Inner", 16.0, 64.0)]);
+        ScopeRequest scope = ScopeRequest.ForProcessIds([9144, 40356]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(ranking, MetricInfo.Cpu, scope);
+
+        // A repeated --pid keeps only the last value, so a hint that spelled the ids as
+        // separate options would silently widen the drill-down to one process.
+        hints.Should().ContainSingle().Which.Should().Be(
+            "drill into the hot frame with: callers MyApp.Inner --pid 9144,40356");
+    }
+
+    [TestMethod]
+    public void ForRanking_ParentOnlyPidScope_CarriesTheDescendantMode()
+    {
+        RankingResult ranking = new(25.0, "", [new RankRow("MyApp.Inner", 16.0, 64.0)]);
+        ScopeRequest scope = ScopeRequest.ForProcessIds([9144], includeChildren: false);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(ranking, MetricInfo.Cpu, scope);
+
+        hints.Should().ContainSingle().Which.Should().Be(
+            "drill into the hot frame with: callers MyApp.Inner --pid 9144 --children exclude");
+    }
+
+    [TestMethod]
+    public void ForRanking_ParentOnlyAutomaticScope_StillCarriesTheDescendantMode()
+    {
+        RankingResult ranking = new(25.0, "", [new RankRow("MyApp.Inner", 16.0, 64.0)]);
+        ScopeRequest scope = ScopeRequest.AutoScope(includeChildren: false);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(ranking, MetricInfo.Cpu, scope);
+
+        // The automatic scope carries no selector but still picks a tree, so dropping
+        // --children exclude here would widen the drill-down back to the children.
+        hints.Should().ContainSingle().Which.Should().Be(
+            "drill into the hot frame with: callers MyApp.Inner --children exclude");
+    }
+
+    [TestMethod]
     public void ForRanking_QuotedScopeValues_ArePowerShellSafe()
     {
         RankingResult ranking = new(25.0, "Work\"load", [new RankRow("MyApp.Inner", 16.0, 64.0)]);
