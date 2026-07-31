@@ -165,7 +165,7 @@ internal static class DiffExecutor
 
     private static ScopeRequest? ManifestScope(CaptureManifest manifest, ScopeRequest? requested)
     {
-        if (requested is { ProcessName: not null } or { IncludeAll: true })
+        if (requested is { Selector: not null } or { IncludeAll: true })
         {
             return requested;
         }

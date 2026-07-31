@@ -190,12 +190,13 @@ public sealed partial class TimelineProvider
 
         using Etlx.TraceLog traceLog = OpenTrace(fullPath);
 
-        // Scope to a process tree: an explicit --process name, or the automatic busiest
-        // process on a multi-process .etl. A null pid set means every process (a
-        // single-process .nettrace, or the all-processes opt-out), so the lanes cover the
-        // whole capture. appliedProcessName is the tree the scope resolved to, or null.
-        HashSet<int>? scopePids = ProcessTree.ResolveScope(
-            traceLog, scope ?? ScopeRequest.Auto, out string? appliedProcessName);
+        // Scope to a process tree: an explicit --process name or --pid set, or the
+        // automatic busiest process on a multi-process .etl. A null pid set means every
+        // process (a single-process .nettrace, or the all-processes opt-out), so the
+        // lanes cover the whole capture.
+        ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
+        HashSet<int>? scopePids = resolved.ProcessIds;
+        string? appliedProcessName = resolved.Label;
 
         // Resolve the window against the trace: an open bound is filled from the trace,
         // and a start at or past the end degenerates to a single bucket's width rather

@@ -24,6 +24,8 @@ namespace Filtrace.Cli;
 /// <param name="BucketCount">The number of time buckets requested (clamped by the executor).</param>
 /// <param name="Process">The raw process-name selector; empty auto-scopes a multi-process .etl to the busiest.</param>
 /// <param name="AllProcesses">Whether to read every process instead of auto-scoping to the busiest.</param>
+/// <param name="ProcessIds">The exact process ids to scope to, or <see langword="null"/>/empty when not given.</param>
+/// <param name="Children">Whether the process scope follows the matched processes' descendants.</param>
 /// <param name="Format">The render format.</param>
 internal sealed record TimelineRequest(
     string Path,
@@ -32,4 +34,6 @@ internal sealed record TimelineRequest(
     int BucketCount,
     string Process,
     bool AllProcesses,
+    int[]? ProcessIds,
+    Children Children,
     OutputFormat Format);

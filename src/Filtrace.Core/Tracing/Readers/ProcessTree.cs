@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.EventPipe;
 using Microsoft.Diagnostics.Tracing.Etlx;
@@ -26,55 +27,89 @@ internal static class ProcessTree
     /// <summary>
     ///  Resolves a high-level <see cref="ScopeRequest"/> against a trace's process
     ///  table into the set of process IDs to keep, applying the automatic
-    ///  busiest-process default when neither an explicit name nor the all-processes
+    ///  busiest-process default when neither an explicit selector nor the all-processes
     ///  opt-out was given.
     /// </summary>
     /// <param name="traceLog">The opened trace whose process table is queried.</param>
     /// <param name="request">The scope intent to resolve.</param>
-    /// <param name="appliedProcessName">
-    ///  The name of the process the scope resolved to (the explicit substring, or the
-    ///  busiest process chosen automatically), or <see langword="null"/> when no scope
-    ///  applies (all-processes, or an automatic scope that found no busy process).
-    /// </param>
     /// <returns>
-    ///  The process IDs to keep, or <see langword="null"/> when every process is read
-    ///  (all-processes, or an automatic scope with nothing to narrow to).
+    ///  What the request resolved to: the process IDs to keep (<see langword="null"/>
+    ///  when every process is read), how to name the scope, and any advisories about
+    ///  how the selector matched.
     /// </returns>
-    public static HashSet<int>? ResolveScope(
-        TraceLog traceLog,
-        ScopeRequest request,
-        out string? appliedProcessName)
+    /// <exception cref="ArgumentException">
+    ///  A requested process id was reused by more than one process in the trace.
+    /// </exception>
+    public static ScopeResolution ResolveScope(TraceLog traceLog, ScopeRequest request)
     {
-        appliedProcessName = null;
-
         if (request.IncludeAll)
         {
-            return null;
+            return ScopeResolution.Unscoped;
         }
 
-        // An explicit name wins; otherwise the automatic default picks the busiest
+        // An explicit selector wins; otherwise the automatic default picks the busiest
         // process so a machine-wide capture narrows to the workload without the caller
         // naming it. A capture with no busy named process leaves the read unscoped.
-        bool automatic = request.ProcessName is null;
-        string? name = request.ProcessName ?? FindBusiestProcessName(traceLog);
-        if (name is null)
+        bool automatic = request.Selector is null;
+        ProcessSelector? selector = request.Selector;
+        if (selector is null)
         {
-            return null;
+            if (FindBusiestProcessName(traceLog) is not string busiest)
+            {
+                return ScopeResolution.Unscoped;
+            }
+
+            selector = new ProcessNameSelector(busiest);
         }
 
-        HashSet<int> keep = ResolvePids(traceLog, new ProcessScope(name, request.IncludeChildren));
+        List<string> warnings = [];
+        HashSet<int> keep = ResolvePids(traceLog, new ProcessScope(selector, request.IncludeChildren), warnings);
 
-        // An explicit name always reports (the caller asked to scope, even if it
+        // An explicit selector always reports (the caller asked to scope, even if it
         // happens to match every process). The automatic scope only reports when it
         // actually narrowed - a capture that is already a single tree (a trimmed
         // fixture, say) is not "scoped" in any meaningful sense, so it stays silent
-        // rather than emit a notice for a no-op.
-        if (!automatic || NarrowsTheCapture(traceLog, keep))
+        // rather than emit a notice, and its advisories with it, for a no-op.
+        return !automatic || NarrowsTheCapture(traceLog, keep)
+            ? new ScopeResolution(keep, Label(selector), Phrase(selector, request.IncludeChildren), warnings)
+            : new ScopeResolution(keep, null, null, []);
+    }
+
+    // A short identity for the scope, for structured output and terse rendering.
+    private static string Label(ProcessSelector selector) => selector is ProcessIdSelector ids
+        ? FormatIds(ids.ProcessIds)
+        : ((ProcessNameSelector)selector).NameSubstring;
+
+    // The scope as a prose phrase, so a warning reads the same whichever selector and
+    // descendant mode produced it.
+    private static string Phrase(ProcessSelector selector, bool includeChildren)
+    {
+        if (selector is ProcessIdSelector ids)
         {
-            appliedProcessName = name;
+            return includeChildren
+                ? $"the process tree of {FormatIds(ids.ProcessIds)}"
+                : $"{FormatIds(ids.ProcessIds)} (no children)";
         }
 
-        return keep;
+        string name = ((ProcessNameSelector)selector).NameSubstring;
+        return includeChildren
+            ? $"the '{name}' process tree"
+            : $"the '{name}' process itself (no children)";
+    }
+
+    // The investigation shape this exists for launches tens of processes, so an
+    // unbounded id list would dominate every warning it appears in.
+    private const int MaxRenderedIds = 8;
+
+    private static string FormatIds(IReadOnlyList<int> processIds)
+    {
+        string noun = processIds.Count == 1 ? "pid" : "pids";
+        if (processIds.Count <= MaxRenderedIds)
+        {
+            return $"{noun} {string.Join(", ", processIds)}";
+        }
+
+        return $"{noun} {string.Join(", ", processIds.Take(MaxRenderedIds))} and {processIds.Count - MaxRenderedIds} more";
     }
 
     // Whether the kept set excludes at least one process that carried activity, i.e.
@@ -179,23 +214,28 @@ internal static class ProcessTree
 
     /// <summary>
     ///  Resolves a <see cref="ProcessScope"/> to the set of process IDs in the matched
-    ///  process tree: every process whose name contains the scope substring, plus -
-    ///  when the scope includes children - all of their descendants, found by walking
-    ///  each process's parent chain.
+    ///  process tree: every process the scope's selector matches, plus - when the scope
+    ///  includes children - all of their descendants, found by walking each process's
+    ///  parent chain.
     /// </summary>
     /// <param name="traceLog">The opened trace whose process table is queried.</param>
     /// <param name="scope">The scope to resolve.</param>
+    /// <param name="warnings">Collects advisories about how the selector matched, or <see langword="null"/> to discard them.</param>
     /// <returns>The process IDs in the scoped tree; empty when nothing matches.</returns>
-    public static HashSet<int> ResolvePids(TraceLog traceLog, ProcessScope scope)
+    /// <exception cref="ArgumentException">
+    ///  A requested process id was reused by more than one process in the trace.
+    /// </exception>
+    public static HashSet<int> ResolvePids(TraceLog traceLog, ProcessScope scope, List<string>? warnings = null)
     {
         HashSet<int> roots = [];
-        foreach (TraceProcess process in traceLog.Processes)
+        switch (scope.Selector)
         {
-            if (process.Name is not null
-                && process.Name.IndexOf(scope.NameSubstring, StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                roots.Add(process.ProcessID);
-            }
+            case ProcessIdSelector idSelector:
+                ResolveIdRoots(traceLog, idSelector, roots, warnings);
+                break;
+            case ProcessNameSelector nameSelector:
+                ResolveNameRoots(traceLog, nameSelector, roots, warnings);
+                break;
         }
 
         if (!scope.IncludeChildren)
@@ -224,5 +264,120 @@ internal static class ProcessTree
         }
 
         return keep;
+    }
+
+    private static void ResolveNameRoots(
+        TraceLog traceLog,
+        ProcessNameSelector selector,
+        HashSet<int> roots,
+        List<string>? warnings)
+    {
+        List<TraceProcess> matched = [];
+        foreach (TraceProcess process in traceLog.Processes)
+        {
+            if (process.Name is not null
+                && process.Name.IndexOf(selector.NameSubstring, StringComparison.OrdinalIgnoreCase) >= 0
+                && roots.Add(process.ProcessID))
+            {
+                matched.Add(process);
+            }
+        }
+
+        // A common host name - `dotnet`, `node`, `python` - matches every unrelated
+        // instance on a development box, and the resulting ranking blends them with no
+        // outward sign. Only independent roots count: a matched parent and its matched
+        // child are one tree, and folding them into the count would warn on every
+        // ordinary host-launches-worker capture.
+        if (warnings is null)
+        {
+            return;
+        }
+
+        int independentRoots = 0;
+        foreach (TraceProcess process in matched)
+        {
+            bool nested = false;
+            for (TraceProcess? ancestor = process.Parent; ancestor is not null; ancestor = ancestor.Parent)
+            {
+                if (roots.Contains(ancestor.ProcessID))
+                {
+                    nested = true;
+                    break;
+                }
+            }
+
+            if (!nested)
+            {
+                independentRoots++;
+            }
+        }
+
+        if (independentRoots > 1)
+        {
+            warnings.Add(
+                $"The name '{selector.NameSubstring}' matched {independentRoots} unrelated process trees "
+                + $"({FormatIds([.. matched.Select(static process => process.ProcessID).Order()])}); "
+                + "they are ranked together. Pass --pid to scope to exact processes.");
+        }
+    }
+
+    private static void ResolveIdRoots(
+        TraceLog traceLog,
+        ProcessIdSelector selector,
+        HashSet<int> roots,
+        List<string>? warnings)
+    {
+        HashSet<int> requested = [.. selector.ProcessIds];
+        Dictionary<int, List<TraceProcess>> matches = [];
+        foreach (TraceProcess process in traceLog.Processes)
+        {
+            if (!requested.Contains(process.ProcessID))
+            {
+                continue;
+            }
+
+            if (!matches.TryGetValue(process.ProcessID, out List<TraceProcess>? sameId))
+            {
+                sameId = [];
+                matches[process.ProcessID] = sameId;
+            }
+
+            sameId.Add(process);
+        }
+
+        List<int> unmatched = [];
+        foreach (int processId in selector.ProcessIds)
+        {
+            if (!matches.TryGetValue(processId, out List<TraceProcess>? sameId))
+            {
+                unmatched.Add(processId);
+                continue;
+            }
+
+            // Windows reuses process ids, and a long capture can hold two unrelated
+            // processes under one id. Silently unioning them would attribute a stranger's
+            // samples to the workload under the exact selector chosen to prevent that,
+            // so refuse and hand back what is needed to disambiguate.
+            if (sameId.Count > 1)
+            {
+                throw new ArgumentException(
+                    $"Process id {processId} was reused in this trace by {sameId.Count} processes "
+                    + $"({string.Join("; ", sameId.Select(static process =>
+                        $"'{process.Name}' started at {process.StartTimeRelativeMsec.ToString("F3", CultureInfo.InvariantCulture)} ms"))}). "
+                    + "Scope to a time window that contains only one of them, or select by process name.",
+                    nameof(selector));
+            }
+
+            roots.Add(processId);
+        }
+
+        // A manifest replayed against the wrong capture is the common cause here, and a
+        // partial match would otherwise look like an ordinary thin result.
+        if (warnings is not null && unmatched.Count > 0)
+        {
+            warnings.Add(
+                $"{FormatIds(unmatched)} {(unmatched.Count == 1 ? "was" : "were")} not found in this trace and "
+                + "contributed nothing to the scope.");
+        }
     }
 }

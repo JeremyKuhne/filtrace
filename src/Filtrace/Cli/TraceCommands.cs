@@ -24,6 +24,8 @@ internal sealed class TraceCommands
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="process">Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); mutually exclusive with --process.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
     ///  Reports the format, sample count, total weight, frame-name resolution,
@@ -31,7 +33,7 @@ internal sealed class TraceCommands
     ///  quality warnings. It is the CLI counterpart of the <c>trace_info</c> tool -
     ///  run it first. Frame names normally come from CLR rundown; source lines require
     ///  exact matching PDBs in <c>--symbols</c>. Like that tool it
-    ///  takes an optional <c>--process</c> selector (no
+    ///  takes an optional <c>--process</c> or <c>--pid</c> selector (no
     ///  <c>--all-processes</c> opt-out); use the <c>processes</c> verb to see every
     ///  process in a machine-wide capture.
     /// </remarks>
@@ -40,12 +42,19 @@ internal sealed class TraceCommands
         [Argument] string trace,
         string? symbols = null,
         OutputFormat format = OutputFormat.Text,
-        string process = "")
+        string process = "",
+        int[]? pid = null,
+        Children children = Children.Include)
     {
-        // Mirror the trace_info tool's scope resolution: an explicit name scopes to that
-        // process tree, and an empty selector auto-scopes a multi-process capture to the
+        // Mirror the trace_info tool's scope resolution: an explicit selector scopes to
+        // those process trees, and no selector auto-scopes a multi-process capture to the
         // busiest. There is no all-processes opt-out here (run `processes` to list them).
-        ScopeRequest? scope = string.IsNullOrEmpty(process) ? null : ScopeRequest.ForProcess(process);
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses: false, out ScopeRequest scope, out string? scopeError))
+        {
+            Console.Error.WriteLine(scopeError);
+            return ExitCodes.UsageError;
+        }
+
         InfoRequest request = new(trace, symbols, format, scope);
         return InfoExecutor.Run(request, Console.Out, Console.Error);
     }
@@ -68,6 +77,8 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="activity">Scope the ranking to one start-stop activity by task name - the CPU samples taken inside that request/job (cpu metric only); omit for the whole trace.</param>
     /// <param name="time">Scope to a time window 'start,end' in ms relative to the trace start; either bound may be omitted (e.g. 1000,5000 or 1000, or ,5000). Applies to every metric on .nettrace/.etl; speedscope warns and ignores it.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
@@ -88,6 +99,8 @@ internal sealed class TraceCommands
         bool strict = false,
         string process = "",
         bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include,
         string activity = "",
         string time = "",
         bool benchmark = false,
@@ -102,7 +115,7 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
@@ -168,6 +181,8 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl CPU captures only.</param>
     /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
@@ -185,12 +200,14 @@ internal sealed class TraceCommands
         bool strict = false,
         string process = "",
         bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include,
         bool benchmark = false,
         bool nativeSymbols = false,
         string symbolCache = "",
         bool noFold = false)
     {
-        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
@@ -309,6 +326,8 @@ internal sealed class TraceCommands
     /// <param name="format">Render format: text or json.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest.</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -328,9 +347,11 @@ internal sealed class TraceCommands
         OutputFormat format = OutputFormat.Text,
         string process = "",
         bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include,
         bool benchmark = false)
     {
-        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
@@ -359,6 +380,8 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
     /// <param name="callees">Also report the focus frame's immediate callees (a caller/callee view).</param>
     /// <returns>A process exit code.</returns>
@@ -373,10 +396,12 @@ internal sealed class TraceCommands
         bool strict = false,
         string process = "",
         bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include,
         bool benchmark = false,
         bool callees = false)
     {
-        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
@@ -404,6 +429,8 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <returns>A process exit code.</returns>
     [Command("lines")]
     public int Lines(
@@ -415,9 +442,11 @@ internal sealed class TraceCommands
         OutputFormat format = OutputFormat.Text,
         bool strict = false,
         string process = "",
-        bool allProcesses = false)
+        bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include)
     {
-        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
@@ -439,6 +468,8 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <returns>A process exit code.</returns>
     [Command("heatmap")]
     public int Heatmap(
@@ -449,9 +480,11 @@ internal sealed class TraceCommands
         OutputFormat format = OutputFormat.Text,
         bool strict = false,
         string process = "",
-        bool allProcesses = false)
+        bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include)
     {
-        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
@@ -492,6 +525,8 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl captures only.</param>
     /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
@@ -505,11 +540,13 @@ internal sealed class TraceCommands
         bool strict = false,
         string process = "",
         bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include,
         bool benchmark = false,
         bool nativeSymbols = false,
         string symbolCache = "")
     {
-        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
@@ -567,6 +604,8 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when either trace's symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope both traces to the process tree whose name contains this; omit to auto-scope.</param>
     /// <param name="allProcesses">Read every process in both traces instead of auto-scoping.</param>
+    /// <param name="pid">Scope both traces to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="benchmark">Scope both traces to the BenchmarkDotNet measured-workload subtree.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -586,9 +625,11 @@ internal sealed class TraceCommands
         bool strict = false,
         string process = "",
         bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include,
         bool benchmark = false)
     {
-        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
@@ -626,6 +667,8 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when any loaded case has poor symbol resolution.</param>
     /// <param name="process">Process substring overriding the manifest process.</param>
     /// <param name="allProcesses">Read every process rather than manifest/automatic scope.</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="benchmark">Use the BenchmarkDotNet measured-workload root.</param>
     /// <returns>A process exit code.</returns>
     [Command("batch")]
@@ -640,6 +683,8 @@ internal sealed class TraceCommands
         bool strict = false,
         string process = "",
         bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include,
         bool benchmark = false)
     {
         if (!RankRequestFactory.TryResolveMetric(metric, out TraceMetric resolvedMetric))
@@ -649,7 +694,7 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
@@ -690,6 +735,8 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
     /// <returns>A process exit code.</returns>
     [Command("tree")]
@@ -704,9 +751,11 @@ internal sealed class TraceCommands
         bool strict = false,
         string process = "",
         bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include,
         bool benchmark = false)
     {
-        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
@@ -733,6 +782,8 @@ internal sealed class TraceCommands
     /// <param name="name">Profile name shown in the viewer.</param>
     /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="root">Substring scoping the export to the subtree under a frame.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl captures only.</param>
@@ -747,12 +798,14 @@ internal sealed class TraceCommands
         string name = "filtrace",
         string process = "",
         bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include,
         string root = "",
         bool benchmark = false,
         bool nativeSymbols = false,
         string symbolCache = "")
     {
-        if (!RankRequestFactory.TryResolveScope(process, allProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;
@@ -804,6 +857,8 @@ internal sealed class TraceCommands
     /// <param name="time">Scope to a time window 'start,end' in ms relative to the trace start; either bound may be omitted (e.g. 1000,5000 or 1000, or ,5000).</param>
     /// <param name="process">Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -820,9 +875,11 @@ internal sealed class TraceCommands
         string time = "",
         string process = "",
         bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include,
         OutputFormat format = OutputFormat.Text)
     {
-        TimelineRequest request = new(trace, time, lanes, buckets, process, allProcesses, format);
+        TimelineRequest request = new(trace, time, lanes, buckets, process, allProcesses, pid, children, format);
         return TimelineExecutor.Run(request, Console.Out, Console.Error);
     }
 

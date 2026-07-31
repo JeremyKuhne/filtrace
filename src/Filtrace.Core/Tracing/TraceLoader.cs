@@ -316,14 +316,15 @@ public sealed class TraceLoader
         }
 
         StackSampleSource source = new ThreadTimeProvider().Read(
-            fullPath, scope, out string? appliedScopeName, out int recordCount);
+            fullPath, scope, out ScopeResolution resolved, out int recordCount);
+        string? appliedScope = resolved.Phrase;
 
         // Thread time carries both scope axes an ETW capture supports: the process tree
         // and the time window. Name whichever narrowed the read so an empty or reduced
         // result is not misread as a bad capture.
         string? windowPhrase = scope?.Window is TimeWindow window && window.IsBounded ? window.ToString() : null;
 
-        List<string> warnings = [];
+        List<string> warnings = [.. resolved.Warnings];
         if (source.Samples.Count == 0)
         {
             // An empty result has distinct causes now that scoping can drop every sample:
@@ -332,9 +333,9 @@ public sealed class TraceLoader
             // keywords. Name the applied scopes so the message does not blame the capture
             // when a scope is at fault.
             List<string> scopes = [];
-            if (appliedScopeName is not null)
+            if (appliedScope is not null)
             {
-                scopes.Add($"the '{appliedScopeName}' process tree");
+                scopes.Add(appliedScope);
             }
 
             if (windowPhrase is not null)
@@ -355,10 +356,10 @@ public sealed class TraceLoader
         }
         else
         {
-            if (appliedScopeName is not null)
+            if (appliedScope is not null)
             {
                 warnings.Add(
-                    $"Scoped to the '{appliedScopeName}' process tree; pass --all-processes to read every process.");
+                    $"Scoped to {appliedScope}; pass --all-processes to read every process.");
             }
 
             if (windowPhrase is not null)

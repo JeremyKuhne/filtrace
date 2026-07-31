@@ -71,7 +71,7 @@ internal static class BatchExecutor
     {
         // Explicit process/all-process input overrides the capture's recorded process;
         // otherwise preserve the manifest scope, falling back to automatic scope.
-        if (requested is { ProcessName: not null } or { IncludeAll: true })
+        if (requested is { Selector: not null } or { IncludeAll: true })
         {
             return requested;
         }

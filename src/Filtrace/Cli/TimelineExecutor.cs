@@ -46,7 +46,8 @@ internal static class TimelineExecutor
             return ExitCodes.UsageError;
         }
 
-        if (!RankRequestFactory.TryResolveScope(request.Process, request.AllProcesses, out ScopeRequest scope, out string? scopeError))
+        if (!RankRequestFactory.TryResolveScope(
+            request.Process, request.ProcessIds, request.Children, request.AllProcesses, out ScopeRequest scope, out string? scopeError))
         {
             error.WriteLine(scopeError);
             return ExitCodes.UsageError;

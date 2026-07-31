@@ -23,8 +23,10 @@ public sealed class TimelineExecutorTests
         int buckets = TimelineProvider.DefaultBucketCount,
         string process = "",
         bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include,
         OutputFormat format = OutputFormat.Text) =>
-        new(path, time, lanes, buckets, process, allProcesses, format);
+        new(path, time, lanes, buckets, process, allProcesses, pid, children, format);
 
     private static (int Exit, string Out, string Error) Run(TimelineRequest request)
     {

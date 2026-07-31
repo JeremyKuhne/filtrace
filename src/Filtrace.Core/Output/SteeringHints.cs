@@ -290,12 +290,18 @@ public static class SteeringHints
             hint = $"{hint} --root {QuotePowerShellArgument(root)}";
         }
 
-        if (scope?.ProcessName is string processName)
+        hint = scope?.Selector switch
         {
-            return $"{hint} --process {QuotePowerShellArgument(processName)}";
-        }
+            ProcessNameSelector name => $"{hint} --process {QuotePowerShellArgument(name.NameSubstring)}",
+            // Comma-separated, not repeated: a repeated --pid keeps only the last value.
+            ProcessIdSelector ids => $"{hint} --pid {string.Join(",", ids.ProcessIds)}",
+            _ => scope?.IncludeAll == true ? $"{hint} --all-processes" : hint
+        };
 
-        return scope?.IncludeAll == true ? $"{hint} --all-processes" : hint;
+        // Keyed on the descendant mode alone, not on the selector: the automatic scope
+        // carries no selector but still picks a tree, so a hint that dropped its
+        // --children exclude would silently widen a parent-only drill-down.
+        return scope is { IncludeChildren: false } ? $"{hint} --children exclude" : hint;
     }
 
     // Hints use PowerShell command syntax throughout the shipped Windows-first docs.

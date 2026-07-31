@@ -12,10 +12,11 @@ namespace Filtrace.Tracing;
 ///  <para>
 ///   A machine-wide capture holds every process on the box, and an unscoped
 ///   ranking is the most common way an agent burns its token budget on irrelevant
-///   processes. So scenario scope is the default: when neither a name nor the
+///   processes. So scenario scope is the default: when neither a selector nor the
 ///   all-processes opt-out is given, the loader scopes a multi-process capture to
 ///   the busiest process and its tree automatically. The two explicit modes are an
-///   override (<see cref="ForProcess"/>) and an opt-out (<see cref="AllProcesses"/>).
+///   override (<see cref="ForProcess"/> or <see cref="ForProcessIds"/>) and an
+///   opt-out (<see cref="AllProcesses"/>).
 ///  </para>
 ///  <para>
 ///   Scoping only applies to a multi-process capture (an ETW <c>.etl</c>); the
@@ -27,13 +28,13 @@ public sealed class ScopeRequest
 {
     private ScopeRequest(
         bool includeAll,
-        string? processName,
+        ProcessSelector? selector,
         bool includeChildren,
         string? activityName,
         TimeWindow? window)
     {
         IncludeAll = includeAll;
-        ProcessName = processName;
+        Selector = selector;
         IncludeChildren = includeChildren;
         ActivityName = activityName;
         Window = window;
@@ -43,12 +44,21 @@ public sealed class ScopeRequest
     ///  The default: let the loader scope a multi-process capture to the busiest
     ///  process tree automatically.
     /// </summary>
-    public static ScopeRequest Auto { get; } = new(includeAll: false, processName: null, includeChildren: true, activityName: null, window: null);
+    public static ScopeRequest Auto { get; } = new(includeAll: false, selector: null, includeChildren: true, activityName: null, window: null);
+
+    /// <summary>
+    ///  The automatic busiest-process scope, choosing whether to follow the chosen
+    ///  process's descendants.
+    /// </summary>
+    /// <param name="includeChildren">Whether to also include every descendant of the chosen process.</param>
+    /// <returns>The scope request; <see cref="Auto"/> when children are included.</returns>
+    public static ScopeRequest AutoScope(bool includeChildren) =>
+        includeChildren ? Auto : new(includeAll: false, selector: null, includeChildren: false, activityName: null, window: null);
 
     /// <summary>
     ///  Read every process - the opt-out from automatic scenario scoping.
     /// </summary>
-    public static ScopeRequest AllProcesses { get; } = new(includeAll: true, processName: null, includeChildren: true, activityName: null, window: null);
+    public static ScopeRequest AllProcesses { get; } = new(includeAll: true, selector: null, includeChildren: true, activityName: null, window: null);
 
     /// <summary>
     ///  Scope to the process(es) whose name contains <paramref name="processName"/>,
@@ -62,11 +72,31 @@ public sealed class ScopeRequest
     /// </param>
     /// <returns>The scope request.</returns>
     /// <exception cref="ArgumentException"><paramref name="processName"/> is <see langword="null"/> or empty.</exception>
-    public static ScopeRequest ForProcess(string processName, bool includeChildren = true)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(processName);
-        return new ScopeRequest(includeAll: false, processName: processName, includeChildren: includeChildren, activityName: null, window: null);
-    }
+    public static ScopeRequest ForProcess(string processName, bool includeChildren = true) =>
+        new(includeAll: false, selector: new ProcessNameSelector(processName), includeChildren: includeChildren, activityName: null, window: null);
+
+    /// <summary>
+    ///  Scope to exactly the processes with <paramref name="processIds"/>, optionally
+    ///  including their descendants.
+    /// </summary>
+    /// <param name="processIds">The exact process ids to scope to.</param>
+    /// <param name="includeChildren">
+    ///  Whether to also include every descendant of a matched process. Defaults to
+    ///  <see langword="true"/>, matching <see cref="ForProcess"/>; pass
+    ///  <see langword="false"/> for a parent-only read.
+    /// </param>
+    /// <returns>The scope request.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="processIds"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="processIds"/> is empty or contains a non-positive id.</exception>
+    /// <remarks>
+    ///  <para>
+    ///   Unlike a name substring, an exact id set cannot silently pick up an unrelated
+    ///   process that happens to share a common host name, so it is the selector a
+    ///   capture manifest records and an automated run replays.
+    ///  </para>
+    /// </remarks>
+    public static ScopeRequest ForProcessIds(IEnumerable<int> processIds, bool includeChildren = true) =>
+        new(includeAll: false, selector: new ProcessIdSelector(processIds), includeChildren: includeChildren, activityName: null, window: null);
 
     /// <summary>
     ///  Returns a copy of this request additionally scoped to the start-stop activity
@@ -77,7 +107,7 @@ public sealed class ScopeRequest
     /// <param name="activityName">The activity task name to scope to, or <see langword="null"/> for none.</param>
     /// <returns>A copy of this request with the activity scope applied.</returns>
     public ScopeRequest WithActivity(string? activityName) =>
-        new(IncludeAll, ProcessName, IncludeChildren, string.IsNullOrEmpty(activityName) ? null : activityName, Window);
+        new(IncludeAll, Selector, IncludeChildren, string.IsNullOrEmpty(activityName) ? null : activityName, Window);
 
     /// <summary>
     ///  Returns a copy of this request additionally scoped to the time window spanning
@@ -93,7 +123,7 @@ public sealed class ScopeRequest
     public ScopeRequest WithTimeWindow(double? startMSec, double? endMSec) =>
         new(
             IncludeAll,
-            ProcessName,
+            Selector,
             IncludeChildren,
             ActivityName,
             startMSec is null && endMSec is null ? null : new TimeWindow(startMSec, endMSec));
@@ -104,14 +134,15 @@ public sealed class ScopeRequest
     public bool IncludeAll { get; }
 
     /// <summary>
-    ///  The explicit process-name substring to scope to, or <see langword="null"/>
-    ///  when none was given (automatic or all-processes).
+    ///  The explicit selector to scope to, or <see langword="null"/> when none was
+    ///  given (automatic or all-processes).
     /// </summary>
-    public string? ProcessName { get; }
+    public ProcessSelector? Selector { get; }
 
     /// <summary>
     ///  Whether a matched process's descendants are included in the scope. Applies to
-    ///  an explicit <see cref="ForProcess"/> request and to the automatic scope.
+    ///  an explicit <see cref="ForProcess"/> or <see cref="ForProcessIds"/> request and
+    ///  to the automatic scope.
     /// </summary>
     public bool IncludeChildren { get; }
 

@@ -104,6 +104,17 @@ config and tool workflow.
   Run `processes` / `trace_processes` first to inspect the capture, then set
   `--process <name>` / `process` to override. CLI verbs expose `--all-processes`
   where an aggregate is supported; MCP has no all-process aggregate.
+- **Exact process ids:** the same verbs and tools accept `--pid <id>[,<id>]`
+  (comma-separated, not repeated) / `pid` instead of a name. A name substring is right
+  for discovery, but a common host name such as `dotnet` matches every unrelated
+  instance in a machine-wide capture and ranks them together; an exact id set cannot.
+  Prefer it for manifests and automation. The three selectors are mutually exclusive,
+  an id reused by two processes in one trace is refused rather than merged, and an id
+  that is not in the trace is reported.
+- **Descendants:** the same verbs and tools accept `--children include|exclude` /
+  `children`. Both selectors follow descendants by default, because the common capture
+  shapes put the measured work in a child the host launched. Pass `exclude` to
+  separate a parent's own CPU from a child runtime's - the reading a native host needs.
 - **Root subtree:** CLI `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`,
   `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
   `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and
@@ -129,6 +140,7 @@ filtrace cpu bdn.nettrace --benchmark          # just the [Benchmark] code
 filtrace alloc bdn.nettrace --benchmark        # allocations under the workload
 filtrace processes machinewide.etl             # list every process by weight
 filtrace cpu machinewide.etl --process MyApp   # one process tree
+filtrace cpu machinewide.etl --pid 9144,40356 --children exclude  # exactly those, parent-only
 filtrace rank app.nettrace --time 1000,5000    # just the spike window
 ```
 

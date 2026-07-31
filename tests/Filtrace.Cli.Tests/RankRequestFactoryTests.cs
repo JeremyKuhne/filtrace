@@ -91,7 +91,7 @@ public sealed class RankRequestFactoryTests
     [TestMethod]
     public void TryResolveScope_NoOptions_IsAutomatic()
     {
-        RankRequestFactory.TryResolveScope("", allProcesses: false, out ScopeRequest scope, out string? error)
+        RankRequestFactory.TryResolveScope("", null, Children.Include, allProcesses: false, out ScopeRequest scope, out string? error)
             .Should().BeTrue();
         error.Should().BeNull();
         scope.Should().BeSameAs(ScopeRequest.Auto);
@@ -100,7 +100,7 @@ public sealed class RankRequestFactoryTests
     [TestMethod]
     public void TryResolveScope_AllProcesses_IsTheOptOut()
     {
-        RankRequestFactory.TryResolveScope("", allProcesses: true, out ScopeRequest scope, out _)
+        RankRequestFactory.TryResolveScope("", null, Children.Include, allProcesses: true, out ScopeRequest scope, out _)
             .Should().BeTrue();
         scope.Should().BeSameAs(ScopeRequest.AllProcesses);
     }
@@ -108,18 +108,64 @@ public sealed class RankRequestFactoryTests
     [TestMethod]
     public void TryResolveScope_ProcessName_BuildsAnExplicitScope()
     {
-        RankRequestFactory.TryResolveScope("MyApp", allProcesses: false, out ScopeRequest scope, out _)
+        RankRequestFactory.TryResolveScope("MyApp", null, Children.Include, allProcesses: false, out ScopeRequest scope, out _)
             .Should().BeTrue();
-        scope.ProcessName.Should().Be("MyApp");
+        scope.Selector.Should().BeOfType<ProcessNameSelector>().Which.NameSubstring.Should().Be("MyApp");
         scope.IncludeAll.Should().BeFalse();
     }
 
     [TestMethod]
-    public void TryResolveScope_BothOptions_IsAUsageError()
+    public void TryResolveScope_Pids_BuildAnExactScope()
     {
-        RankRequestFactory.TryResolveScope("MyApp", allProcesses: true, out _, out string? error)
+        RankRequestFactory.TryResolveScope("", [42, 7], Children.Include, allProcesses: false, out ScopeRequest scope, out _)
+            .Should().BeTrue();
+        scope.Selector.Should().BeOfType<ProcessIdSelector>().Which.ProcessIds.Should().Equal(7, 42);
+        scope.IncludeChildren.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void TryResolveScope_ChildrenExclude_AppliesToEverySelector()
+    {
+        RankRequestFactory.TryResolveScope("", [42], Children.Exclude, allProcesses: false, out ScopeRequest byId, out _)
+            .Should().BeTrue();
+        RankRequestFactory.TryResolveScope("MyApp", null, Children.Exclude, allProcesses: false, out ScopeRequest byName, out _)
+            .Should().BeTrue();
+        RankRequestFactory.TryResolveScope("", null, Children.Exclude, allProcesses: false, out ScopeRequest automatic, out _)
+            .Should().BeTrue();
+
+        byId.IncludeChildren.Should().BeFalse();
+        byName.IncludeChildren.Should().BeFalse();
+        automatic.IncludeChildren.Should().BeFalse("the automatic scope picks a process, and that choice is still a tree");
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(-3)]
+    public void TryResolveScope_NonPositivePid_IsAUsageError(int processId)
+    {
+        RankRequestFactory.TryResolveScope("", [processId], Children.Include, allProcesses: false, out _, out string? error)
             .Should().BeFalse();
-        error.Should().Contain("only one of --process and --all-processes");
+        error.Should().Contain("not a valid process id");
+    }
+
+    [TestMethod]
+    public void TryResolveScope_ChildrenWithAllProcesses_IsAUsageError()
+    {
+        RankRequestFactory.TryResolveScope("", null, Children.Exclude, allProcesses: true, out _, out string? error)
+            .Should().BeFalse();
+        error.Should().Contain("--all-processes already reads every process");
+    }
+
+    [TestMethod]
+    [DataRow("MyApp", true, false)]
+    [DataRow("MyApp", false, true)]
+    [DataRow("", true, true)]
+    public void TryResolveScope_ConflictingSelectors_IsAUsageError(string process, bool withPid, bool allProcesses)
+    {
+        RankRequestFactory.TryResolveScope(
+            process, withPid ? [42] : null, Children.Include, allProcesses, out _, out string? error)
+            .Should().BeFalse();
+        error.Should().Contain("only one of --process, --pid, and --all-processes");
     }
 
     [TestMethod]

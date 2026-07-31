@@ -2,30 +2,59 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
+
 namespace Filtrace.Tracing;
 
-// The ProcessScope constructor validation is platform-agnostic (no trace read), so
-// it runs everywhere - unlike the ETL-backed scoping tests below.
+// The selector and scope constructor validation is platform-agnostic (no trace read),
+// so it runs everywhere - unlike the ETL-backed scoping tests below.
 [TestClass]
 public sealed class ProcessScopeValidationTests
 {
     [TestMethod]
     [DataRow("")]
     [DataRow(null)]
-    public void Ctor_NullOrEmptyNameSubstring_ThrowsArgument(string? name)
+    public void NameSelector_NullOrEmptyNameSubstring_ThrowsArgument(string? name)
     {
-        Action act = () => _ = new ProcessScope(name!);
+        Action act = () => _ = new ProcessNameSelector(name!);
 
-        act.Should().Throw<ArgumentException>().WithParameterName("NameSubstring");
+        act.Should().Throw<ArgumentException>().WithParameterName("nameSubstring");
     }
 
     [TestMethod]
-    public void Ctor_NonEmptyNameSubstring_Succeeds()
+    public void Ctor_NameSelector_Succeeds()
     {
-        ProcessScope scope = new("HotLoopBench");
+        ProcessScope scope = new(new ProcessNameSelector("HotLoopBench"));
 
-        scope.NameSubstring.Should().Be("HotLoopBench");
+        scope.Selector.Should().BeOfType<ProcessNameSelector>()
+            .Which.NameSubstring.Should().Be("HotLoopBench");
         scope.IncludeChildren.Should().BeTrue("children are followed by default");
+    }
+
+    [TestMethod]
+    public void IdSelector_DeduplicatesAndOrders()
+    {
+        ProcessIdSelector selector = new([5000, 100, 5000]);
+
+        selector.ProcessIds.Should().Equal(100, 5000);
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(-1)]
+    public void IdSelector_NonPositiveId_ThrowsArgument(int processId)
+    {
+        Action act = () => _ = new ProcessIdSelector([processId]);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("processIds");
+    }
+
+    [TestMethod]
+    public void IdSelector_EmptyIds_ThrowsArgument()
+    {
+        Action act = () => _ = new ProcessIdSelector([]);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("processIds");
     }
 }
 
@@ -35,17 +64,28 @@ public sealed class ProcessScopeValidationTests
 public sealed class ScopeRequestTests
 {
     [TestMethod]
-    public void Auto_HasNoNameAndIsNotAllProcesses()
+    public void Auto_HasNoSelectorAndIsNotAllProcesses()
     {
-        ScopeRequest.Auto.ProcessName.Should().BeNull();
+        ScopeRequest.Auto.Selector.Should().BeNull();
         ScopeRequest.Auto.IncludeAll.Should().BeFalse();
+        ScopeRequest.Auto.IncludeChildren.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void AutoScope_CanExcludeChildren()
+    {
+        ScopeRequest scope = ScopeRequest.AutoScope(includeChildren: false);
+
+        scope.Selector.Should().BeNull("the busiest process is still chosen automatically");
+        scope.IncludeChildren.Should().BeFalse();
+        ScopeRequest.AutoScope(includeChildren: true).Should().BeSameAs(ScopeRequest.Auto);
     }
 
     [TestMethod]
     public void AllProcesses_IsTheOptOut()
     {
         ScopeRequest.AllProcesses.IncludeAll.Should().BeTrue();
-        ScopeRequest.AllProcesses.ProcessName.Should().BeNull();
+        ScopeRequest.AllProcesses.Selector.Should().BeNull();
     }
 
     [TestMethod]
@@ -53,7 +93,7 @@ public sealed class ScopeRequestTests
     {
         ScopeRequest scope = ScopeRequest.ForProcess("MyApp");
 
-        scope.ProcessName.Should().Be("MyApp");
+        scope.Selector.Should().BeOfType<ProcessNameSelector>().Which.NameSubstring.Should().Be("MyApp");
         scope.IncludeAll.Should().BeFalse();
         scope.IncludeChildren.Should().BeTrue("children are followed by default");
     }
@@ -72,6 +112,29 @@ public sealed class ScopeRequestTests
         Action act = () => ScopeRequest.ForProcess(name!);
 
         act.Should().Throw<ArgumentException>();
+    }
+
+    [TestMethod]
+    public void ForProcessIds_CarriesTheIdsAndChildrenDefault()
+    {
+        ScopeRequest scope = ScopeRequest.ForProcessIds([4242, 17]);
+
+        scope.Selector.Should().BeOfType<ProcessIdSelector>().Which.ProcessIds.Should().Equal(17, 4242);
+        scope.IncludeAll.Should().BeFalse();
+        scope.IncludeChildren.Should().BeTrue("an id scope defaults to the tree, like a name scope");
+    }
+
+    [TestMethod]
+    public void ForProcessIds_PreservesSelectorAcrossRefinements()
+    {
+        ScopeRequest scope = ScopeRequest.ForProcessIds([4242], includeChildren: false)
+            .WithActivity("Order")
+            .WithTimeWindow(1000.0, null);
+
+        scope.Selector.Should().BeOfType<ProcessIdSelector>().Which.ProcessIds.Should().Equal(4242);
+        scope.IncludeChildren.Should().BeFalse();
+        scope.ActivityName.Should().Be("Order");
+        scope.Window.Should().NotBeNull();
     }
 }
 
@@ -159,6 +222,73 @@ public sealed class ProcessScopeTests
 
         scoped.Should().BeEmpty();
     }
+
+    [TestMethod]
+    public void Read_ScopedToExactIds_MatchesTheEquivalentNameScope()
+    {
+        IReadOnlyList<SampleStack> byName = Load(ScopeRequest.ForProcess("HotLoopBench-Job", includeChildren: false));
+        int[] jobIds = [.. ProcessIdsOf(byName)];
+
+        IReadOnlyList<SampleStack> byId = Load(ScopeRequest.ForProcessIds(jobIds, includeChildren: false));
+
+        // The two selectors are different ways to name the same roots, so the exact-id
+        // scope must reproduce the name scope's sample set exactly.
+        jobIds.Should().NotBeEmpty();
+        byId.Count.Should().Be(byName.Count);
+        ProcessIdsOf(byId).Should().BeEquivalentTo(ProcessIdsOf(byName));
+    }
+
+    [TestMethod]
+    public void Read_ScopedToExactId_ExcludingChildren_KeepsOnlyThatProcess()
+    {
+        IReadOnlyList<SampleStack> tree = Load(ScopeRequest.ForProcess("HotLoopBench"));
+        int busiestId = ProcessIdOf(tree
+            .GroupBy(static s => s.Process, StringComparer.Ordinal)
+            .OrderByDescending(static g => g.Count())
+            .First().Key);
+
+        IReadOnlyList<SampleStack> parentOnly = Load(ScopeRequest.ForProcessIds([busiestId], includeChildren: false));
+
+        // Parent-only is the point of an exact scope: it must keep that process and
+        // nothing else, even though the same id with descendants covers more.
+        parentOnly.Should().NotBeEmpty();
+        ProcessIdsOf(parentOnly).Should().Equal(busiestId);
+        parentOnly.Count.Should().BeLessThan(tree.Count);
+        Load(ScopeRequest.ForProcessIds([busiestId], includeChildren: true)).Count
+            .Should().BeGreaterThanOrEqualTo(parentOnly.Count);
+    }
+
+    [TestMethod]
+    public void Read_ScopedToUnknownId_WarnsThatItWasNotFound()
+    {
+        LoadedTrace loaded = new TraceLoader().Load(EtwFixture, scope: ScopeRequest.ForProcessIds([999_999]));
+
+        // A manifest replayed against the wrong capture must not look like an ordinary
+        // thin result: name the ids that contributed nothing.
+        loaded.Info.Warnings.Should().Contain(w => w.Contains("999999", StringComparison.Ordinal)
+            && w.Contains("not found in this trace", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Read_ScopedToExactIds_NamesTheIdsInTheScopeNotice()
+    {
+        int[] jobIds = [.. ProcessIdsOf(Load(ScopeRequest.ForProcess("HotLoopBench-Job", includeChildren: false)))];
+
+        LoadedTrace loaded = new TraceLoader().Load(
+            EtwFixture, scope: ScopeRequest.ForProcessIds(jobIds, includeChildren: false));
+
+        loaded.Info.Warnings.Should().Contain(w =>
+            w.StartsWith("Scoped to pid", StringComparison.Ordinal)
+            && w.Contains("(no children)", StringComparison.Ordinal));
+    }
+
+    private static IEnumerable<int> ProcessIdsOf(IReadOnlyList<SampleStack> samples) =>
+        samples.Select(static s => s.Process).Distinct(StringComparer.Ordinal).Select(ProcessIdOf);
+
+    // Sample process labels are "name(pid)" on a multi-process capture.
+    private static int ProcessIdOf(string label) => int.Parse(
+        label[(label.IndexOf('(', StringComparison.Ordinal) + 1)..label.LastIndexOf(')')],
+        CultureInfo.InvariantCulture);
 
     [TestMethod]
     public void Read_ScopeMatchingNoProcess_WarnsAboutTheScopeNotTheCapture()
