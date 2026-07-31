@@ -259,6 +259,18 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_CollectUnknownProfile_ReturnsUsageError()
+    {
+        // Profile resolution runs before the OS and elevation guards, so this is the one
+        // collect path that is deterministic on every CI leg.
+        (int exit, _, string error) = Run("collect", "--launch", "app.exe", "--output", "out.etl", "--profile", "bogus");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("Unknown profile 'bogus'");
+        error.Should().Contain("cpu, threadtime, startup");
+    }
+
+    [TestMethod]
     public void Run_ProcessAndAllProcesses_ReturnsUsageError()
     {
         // The two scope options are mutually exclusive; the conflict is caught before

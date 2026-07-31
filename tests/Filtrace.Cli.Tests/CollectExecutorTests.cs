@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Tracing;
+using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Cli;
 
@@ -31,6 +32,18 @@ public sealed class CollectExecutorTests
         });
 
         act.Should().Throw<ArgumentException>();
+    }
+
+    [TestMethod]
+    public void Collect_DefaultRequest_UsesTheCpuProfile()
+    {
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+        };
+
+        request.Profile.Should().Be(CollectProfile.Cpu);
     }
 
     [TestMethod]
@@ -92,6 +105,63 @@ public sealed class CollectExecutorTests
             output.ToString().Should().Contain("Captured");
             File.Exists(outputPath).Should().BeTrue();
             new FileInfo(outputPath).Length.Should().BeGreaterThan(0);
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Run_WhenElevated_StartupProfileStillNamesManagedMethods()
+    {
+        if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
+        {
+            Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
+        }
+
+        // The startup profile narrows the CLR provider to the naming keywords, and that
+        // trade is only worth making if the names actually survive it. Capture a real
+        // managed process and prove the method events are in the trace - a sampling-based
+        // assertion would be flaky on a run this short.
+        string managedApp = Path.Combine(AppContext.BaseDirectory, "filtrace.dll");
+        File.Exists(managedApp).Should().BeTrue("the CLI assembly is the managed capture target");
+
+        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-startup-{Guid.NewGuid():N}.etl");
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "dotnet",
+            LaunchArguments = $"\"{managedApp}\" --version",
+            Profile = CollectProfile.Startup,
+            OutputPath = outputPath,
+            DurationSeconds = 120,
+        };
+
+        StringWriter output = new();
+        StringWriter error = new();
+        try
+        {
+            int exit = CollectExecutor.Run(request, output, error);
+            exit.Should().Be(ExitCodes.Success);
+
+            // Method/LoadVerbose is the event that carries the namespace, name, and
+            // signature; if the narrowed keyword set or a lowered level had dropped it,
+            // every managed frame in a startup capture would be an unnamed address.
+            EventQueryResult methods = new EventQueryProvider().Query(
+                outputPath, nameFilter: "Method/LoadVerbose", take: 1);
+
+            methods.TotalMatched.Should().BeGreaterThan(
+                0, "the startup profile keeps the CLR keywords that name managed methods");
+
+            // The keywords it drops must genuinely be absent, or the profile is not the
+            // low-perturbation capture it claims to be.
+            new EventQueryProvider().Query(outputPath, nameFilter: "GC/Start", take: 1)
+                .TotalMatched.Should().Be(0, "startup drops the GC keyword");
+            new EventQueryProvider().Query(outputPath, nameFilter: "FileIO/Name", take: 1)
+                .TotalMatched.Should().Be(0, "no profile enables the file-name rundown");
         }
         finally
         {
