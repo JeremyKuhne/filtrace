@@ -23,7 +23,10 @@ namespace Filtrace.Tracing.Providers;
 ///   median should absorb.
 ///  </para>
 /// </remarks>
-/// <param name="Scope">How the roots were selected, for the report header.</param>
+/// <param name="Scope">
+///  How the roots were selected, for the report header; empty when the trace carried no
+///  process the report could resolve a selector against.
+/// </param>
 /// <param name="InvocationCount">How many root invocations matched.</param>
 /// <param name="MeasuredCount">How many of those had both a start and a stop observed.</param>
 /// <param name="TotalRootCpuMs">The summed sampled CPU time of every matched root.</param>

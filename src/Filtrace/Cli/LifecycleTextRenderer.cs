@@ -31,7 +31,8 @@ internal static class LifecycleTextRenderer
     {
         LifecycleResult report = envelope.Result;
 
-        output.WriteLine($"Lifecycle report  -  {path}   (roots: {report.Scope})");
+        string roots = string.IsNullOrEmpty(report.Scope) ? "(none resolved)" : report.Scope;
+        output.WriteLine($"Lifecycle report  -  {path}   (roots: {roots})");
         output.WriteLine();
 
         if (report.InvocationCount == 0)

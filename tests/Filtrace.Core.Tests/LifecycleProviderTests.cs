@@ -122,6 +122,18 @@ public sealed class LifecycleProviderTests
     }
 
     [TestMethod]
+    public void Read_NamedRoot_EveryRootSatisfiesTheSelectorItself()
+    {
+        // The resolved scope is a set of process ids, which cannot separate an id from a
+        // later, unrelated process that reused it - so every reported root must still
+        // satisfy the name selector in its own right.
+        LifecycleResult result = LoadHotLoop();
+
+        result.Invocations.Should().OnlyContain(
+            invocation => invocation.Root.Name.Contains("HotLoop", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
     public void Read_UnmatchedName_ReturnsAnEmptyReportRatherThanThrowing()
     {
         LifecycleResult result = new LifecycleProvider().Read(
@@ -132,6 +144,58 @@ public sealed class LifecycleProviderTests
         result.MeasuredCount.Should().Be(0);
         result.Invocations.Should().BeEmpty();
         result.Phases.Should().BeEmpty();
+
+        // The selector resolved, it just matched nothing - which is a scope problem, and
+        // has to read differently from a trace with no usable process table at all.
+        result.Scope.Should().Be("no-such-process-name");
+    }
+
+    [TestMethod]
+    public void DescribeCoverage_UnmatchedSelector_NamesTheScope()
+    {
+        LifecycleResult result = new("myapp", 0, 0, 0, 0, [], [], []);
+
+        LifecycleProvider.DescribeCoverage(result).Should().ContainSingle()
+            .Which.Should().Contain("No process matching 'myapp'");
+    }
+
+    [TestMethod]
+    public void DescribeCoverage_UnresolvedSelector_PointsAtTheCaptureNotTheScope()
+    {
+        // An empty scope means no selector could be resolved at all, so telling the caller
+        // their name did not match would send them to fix the wrong thing.
+        LifecycleResult result = new(string.Empty, 0, 0, 0, 0, [], [], []);
+
+        string warning = LifecycleProvider.DescribeCoverage(result).Should().ContainSingle().Subject;
+        warning.Should().Contain("no process the report could use as an invocation root");
+        warning.Should().Contain("Process kernel keyword");
+        warning.Should().NotContain("No process matching");
+    }
+
+    [TestMethod]
+    public void DescribeCoverage_FullyObserved_ReportsNothing()
+    {
+        LifecycleResult result = new("myapp", 3, 3, 0, 0, [], [], []);
+
+        LifecycleProvider.DescribeCoverage(result).Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void DescribeCoverage_PartiallyClipped_CountsTheExcluded()
+    {
+        LifecycleResult result = new("myapp", 5, 3, 0, 0, [], [], []);
+
+        LifecycleProvider.DescribeCoverage(result).Should().ContainSingle()
+            .Which.Should().Contain("2 of 5 invocations were clipped");
+    }
+
+    [TestMethod]
+    public void DescribeCoverage_NothingObserved_SaysTheLifetimesAreLowerBounds()
+    {
+        LifecycleResult result = new("myapp", 2, 0, 0, 0, [], [], []);
+
+        LifecycleProvider.DescribeCoverage(result).Should().ContainSingle()
+            .Which.Should().Contain("lower bound");
     }
 
     [TestMethod]

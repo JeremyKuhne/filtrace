@@ -76,7 +76,7 @@ public sealed class LifecycleProvider
 
         if (!TryResolveRootSelector(traceLog, scope, out ProcessSelector? selector))
         {
-            return Empty("(no process)");
+            return Empty(string.Empty);
         }
 
         // Roots only: an invocation is one root process instance, and its descendants are
@@ -96,7 +96,10 @@ public sealed class LifecycleProvider
         List<TraceProcess> roots = [];
         foreach (TraceProcess process in traceLog.Processes)
         {
-            if (rootIds.Contains(process.ProcessID))
+            // The resolved set is process ids, which cannot separate an id from a later,
+            // unrelated process that reused it - so the selector's own identity test is
+            // reapplied per instance before an instance becomes an invocation.
+            if (rootIds.Contains(process.ProcessID) && Matches(process, selector))
             {
                 roots.Add(process);
             }
@@ -165,6 +168,53 @@ public sealed class LifecycleProvider
     private static LifecycleResult Empty(string scope) =>
         new(scope, 0, 0, 0, 0, [], [], []);
 
+    /// <summary>
+    ///  Describes how much of <paramref name="result"/> is measurable, as the warnings
+    ///  both heads report: whether a selector resolved at all, whether it matched, and
+    ///  how many matched invocations the capture observed end to end.
+    /// </summary>
+    /// <param name="result">The lifecycle report to describe.</param>
+    /// <returns>The coverage warnings; empty when every invocation is fully observed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="result"/> is <see langword="null"/>.</exception>
+    /// <remarks>
+    ///  <para>
+    ///   Shared rather than duplicated per head: the CLI and the MCP tool must not drift
+    ///   on what an empty or clipped report means, and the two failures read very
+    ///   differently - an unresolved selector is a capture problem, an unmatched one is a
+    ///   scope problem.
+    ///  </para>
+    /// </remarks>
+    public static IReadOnlyList<string> DescribeCoverage(LifecycleResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        if (result.InvocationCount == 0)
+        {
+            return string.IsNullOrEmpty(result.Scope)
+                ? [
+                    "The trace carries no process the report could use as an invocation root. "
+                    + "Check that the capture enabled the Process kernel keyword and that it "
+                    + "recorded CPU samples for a named process."
+                ]
+                : [$"No process matching '{result.Scope}' was found in the trace."];
+        }
+
+        if (result.MeasuredCount == 0)
+        {
+            return [
+                "No invocation had both its start and its stop recorded, so no phase medians are "
+                + "reported; every lifetime shown is a lower bound clipped to the capture window."
+            ];
+        }
+
+        return result.MeasuredCount < result.InvocationCount
+            ? [
+                $"{result.InvocationCount - result.MeasuredCount} of {result.InvocationCount} invocations were "
+                + "clipped to the capture window and are excluded from the phase medians."
+            ]
+            : [];
+    }
+
     // The selector that chooses invocation roots. An explicit selector wins; otherwise
     // the busiest process's name stands in, matching how every other verb auto-scopes.
     private static bool TryResolveRootSelector(
@@ -190,6 +240,16 @@ public sealed class LifecycleProvider
     private static string Describe(ProcessSelector selector) => selector is ProcessIdSelector ids
         ? $"pids {string.Join(", ", ids.ProcessIds)}"
         : ((ProcessNameSelector)selector).NameSubstring;
+
+    // Whether a process instance satisfies the selector in its own right. An id selector
+    // needs no test: ProcessTree refuses a requested id that more than one process in the
+    // trace carries, so a surviving id identifies exactly one instance.
+    private static bool Matches(TraceProcess process, ProcessSelector selector) => selector switch
+    {
+        ProcessNameSelector name => process.Name is not null
+            && process.Name.Contains(name.NameSubstring, StringComparison.OrdinalIgnoreCase),
+        _ => true
+    };
 
     // Group every process under the root instance it descends from. Keying on
     // ProcessIndex rather than the process id keeps invocations apart when a capture

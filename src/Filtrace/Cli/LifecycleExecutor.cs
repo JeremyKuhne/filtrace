@@ -49,22 +49,7 @@ internal static class LifecycleExecutor
             return ExitCodes.InputError;
         }
 
-        if (full.InvocationCount == 0)
-        {
-            warnings.Add($"No process matching '{full.Scope}' was found in the trace.");
-        }
-        else if (full.MeasuredCount == 0)
-        {
-            warnings.Add(
-                "No invocation had both its start and its stop recorded, so no phase medians are "
-                + "reported; every lifetime shown is a lower bound clipped to the capture window.");
-        }
-        else if (full.MeasuredCount < full.InvocationCount)
-        {
-            warnings.Add(
-                $"{full.InvocationCount - full.MeasuredCount} of {full.InvocationCount} invocations were "
-                + "clipped to the capture window and are excluded from the phase medians.");
-        }
+        warnings.AddRange(LifecycleProvider.DescribeCoverage(full));
 
         IReadOnlyList<LifecycleInvocation> shown = full.Invocations;
         if (shown.Count > request.Top)

@@ -756,23 +756,7 @@ public sealed class TraceTools
         ScopeRequest? scope = ResolveScope(process, pid);
         List<string> warnings = [];
         LifecycleResult full = ReadLifecycle(path, scope, image, warnings);
-
-        if (full.InvocationCount == 0)
-        {
-            warnings.Add($"No process matching '{full.Scope}' was found in the trace.");
-        }
-        else if (full.MeasuredCount == 0)
-        {
-            warnings.Add(
-                "No invocation had both its start and its stop recorded, so no phase medians are "
-                + "reported; every lifetime shown is a lower bound clipped to the capture window.");
-        }
-        else if (full.MeasuredCount < full.InvocationCount)
-        {
-            warnings.Add(
-                $"{full.InvocationCount - full.MeasuredCount} of {full.InvocationCount} invocations were "
-                + "clipped to the capture window and are excluded from the phase medians.");
-        }
+        warnings.AddRange(LifecycleProvider.DescribeCoverage(full));
 
         // Keep the phase medians over every invocation, but cap the per-invocation detail
         // so a long capture matrix cannot blow the response budget.
