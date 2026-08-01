@@ -45,6 +45,13 @@ public static class EtwCollector
     public static bool IsSupported => OperatingSystem.IsWindows();
 
     /// <summary>
+    ///  The most launches one session will wrap. Matches what the <c>collect</c> verb and
+    ///  the capture manifest accept, so a capture taken through any entry point can be
+    ///  described by a manifest the reader will take.
+    /// </summary>
+    public const int MaxIterations = 1000;
+
+    /// <summary>
     ///  Whether the current process is elevated enough to open a kernel ETW session.
     /// </summary>
     public static bool IsElevated => OperatingSystem.IsWindows() && TraceEventSession.IsElevated() == true;
@@ -87,6 +94,13 @@ public static class EtwCollector
                 "The size cap must be positive when set; omit it to write an unbounded sequential file.");
         }
 
+        if (request.Iterations is <= 0 or > MaxIterations)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request.Iterations), request.Iterations,
+                $"The iteration count must be between 1 and {MaxIterations}.");
+        }
+
         if (!OperatingSystem.IsWindows())
         {
             throw new PlatformNotSupportedException(
@@ -124,8 +138,7 @@ public static class EtwCollector
         string processName = Path.GetFileNameWithoutExtension(request.LaunchExecutable);
         string sessionName = $"filtrace-collect-{Environment.ProcessId}";
 
-        int processId;
-        int exitCode;
+        List<EtwInvocation> invocations = new(request.Iterations);
         float effectiveCpuSampleMSec;
 
         using (TraceEventSession session = new(sessionName, outputPath)
@@ -164,61 +177,92 @@ public static class EtwCollector
                 UseShellExecute = false,
             };
 
-            using Process process = Process.Start(startInfo)
-                ?? throw new InvalidOperationException($"Failed to launch '{request.LaunchExecutable}'.");
-            processId = process.Id;
-
-            bool exited;
-            if (request.DurationSeconds is int seconds and > 0)
+            // Sequential, inside the one session: the point is to amortize session startup
+            // and flush over several runs, and overlapping them would make the per-run
+            // windows useless for attributing time.
+            for (int ordinal = 1; ordinal <= request.Iterations; ordinal++)
             {
-                exited = process.WaitForExit(seconds * 1000);
-            }
-            else
-            {
-                process.WaitForExit();
-                exited = true;
-            }
-
-            if (exited)
-            {
-                exitCode = process.ExitCode;
-            }
-            else if (process.HasExited)
-            {
-                // The process exited on its own in the race between the wait timing out
-                // and the kill below, so report the real exit code it produced.
-                exitCode = process.ExitCode;
-            }
-            else
-            {
-                // The duration cap elapsed while the process was still running; stop the
-                // tree. Tolerate the process exiting in the moment before the kill lands.
-                try
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-                catch (InvalidOperationException)
-                {
-                    // The process exited between the HasExited check and the kill.
-                }
-
-                process.WaitForExit();
-                exitCode = -1;
+                invocations.Add(RunOnce(startInfo, ordinal, request.DurationSeconds));
             }
         }
 
         long fileSize = File.Exists(outputPath) ? new FileInfo(outputPath).Length : 0;
+
+        // Surface a failure rather than the last result, so a caller reading the single
+        // exit code still learns that a run failed somewhere in the middle.
+        EtwInvocation reported = invocations.Find(static invocation => invocation.ExitCode != 0)
+            ?? invocations[^1];
+
         return new EtwCollectResult
         {
             OutputPath = outputPath,
-            ProcessId = processId,
+            ProcessId = invocations[0].ProcessId,
             ProcessName = processName,
-            ProcessExitCode = exitCode,
+            ProcessExitCode = reported.ExitCode,
+            Invocations = invocations,
             FileSizeBytes = fileSize,
             Profile = request.Profile,
             KernelKeywords = providers.KernelKeywords.ToString(),
             ClrKeywords = providers.EnablesClr ? providers.ClrKeywords.ToString() : "none",
             EffectiveCpuSampleMSec = effectiveCpuSampleMSec,
         };
+    }
+
+    /// <summary>
+    ///  Launches the command once and waits for it, applying the duration cap to this run.
+    /// </summary>
+    /// <remarks>
+    ///  <para>
+    ///   The cap bounds a single wedged launch rather than the whole session, which keeps
+    ///   its meaning the same whether one run or many were asked for.
+    ///  </para>
+    /// </remarks>
+    [SupportedOSPlatform("windows")]
+    private static EtwInvocation RunOnce(ProcessStartInfo startInfo, int ordinal, int? durationSeconds)
+    {
+        DateTimeOffset startedUtc = DateTimeOffset.UtcNow;
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException($"Failed to launch '{startInfo.FileName}'.");
+
+        int exitCode;
+        bool exited;
+        if (durationSeconds is int seconds and > 0)
+        {
+            exited = process.WaitForExit(seconds * 1000);
+        }
+        else
+        {
+            process.WaitForExit();
+            exited = true;
+        }
+
+        if (exited)
+        {
+            exitCode = process.ExitCode;
+        }
+        else if (process.HasExited)
+        {
+            // The process exited on its own in the race between the wait timing out
+            // and the kill below, so report the real exit code it produced.
+            exitCode = process.ExitCode;
+        }
+        else
+        {
+            // The duration cap elapsed while the process was still running; stop the
+            // tree. Tolerate the process exiting in the moment before the kill lands.
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException)
+            {
+                // The process exited between the HasExited check and the kill.
+            }
+
+            process.WaitForExit();
+            exitCode = -1;
+        }
+
+        return new EtwInvocation(ordinal, process.Id, exitCode, startedUtc, DateTimeOffset.UtcNow);
     }
 }

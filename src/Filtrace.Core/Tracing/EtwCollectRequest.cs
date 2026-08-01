@@ -51,6 +51,21 @@ public sealed class EtwCollectRequest
     public int? MaxSizeMB { get; init; }
 
     /// <summary>
+    ///  How many times to launch <see cref="LaunchExecutable"/> inside the one session.
+    ///  Defaults to 1.
+    /// </summary>
+    /// <remarks>
+    ///  <para>
+    ///   Starting and flushing a session costs far more than a short command takes to run,
+    ///   so a 30-100 ms scenario captured once is mostly session overhead and yields too
+    ///   few samples to rank. Running it repeatedly inside one session pays that cost once
+    ///   and produces one trace to convert instead of many thin ones. The runs are
+    ///   sequential, and each is recorded in <see cref="EtwCollectResult.Invocations"/>.
+    ///  </para>
+    /// </remarks>
+    public int Iterations { get; init; } = 1;
+
+    /// <summary>
     ///  The <c>.etl</c> file the capture is written to.
     /// </summary>
     public required string OutputPath { get; init; }

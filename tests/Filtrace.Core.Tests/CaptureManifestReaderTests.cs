@@ -31,6 +31,130 @@ public sealed class CaptureManifestReaderTests
     }
 
     [TestMethod]
+    public void Read_CommandManifest_PreservesKindAndInvocations()
+    {
+        using TemporaryManifest manifest = new(
+            """
+            {"schemaVersion":2,"kind":"command","cases":[
+              {"id":"warm","benchmark":"dotnet --version","parameters":"","trace":"warm.etl","invocations":[
+                {"ordinal":1,"processId":100,"exitCode":0,"startedUtc":"2026-07-31T10:00:00.0000000+00:00","stoppedUtc":"2026-07-31T10:00:00.0500000+00:00"},
+                {"ordinal":2,"processId":101,"exitCode":3,"startedUtc":"2026-07-31T10:00:01.0000000+00:00","stoppedUtc":"2026-07-31T10:00:01.0400000+00:00"}
+              ]}
+            ]}
+            """);
+
+        CaptureManifest read = CaptureManifestReader.Read(manifest.ManifestPath);
+
+        read.Kind.Should().Be(CaptureKind.Command);
+        CaptureManifestCase single = read.Cases.Should().ContainSingle().Subject;
+        single.Invocations.Should().HaveCount(2);
+        single.Invocations[1].ProcessId.Should().Be(101);
+        single.Invocations[1].ExitCode.Should().Be(3);
+        single.Invocations[0].StoppedUtc.Should().BeAfter(single.Invocations[0].StartedUtc);
+    }
+
+    [TestMethod]
+    public void Read_SchemaVersionOneWithoutKind_StillReadsAsABenchmarkCapture()
+    {
+        // Version 1 manifests predate the discriminator, so they have to keep working with
+        // batch and diff rather than becoming unreadable when the schema moved.
+        using TemporaryManifest manifest = new(
+            """
+            {"schemaVersion":1,"cases":[{"id":"a","benchmark":"Bench.Work","trace":"a.nettrace"}]}
+            """);
+
+        CaptureManifest read = CaptureManifestReader.Read(manifest.ManifestPath);
+
+        read.Kind.Should().Be(CaptureKind.Benchmark);
+        read.Cases.Should().ContainSingle().Which.Invocations.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void Read_UnknownKind_Rejects()
+    {
+        using TemporaryManifest manifest = new(
+            """
+            {"schemaVersion":2,"kind":"something-else","cases":[{"id":"a","trace":"a.etl"}]}
+            """);
+
+        Action act = () => CaptureManifestReader.Read(manifest.ManifestPath);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*not recognized*");
+    }
+
+    [TestMethod]
+    public void Read_UnsupportedSchemaVersion_Rejects()
+    {
+        using TemporaryManifest manifest = new(
+            """
+            {"schemaVersion":3,"cases":[{"id":"a","trace":"a.etl"}]}
+            """);
+
+        Action act = () => CaptureManifestReader.Read(manifest.ManifestPath);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*must be 1 or 2*");
+    }
+
+    [TestMethod]
+    public void Read_InvocationMissingATimestamp_Rejects()
+    {
+        using TemporaryManifest manifest = new(
+            """
+            {"schemaVersion":2,"kind":"command","cases":[
+              {"id":"a","trace":"a.etl","invocations":[{"ordinal":1,"processId":1,"exitCode":0}]}
+            ]}
+            """);
+
+        Action act = () => CaptureManifestReader.Read(manifest.ManifestPath);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*timestamp*");
+    }
+
+    [TestMethod]
+    public void Read_MoreInvocationsThanTheToolCanCapture_Rejects()
+    {
+        string invocations = string.Join(
+            ",",
+            Enumerable.Range(1, 1001).Select(static ordinal =>
+                $$"""{"ordinal":{{ordinal}},"processId":{{ordinal}},"exitCode":0,"startedUtc":"2026-07-31T10:00:00.0000000+00:00","stoppedUtc":"2026-07-31T10:00:00.0100000+00:00"}"""));
+        using TemporaryManifest manifest = new(
+            $$"""
+            {"schemaVersion":2,"kind":"command","cases":[{"id":"a","trace":"a.etl","invocations":[{{invocations}}]}]}
+            """);
+
+        Action act = () => CaptureManifestReader.Read(manifest.ManifestPath);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*maximum is 1000*");
+    }
+
+    private sealed class TemporaryManifest : IDisposable
+    {
+        private readonly string _directory;
+
+        public TemporaryManifest(string json)
+        {
+            _directory = Path.Combine(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(_directory);
+            ManifestPath = Path.Combine(_directory, "manifest.json");
+            File.WriteAllText(ManifestPath, json);
+        }
+
+        public string ManifestPath { get; }
+
+        public void Dispose()
+        {
+            try
+            {
+                Directory.Delete(_directory, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A leftover temp directory must not fail a passing test.
+            }
+        }
+    }
+
+    [TestMethod]
     public void Read_ParameterCasesAndOperationStates_PreservesIdentityAndMetadata()
     {
         string directory = Path.Combine(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}");

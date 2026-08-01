@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json;
+using Filtrace.Output;
 using Filtrace.Tracing;
 using Filtrace.Tracing.Providers;
 
@@ -162,6 +164,200 @@ public sealed class CollectExecutorTests
                 .TotalMatched.Should().Be(0, "startup drops the GC keyword");
             new EventQueryProvider().Query(outputPath, nameFilter: "FileIO/Name", take: 1)
                 .TotalMatched.Should().Be(0, "no profile enables the file-name rundown");
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Collect_DefaultRequest_UsesOneIteration()
+    {
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+        };
+
+        request.Iterations.Should().Be(1);
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(-1)]
+    [DataRow(1001)]
+    public void Collect_IterationsOutsideTheSupportedRange_ThrowsArgumentOutOfRange(int iterations)
+    {
+        // The ceiling matters as much as the floor: the capture manifest rejects more
+        // invocations than this, so a capture the core accepted but no manifest could
+        // describe would only fail later, somewhere less obvious.
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+            Iterations = iterations,
+        });
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [TestMethod]
+    public void SerializedInvocation_CarriesOnlyTheRecordedFacts()
+    {
+        // Duration is derived from the timestamps, so putting it on the wire would repeat
+        // the same information a thousand times over at the maximum iteration count.
+        EtwCollectResult result = new()
+        {
+            OutputPath = "out.etl",
+            ProcessId = 42,
+            ProcessName = "app",
+            ProcessExitCode = 0,
+            Invocations =
+            [
+                new EtwInvocation(1, 42, 0, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddMilliseconds(50))
+            ],
+            FileSizeBytes = 1,
+            Profile = CollectProfile.Cpu,
+            KernelKeywords = "Process",
+            ClrKeywords = "none",
+            EffectiveCpuSampleMSec = 1.0,
+        };
+
+        string json = OutputJson.Serialize(new AnalysisResult<EtwCollectResult>(result, [], []));
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement invocation = document.RootElement
+            .GetProperty("result").GetProperty("invocations")[0];
+        invocation.EnumerateObject().Select(static property => property.Name)
+            .Should().BeEquivalentTo("ordinal", "processId", "exitCode", "startedUtc", "stoppedUtc");
+    }
+
+    [TestMethod]
+    public void Run_WhenElevated_RepeatedIterations_RecordsEveryLaunchInOneSession()
+    {
+        if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
+        {
+            Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
+        }
+
+        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-iterations-{Guid.NewGuid():N}.etl");
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "cmd.exe",
+            LaunchArguments = "/c exit 0",
+            OutputPath = outputPath,
+            Iterations = 3,
+            DurationSeconds = 60,
+        };
+
+        try
+        {
+            EtwCollectResult result = EtwCollector.Collect(request);
+
+            // One trace, three launches: the point of the iteration count is that the
+            // session is paid for once rather than per run.
+            result.Invocations.Should().HaveCount(3);
+            result.Invocations.Select(static invocation => invocation.Ordinal).Should().Equal(1, 2, 3);
+            result.Invocations.Should().AllSatisfy(
+                static invocation => invocation.ExitCode.Should().Be(0));
+
+            // Distinct processes run in sequence, so the ids differ and no run starts
+            // before the previous one is observed to have stopped.
+            result.Invocations.Select(static invocation => invocation.ProcessId).Distinct()
+                .Should().HaveCount(3);
+            result.Invocations[1].StartedUtc.Should().BeOnOrAfter(result.Invocations[0].StoppedUtc);
+            result.Invocations[2].StartedUtc.Should().BeOnOrAfter(result.Invocations[1].StoppedUtc);
+
+            result.ProcessId.Should().Be(result.Invocations[0].ProcessId);
+            File.Exists(outputPath).Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Run_WhenElevated_FailingIteration_ReportsTheFailureNotTheLastResult()
+    {
+        if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
+        {
+            Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
+        }
+
+        // Every launch fails, so the single reported exit code has to be a failure rather
+        // than whichever run happened to finish last.
+        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-iterations-{Guid.NewGuid():N}.etl");
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "cmd.exe",
+            LaunchArguments = "/c exit 3",
+            OutputPath = outputPath,
+            Iterations = 2,
+            DurationSeconds = 60,
+        };
+
+        try
+        {
+            EtwCollectResult result = EtwCollector.Collect(request);
+
+            result.ProcessExitCode.Should().Be(3);
+            result.Invocations.Should().HaveCount(2);
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Run_WhenElevated_JsonFormat_CarriesEveryInvocation()
+    {
+        if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
+        {
+            Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
+        }
+
+        // A capture script has to record each launch in its manifest, and reading them back
+        // out of the human summary would be guesswork - this is the machine-readable path
+        // that makes the manifest's invocations accurate.
+        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-json-{Guid.NewGuid():N}.etl");
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "cmd.exe",
+            LaunchArguments = "/c exit 0",
+            OutputPath = outputPath,
+            Iterations = 2,
+            DurationSeconds = 60,
+        };
+
+        StringWriter output = new();
+        StringWriter error = new();
+        try
+        {
+            int exit = CollectExecutor.Run(request, OutputFormat.Json, output, error);
+
+            exit.Should().Be(ExitCodes.Success);
+            error.ToString().Should().BeEmpty();
+
+            using JsonDocument document = JsonDocument.Parse(output.ToString());
+            JsonElement invocations = document.RootElement
+                .GetProperty("result").GetProperty("invocations");
+            invocations.GetArrayLength().Should().Be(2);
+            invocations[0].GetProperty("ordinal").GetInt32().Should().Be(1);
+            invocations[0].GetProperty("processId").GetInt32().Should().BeGreaterThan(0);
+            invocations[0].GetProperty("startedUtc").GetDateTimeOffset()
+                .Should().BeBefore(invocations[1].GetProperty("startedUtc").GetDateTimeOffset());
         }
         finally
         {

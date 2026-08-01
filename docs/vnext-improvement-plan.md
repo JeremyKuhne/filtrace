@@ -767,9 +767,9 @@ therefore subject to the same gates as the VC backlog.
 | ID | Gap | Proposed surface | Priority | Status |
 |---|---|---|:---:|---|
 | SC1 | Scope cannot name exact processes | `--pid` / `--children` on the scope-aware verbs and tools | High | Shipped (#63) |
-| SC2 | Local native PDBs are never applied to non-runtime modules | `--symbols` behavior fix plus per-module status | High | Open; no gate |
+| SC2 | Local native PDBs are never applied to non-runtime modules | `--symbols` behavior fix plus per-module status | High | Shipped (#65) |
 | SC3 | Capture always enables CLR plus disk and network keywords | `collect --profile` | High | Shipped (#64) |
-| SC4 | One ETW session per short invocation | `collect --iterations` plus a command-matrix script | Medium | Open; gated on SC3 |
+| SC4 | One ETW session per short invocation | `collect --iterations` plus a command-matrix script | Medium | Open; no gate |
 | SC5 | No wall-clock phase report | Lifecycle verb and tool over process/image events | Medium | Open; gated on SC4 |
 | SC6 | Sub-millisecond sampling rejected before collection | Widened range plus effective-interval reporting | Low | Open; needs platform measurement |
 | SC7 | No short-startup recipe for agents | `workflow.md`, `traps.md`, shipped skill | Low | Open; gated on SC1-SC6 |
@@ -855,6 +855,24 @@ Implementation shape:
 
 `pdb_identity_mismatch` is already a planned stable diagnostic code in
 [structured diagnostics](#structured-diagnostics); SC2 supplies its `data` payload.
+
+Shipped in #65, with two departures from the shape above worth recording.
+
+Identity mismatch is decided from the module's recorded `PdbName`, `PdbSignature`, and
+`PdbAge` rather than by capturing the `SymbolReader` log - a structural comparison
+instead of one that depends on message prose. A failed lookup gained its own reported
+category; modules below the share the pass spends a lookup on stay unreported, so
+`UnresolvedFrameCount` documents that it can exceed what the reported lists account for.
+
+End-to-end verification is a CI gate
+([tools/Test-NativeSymbolResolution.ps1](../tools/Test-NativeSymbolResolution.ps1)) that
+builds a small C++ workload, captures it, and asserts the frames resolve with `--symbols`
+and do not without. It cannot be a committed fixture: a filtrace capture records no PDB
+identity of its own, so TraceEvent resolves a native module by reading the binary back
+from the absolute path recorded in the trace, and a committed capture therefore only
+resolves on the machine that took it. Making such a fixture possible needs the
+cross-machine symbol injection (the PerfView "merge" step) that
+[EtwCollector](../src/Filtrace.Core/Tracing/EtwCollector.cs) notes as a follow-up.
 
 ### SC3 - Capture provider profiles
 
