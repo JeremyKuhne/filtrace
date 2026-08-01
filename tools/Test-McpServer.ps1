@@ -31,31 +31,34 @@
   The build configuration whose MCP binary to exercise. Defaults to Release.
 
 .PARAMETER MaxSchemaTokens
-  The tool-list token budget. Defaults to 9800. Tokens are estimated by
+  The tool-list token budget. Defaults to 7000. Tokens are estimated by
   tools/Get-TokenEstimate.ps1 (a deterministic, offline pre-tokenizer estimate -
   far more accurate on JSON than the old four-characters-per-token rule, and
   slightly conservative); the check prints the measured characters and estimate so
   a regression is legible. The budget covers each tool's name, description, input
-  schema, and (because the tools advertise structured content) its output schema -
-  everything the client puts in front of the model from tools/list, on every request.
+  schema, and output schema - everything the client puts in front of the model from
+  tools/list, on every request.
   The ceiling is a bloat guard, not a per-tool allowance: the 17 analysis tools measure
-  ~8,950 tokens (~525 each; roughly 38% input schemas, 34% output schemas, 20%
-  descriptions). Consolidating behind a mode/kind parameter - the way trace_rank unifies
-  seven metrics into one tool - remains the first answer for a tool that would breach it.
-  The 9,000 -> 9,800 raise is one recorded exception, taken for the issue #62 startup
-  work: SC1's exact-scope parameters consumed the remaining headroom and SC5 still owes a
-  lifecycle tool. 9,800 is the measured 8,950 plus the largest existing definition
-  (trace_diff, ~830 tokens), so it admits exactly one more tool and no general slack. It
-  does not move the v.next targets - 7,500 tokens with typed output schemas, 5,000
-  without - which docs/vnext-improvement-plan.md still holds the surface to. The output
-  schemas are structural (the shared AnalysisResult<T> envelope) and intentionally kept:
-  they are the self-describing typed contract, and ModelContextProtocol couples them to
-  structured content, so they are not a place to reclaim tokens.
+  ~6,050 tokens, of which input schemas are ~3,700, output schemas ~1,020, and
+  descriptions ~730. Descriptions are already the smallest share, so tightening prose is
+  not where a breach is answered; consolidating behind a mode/kind parameter - the way
+  trace_rank unifies seven metrics into one tool - is.
+  This replaces the 9,000 -> 9,800 raise taken for the issue #62 startup work. That
+  exception rested on the belief that output schemas were structural and could not be
+  reclaimed, because ModelContextProtocol couples them to structured content. Measurement
+  disproved it: they were the single largest component at ~4,010 tokens (44%), repeating
+  an identical envelope 17 times and expanding every result type. Pointing each tool's
+  OutputSchemaType at the envelope alone reclaimed ~2,990 of those while structured
+  content, which is generated from the returned object rather than the advertised schema,
+  is unchanged. 7,000 is the measured 6,050 plus roughly the largest existing definition,
+  so it still admits one more tool and no general slack - and it now sits under the v.next
+  target of 7,500 with typed output schemas that docs/vnext-improvement-plan.md holds the
+  surface to, leaving 5,000 as the remaining stretch.
 #>
 [CmdletBinding()]
 param(
     [string]$Configuration = 'Release',
-    [int]$MaxSchemaTokens = 9800
+    [int]$MaxSchemaTokens = 7000
 )
 
 $ErrorActionPreference = 'Stop'
