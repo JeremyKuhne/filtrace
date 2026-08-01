@@ -97,9 +97,23 @@ if (-not (Test-Path $compiler)) {
     Skip-Or-Fail "cl.exe not found under $($toolset.FullName)."
 }
 
-$windowsKitInclude = Get-ChildItem 'C:/Program Files (x86)/Windows Kits/10/Include' -Directory |
+$windowsKitRoot = 'C:/Program Files (x86)/Windows Kits/10'
+if (-not (Test-Path $windowsKitRoot)) {
+    Skip-Or-Fail "No Windows 10 SDK at $windowsKitRoot; the C++ fixture cannot be compiled."
+}
+
+# Stop-preference would turn a missing or differently-shaped SDK layout into an
+# unhandled error, which loses the reason this gate could not run.
+$windowsKitInclude = Get-ChildItem (Join-Path $windowsKitRoot 'Include') -Directory -ErrorAction SilentlyContinue |
     Sort-Object Name -Descending | Select-Object -First 1
-$windowsKitLib = "C:/Program Files (x86)/Windows Kits/10/Lib/$($windowsKitInclude.Name)"
+if (-not $windowsKitInclude) {
+    Skip-Or-Fail "No SDK version directory under $windowsKitRoot/Include."
+}
+
+$windowsKitLib = Join-Path $windowsKitRoot "Lib/$($windowsKitInclude.Name)"
+if (-not (Test-Path $windowsKitLib)) {
+    Skip-Or-Fail "No matching SDK libraries at $windowsKitLib."
+}
 
 Write-Host "Building the NativeLoop fixture with $($toolset.Name)..."
 $env:INCLUDE = @(

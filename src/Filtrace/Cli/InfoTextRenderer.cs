@@ -101,6 +101,8 @@ internal static class InfoTextRenderer
                 $"native modules without local symbols: {ListOrNone(native.MissingSymbolModules)}");
             output.WriteLine(
                 $"native PDB identity mismatch modules: {ListOrNone(native.IdentityMismatchModules)}");
+            output.WriteLine(
+                $"native modules whose symbol lookup failed: {ListOrNone(native.LookupFailedModules)}");
         }
 
         output.WriteLine("threads:");

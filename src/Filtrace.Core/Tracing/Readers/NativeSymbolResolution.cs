@@ -110,6 +110,7 @@ internal static class NativeSymbolResolution
             Describe(statuses, NativeSymbolStatus.NoSymbolFile, "unresolved"))
         {
             IdentityMismatchModules = Describe(statuses, NativeSymbolStatus.IdentityMismatch, "unresolved"),
+            LookupFailedModules = Describe(statuses, NativeSymbolStatus.LookupFailed, "unresolved"),
             UnresolvedFrameCount = unresolvedFrames
         };
     }

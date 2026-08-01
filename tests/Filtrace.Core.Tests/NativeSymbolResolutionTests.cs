@@ -8,7 +8,9 @@ using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing;
 
+// Every case here reads an .etl, which TraceEvent can only convert on Windows.
 [TestClass]
+[OSCondition(OperatingSystems.Windows)]
 public sealed class NativeSymbolResolutionTests
 {
     private static string EtwFixture => Path.Combine(AppContext.BaseDirectory, "Fixtures", "etw.etl");
@@ -66,16 +68,40 @@ public sealed class NativeSymbolResolutionTests
     [TestMethod]
     public void Read_SameNamedWrongIdentityNativePdb_ReportsMismatchRatherThanMissing()
     {
-        (string moduleName, string pdbName) = FindUnresolvedNativeModule();
+        EtlReader reader = new();
+
+        // Let the pass itself pick the subject. Choosing independently risks naming a
+        // module the pass never attempts - it ranks by unresolved sampled frames and skips
+        // anything below a small share, which no separate ranking reproduces. The subject
+        // also has to carry a recorded PDB identity, or there is nothing for a local file
+        // to disagree with and the miss can only ever be "no symbol file".
+        using TemporaryDirectory empty = new();
+        IReadOnlyList<string> missing = reader.Read(EtwFixture, empty.Path).NativeSymbols!.MissingSymbolModules;
+
+        string? moduleName = null;
+        string? pdbName = null;
+        foreach (string entry in missing)
+        {
+            string candidate = ParseModuleName(entry);
+            pdbName = FindRecordedPdbName(candidate);
+            if (pdbName is not null)
+            {
+                moduleName = candidate;
+                break;
+            }
+        }
+
+        moduleName.Should().NotBeNull("the ETW fixture has an unresolved module with a recorded PDB name");
 
         using TemporaryDirectory symbols = new();
         // Any bytes under the expected PDB name: the file exists, so the only thing that
         // can disagree is the recorded identity (signature and age).
-        File.WriteAllText(Path.Combine(symbols.Path, pdbName), "not a real pdb");
-        EtlReader reader = new();
+        File.WriteAllText(Path.Combine(symbols.Path, pdbName!), "not a real pdb");
 
         TraceReadResult result = reader.Read(EtwFixture, symbols.Path);
 
+        // The same module has to move category, which is the whole distinction: present
+        // but wrong is a different problem for the caller than absent.
         NativeSymbolInfo native = result.NativeSymbols!;
         native.IdentityMismatchModules.Should().Contain(
             module => module.StartsWith(moduleName, StringComparison.OrdinalIgnoreCase));
@@ -83,30 +109,48 @@ public sealed class NativeSymbolResolutionTests
             module => module.StartsWith(moduleName, StringComparison.OrdinalIgnoreCase));
     }
 
-    // The heaviest unresolved module in the fixture, with the PDB name the trace recorded
-    // for it. Read from the trace rather than hard-coded so the test pins the behavior
-    // rather than a particular machine's kernel build.
-    private static (string ModuleName, string PdbName) FindUnresolvedNativeModule()
+    [TestMethod]
+    public void CreateInfo_ReportsEveryOutcomeThatCanReachIt()
+    {
+        // A failed lookup must not vanish: with no category of its own it would leave
+        // frames counted as unresolved and no module accounting for them.
+        NativeModuleSymbolStatus[] statuses =
+        [
+            new("resolved", NativeSymbolStatus.Resolved, 40, 0.4),
+            new("missing", NativeSymbolStatus.NoSymbolFile, 30, 0.3),
+            new("mismatch", NativeSymbolStatus.IdentityMismatch, 20, 0.2),
+            new("failed", NativeSymbolStatus.LookupFailed, 10, 0.1)
+        ];
+
+        NativeSymbolInfo info = NativeSymbolResolution.CreateInfo(statuses)!;
+
+        info.ResolvedModules.Should().ContainSingle().Which.Should().StartWith("resolved");
+        info.MissingSymbolModules.Should().ContainSingle().Which.Should().StartWith("missing");
+        info.IdentityMismatchModules.Should().ContainSingle().Which.Should().StartWith("mismatch");
+        info.LookupFailedModules.Should().ContainSingle().Which.Should().StartWith("failed");
+        info.UnresolvedFrameCount.Should().Be(100);
+    }
+
+    // The PDB filename the trace recorded for a module, or null when it recorded none -
+    // not every native module in a capture carries symbol identity.
+    private static string? FindRecordedPdbName(string moduleName)
     {
         using TraceLog traceLog = TraceLog.OpenOrConvert(EtwFixture);
-        TraceModuleFile? heaviest = null;
-        int heaviestAddresses = 0;
         foreach (TraceModuleFile moduleFile in traceLog.ModuleFiles)
         {
-            if (string.IsNullOrEmpty(moduleFile.Name)
-                || string.IsNullOrEmpty(moduleFile.PdbName)
-                || moduleFile.CodeAddressesInModule <= heaviestAddresses)
+            if (string.Equals(moduleFile.Name, moduleName, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrEmpty(moduleFile.PdbName))
             {
-                continue;
+                return Path.GetFileName(moduleFile.PdbName);
             }
-
-            heaviest = moduleFile;
-            heaviestAddresses = moduleFile.CodeAddressesInModule;
         }
 
-        heaviest.Should().NotBeNull("the ETW fixture carries native modules with recorded PDB names");
-        return (heaviest!.Name, Path.GetFileName(heaviest.PdbName));
+        return null;
     }
+
+    // Entries read "module (1234 unresolved, 47%)".
+    private static string ParseModuleName(string entry) =>
+        entry[..entry.LastIndexOf(" (", StringComparison.Ordinal)];
 
     private static int ParseUnresolvedFrames(string entry)
     {

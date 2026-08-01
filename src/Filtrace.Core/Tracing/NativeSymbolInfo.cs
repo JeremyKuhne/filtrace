@@ -34,7 +34,21 @@ public sealed record NativeSymbolInfo(
     public IReadOnlyList<string> IdentityMismatchModules { get; init; } = [];
 
     /// <summary>
+    ///  Bounded highest-impact modules whose symbol lookup was attempted and failed - an
+    ///  unreadable or locked symbol file, for instance. Reported separately because such a
+    ///  module is neither missing symbols nor carrying the wrong ones.
+    /// </summary>
+    public IReadOnlyList<string> LookupFailedModules { get; init; } = [];
+
+    /// <summary>
     ///  Sampled frame occurrences that carried no method before the local pass ran.
     /// </summary>
+    /// <remarks>
+    ///  <para>
+    ///   This counts every module with unresolved frames, including those below the share
+    ///   worth spending a lookup on, so it can exceed the frames accounted for by the
+    ///   reported module lists.
+    ///  </para>
+    /// </remarks>
     public int UnresolvedFrameCount { get; init; }
 }
