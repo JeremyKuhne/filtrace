@@ -14,10 +14,11 @@ namespace Filtrace.Output;
 /// <remarks>
 ///  <para>
 ///   Two decimals is right for sampled weights and percentages, where more digits imply
-///   a precision the sampling does not have. It is wrong for a sample interval: Windows
-///   reports the timer's honored floor as 1221 hundred-nanosecond ticks - 0.1221 ms -
-///   which rounds to 0.12, an 18% error on the value every weight in the trace is scaled
-///   by, and one that no longer distinguishes the floor from a 0.125 ms request.
+///   a precision the sampling does not have. It is wrong for a sample interval: the
+///   machine measured here reports the timer's honored floor as 1221 hundred-nanosecond
+///   ticks - 0.1221 ms - which rounds to 0.12, an 18% error on the value every weight in
+///   the trace is scaled by, and one that no longer distinguishes the floor from a
+///   0.125 ms request.
 ///  </para>
 ///  <para>
 ///   Four decimals is exactly the granularity the platform reports in, since one

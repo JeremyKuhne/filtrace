@@ -29,13 +29,6 @@ public static class CpuSampleBounds
     private const double TicksPerMillisecond = 10_000.0;
 
     /// <summary>
-    ///  The bounds used when the operating system cannot be asked - a non-Windows host,
-    ///  or a query failure. 1 ms is the ETW default and the interval every supported
-    ///  platform honors, so it is the only value that is safe without a measurement.
-    /// </summary>
-    public const double DefaultIntervalMSec = 1.0;
-
-    /// <summary>
     ///  The smallest interval a caller may ask for. This is an outer sanity bound, not the
     ///  honored floor: the honored floor is a machine property read at capture time (see
     ///  <see cref="TryReadTimerBounds"/>), so a compile-time attribute cannot express it.

@@ -793,6 +793,15 @@ capabilities filtrace already claims, and none of them depend on the transport o
 output-schema decisions, so they can ship before VN1. SC4-SC7 add surface and are
 therefore subject to the same gates as the VC backlog.
 
+All seven have shipped. The fork is deletable: exact process identity (SC1), local
+native symbols (SC2), a low-perturbation capture profile (SC3), repeated invocations in
+one session (SC4), wall-clock phases (SC5), and a sample interval that a short command
+can actually use (SC6) are the capabilities the investigation had to hand-build, and SC7
+is the recipe that puts them in an agent's hands. Two of the seven ended by disproving
+their own premise - SC5's budget objection dissolved once the output schemas were
+measured, and SC6's instruction to read the effective interval back turned out to be
+impossible - which is the part worth carrying into the next initiative.
+
 | ID | Gap | Proposed surface | Priority | Status |
 |---|---|---|:---:|---|
 | SC1 | Scope cannot name exact processes | `--pid` / `--children` on the scope-aware verbs and tools | High | Shipped (#63) |
@@ -801,7 +810,7 @@ therefore subject to the same gates as the VC backlog.
 | SC4 | One ETW session per short invocation | `collect --iterations` plus a command-matrix script | Medium | Shipped (#66) |
 | SC5 | No wall-clock phase report | Lifecycle verb and tool over process/image events | Medium | Shipped |
 | SC6 | Sub-millisecond sampling rejected before collection | Widened range plus effective-interval reporting | Low | Shipped |
-| SC7 | No short-startup recipe for agents | `workflow.md`, `traps.md`, shipped skill | Low | Open; gated on SC1-SC6 |
+| SC7 | No short-startup recipe for agents | `workflow.md`, `traps.md`, shipped skill | Low | Shipped |
 
 ### SC1 - Exact process-identity scope - shipped (#63)
 
@@ -1149,6 +1158,26 @@ shipped skill embeds from, and add the traps this investigation exposed to
 Every one of these is only writable after the capability it describes exists, so SC7
 lands last. Run `tools/Test-Docs.ps1 -Fix` after editing a marked block.
 
+What shipped: a **Profiling a short command** recipe in [workflow.md](workflow.md) - eight
+ordered steps from an uninstrumented baseline through scoping by exact id, splitting the
+wall clock, and reporting the interval with the finding - plus a new symptom-routing row
+that sends a tens-of-milliseconds command to `lifecycle` before `cpu`. The eight bullets
+above became **two** trap-catalog entries rather than eight: one for the capture defaults a
+short command breaks, one for wall clock not being CPU. They are facets of two reasoning
+errors, not eight independent ones, and the catalog is organized by error rather than by
+switch.
+
+The binding constraint was the skill's 500-line limit, since `traps.md` embeds verbatim
+into `SKILL.md`: the two new traps cost 25 lines against a file already at the limit. The
+recipe went to `workflow.md`, which is outside the marked blocks and therefore free, and
+the 25 lines were repaid from prose the new traps had made redundant - the skill's Orient
+step restated trap 2's PDB procedure almost field for field, and two "interpret" bullets
+restated trap 5. Nothing unique was cut. Worth knowing for the next skill addition: the
+file is now ~270 lines of embedded catalog against ~230 lines of its own guidance, so the
+next growth will need the validator's own suggestion - move a catalog into a sibling
+reference file - rather than more trimming. That is a packaging change (the MCP nupkg
+packs only `SKILL.md`), so it was not folded in here.
+
 ### SC contract and test impact
 
 - `tools/Test-CliHelp.ps1` requires each verb's help to stay within 60 lines, every
@@ -1175,7 +1204,7 @@ SC1 shipped in #63. SC2 and SC3 remain independent of each other and of the tran
 and schema decisions; together with SC1 they remove the investigation-specific
 filtrace fork. SC4 follows, since its manifest is only useful once exact scope and a
 low-perturbation profile exist. SC5 followed SC4 and needed no budget change.
-SC6 shipped independently. SC7 closes the initiative.
+SC6 shipped independently. SC7 shipped last, as planned - it documents the other six.
 
 ## Eval and measurement plan
 

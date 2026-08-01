@@ -1032,7 +1032,7 @@ internal sealed class TraceCommands
     /// <param name="output">Path of the .etl file to write.</param>
     /// <param name="profile">Providers to enable: cpu (default), threadtime (adds context switches for wall-clock time), or startup (low-perturbation; only the CLR keywords that name managed methods).</param>
     /// <param name="launchArgs">Arguments passed to the launched executable, as one command-line string.</param>
-    /// <param name="cpuMs">CPU sample interval in milliseconds; sub-millisecond is what makes a 30-100 ms command rankable. Clamped to what this machine honors (measured floor 0.1221 ms), and a clamp is reported.</param>
+    /// <param name="cpuMs">CPU sample interval in milliseconds; sub-millisecond is what makes a 30-100 ms command rankable. Clamped to the range this machine reports as honored, and a clamp is reported with that range.</param>
     /// <param name="duration">Optional cap on capture length in seconds, applied to each launch; 0 (default) waits for each to exit.</param>
     /// <param name="iterations">How many times to launch the executable inside the one session. Amortizes session startup over a short command, which is otherwise mostly capture overhead.</param>
     /// <param name="maxSizeMb">Optional cap on the capture's on-disk size in megabytes; 0 (default) writes an unbounded file. When set, a circular buffer keeps the last N MB - size it to hold the run, since a full ring overwrites the oldest events and can drop early JIT method names.</param>

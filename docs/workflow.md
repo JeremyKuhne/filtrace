@@ -234,6 +234,7 @@ meaningful zero:
 | Repeated exceptions | `exceptions` self, then inclusive | thrown types, then the paths that throw them |
 | One captured request or job is slow | metric `activity`, then CPU scoped with `activity` | completed activity paths, then CPU inside the named operation |
 | A spike occurs at an unknown time | `timeline`, then `rank --time` | the busy window, then its stacks |
+| A command finishes in tens of milliseconds | `lifecycle`, then `cpu` (see trap 13) | wall-clock phases first, since sampled CPU alone cannot explain a blocked command |
 | Physical disk pressure | `diskio` (`.etl` with disk keywords) | files ranked by physical disk service time |
 
 <!-- filtrace:begin verbs -->
@@ -316,6 +317,55 @@ different traces remain independent. `trace_info.etlxCacheState` and the `conver
 verb report `hit`, `waited`, `converted`, or `recovered` (`null` for speedscope).
 `clean` waits for an active conversion before removing its cache.
 <!-- filtrace:end verbs -->
+
+## Profiling a short command
+
+A command that finishes in 30-100 ms breaks most of the defaults at once, and the
+failures are quiet: the capture returns, the ranking looks plausible, and the numbers
+are wrong. Work in this order.
+
+1. **Establish an uninstrumented baseline first.** Time the command outside any capture
+   session. ETW startup and flush cost roughly 900 ms, and the CLR provider at `Verbose`
+   perturbs a short process badly - a capture that reports a 197 ms lifetime against a
+   28 ms uninstrumented run is measuring the instrument. Keep the baseline; every later
+   number is checked against it.
+
+2. **Capture with `--profile startup`.** It drops the CLR keywords a short run does not
+   need while keeping process, thread, image-load, and sampled-profile - everything the
+   CPU and lifecycle analyses read. Use `cpu` or `threadtime` only when you need what
+   they add, and expect them to cost lifetime.
+
+3. **Lower `--cpu-ms` and check what you got.** At the 1 ms default a 50 ms command
+   yields tens of samples - not a ranking, a rumor. Sub-millisecond sampling is honored
+   (about 0.12 ms on the machine this was measured on). Below the machine's floor
+   Windows silently keeps sampling at the floor while reporting the interval you asked
+   for, so read the effective interval `collect` returns rather than the one you passed.
+
+4. **Repeat inside one session with `--iterations`.** Session startup dwarfs the process,
+   so N separate captures pay that cost N times and produce N thin traces. One session
+   with 25 launches amortizes it and gives a ranking with enough samples to read.
+   [scripts/Capture-CommandTrace.ps1](../.agents/skills/filtrace/scripts/Capture-CommandTrace.ps1)
+   drives a whole scenario matrix this way, with one elevation and a manifest `batch` and
+   `diff` read directly.
+
+5. **Scope by exact process id, not by name.** A machine-wide `.etl` of `dotnet --version`
+   contains every other `dotnet` on the box. The manifest records each launch's exact id;
+   pass them with `--pid`, and use `--children exclude` to separate a native parent's own
+   cost from the runtime child it launched.
+
+6. **Split the wall clock before ranking CPU.** `lifecycle` attributes the parts sampled
+   CPU cannot see - time before the first child started, the child span, teardown. A
+   command whose wall clock far exceeds its sampled CPU was blocked, and no CPU ranking
+   will show you where.
+
+7. **Then rank, and rank inclusive for a Native AOT parent.** Self-time finds the hot
+   leaf; a Native AOT host's cost lives in ancestors that self-time never surfaces.
+   Supply local PDBs for your own native binary with `--symbols` and add
+   `--native-symbols` for the host, runtime, and OS frames - the two compose.
+
+8. **Report the interval and the counts with the finding.** Sampled milliseconds at a
+   0.12 ms interval are an estimate from a few hundred samples, and inclusive rows along
+   one stack overlap, so they cannot be added together.
 
 ## Scope to the relevant slice
 
