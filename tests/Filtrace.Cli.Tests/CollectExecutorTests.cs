@@ -224,7 +224,7 @@ public sealed class CollectExecutorTests
             Profile = CollectProfile.Cpu,
             KernelKeywords = "Process",
             ClrKeywords = "none",
-            EffectiveCpuSampleMSec = 1.0,
+            CpuSample = new CpuSampleInterval(1.0, 1.0, 0.1221, 100.0),
         };
 
         string json = OutputJson.Serialize(new AnalysisResult<EtwCollectResult>(result, [], []));
@@ -237,9 +237,108 @@ public sealed class CollectExecutorTests
     }
 
     [TestMethod]
-    public void Run_WhenElevated_RepeatedIterations_RecordsEveryLaunchInOneSession()
+    public void Run_WhenElevated_SubMillisecondInterval_SamplesMoreDensely()
     {
         if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
+        {
+            Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
+        }
+
+        string workload = Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "fixtures", "NativeLoop", "NativeLoop.exe");
+        if (!File.Exists(workload))
+        {
+            Assert.Inconclusive("The NativeLoop workload has not been built.");
+        }
+
+        // Fixed work per run, so wall time is about constant and the sample count is the
+        // only thing the interval changes. This is the measurement that decided SC6: the
+        // OS echoes any requested interval back, so density is the only proof it was honored.
+        int baseline = CountSamples(workload, 1.0);
+        int dense = CountSamples(workload, 0.25);
+
+        // A quarter of the interval should be about four times the samples; the assertion
+        // is loose because a live machine is noisy, but it fails outright if the request
+        // was ignored.
+        dense.Should().BeGreaterThan(baseline * 2,
+            "quartering the interval must sample materially more densely, not identically");
+    }
+
+    [TestMethod]
+    public void Run_WhenElevated_BelowTheHonoredFloor_ReportsTheClamp()
+    {
+        if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
+        {
+            Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
+        }
+
+        if (!CpuSampleBounds.TryReadTimerBounds(out double minimumMSec, out _))
+        {
+            Assert.Inconclusive("This platform does not report profile source bounds.");
+        }
+
+        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-clamp-{Guid.NewGuid():N}.etl");
+        try
+        {
+            EtwCollectResult result = EtwCollector.Collect(new EtwCollectRequest
+            {
+                LaunchExecutable = "cmd.exe",
+                LaunchArguments = "/c exit 0",
+                OutputPath = outputPath,
+                CpuSampleMSec = minimumMSec / 4.0,
+                DurationSeconds = 60,
+            });
+
+            // Windows accepts the request and reports no error, so the capture has to say
+            // so itself or a caller silently gets a rate four times slower than asked for.
+            result.CpuSample.Clamped.Should().BeTrue();
+            result.CpuSample.EffectiveMSec.Should().Be(minimumMSec);
+            result.CpuSample.RequestedMSec.Should().Be(minimumMSec / 4.0);
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    // Captures the workload at one interval and returns how many CPU samples it produced.
+    private static int CountSamples(string workload, double cpuSampleMSec)
+    {
+        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-density-{Guid.NewGuid():N}.etl");
+        try
+        {
+            EtwCollector.Collect(new EtwCollectRequest
+            {
+                LaunchExecutable = workload,
+                LaunchArguments = "--iterations 200000",
+                OutputPath = outputPath,
+                Profile = CollectProfile.Startup,
+                CpuSampleMSec = cpuSampleMSec,
+                DurationSeconds = 120,
+            });
+
+            LoadedTrace trace = new Filtrace.Server.TraceStore().Get(
+                outputPath, symbolsDirectory: null, TraceMetric.Cpu, ScopeRequest.ForProcess("NativeLoop"));
+            return trace.Info.SampleCount;
+        }
+        finally
+        {
+            foreach (string path in new[] { outputPath, $"{outputPath}.etlx" })
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Run_WhenElevated_RepeatedIterations_RecordsEveryLaunchInOneSession()
+    {        if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
         {
             Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
         }

@@ -800,7 +800,7 @@ therefore subject to the same gates as the VC backlog.
 | SC3 | Capture always enables CLR plus disk and network keywords | `collect --profile` | High | Shipped (#64) |
 | SC4 | One ETW session per short invocation | `collect --iterations` plus a command-matrix script | Medium | Shipped (#66) |
 | SC5 | No wall-clock phase report | Lifecycle verb and tool over process/image events | Medium | Shipped |
-| SC6 | Sub-millisecond sampling rejected before collection | Widened range plus effective-interval reporting | Low | Open; needs platform measurement |
+| SC6 | Sub-millisecond sampling rejected before collection | Widened range plus effective-interval reporting | Low | Shipped |
 | SC7 | No short-startup recipe for agents | `workflow.md`, `traps.md`, shipped skill | Low | Open; gated on SC1-SC6 |
 
 ### SC1 - Exact process-identity scope - shipped (#63)
@@ -1086,6 +1086,50 @@ result and sidecar. Then either widen the CLI range to the measured floor and wa
 when the OS clamps, or keep 1 ms and state the reason in help, in API validation, and
 in the skill. Either outcome is acceptable; an unexplained 1 ms minimum is not.
 
+What shipped: the range was widened, because the measurement showed sub-millisecond
+sampling works and matters.
+
+The instruction to read the effective interval back turned out to be impossible as
+written, and finding that out is most of what SC6 was worth. `TraceEventSession`'s
+`CpuSampleIntervalMSec` getter returns the field the setter assigned, and the OS query
+(`TraceQueryInformation` with `TraceSampledProfileIntervalInfo`) echoes whatever was
+last set - both report 0.0625 ms for a request Windows never honored. The field filtrace
+already exposed as `EffectiveCpuSampleMSec` could therefore never differ from the
+request, so it documented a clamp it could not detect.
+
+Sample density is the only ground truth. Running a fixed-work native workload under
+`EtwCollector` at each interval, counting samples in the scoped process:
+
+| Requested | Samples | Measured | Ideal | Honored |
+|---|---:|---:|---:|:---:|
+| 2 ms | 872 | 0.51x | 0.50x | yes |
+| 1 ms | 1,705 | 1.00x | 1.00x | yes |
+| 0.5 ms | 3,795 | 2.23x | 2.00x | yes |
+| 0.25 ms | 6,806 | 3.99x | 4.00x | yes |
+| 0.1221 ms | 14,174 | 8.31x | 8.19x | yes |
+| 0.0625 ms | 16,743 | 9.82x | 16.00x | no |
+| 0.03125 ms | 15,605 | 9.15x | 32.00x | no |
+
+Scaling holds to 0.1221 ms and then plateaus - two requests eight and sixteen times
+below the floor deliver the same rate. That floor is not a filtrace constant: Windows
+reports it per profile source through `TraceEventProfileSources`, as `MinInterval` /
+`MaxInterval` in 100-nanosecond units, and 1221 ticks is exactly the measured plateau.
+It is also readable without elevation, which is what lets a request be validated before
+a capture is attempted.
+
+So [CpuSampleBounds](../src/Filtrace.Core/Tracing/CpuSampleBounds.cs) reads the machine's
+honored range and resolves a request against it, and the collect result carries a
+[CpuSampleInterval](../src/Filtrace.Core/Tracing/CpuSampleInterval.cs) - requested,
+effective, and the bounds - replacing the single value that could not be trusted. A clamp
+is reported by the verb, and recorded in the command-capture manifest, because every
+weight in a clamped trace is scaled to the effective interval rather than the requested
+one.
+
+The old `[Range(1, 1000)]` was wrong at both ends: eight times above the honored floor,
+and ten times above the honored ceiling of 100 ms. The attribute now spans 0.01 to 1000 ms
+as an outer sanity bound - a compile-time constant cannot express a machine property -
+and the real check is the runtime one against the reported range.
+
 ### SC7 - Short-startup workflow and skill guidance
 
 Add a short-process recipe to [workflow.md](workflow.md), which is the source the
@@ -1131,7 +1175,7 @@ SC1 shipped in #63. SC2 and SC3 remain independent of each other and of the tran
 and schema decisions; together with SC1 they remove the investigation-specific
 filtrace fork. SC4 follows, since its manifest is only useful once exact scope and a
 low-perturbation profile exist. SC5 followed SC4 and needed no budget change.
-SC6 and SC7 close the initiative.
+SC6 shipped independently. SC7 closes the initiative.
 
 ## Eval and measurement plan
 

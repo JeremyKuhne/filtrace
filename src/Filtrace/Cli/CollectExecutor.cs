@@ -63,9 +63,21 @@ internal static class CollectExecutor
         {
             EtwCollectResult result = EtwCollector.Collect(request);
 
+            // A silently clamped interval scales every weight the capture produces, so both
+            // heads report it rather than leave it to be discovered from a thin ranking.
+            List<string> warnings = [];
+            if (result.CpuSample.Clamped)
+            {
+                warnings.Add(
+                    $"Requested a {FormatMSec(result.CpuSample.RequestedMSec)} ms sample interval, but this "
+                    + $"machine honors {FormatMSec(result.CpuSample.MinimumMSec)} to "
+                    + $"{FormatMSec(result.CpuSample.MaximumMSec)} ms; the capture sampled at "
+                    + $"{FormatMSec(result.CpuSample.EffectiveMSec)} ms.");
+            }
+
             if (format == OutputFormat.Json)
             {
-                output.WriteLine(OutputJson.Serialize(new AnalysisResult<EtwCollectResult>(result, [], [])));
+                output.WriteLine(OutputJson.Serialize(new AnalysisResult<EtwCollectResult>(result, warnings, [])));
                 return ExitCodes.Success;
             }
 
@@ -81,7 +93,12 @@ internal static class CollectExecutor
             // rather than inferred from the verb that wrote it.
             output.WriteLine(
                 $"  profile {result.Profile.ToString().ToLowerInvariant()}; kernel {result.KernelKeywords}; " +
-                $"clr {result.ClrKeywords}; cpu sample {result.EffectiveCpuSampleMSec.ToString("0.###", CultureInfo.InvariantCulture)} ms");
+                $"clr {result.ClrKeywords}; cpu sample {FormatMSec(result.CpuSample.EffectiveMSec)} ms");
+
+            foreach (string warning in warnings)
+            {
+                output.WriteLine($"! {warning}");
+            }
 
             if (result.Profile == CollectProfile.Startup)
             {
@@ -114,6 +131,10 @@ internal static class CollectExecutor
             return ExitCodes.InputError;
         }
     }
+
+    // Sub-millisecond intervals are the point of the widened range, so the format has to
+    // keep enough places to tell 0.1221 from 0.125.
+    private static string FormatMSec(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
 
     /// <summary>
     ///  Reports what a repeated capture ran, and names the launches that failed.

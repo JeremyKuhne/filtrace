@@ -46,6 +46,12 @@
     keywords a startup and CPU analysis reads, which is the lowest-perturbation choice for
     a short command.
 
+.PARAMETER CpuSampleMSec
+    CPU sample interval in milliseconds. Default 1 (the ETW default). A 30-100 ms command
+    gets only tens of samples at 1 ms, so lower it - Windows honors down to about
+    0.1221 ms - and the manifest records what was requested against what the machine
+    actually honored.
+
 .PARAMETER OutputDirectory
     Run directory for the traces, manifest, and log. Defaults to a run-stamped directory
     under ./perf-traces.
@@ -79,6 +85,7 @@ param(
     [hashtable[]]$Scenario,
     [ValidateRange(1, 1000)][int]$Iterations = 25,
     [ValidateSet('startup', 'cpu', 'threadtime')][string]$CaptureProfile = 'startup',
+    [ValidateRange(0.01, 1000.0)][double]$CpuSampleMSec = 1.0,
     [string]$OutputDirectory,
     [string]$SymbolsDirectory,
     [string]$FiltracePath,
@@ -156,8 +163,19 @@ if ($IsWindows -eq $false) {
 if ($SpecPath) {
     $spec = Get-Content -LiteralPath $SpecPath -Raw | ConvertFrom-Json
     $scenarios = @($spec.scenarios)
-    $Iterations = $spec.iterations
-    $CaptureProfile = $spec.profile
+
+    # A spec written by an older version omits fields this one reads. Assigning a missing
+    # value coerces $null through the parameter's declared type - 0 for a double, '' for a
+    # validated string - and the validation attribute, which re-runs on every assignment,
+    # then rejects it. That failure lands in the elevated child, where it surfaces as a
+    # message naming only the variable. Keeping the bound value degrades to the default
+    # instead.
+    if ($null -ne $spec.iterations) { $Iterations = $spec.iterations }
+    if ($spec.profile) { $CaptureProfile = $spec.profile }
+    if ($null -ne $spec.cpuSampleMSec) { $CpuSampleMSec = $spec.cpuSampleMSec }
+
+    # Unvalidated and optional: '' is their natural unset value, so a missing field needs
+    # no guard.
     $OutputDirectory = $spec.outputDirectory
     $SymbolsDirectory = $spec.symbolsDirectory
     $FiltracePath = $spec.filtracePath
@@ -180,6 +198,7 @@ if (-not (Test-Elevated)) {
         scenarios        = $scenarios
         iterations       = $Iterations
         profile          = $CaptureProfile
+        cpuSampleMSec    = $CpuSampleMSec
         outputDirectory  = $runDirectory
         symbolsDirectory = $SymbolsDirectory
         filtracePath     = $FiltracePath
@@ -266,6 +285,7 @@ foreach ($item in $scenarios) {
         '--launch', $item.Command,
         '--output', $tracePath,
         '--profile', $CaptureProfile,
+        '--cpu-ms', $CpuSampleMSec,
         '--iterations', $Iterations,
         '--format', 'json')
     if ($item.Arguments) { $collectArgs += @('--launch-args', $item.Arguments) }
@@ -292,6 +312,9 @@ foreach ($item in $scenarios) {
         parameters       = ''
         benchmarkDisplay = "$($item.Command) $($item.Arguments)".Trim()
         trace            = $tracePath
+        # What this case actually sampled at, which is the requested interval only when
+        # the machine honored it.
+        cpuSampleMSec    = if ($result.cpuSample) { $result.cpuSample.effectiveMSec } else { $CpuSampleMSec }
         invocations      = @($result.invocations | ForEach-Object {
                 [ordered]@{
                     ordinal    = $_.ordinal
@@ -307,6 +330,21 @@ foreach ($item in $scenarios) {
     # rejects an empty optional field rather than treating it as absent.
     if ($SymbolsDirectory) { $case['symbolsDirectory'] = $SymbolsDirectory }
     $cases += $case
+
+    # Windows honors the interval only inside the profile source's bounds and reports no
+    # error outside them, so a clamp is only visible if the capture records it. Every
+    # weight in the trace is scaled to the effective interval, not the requested one.
+    if ($result.cpuSample) {
+        $effectiveMSec = $result.cpuSample.effectiveMSec
+        if ($result.cpuSample.clamped) {
+            # Four decimals or the floor renders as 0.12, losing the distinction between
+            # 0.1221 and 0.125 that the interval reporting exists to make.
+            $warnings += ("Scenario '{0}' requested a {1:0.####} ms sample interval but this machine honors {2:0.####} to {3:0.####} ms; it sampled at {4:0.####} ms." -f `
+                    $item.Name, $result.cpuSample.requestedMSec, $result.cpuSample.minimumMSec, $result.cpuSample.maximumMSec, $effectiveMSec)
+            Write-Warning ("Scenario '{0}' sampled at {1:0.####} ms, not the requested {2:0.####} ms." -f `
+                    $item.Name, $effectiveMSec, $result.cpuSample.requestedMSec)
+        }
+    }
 }
 
 if ($cases.Count -eq 0) {
@@ -316,14 +354,17 @@ if ($cases.Count -eq 0) {
 }
 
 $manifest = [ordered]@{
-    schemaVersion = 2
-    kind          = 'command'
-    startedUtc    = $startedUtc.ToString('O')
-    completedUtc  = [DateTimeOffset]::UtcNow.ToString('O')
-    profile       = $CaptureProfile
-    iterations    = $Iterations
-    cases         = $cases
-    warnings      = $warnings
+    schemaVersion            = 2
+    kind                     = 'command'
+    startedUtc               = $startedUtc.ToString('O')
+    completedUtc             = [DateTimeOffset]::UtcNow.ToString('O')
+    profile                  = $CaptureProfile
+    iterations               = $Iterations
+    # The run's setting, alongside profile and iterations. What each case actually got is
+    # its own cpuSampleMSec, which differs whenever the machine clamped the request.
+    requestedCpuSampleMSec   = $CpuSampleMSec
+    cases                    = $cases
+    warnings                 = $warnings
 }
 
 # An .etl is machine-wide and a short command uses almost no CPU, so without a recorded
@@ -346,7 +387,9 @@ $encoding = New-Object System.Text.UTF8Encoding($false)
 Write-Host ""
 Write-Host "Captured $($cases.Count) scenario(s) -> $manifestPath" -ForegroundColor Green
 if ($warnings.Count -gt 0) {
-    Write-Host "$($warnings.Count) scenario(s) failed:" -ForegroundColor Yellow
+    # Not all failures: this channel also carries advisories from runs that succeeded,
+    # such as a clamped sample interval or a matrix with no single process scope.
+    Write-Host "$($warnings.Count) warning(s):" -ForegroundColor Yellow
     $warnings | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
 }
 
