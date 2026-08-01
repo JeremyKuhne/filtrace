@@ -463,13 +463,13 @@ The recurring ways a .NET trace investigation goes wrong:
    command outside a session first and keep that baseline. Then: `--profile startup` to
    stop paying for keywords a short run does not read; `--cpu-ms` below the 1 ms default,
    since 1 ms leaves a 50 ms command with tens of samples, though below the machine's
-   floor Windows keeps sampling at the floor while still reporting the interval you asked
-   for (read the effective one back); `--iterations` to amortize the session over repeated
-   launches instead of opening one per run; and `--pid` with the manifest's exact ids,
-   because a machine-wide `.etl` of a common host name contains every other instance of
-   it. For a Native AOT parent, rank *inclusive* - its cost sits in ancestors that
-   self-time never surfaces - and combine `--symbols` for your own native PDBs with
-   `--native-symbols` for the host, runtime, and OS ones; they compose.
+   floor Windows samples at the floor while echoing your request back, so take the rate
+   from the effective interval `collect` reports rather than the one you passed or one
+   read back from the OS; `--iterations` to amortize the session over repeated launches;
+   and `--pid` with the manifest's exact ids, since a common host name matches every
+   unrelated instance of it. For a Native AOT parent, rank *inclusive* - its cost sits in
+   ancestors self-time never surfaces - and combine `--symbols` for your own native PDBs
+   with `--native-symbols` for the host, runtime, and OS ones; they compose.
 
 14. **Wall clock is not CPU, and inclusive rows do not add up.** A process blocked in the
    loader or waiting on a child owns no samples while it waits, so sampled CPU cannot
@@ -479,7 +479,7 @@ The recurring ways a .NET trace investigation goes wrong:
    milliseconds are an estimate scaled to the *effective* sample interval, not a measured
    duration; and inclusive rows along one stack contain each other, so summing them
    double-counts. An invocation whose start or stop the capture never observed is clipped
-   to the capture window, which makes its lifetime a lower bound rather than a value.
+   to the capture window, making its lifetime a lower bound rather than a value.
 <!-- filtrace:end traps -->
 
 ## CLI or MCP
