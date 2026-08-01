@@ -116,6 +116,9 @@ config and tool workflow.
   shapes put the measured work in a child the host launched. Pass `exclude` to separate
   a parent's own CPU from a child runtime's; without it a native host's own cost is
   blended with the CoreCLR frames of the child it launched.
+- **Invocation roots:** CLI `lifecycle` and MCP `trace_lifecycle` take the same
+  `--process` / `--pid` selectors, but each matched process instance is one invocation
+  and descendants always follow, so neither takes `--children` or `--all-processes`.
 - **Root subtree:** CLI `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`,
   `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
   `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and
@@ -195,6 +198,7 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 | `jitstats` | JIT method count, compile time, sizes | `filtrace jitstats app.nettrace` |
 | `threadpool` | Worker-thread adjustments and starvation (slow under load, CPU idle) | `filtrace threadpool app.nettrace` |
 | `diskio` | Physical disk I/O by file: bytes and disk service time (ETW) | `filtrace diskio app.etl` |
+| `lifecycle` | Per-invocation wall-clock phases: root lifetime, first child, child span, teardown (ETW) | `filtrace lifecycle run.etl --process myapp --image hostfxr` |
 | `events` | Query raw events, filtered by name / payload / pid / tid, paged | `filtrace events app.etl --payload ConnectionReset` |
 
 **Capture** (Windows, elevated) - record an ETW `.etl` yourself, no external recorder:

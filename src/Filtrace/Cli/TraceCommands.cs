@@ -513,6 +513,43 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
+    ///  Report where a command's wall clock went: per-invocation root lifetime, time to
+    ///  the first child, child span, and teardown, with p50/min/max across invocations.
+    /// </summary>
+    /// <param name="trace">Path to a Windows ETW .etl file captured with the Process (and ImageLoad, for --image) kernel keyword.</param>
+    /// <param name="process">Root processes are those whose name contains this; omit to use the busiest.</param>
+    /// <param name="pid">Use these exact process ids as the invocation roots (comma-separated); excludes --process.</param>
+    /// <param name="image">Module-name substrings to time as loader milestones (comma-separated), such as hostfxr.</param>
+    /// <param name="top">-n, Maximum number of per-invocation rows to show; medians always cover every invocation.</param>
+    /// <param name="format">Render format: text or json.</param>
+    /// <returns>A process exit code.</returns>
+    /// <remarks>
+    ///  Wall clock from kernel process events, not sampled CPU: this is what explains a
+    ///  command that takes 50 ms while owning 12 ms of samples. Descendants are always
+    ///  followed - they are what the phases are measured against. Invocations the capture
+    ///  did not see both start and stop are listed but excluded from the medians. Windows
+    ///  ETW only; .nettrace and speedscope inputs are rejected.
+    /// </remarks>
+    [Command("lifecycle")]
+    public int Lifecycle(
+        [Argument] string trace,
+        string process = "",
+        int[]? pid = null,
+        string[]? image = null,
+        [Range(1, int.MaxValue)] int top = 25,
+        OutputFormat format = OutputFormat.Text)
+    {
+        if (!RankRequestFactory.TryResolveScope(process, pid, Children.Include, allProcesses: false, out ScopeRequest scope, out string? scopeError))
+        {
+            Console.Error.WriteLine(scopeError);
+            return ExitCodes.UsageError;
+        }
+
+        LifecycleRequest request = new(trace, scope, image ?? [], top, format);
+        return LifecycleExecutor.Run(request, Console.Out, Console.Error);
+    }
+
+    /// <summary>
     ///  Summarize CPU self-time by runtime work category - zeroing, copying, GC,
     ///  write-barrier, JIT, or other - answering "where did the time go: zeroing memory?
     ///  copying strings? in the GC?". Pair with --native-symbols so the native runtime

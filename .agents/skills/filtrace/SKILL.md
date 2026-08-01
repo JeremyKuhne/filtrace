@@ -34,8 +34,7 @@ and [docs/traps.md](https://github.com/JeremyKuhne/filtrace/blob/main/docs/traps
 filtrace records ETW captures itself - the `collect` verb launches an executable and
 records an `.etl` (Windows, Administrator) - and otherwise analyzes traces other tools
 record; for an EventPipe `.nettrace`, that recorder is `dotnet-trace` (cross-platform).
-Record or produce one, then point a verb - or `trace_info` - at the file. Pick the
-capture by the question:
+Record or produce one, point a verb - or `trace_info` - at it, then pick by the question:
 
 - **EventPipe** (`.nettrace`) - cross-platform, no elevation, single process. From
    `dotnet-trace collect` or BenchmarkDotNet `-p EP`. It can carry CPU,
@@ -59,18 +58,15 @@ BenchmarkDotNet micro-benchmark in an isolated run directory, emits an all-case
 manifest, verifies exact generated-child PDBs, and prints commands only for
 known-enabled analyses. Each command uses the benchmark, process, method, or other
 scope supported by its verb; structured reports and orientation commands keep their
-own syntax. Disabled/unknown states become warnings;
-full BenchmarkDotNet output stays in the run log. Use `-Format Json` for a compact
-handoff or `-Quiet` for warnings only. On a non-fatal elevated wait timeout, text
-modes emit a warning; `-Format Json` returns `status: "timeout"`, `runId`, `log`, and
-`message` instead of empty stdout. JSON stdout stays under 20 KiB; when full case
-detail would exceed that budget, a minimal completed result points to `manifest.json`;
-every compact fallback includes `runDirectory`, run-relative if absolute cannot fit.
+own syntax. Disabled/unknown states become warnings; full BenchmarkDotNet output stays
+in the run log. `-Format Json` gives a compact handoff - stdout stays under 20 KiB,
+falling back to a minimal result pointing at `manifest.json`, and returning
+`status: "timeout"` with `runId` and `log` on a non-fatal elevated wait timeout;
+`-Quiet` gives warnings only.
 Manifest cases carry explicit benchmark/parameter identity; pass both
 `-OperationCount` and `-OperationUnit` for per-operation metadata, or omit both.
-Recorder-established command fallback is used only when filtrace is unavailable; if
-`filtrace info` is present but cannot read a case, every analysis is unknown and no
-command is emitted. It never fabricates an `eventCount`; only `filtrace info` supplies one.
+Analysis state comes only from `filtrace info`, never fabricated: a case it cannot read
+is unknown with no command emitted, and the recorder fallback applies only without filtrace.
 Same-project/same-TFM overlap is rejected rather than sharing outputs. The
 [scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) builds an
 executable project and traces its running output directly - never `dotnet run`,
@@ -103,14 +99,13 @@ keyword above.
 Activity ranking and `--activity` CPU scope need completed EventSource Start/Stop
 pairs **and that application provider enabled during capture**. Use matching
 `OperationStart` / `OperationStop` events (or explicit Start/Stop opcodes) and add
-the provider alongside CPU sampling, for example:
+the provider alongside CPU sampling - level `5` is Verbose, the mask enables all
+keywords:
 
 ```pwsh
 dotnet-trace collect --profile cpu-sampling `
    --providers MyCompany-RequestSource:0xFFFFFFFFFFFFFFFF:5 -- <app> <args>
 ```
-
-Replace the provider name; level `5` is Verbose and the mask enables all keywords.
 
 ## The workflow: orient -> rank -> drill -> compare
 
@@ -231,6 +226,7 @@ workload:
 | `jitstats` | JIT method count, compile time, sizes (`.nettrace`) |
 | `threadpool` | worker-thread adjustments and starvation - slow under load, CPU idle (`.nettrace`) |
 | `diskio` | physical disk I/O by file: bytes and disk service time (`.etl`, Windows) |
+| `lifecycle` | per-invocation wall-clock phases: root lifetime, time to first child, child span, teardown (`.etl`, Windows) |
 | `events --name <n>` | raw events, filtered by name / payload / pid / tid, paged (`.nettrace`, or `.etl` on Windows) |
 
 **Capture** - record a Windows ETW `.etl` yourself (for an EventPipe `.nettrace`, use `dotnet-trace`):
@@ -281,6 +277,9 @@ Run `filtrace <verb> --help` for the full option set of any verb.
   shapes put the measured work in a child the host launched. Pass `exclude` to separate
   a parent's own CPU from a child runtime's; without it a native host's own cost is
   blended with the CoreCLR frames of the child it launched.
+- **Invocation roots:** CLI `lifecycle` and MCP `trace_lifecycle` take the same
+  `--process` / `--pid` selectors, but each matched process instance is one invocation
+  and descendants always follow, so neither takes `--children` or `--all-processes`.
 - **Root subtree:** CLI `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`,
   `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
   `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and
@@ -331,6 +330,10 @@ Run `filtrace <verb> --help` for the full option set of any verb.
    memory leak; use a heap snapshot/dump tool for retention.
 - `threadtime` aggregates running and blocked intervals across threads. Do not call
    its total a request's latency unless the scope isolates that request/thread.
+- `lifecycle` reports wall clock from kernel process events, which is not sampled CPU:
+   the gap between a root's lifetime and its sampled CPU is blocked time, and a parent's
+   lifetime contains its children's. Invocations the capture did not see both start and
+   stop are listed but excluded from the medians.
 - `contention`, `wait`, and `activity` pair Start/Stop events. An operation still
    open at trace end may be absent; an empty ranking does not rule out an active
    hang. Use ETW threadtime or a dump/current-state tool when the unfinished state
@@ -484,11 +487,8 @@ The two heads share one analysis core, with deliberately different operational
 surfaces:
 
 - **CLI** - `dotnet tool install -g KlutzyNinja.Filtrace`, then `filtrace <verb>`.
-- **MCP server** - `dnx KlutzyNinja.Filtrace.Mcp` over stdio, exposing seventeen
-  `trace_*` tools (`trace_info`, `trace_rank`, `trace_callers`, `trace_lines`,
-  `trace_heatmap`, `trace_tree`, `trace_processes`, `trace_classify`,
-   `trace_diff`, `trace_batch`, `trace_export`, `trace_timeline`, `trace_gc`, `trace_jit`,
-  `trace_threadpool`, `trace_diskio`, `trace_query_events`).
+- **MCP server** - `dnx KlutzyNinja.Filtrace.Mcp` over stdio, exposing eighteen
+  `trace_*` tools: one per verb above, minus the capture and ETLX-cache verbs.
   Each returns one envelope: a `schemaVersion`, a `warnings` list, next-step
    `hints`, and the typed result. MCP can auto-scope or select a named ETW process;
    use the CLI when the question requires `--all-processes`, capture, or ETLX cache

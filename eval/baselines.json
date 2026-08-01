@@ -64,6 +64,10 @@
     "manifest-diff": {
       "calls": 1,
       "tokens": 394
+    },
+    "lifecycle-phases": {
+      "calls": 1,
+      "tokens": 391
     }
   }
 }

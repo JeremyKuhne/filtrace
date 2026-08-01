@@ -285,6 +285,7 @@ meaningful zero:
 | `jitstats` | JIT method count, compile time, sizes (`.nettrace`) |
 | `threadpool` | worker-thread adjustments and starvation - slow under load, CPU idle (`.nettrace`) |
 | `diskio` | physical disk I/O by file: bytes and disk service time (`.etl`, Windows) |
+| `lifecycle` | per-invocation wall-clock phases: root lifetime, time to first child, child span, teardown (`.etl`, Windows) |
 | `events --name <n>` | raw events, filtered by name / payload / pid / tid, paged (`.nettrace`, or `.etl` on Windows) |
 
 **Capture** - record a Windows ETW `.etl` yourself (for an EventPipe `.nettrace`, use `dotnet-trace`):
@@ -336,6 +337,9 @@ defaults to scenario scope and lets you tighten further:
   shapes put the measured work in a child the host launched. Pass `exclude` to separate
   a parent's own CPU from a child runtime's; without it a native host's own cost is
   blended with the CoreCLR frames of the child it launched.
+- **Invocation roots:** CLI `lifecycle` and MCP `trace_lifecycle` take the same
+  `--process` / `--pid` selectors, but each matched process instance is one invocation
+  and descendants always follow, so neither takes `--children` or `--all-processes`.
 - **Root subtree:** CLI `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`,
   `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
   `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and
@@ -388,7 +392,7 @@ go further:
 <!-- filtrace:begin tools -->
 ### MCP tools
 
-The MCP server exposes the same analysis core as seventeen `trace_*` tools over stdio.
+The MCP server exposes the same analysis core as eighteen `trace_*` tools over stdio.
 Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-step
 `hints`, and the typed result - and the read-only analysis tools are annotated
 `readOnlyHint`.
@@ -411,6 +415,7 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 | `trace_jit` | `jitstats` | JIT compile time and sizes |
 | `trace_threadpool` | `threadpool` | worker-thread adjustments and starvation |
 | `trace_diskio` | `diskio` | physical disk I/O by file (bytes, disk time) |
+| `trace_lifecycle` | `lifecycle` | per-invocation wall-clock phases and p50/min/max across invocations |
 | `trace_query_events` | `events` | raw events, filtered by name / payload / pid / tid, paged |
 
 The capture and file-management verbs (`collect`, `convert`, `clean`) stay CLI-only.

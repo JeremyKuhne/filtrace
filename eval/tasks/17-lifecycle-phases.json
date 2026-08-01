@@ -1,0 +1,17 @@
+{
+  "id": "lifecycle-phases",
+  "title": "Explain where a short command's wall clock went, not just its CPU.",
+  "prompt": "This ETW capture holds a benchmark job process that launched a child. Split its wall clock into the time before the child started, the child's span, and teardown, and say how that compares with sampled CPU.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
+  "os": "windows",
+  "steps": [
+    { "args": ["lifecycle", "{fixture}", "--process", "HotLoop"] }
+  ],
+  "assert": [
+    { "field": "result.invocationCount", "equals": 1 },
+    { "field": "result.measuredCount", "equals": 1 },
+    { "jsonContains": "root start to first child" },
+    { "hintContains": "wall clock is not CPU" }
+  ],
+  "expect": ["619", "6.4", "613", "conhost", "139"]
+}

@@ -727,6 +727,53 @@ public sealed class TraceTools
     }
 
     /// <summary>
+    ///  Returns the process lifecycle report for a Windows ETW <c>.etl</c> trace: where
+    ///  each invocation of a command spent its wall clock, split into the time before it
+    ///  launched a child, the child span, and teardown.
+    /// </summary>
+    /// <param name="path">Path to the trace file.</param>
+    /// <param name="process">Process-name substring choosing the invocation roots.</param>
+    /// <param name="pid">Exact process ids to use as the invocation roots.</param>
+    /// <param name="image">Module-name substrings to time as loader milestones.</param>
+    /// <param name="top">Maximum per-invocation rows to return.</param>
+    /// <returns>The lifecycle report envelope.</returns>
+    [McpServerTool(Name = "trace_lifecycle", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
+    [Description(
+        "Wall-clock phases per invocation from Windows .etl kernel process events: root lifetime, time to "
+        + "first child, child span, teardown, with p50/min/max. Explains a command whose wall clock exceeds "
+        + "its sampled CPU. .nettrace and speedscope are rejected.")]
+    public static AnalysisResult<LifecycleResult> Lifecycle(
+        [Description("Path to a Windows ETW .etl trace file.")] string path,
+        [Description("Root processes are those whose name contains this; omit for the busiest.")] string process = "",
+        [Description("Exact process ids to use as the invocation roots; excludes process.")] int[]? pid = null,
+        [Description("Module-name substrings to time as loader milestones, such as hostfxr.")] string[]? image = null,
+        [Description("Maximum number of per-invocation rows to return; medians cover every invocation.")] int top = 25)
+    {
+        RequirePositiveTop(top);
+
+        // Descendants are the measurement, not an option: the phases are defined against
+        // them, so the children axis the other scoped tools expose does not apply here.
+        ScopeRequest? scope = ResolveScope(process, pid);
+        List<string> warnings = [];
+        LifecycleResult full = ReadLifecycle(path, scope, image, warnings);
+        warnings.AddRange(LifecycleProvider.DescribeCoverage(full));
+
+        // Keep the phase medians over every invocation, but cap the per-invocation detail
+        // so a long capture matrix cannot blow the response budget.
+        IReadOnlyList<LifecycleInvocation> shown = full.Invocations;
+        if (shown.Count > top)
+        {
+            shown = [.. shown.Take(top)];
+            warnings.Add(
+                $"Showing the first {top} of {full.Invocations.Count} invocations in start order; "
+                + "the medians cover all of them.");
+        }
+
+        LifecycleResult report = full with { Invocations = shown };
+        return new AnalysisResult<LifecycleResult>(report, warnings, SteeringHints.ForLifecycle(full));
+    }
+
+    /// <summary>
     ///  The largest page <see cref="QueryEvents"/> returns. A larger <c>take</c> is
     ///  clamped to this with a warning, so one call cannot accumulate an unbounded
     ///  page into memory or push the response past the token budget.
@@ -1424,6 +1471,36 @@ public sealed class TraceTools
             or ArgumentException)
         {
             // A missing, unreadable, or malformed .etl surfaces as a clean tool error.
+            throw new McpException(ex.Message);
+        }
+    }
+
+    /// <summary>
+    ///  Reads the process lifecycle report for a Windows ETW <c>.etl</c> trace, applying the
+    ///  format guardrail and mapping the provider's failure modes to a clean <see cref="McpException"/>.
+    /// </summary>
+    private static LifecycleResult ReadLifecycle(
+        string path,
+        ScopeRequest? scope,
+        string[]? images,
+        List<string> warnings)
+    {
+        RequireEtl(path, "process lifecycle report");
+
+        try
+        {
+            return new LifecycleProvider().Read(path, scope, images, warnings);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or FormatException
+            or ArgumentException)
+        {
+            // A missing, unreadable, or malformed .etl - or a reused process id the
+            // selector cannot disambiguate - surfaces as a clean tool error.
             throw new McpException(ex.Message);
         }
     }

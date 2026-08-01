@@ -402,6 +402,55 @@ public static class SteeringHints
         return ["the timeline is empty in every requested lane; widen the window or check the capture carries these events"];
     }
 
+    /// <summary>
+    ///  The next-step hints for a lifecycle report: name the phase that dominates the
+    ///  command's wall clock and the drill-down that explains it.
+    /// </summary>
+    /// <param name="lifecycle">The lifecycle report the hints steer from.</param>
+    /// <returns>The steering hints, never <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="lifecycle"/> is <see langword="null"/>.</exception>
+    public static IReadOnlyList<string> ForLifecycle(LifecycleResult lifecycle)
+    {
+        ArgumentNullException.ThrowIfNull(lifecycle);
+
+        if (lifecycle.InvocationCount == 0)
+        {
+            return ["no invocation matched; list what the capture holds with: processes"];
+        }
+
+        LifecyclePhase? rootLifetime = lifecycle.Phases.FirstOrDefault(static phase => phase.Phase == "root lifetime");
+        if (rootLifetime is null)
+        {
+            return ["every invocation was clipped to the capture window; recapture with the command launched inside the session"];
+        }
+
+        // The phase that owns the most median wall clock, excluding the root lifetime it
+        // is measured against. Naming it is the whole point of the report: a command that
+        // spends its time before the first child is a loader problem, and one that spends
+        // it inside the child is a child-code problem, and those drill differently.
+        LifecyclePhase? dominant = lifecycle.Phases
+            .Where(static phase => phase.Phase != "root lifetime")
+            .OrderByDescending(static phase => phase.MedianMs)
+            .FirstOrDefault();
+
+        List<string> hints = [];
+        if (dominant is not null)
+        {
+            hints.Add(
+                $"the median {dominant.Phase} is {FormatMs(dominant.MedianMs)} ms of a "
+                + $"{FormatMs(rootLifetime.MedianMs)} ms median root lifetime");
+        }
+
+        // Wall clock and sampled CPU answer different questions, and the gap between them
+        // is the blocked time this report exists to expose.
+        double sampledCpuMs = lifecycle.TotalRootCpuMs + lifecycle.TotalChildCpuMs;
+        hints.Add(
+            $"wall clock is not CPU: rank sampled work in the same processes with: cpu, "
+            + $"and time it against {FormatMs(sampledCpuMs)} ms of sampled CPU across the matched tree");
+
+        return hints;
+    }
+
     // The index of the highest-weight bucket in a lane, or false when the lane is absent
     // or every bucket is empty.
     private static bool TryPeakBucket<T>(IReadOnlyList<T>? lane, Func<T, long> weight, out int index)

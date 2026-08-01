@@ -51,6 +51,7 @@ namespace Filtrace.Output;
 [JsonSerializable(typeof(AnalysisResult<TimelineResult>))]
 [JsonSerializable(typeof(AnalysisResult<ThreadPoolResult>))]
 [JsonSerializable(typeof(AnalysisResult<DiskIoResult>))]
+[JsonSerializable(typeof(AnalysisResult<LifecycleResult>))]
 [JsonSerializable(typeof(AnalysisResult<EventQueryResult>))]
 [JsonSerializable(typeof(AnalysisResult<ExportResult>))]
 // Tool-parameter types the MCP head binds through these same options but that no result
