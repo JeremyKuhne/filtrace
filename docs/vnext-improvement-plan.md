@@ -74,7 +74,7 @@ approximately 8,301 tokens against what was then a 9,000-token CI ceiling in
 [Test-McpServer.ps1](../tools/Test-McpServer.ps1). [SC1](#sc1---exact-process-identity-scope)
 then added the exact-scope parameters, taking it to approximately 8,950.
 
-The list now measures approximately **6,118** tokens against a 7,000-token ceiling,
+The list now measures approximately **6,050** tokens against a 7,000-token ceiling,
 after the output schemas were compacted - see
 [Output schemas were the budget](#output-schemas-were-the-budget). The shares that
 motivated the reduction were:
@@ -103,7 +103,7 @@ ModelContextProtocol couples the advertised schema to structured content. That i
 so: `McpServerToolAttribute.OutputSchemaType` decouples them. Pointing every tool at
 [AnalysisEnvelopeSchema](../src/Filtrace.Core/Output/AnalysisEnvelopeSchema.cs) - the
 envelope with the payload left unexpanded - took the output-schema share from 4,014 to
-1,088 tokens and the list from 9,044 to 6,118, a 32% reduction.
+1,020 tokens and the list from 9,044 to 6,050, a 33% reduction.
 
 Structured content is unaffected: it is serialized from the returned
 `AnalysisResult<T>`, not from the advertised schema, so clients receive the same typed
@@ -183,7 +183,7 @@ v.next should improve efficacy, not merely reduce counts.
 7. Hold the tool-list and 25,000-token response ceilings. A redesign must create
    headroom rather than move the limits. The one recorded exception,
    [SC5](#sc5---process-lifecycle-report), has been retired: compacting the output
-   schemas took the list to approximately 6,118 tokens and the gate to 7,000, below
+   schemas took the list to approximately 6,050 tokens and the gate to 7,000, below
    both the original 9,000 ceiling and the 7,500 VN3 target.
 
 ## Non-goals
@@ -986,7 +986,7 @@ child, and in teardown - which sampled CPU alone cannot.
 Decided: SC5 originally required raising the `tools/list` ceiling, because SC1's
 exact-scope parameters took the list from approximately 8,301 to approximately 8,950
 tokens and left no room for a new tool. That raise is retired. Compacting the output
-schemas took the list to approximately 6,118 tokens against a 7,000-token gate in
+schemas took the list to approximately 6,050 tokens against a 7,000-token gate in
 [Test-McpServer.ps1](../tools/Test-McpServer.ps1), so a lifecycle tool the size of the
 largest existing definition (`trace_diff`, approximately 830 tokens) fits without
 touching the gate.
@@ -1043,7 +1043,7 @@ one is individually discoverable; the eval currently shows the surface working.
 *Against:* the list still carries seventeen definitions, and the 5,000-token stretch
 target is not reachable without either this or a further schema reduction.
 
-The 5,000 target is worth noting against these: at 6,118 the gap is about 1,100 tokens,
+The 5,000 target is worth noting against these: at 6,050 the gap is about 1,050 tokens,
 which Option A alone does not close and Option B roughly does. That is an argument for
 evaluating B on its merits in VN3, not for adopting it now.
 

@@ -17,11 +17,11 @@ namespace Filtrace.Output;
 ///  </para>
 /// </remarks>
 /// <param name="SchemaVersion">The envelope version.</param>
-/// <param name="Warnings">Quality warnings, when any.</param>
-/// <param name="Hints">Suggested next steps, when any.</param>
+/// <param name="Warnings">Quality warnings; empty when there are none.</param>
+/// <param name="Hints">Suggested next steps; empty when there are none.</param>
 /// <param name="Result">The typed payload, whose shape varies by tool.</param>
 public sealed record AnalysisEnvelopeSchema(
     int SchemaVersion,
-    IReadOnlyList<string>? Warnings,
-    IReadOnlyList<string>? Hints,
-    object? Result);
+    IReadOnlyList<string> Warnings,
+    IReadOnlyList<string> Hints,
+    object Result);

@@ -39,7 +39,7 @@
   schema, and output schema - everything the client puts in front of the model from
   tools/list, on every request.
   The ceiling is a bloat guard, not a per-tool allowance: the 17 analysis tools measure
-  ~6,120 tokens, of which input schemas are ~3,700, output schemas ~1,090, and
+  ~6,050 tokens, of which input schemas are ~3,700, output schemas ~1,020, and
   descriptions ~730. Descriptions are already the smallest share, so tightening prose is
   not where a breach is answered; consolidating behind a mode/kind parameter - the way
   trace_rank unifies seven metrics into one tool - is.
@@ -48,9 +48,9 @@
   reclaimed, because ModelContextProtocol couples them to structured content. Measurement
   disproved it: they were the single largest component at ~4,010 tokens (44%), repeating
   an identical envelope 17 times and expanding every result type. Pointing each tool's
-  OutputSchemaType at the envelope alone reclaimed ~2,930 of those while structured
+  OutputSchemaType at the envelope alone reclaimed ~2,990 of those while structured
   content, which is generated from the returned object rather than the advertised schema,
-  is unchanged. 7,000 is the measured 6,120 plus roughly the largest existing definition,
+  is unchanged. 7,000 is the measured 6,050 plus roughly the largest existing definition,
   so it still admits one more tool and no general slack - and it now sits under the v.next
   target of 7,500 with typed output schemas that docs/vnext-improvement-plan.md holds the
   surface to, leaving 5,000 as the remaining stretch.
