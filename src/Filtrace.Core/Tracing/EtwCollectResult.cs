@@ -13,6 +13,12 @@ public sealed class EtwCollectResult
     public required string OutputPath { get; init; }
 
     /// <summary>The process id of the launched process.</summary>
+    /// <remarks>
+    ///  <para>
+    ///   The first launch's id when the capture ran several; <see cref="Invocations"/>
+    ///   carries them all.
+    ///  </para>
+    /// </remarks>
     public required int ProcessId { get; init; }
 
     /// <summary>
@@ -25,7 +31,19 @@ public sealed class EtwCollectResult
     ///  The launched process's exit code, or <c>-1</c> if it was terminated at the
     ///  duration cap.
     /// </summary>
+    /// <remarks>
+    ///  <para>
+    ///   When the capture ran several launches this is the first failing exit code, so a
+    ///   caller checking one value still sees that something failed; it is the last
+    ///   launch's code when they all succeeded.
+    ///  </para>
+    /// </remarks>
     public required int ProcessExitCode { get; init; }
+
+    /// <summary>
+    ///  Every launch the session captured, in order. Always at least one entry.
+    /// </summary>
+    public required IReadOnlyList<EtwInvocation> Invocations { get; init; }
 
     /// <summary>The size of the written <c>.etl</c> in bytes.</summary>
     public required long FileSizeBytes { get; init; }

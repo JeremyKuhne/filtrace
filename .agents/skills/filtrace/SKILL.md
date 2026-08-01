@@ -65,19 +65,19 @@ handoff or `-Quiet` for warnings only. On a non-fatal elevated wait timeout, tex
 modes emit a warning; `-Format Json` returns `status: "timeout"`, `runId`, `log`, and
 `message` instead of empty stdout. JSON stdout stays under 20 KiB; when full case
 detail would exceed that budget, a minimal completed result points to `manifest.json`;
-every compact fallback includes `runDirectory`, using the canonical run-relative path
-if an absolute path cannot fit.
-Manifest cases carry explicit benchmark/parameter identity. Pass both
-`-OperationCount` and `-OperationUnit` to add complete per-operation metadata, or
-omit both.
-Recorder-established command fallback is used only when filtrace is unavailable;
-if `filtrace info` is present but cannot read a case, every analysis is unknown and
-no command is emitted. Recorder fallback never fabricates an `eventCount`; only a
-successful `filtrace info` result supplies an observed count, including zero.
+every compact fallback includes `runDirectory`, run-relative if absolute cannot fit.
+Manifest cases carry explicit benchmark/parameter identity; pass both
+`-OperationCount` and `-OperationUnit` for per-operation metadata, or omit both.
+Recorder-established command fallback is used only when filtrace is unavailable; if
+`filtrace info` is present but cannot read a case, every analysis is unknown and no
+command is emitted. It never fabricates an `eventCount`; only `filtrace info` supplies one.
 Same-project/same-TFM overlap is rejected rather than sharing outputs. The
 [scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) builds an
 executable project and traces its running output directly - never `dotnet run`,
 whose build/run host is a different process (see the trap catalog).
+[scripts/Capture-CommandTrace.ps1](scripts/Capture-CommandTrace.ps1) captures a matrix of
+short commands, each run repeatedly inside one session (session startup dwarfs a 30-100 ms
+process), writing a `kind: command` manifest that `batch` and `diff` read.
 
 Two more scripts open a filtrace `export` in a hosted viewer with the profile already
 loaded, no manual upload:

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using System.Text.Json;
 
 namespace Filtrace.Tracing;
@@ -21,6 +22,14 @@ public static class CaptureManifestReader
     private const int MaxDisplayLength = 1024;
     private const int MaxProcessLength = 256;
     private const int MaxOperationUnitLength = 64;
+
+    private const int MaxKindLength = 32;
+
+    /// <summary>
+    ///  Matches the iteration ceiling the <c>collect</c> verb accepts, so a manifest can
+    ///  describe any capture the tool can produce and no more.
+    /// </summary>
+    private const int MaxInvocations = 1000;
 
     /// <summary>Whether a path names the capture helper's manifest artifact.</summary>
     public static bool IsManifestPath(string path) =>
@@ -67,12 +76,18 @@ public static class CaptureManifestReader
             }
 
             ValidateUniqueProperties(root, "root");
+
+            // Version 2 added the kind discriminator and per-case invocations. Both are
+            // additive, so a version 1 manifest still reads and keeps working with batch
+            // and diff rather than needing a parallel consumer.
             if (!root.TryGetProperty("schemaVersion", out JsonElement schema)
                 || schema.ValueKind != JsonValueKind.Number
-                || schema.GetInt32() != 1)
+                || schema.GetInt32() is not (1 or 2))
             {
-                throw new InvalidDataException("Capture manifest schemaVersion must be 1.");
+                throw new InvalidDataException("Capture manifest schemaVersion must be 1 or 2.");
             }
+
+            CaptureKind kind = ReadKind(root);
 
             if (!root.TryGetProperty("cases", out JsonElement casesElement)
                 || casesElement.ValueKind != JsonValueKind.Array)
@@ -150,10 +165,13 @@ public static class CaptureManifestReader
                     analysisPath,
                     symbols is null ? null : ResolvePath(manifestDirectory, symbols),
                     operationCount,
-                    operationUnit));
+                    operationUnit)
+                {
+                    Invocations = ReadInvocations(caseElement, id)
+                });
             }
 
-            return new CaptureManifest(fullPath, process, cases);
+            return new CaptureManifest(fullPath, process, cases) { Kind = kind };
         }
         catch (InvalidDataException)
         {
@@ -167,6 +185,92 @@ public static class CaptureManifestReader
         {
             throw new InvalidDataException("Capture manifest JSON is malformed.", exception);
         }
+    }
+
+    /// <summary>
+    ///  Reads the manifest kind, defaulting to a benchmark capture when none is recorded.
+    /// </summary>
+    private static CaptureKind ReadKind(JsonElement root)
+    {
+        string? kind = OptionalBoundedString(root, "kind", MaxKindLength);
+        return kind switch
+        {
+            null or "benchmark" => CaptureKind.Benchmark,
+            "command" => CaptureKind.Command,
+            _ => throw new InvalidDataException(
+                $"Capture manifest kind '{kind}' is not recognized; expected 'benchmark' or 'command'.")
+        };
+    }
+
+    /// <summary>
+    ///  Reads a case's launches, which a benchmark case does not carry.
+    /// </summary>
+    private static IReadOnlyList<CaptureInvocation> ReadInvocations(JsonElement caseElement, string id)
+    {
+        if (!caseElement.TryGetProperty("invocations", out JsonElement element))
+        {
+            return [];
+        }
+
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidDataException($"Capture case '{id}' has a non-array invocations property.");
+        }
+
+        int count = element.GetArrayLength();
+        if (count > MaxInvocations)
+        {
+            throw new InvalidDataException(
+                $"Capture case '{id}' has {count} invocations; the maximum is {MaxInvocations}.");
+        }
+
+        List<CaptureInvocation> invocations = new(count);
+        foreach (JsonElement invocationElement in element.EnumerateArray())
+        {
+            if (invocationElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidDataException($"Every invocation of case '{id}' must be an object.");
+            }
+
+            ValidateUniqueProperties(invocationElement, "invocation");
+            invocations.Add(new CaptureInvocation(
+                RequiredInt32(invocationElement, "ordinal", id),
+                RequiredInt32(invocationElement, "processId", id),
+                RequiredInt32(invocationElement, "exitCode", id),
+                RequiredTimestamp(invocationElement, "startedUtc", id),
+                RequiredTimestamp(invocationElement, "stoppedUtc", id)));
+        }
+
+        return invocations;
+    }
+
+    private static int RequiredInt32(JsonElement element, string name, string id)
+    {
+        if (!element.TryGetProperty(name, out JsonElement value)
+            || value.ValueKind != JsonValueKind.Number
+            || !value.TryGetInt32(out int number))
+        {
+            throw new InvalidDataException($"Capture case '{id}' has an invocation without an integer '{name}'.");
+        }
+
+        return number;
+    }
+
+    private static DateTimeOffset RequiredTimestamp(JsonElement element, string name, string id)
+    {
+        if (!element.TryGetProperty(name, out JsonElement value)
+            || value.ValueKind != JsonValueKind.String
+            || !DateTimeOffset.TryParse(
+                value.GetString(),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out DateTimeOffset timestamp))
+        {
+            throw new InvalidDataException(
+                $"Capture case '{id}' has an invocation without a round-trip '{name}' timestamp.");
+        }
+
+        return timestamp;
     }
 
     internal static string ExtractParameters(string display)

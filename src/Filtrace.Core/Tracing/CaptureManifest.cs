@@ -11,7 +11,14 @@ namespace Filtrace.Tracing;
 public sealed record CaptureManifest(
     string Path,
     string? Process,
-    IReadOnlyList<CaptureManifestCase> Cases);
+    IReadOnlyList<CaptureManifestCase> Cases)
+{
+    /// <summary>
+    ///  What the capture recorded. Defaults to <see cref="CaptureKind.Benchmark"/>, which
+    ///  is what a manifest written before the kind existed contains.
+    /// </summary>
+    public CaptureKind Kind { get; init; } = CaptureKind.Benchmark;
+}
 
 /// <summary>One captured benchmark case from a capture manifest.</summary>
 /// <param name="Id">Run-unique case identifier.</param>
@@ -32,6 +39,19 @@ public sealed record CaptureManifestCase(
     double? OperationCount,
     string? OperationUnit)
 {
+    /// <summary>
+    ///  The launches this case's trace contains, in order. Empty for a case whose trace
+    ///  holds a single run, which is every benchmark case.
+    /// </summary>
+    /// <remarks>
+    ///  <para>
+    ///   A short command is captured by running it repeatedly inside one session, so one
+    ///   trace holds many runs. These separate them: each carries the root process id the
+    ///   analysis scopes by, and the window that run occupied.
+    ///  </para>
+    /// </remarks>
+    public IReadOnlyList<CaptureInvocation> Invocations { get; init; } = [];
+
     /// <summary>
     ///  Stable benchmark-and-parameter key used for cross-manifest pairing, or
     ///  <see langword="null"/> when the capture could not resolve benchmark identity.
