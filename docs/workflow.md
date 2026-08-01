@@ -51,6 +51,14 @@ or `startup` (keeps only the CLR keywords that name managed methods, for a short
 process where instrumentation must not change what it measures). Bound an open-ended
 run with `--duration` (by time) or `--max-size-mb` (a circular buffer that keeps the
 last N MB).
+
+At the default 1 ms interval a 30-100 ms command yields only tens of samples, so lower
+`--cpu-ms`. Windows honors sub-millisecond sampling - measured down to **0.1221 ms** on
+Windows 11, where 0.25 ms produced 3.99x the samples of 1 ms and 0.1221 ms produced
+8.31x - but below the floor it silently keeps sampling at the floor rate while still
+reporting the interval you asked for. `collect` reads the machine's honored range and
+says so when your request was clamped; trust the reported effective interval, never the
+requested one, because every weight in the trace is scaled to it.
 Only a `diskio` capture needs those File/Disk keywords, and `collect` has
 no switch for them: that capture comes from another recorder (PerfView, `wpr`, or
 a custom BenchmarkDotNet `EtwProfilerConfig` enabling `DiskIO` / `DiskFileIO`;

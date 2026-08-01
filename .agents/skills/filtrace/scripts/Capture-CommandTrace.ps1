@@ -46,6 +46,12 @@
     keywords a startup and CPU analysis reads, which is the lowest-perturbation choice for
     a short command.
 
+.PARAMETER CpuSampleMSec
+    CPU sample interval in milliseconds. Default 1 (the ETW default). A 30-100 ms command
+    gets only tens of samples at 1 ms, so lower it - Windows honors down to about
+    0.1221 ms - and the manifest records what was requested against what the machine
+    actually honored.
+
 .PARAMETER OutputDirectory
     Run directory for the traces, manifest, and log. Defaults to a run-stamped directory
     under ./perf-traces.
@@ -79,6 +85,7 @@ param(
     [hashtable[]]$Scenario,
     [ValidateRange(1, 1000)][int]$Iterations = 25,
     [ValidateSet('startup', 'cpu', 'threadtime')][string]$CaptureProfile = 'startup',
+    [ValidateRange(0.01, 1000.0)][double]$CpuSampleMSec = 1.0,
     [string]$OutputDirectory,
     [string]$SymbolsDirectory,
     [string]$FiltracePath,
@@ -158,6 +165,7 @@ if ($SpecPath) {
     $scenarios = @($spec.scenarios)
     $Iterations = $spec.iterations
     $CaptureProfile = $spec.profile
+    $CpuSampleMSec = $spec.cpuSampleMSec
     $OutputDirectory = $spec.outputDirectory
     $SymbolsDirectory = $spec.symbolsDirectory
     $FiltracePath = $spec.filtracePath
@@ -180,6 +188,7 @@ if (-not (Test-Elevated)) {
         scenarios        = $scenarios
         iterations       = $Iterations
         profile          = $CaptureProfile
+        cpuSampleMSec    = $CpuSampleMSec
         outputDirectory  = $runDirectory
         symbolsDirectory = $SymbolsDirectory
         filtracePath     = $FiltracePath
@@ -266,6 +275,7 @@ foreach ($item in $scenarios) {
         '--launch', $item.Command,
         '--output', $tracePath,
         '--profile', $CaptureProfile,
+        '--cpu-ms', $CpuSampleMSec,
         '--iterations', $Iterations,
         '--format', 'json')
     if ($item.Arguments) { $collectArgs += @('--launch-args', $item.Arguments) }
@@ -292,6 +302,7 @@ foreach ($item in $scenarios) {
         parameters       = ''
         benchmarkDisplay = "$($item.Command) $($item.Arguments)".Trim()
         trace            = $tracePath
+        cpuSampleMSec    = if ($result.cpuSample) { $result.cpuSample.effectiveMSec } else { $CpuSampleMSec }
         invocations      = @($result.invocations | ForEach-Object {
                 [ordered]@{
                     ordinal    = $_.ordinal
@@ -307,6 +318,18 @@ foreach ($item in $scenarios) {
     # rejects an empty optional field rather than treating it as absent.
     if ($SymbolsDirectory) { $case['symbolsDirectory'] = $SymbolsDirectory }
     $cases += $case
+
+    # Windows honors the interval only inside the profile source's bounds and reports no
+    # error outside them, so a clamp is only visible if the capture records it. Every
+    # weight in the trace is scaled to the effective interval, not the requested one.
+    if ($result.cpuSample) {
+        $effectiveMSec = $result.cpuSample.effectiveMSec
+        if ($result.cpuSample.clamped) {
+            $warnings += ("Scenario '{0}' requested a {1} ms sample interval but this machine honors {2} to {3} ms; it sampled at {4} ms." -f `
+                    $item.Name, $result.cpuSample.requestedMSec, $result.cpuSample.minimumMSec, $result.cpuSample.maximumMSec, $effectiveMSec)
+            Write-Warning "Scenario '$($item.Name)' sampled at $effectiveMSec ms, not the requested $($result.cpuSample.requestedMSec) ms."
+        }
+    }
 }
 
 if ($cases.Count -eq 0) {
@@ -316,14 +339,15 @@ if ($cases.Count -eq 0) {
 }
 
 $manifest = [ordered]@{
-    schemaVersion = 2
-    kind          = 'command'
-    startedUtc    = $startedUtc.ToString('O')
-    completedUtc  = [DateTimeOffset]::UtcNow.ToString('O')
-    profile       = $CaptureProfile
-    iterations    = $Iterations
-    cases         = $cases
-    warnings      = $warnings
+    schemaVersion    = 2
+    kind             = 'command'
+    startedUtc       = $startedUtc.ToString('O')
+    completedUtc     = [DateTimeOffset]::UtcNow.ToString('O')
+    profile          = $CaptureProfile
+    iterations       = $Iterations
+    cpuSampleMSec    = $CpuSampleMSec
+    cases            = $cases
+    warnings         = $warnings
 }
 
 # An .etl is machine-wide and a short command uses almost no CPU, so without a recorded

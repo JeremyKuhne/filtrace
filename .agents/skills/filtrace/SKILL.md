@@ -48,7 +48,9 @@ Record or produce one, point a verb - or `trace_info` - at it, then pick by the 
   machine-wide. From `filtrace collect`, BenchmarkDotNet `-p ETW`, PerfView, or `wpr`.
   It is the *only* source for wall-clock (`threadtime`), the native GC / JIT / `memcpy` split
   (`--native-symbols` + `classify`), and multi-process scoping (`processes` +
-  `--process`).
+  `--process`). For a 30-100 ms command, lower `collect --cpu-ms` below the 1 ms default
+  (Windows honors ~0.1221 ms); below the machine's floor it silently samples at the floor
+  while echoing your request, so trust the effective interval `collect` reports.
 
 So "where's the time / what allocates" on one process -> EventPipe; "CPU-bound or
 blocked?", "GC versus my code?", or a machine-wide capture -> ETW. Two bundled
@@ -62,9 +64,8 @@ own syntax. Disabled/unknown states become warnings; full BenchmarkDotNet output
 in the run log. `-Format Json` gives a compact handoff - stdout stays under 20 KiB,
 falling back to a minimal result pointing at `manifest.json`, and returning
 `status: "timeout"` with `runId` and `log` on a non-fatal elevated wait timeout;
-`-Quiet` gives warnings only.
-Manifest cases carry explicit benchmark/parameter identity; pass both
-`-OperationCount` and `-OperationUnit` for per-operation metadata, or omit both.
+`-Quiet` gives warnings only. Manifest cases carry explicit benchmark/parameter identity;
+pass both `-OperationCount` and `-OperationUnit` for per-operation metadata, or omit both.
 Analysis state comes only from `filtrace info`, never fabricated: a case it cannot read
 is unknown with no command emitted, and the recorder fallback applies only without filtrace.
 Same-project/same-TFM overlap is rejected rather than sharing outputs. The
@@ -76,10 +77,9 @@ short commands, each run repeatedly inside one session (session startup dwarfs a
 process), writing a `kind: command` manifest that `batch` and `diff` read.
 
 Two more scripts open a filtrace `export` in a hosted viewer with the profile already
-loaded, no manual upload:
-[scripts/Open-SpeedscopeTrace.ps1](scripts/Open-SpeedscopeTrace.ps1) serves a
-`--format speedscope` profile to speedscope.app (defaulting to the Left Heavy hotspot
-view), and [scripts/Open-PerfettoTrace.ps1](scripts/Open-PerfettoTrace.ps1) serves a
+loaded, no manual upload: [scripts/Open-SpeedscopeTrace.ps1](scripts/Open-SpeedscopeTrace.ps1)
+serves a `--format speedscope` profile to speedscope.app (defaulting to the Left Heavy
+hotspot view), and [scripts/Open-PerfettoTrace.ps1](scripts/Open-PerfettoTrace.ps1) serves a
 `--format chromium` synthetic flame-graph trace to the Perfetto UI. Each hosts the
 file on a one-shot loopback listener, so nothing is uploaded.
 

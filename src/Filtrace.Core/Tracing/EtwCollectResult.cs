@@ -63,9 +63,18 @@ public sealed class EtwCollectResult
     public required string ClrKeywords { get; init; }
 
     /// <summary>
-    ///  The CPU sample interval the session actually applied, in milliseconds, read back
-    ///  after the request was set. Windows clamps the interval to what the platform and
-    ///  the caller's privileges allow, so this can differ from what was asked for.
+    ///  The CPU sample interval this capture asked for and the one the operating system
+    ///  will honor, with the bounds it reported.
     /// </summary>
-    public required double EffectiveCpuSampleMSec { get; init; }
+    /// <remarks>
+    ///  <para>
+    ///   Windows accepts and echoes back any interval but only honors it inside the
+    ///   profile source's bounds, so the applied rate cannot be read back from the
+    ///   session - it is derived from those bounds. When
+    ///   <see cref="CpuSampleInterval.Clamped"/> is set the capture sampled at a
+    ///   different rate than requested, and every weight derived from it is scaled to
+    ///   the effective interval rather than the requested one.
+    ///  </para>
+    /// </remarks>
+    public required CpuSampleInterval CpuSample { get; init; }
 }

@@ -139,21 +139,20 @@ public static class EtwCollector
         string sessionName = $"filtrace-collect-{Environment.ProcessId}";
 
         List<EtwInvocation> invocations = new(request.Iterations);
-        float effectiveCpuSampleMSec;
+
+        // The applied rate cannot be read back: TraceEventSession.CpuSampleIntervalMSec
+        // returns the field it was assigned, and the OS echoes any value it was given
+        // whether or not it honors it. Resolving against the reported bounds is what makes
+        // a clamp visible.
+        CpuSampleInterval cpuSample = CpuSampleBounds.Resolve(request.CpuSampleMSec);
 
         using (TraceEventSession session = new(sessionName, outputPath)
         {
             // Stop (and flush the .etl) when the session is disposed, even on an exception.
             StopOnDispose = true,
-            CpuSampleIntervalMSec = (float)request.CpuSampleMSec,
+            CpuSampleIntervalMSec = (float)cpuSample.EffectiveMSec,
         })
         {
-            // Windows clamps the sampling interval to what the platform and the caller's
-            // privileges allow, so report what the session took rather than what was asked
-            // for - a silently clamped interval changes how many samples a short capture
-            // gets.
-            effectiveCpuSampleMSec = session.CpuSampleIntervalMSec;
-
             // A size cap records into a fixed-size ring so an open-ended capture is bounded
             // to the last MaxSizeMB megabytes on disk. Set before enabling the providers so
             // the session starts circular.
@@ -204,7 +203,7 @@ public static class EtwCollector
             Profile = request.Profile,
             KernelKeywords = providers.KernelKeywords.ToString(),
             ClrKeywords = providers.EnablesClr ? providers.ClrKeywords.ToString() : "none",
-            EffectiveCpuSampleMSec = effectiveCpuSampleMSec,
+            CpuSample = cpuSample,
         };
     }
 
