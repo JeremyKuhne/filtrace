@@ -163,9 +163,19 @@ if ($IsWindows -eq $false) {
 if ($SpecPath) {
     $spec = Get-Content -LiteralPath $SpecPath -Raw | ConvertFrom-Json
     $scenarios = @($spec.scenarios)
-    $Iterations = $spec.iterations
-    $CaptureProfile = $spec.profile
-    $CpuSampleMSec = $spec.cpuSampleMSec
+
+    # A spec written by an older version omits fields this one reads. Assigning a missing
+    # value coerces $null through the parameter's declared type - 0 for a double, '' for a
+    # validated string - and the validation attribute, which re-runs on every assignment,
+    # then rejects it. That failure lands in the elevated child, where it surfaces as a
+    # message naming only the variable. Keeping the bound value degrades to the default
+    # instead.
+    if ($null -ne $spec.iterations) { $Iterations = $spec.iterations }
+    if ($spec.profile) { $CaptureProfile = $spec.profile }
+    if ($null -ne $spec.cpuSampleMSec) { $CpuSampleMSec = $spec.cpuSampleMSec }
+
+    # Unvalidated and optional: '' is their natural unset value, so a missing field needs
+    # no guard.
     $OutputDirectory = $spec.outputDirectory
     $SymbolsDirectory = $spec.symbolsDirectory
     $FiltracePath = $spec.filtracePath
@@ -302,6 +312,8 @@ foreach ($item in $scenarios) {
         parameters       = ''
         benchmarkDisplay = "$($item.Command) $($item.Arguments)".Trim()
         trace            = $tracePath
+        # What this case actually sampled at, which is the requested interval only when
+        # the machine honored it.
         cpuSampleMSec    = if ($result.cpuSample) { $result.cpuSample.effectiveMSec } else { $CpuSampleMSec }
         invocations      = @($result.invocations | ForEach-Object {
                 [ordered]@{
@@ -325,9 +337,12 @@ foreach ($item in $scenarios) {
     if ($result.cpuSample) {
         $effectiveMSec = $result.cpuSample.effectiveMSec
         if ($result.cpuSample.clamped) {
-            $warnings += ("Scenario '{0}' requested a {1} ms sample interval but this machine honors {2} to {3} ms; it sampled at {4} ms." -f `
+            # Four decimals or the floor renders as 0.12, losing the distinction between
+            # 0.1221 and 0.125 that the interval reporting exists to make.
+            $warnings += ("Scenario '{0}' requested a {1:0.####} ms sample interval but this machine honors {2:0.####} to {3:0.####} ms; it sampled at {4:0.####} ms." -f `
                     $item.Name, $result.cpuSample.requestedMSec, $result.cpuSample.minimumMSec, $result.cpuSample.maximumMSec, $effectiveMSec)
-            Write-Warning "Scenario '$($item.Name)' sampled at $effectiveMSec ms, not the requested $($result.cpuSample.requestedMSec) ms."
+            Write-Warning ("Scenario '{0}' sampled at {1:0.####} ms, not the requested {2:0.####} ms." -f `
+                    $item.Name, $effectiveMSec, $result.cpuSample.requestedMSec)
         }
     }
 }
@@ -339,15 +354,17 @@ if ($cases.Count -eq 0) {
 }
 
 $manifest = [ordered]@{
-    schemaVersion    = 2
-    kind             = 'command'
-    startedUtc       = $startedUtc.ToString('O')
-    completedUtc     = [DateTimeOffset]::UtcNow.ToString('O')
-    profile          = $CaptureProfile
-    iterations       = $Iterations
-    cpuSampleMSec    = $CpuSampleMSec
-    cases            = $cases
-    warnings         = $warnings
+    schemaVersion            = 2
+    kind                     = 'command'
+    startedUtc               = $startedUtc.ToString('O')
+    completedUtc             = [DateTimeOffset]::UtcNow.ToString('O')
+    profile                  = $CaptureProfile
+    iterations               = $Iterations
+    # The run's setting, alongside profile and iterations. What each case actually got is
+    # its own cpuSampleMSec, which differs whenever the machine clamped the request.
+    requestedCpuSampleMSec   = $CpuSampleMSec
+    cases                    = $cases
+    warnings                 = $warnings
 }
 
 # An .etl is machine-wide and a short command uses almost no CPU, so without a recorded
@@ -370,7 +387,9 @@ $encoding = New-Object System.Text.UTF8Encoding($false)
 Write-Host ""
 Write-Host "Captured $($cases.Count) scenario(s) -> $manifestPath" -ForegroundColor Green
 if ($warnings.Count -gt 0) {
-    Write-Host "$($warnings.Count) scenario(s) failed:" -ForegroundColor Yellow
+    # Not all failures: this channel also carries advisories from runs that succeeded,
+    # such as a clamped sample interval or a matrix with no single process scope.
+    Write-Host "$($warnings.Count) warning(s):" -ForegroundColor Yellow
     $warnings | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
 }
 

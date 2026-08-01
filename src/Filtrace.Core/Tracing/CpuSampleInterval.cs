@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json.Serialization;
+using Filtrace.Output;
+
 namespace Filtrace.Tracing;
 
 /// <summary>
@@ -29,10 +32,10 @@ namespace Filtrace.Tracing;
 /// <param name="MinimumMSec">The smallest interval the profile source honors.</param>
 /// <param name="MaximumMSec">The largest interval the profile source honors.</param>
 public sealed record CpuSampleInterval(
-    double RequestedMSec,
-    double EffectiveMSec,
-    double MinimumMSec,
-    double MaximumMSec)
+    [property: JsonConverter(typeof(SubMillisecondDoubleConverter))] double RequestedMSec,
+    [property: JsonConverter(typeof(SubMillisecondDoubleConverter))] double EffectiveMSec,
+    [property: JsonConverter(typeof(SubMillisecondDoubleConverter))] double MinimumMSec,
+    [property: JsonConverter(typeof(SubMillisecondDoubleConverter))] double MaximumMSec)
 {
     /// <summary>
     ///  Whether the operating system will sample at a different rate than requested.
