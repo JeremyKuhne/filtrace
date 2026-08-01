@@ -34,6 +34,7 @@ namespace Filtrace.Output;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     GenerationMode = JsonSourceGenerationMode.Metadata,
     WriteIndented = false)]
+[JsonSerializable(typeof(AnalysisEnvelopeSchema))]
 [JsonSerializable(typeof(AnalysisResult<TraceInfoView>))]
 [JsonSerializable(typeof(AnalysisResult<EtwCollectResult>))]
 [JsonSerializable(typeof(AnalysisResult<RankingResult>))]

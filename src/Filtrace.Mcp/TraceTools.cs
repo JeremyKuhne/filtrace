@@ -65,7 +65,7 @@ public sealed class TraceTools
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The trace summary envelope.</returns>
-    [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Load a trace first. Returns format, weight, sample/thread counts, frame/source/PDB quality, analysis "
         + "availability, event counts, and etlxCacheState. captureStatus is enabled, disabled, or unknown; zero "
@@ -149,7 +149,7 @@ public sealed class TraceTools
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The ranking envelope.</returns>
-    [McpServerTool(Name = "trace_rank", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_rank", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Rank frames by self or inclusive metric weight. Metrics: cpu, threadtime, alloc, exceptions, "
         + "contention, wait, or activity; all but cpu and threadtime need .nettrace. Scope with root or "
@@ -268,7 +268,7 @@ public sealed class TraceTools
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
     /// <returns>The caller-breakdown envelope.</returns>
-    [McpServerTool(Name = "trace_callers", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_callers", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Show immediate CPU callers of frame; callees=true also shows immediate callees. Scope with "
         + "root/process or benchmark=true.")]
@@ -328,7 +328,7 @@ public sealed class TraceTools
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The line-level self-time envelope.</returns>
-    [McpServerTool(Name = "trace_lines", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_lines", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Rank CPU leaf self-time by source line for methods containing method. Requires .nettrace/.etl and "
         + "optional local PDBs; speedscope is empty and unresolved locations are '<no source>'.")]
@@ -378,7 +378,7 @@ public sealed class TraceTools
     /// <param name="pid">Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.</param>
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <returns>The heat-map envelope.</returns>
-    [McpServerTool(Name = "trace_heatmap", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_heatmap", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "CPU self-time heat map for one source filename, ordered by line. Requires .nettrace/.etl and optional "
         + "local PDBs; speedscope is empty.")]
@@ -424,7 +424,7 @@ public sealed class TraceTools
     /// <param name="process">Optional process-name substring applied to both traces.</param>
     /// <param name="benchmark">Use the BenchmarkDotNet workload root; mutually exclusive with <paramref name="root"/>.</param>
     /// <returns>The diff envelope.</returns>
-    [McpServerTool(Name = "trace_diff", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_diff", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Compare like-for-like CPU traces by absolute and normalized frame change. Both sides are fully ranked "
         + "before diffing. Scope with root/process or benchmark=true. Manifest pairs are capped to 24 cases and "
@@ -528,7 +528,7 @@ public sealed class TraceTools
     /// <param name="process">Optional process override.</param>
     /// <param name="benchmark">Use the BenchmarkDotNet workload root.</param>
     /// <returns>One bounded ranking summary row per manifest case.</returns>
-    [McpServerTool(Name = "trace_batch", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_batch", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Rank up to 24 manifest cases with one metric/query. Returns case-keyed scope, top frame/share, record "
         + "count, per-operation values when complete, and case warnings.")]
@@ -587,7 +587,7 @@ public sealed class TraceTools
     /// <param name="path">Path to the trace file.</param>
     /// <param name="top">Maximum per-collection records to return, ranked by pause time.</param>
     /// <returns>The GC-report envelope.</returns>
-    [McpServerTool(Name = "trace_gc", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_gc", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "GC summary and top pauses for .nettrace: generation counts, pause time, heap, and promoted bytes. "
         + ".etl and speedscope are rejected.")]
@@ -622,7 +622,7 @@ public sealed class TraceTools
     /// <param name="buckets">Number of equal time buckets to divide the window into.</param>
     /// <param name="time">Optional time window (<c>start,end</c> ms) scoping the timeline.</param>
     /// <returns>The timeline envelope.</returns>
-    [McpServerTool(Name = "trace_timeline", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_timeline", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Time buckets for selected GC/CPU/exception/allocation/JIT lanes in .nettrace/.etl; use the hint to rank "
         + "the busy window. Speedscope is rejected.")]
@@ -675,7 +675,7 @@ public sealed class TraceTools
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
     /// <returns>The thread-pool report envelope.</returns>
-    [McpServerTool(Name = "trace_threadpool", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_threadpool", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Thread-pool adjustments, starvation count, worker range, and reasons from .nettrace. .etl and speedscope "
         + "are rejected.")]
@@ -700,7 +700,7 @@ public sealed class TraceTools
     /// <param name="path">Path to the trace file.</param>
     /// <param name="top">Maximum per-file rows to return, ranked by disk time.</param>
     /// <returns>The disk-I/O report envelope.</returns>
-    [McpServerTool(Name = "trace_diskio", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_diskio", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Physical disk reads/writes by file from Windows .etl: bytes, operation counts, and service time. "
         + ".nettrace and speedscope are rejected.")]
@@ -750,7 +750,7 @@ public sealed class TraceTools
     /// <param name="take">The maximum number of matches to return on this page.</param>
     /// <param name="maxPayload">The per-event payload character cap.</param>
     /// <returns>The events-page envelope.</returns>
-    [McpServerTool(Name = "trace_query_events", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_query_events", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Page raw .nettrace/.etl events by name and optional payload/pid/tid filters; skip/take page and maxPayload "
         + "truncates values. Speedscope is rejected.")]
@@ -836,7 +836,7 @@ public sealed class TraceTools
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); .etl captures only.</param>
     /// <returns>The export-confirmation envelope.</returns>
-    [McpServerTool(Name = "trace_export", ReadOnly = false, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_export", ReadOnly = false, Idempotent = true, OpenWorld = true, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Write CPU flame graph to required output, overwriting it; format is speedscope or synthetic chromium. "
         + "Scope with process/root or benchmark. nativeSymbols is a networked .etl opt-in.")]
@@ -903,7 +903,7 @@ public sealed class TraceTools
     /// <param name="store">The trace cache (injected).</param>
     /// <param name="path">Path to the trace file.</param>
     /// <returns>The process-inventory envelope.</returns>
-    [McpServerTool(Name = "trace_processes", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_processes", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "List every process by CPU-sample weight without auto-scoping; use a process value in later queries. "
         + "Single-process inputs return one row.")]
@@ -934,7 +934,7 @@ public sealed class TraceTools
     /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
     /// <returns>The call-tree envelope.</returns>
-    [McpServerTool(Name = "trace_tree", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_tree", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Top-down CPU call tree with inclusive shares. maxDepth/minPercent bound output; scope with root/process "
         + "or benchmark=true. JIT helpers fold by default.")]
@@ -994,7 +994,7 @@ public sealed class TraceTools
     /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
     /// <returns>The classification envelope.</returns>
-    [McpServerTool(Name = "trace_classify", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_classify", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "Bucket CPU self-time into zeroing, copying, write barrier, GC, JIT, or other. nativeSymbols=true is the "
         + "networked .etl path for accurate runtime categories; scope with root/process or benchmark.")]
@@ -1037,7 +1037,7 @@ public sealed class TraceTools
     /// <param name="path">Path to the trace file.</param>
     /// <param name="top">Maximum per-method records to return, ranked by compile time.</param>
     /// <returns>The JIT-report envelope.</returns>
-    [McpServerTool(Name = "trace_jit", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [McpServerTool(Name = "trace_jit", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
         "JIT method count, total/mean compile time, and top costly methods from .nettrace. Aggregate values cover "
         + "all methods; .etl and speedscope are rejected.")]

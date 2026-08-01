@@ -72,9 +72,12 @@ new analysis capabilities. MCP already presents these metrics through one
 call. At the time of this baseline the list measured 33,764 characters and
 approximately 8,301 tokens against what was then a 9,000-token CI ceiling in
 [Test-McpServer.ps1](../tools/Test-McpServer.ps1). [SC1](#sc1---exact-process-identity-scope)
-has since added the exact-scope parameters, taking the list to approximately 8,950
-tokens against the raised 9,800-token interim ceiling; the component shares below are
-unchanged in shape.
+then added the exact-scope parameters, taking it to approximately 8,950.
+
+The list now measures approximately **6,118** tokens against a 7,000-token ceiling,
+after the output schemas were compacted - see
+[Output schemas were the budget](#output-schemas-were-the-budget). The shares that
+motivated the reduction were:
 
 | Component | Approx. tokens | Share |
 |---|---:|---:|
@@ -83,6 +86,32 @@ unchanged in shape.
 | Tool descriptions | 734 | 9% |
 | Names and JSON/schema structure | 630 | 8% |
 | **Total** | **8,301** | **100%** |
+
+Measured again before the reduction, at 9,044 tokens, the shares held: output schemas
+4,014 (44%), input schemas 3,703 (41%), descriptions 734 (8%). Descriptions were always
+the smallest share, so prose was never where a breach could be answered.
+
+### Output schemas were the budget
+
+Every tool advertised a fully expanded `outputSchema`: an identical
+`schemaVersion` / `warnings` / `hints` envelope repeated seventeen times, plus each
+result type expanded in full. `trace_info` spent 518 tokens advertising its output
+against 153 describing its inputs.
+
+This was previously recorded as unreclaimable, on the grounds that
+ModelContextProtocol couples the advertised schema to structured content. That is not
+so: `McpServerToolAttribute.OutputSchemaType` decouples them. Pointing every tool at
+[AnalysisEnvelopeSchema](../src/Filtrace.Core/Output/AnalysisEnvelopeSchema.cs) - the
+envelope with the payload left unexpanded - took the output-schema share from 4,014 to
+1,088 tokens and the list from 9,044 to 6,118, a 32% reduction.
+
+Structured content is unaffected: it is serialized from the returned
+`AnalysisResult<T>`, not from the advertised schema, so clients receive the same typed
+payload they did before. What a client no longer learns up front is each tool's exact
+result shape. The trade was judged worth it because that shape costs context on every
+conversation, whereas a caller learns it from the first result, and because the
+alternative levers - prose, at 8%, and input schemas, which the model needs to call
+correctly - are respectively too small and load-bearing.
 
 The largest individual definitions are:
 
@@ -152,11 +181,10 @@ v.next should improve efficacy, not merely reduce counts.
 6. Keep the Core result model typed, deterministic, AOT-safe, and shared by both
    heads.
 7. Hold the tool-list and 25,000-token response ceilings. A redesign must create
-   headroom rather than move the limits. The one recorded exception is
-   [SC5](#sc5---process-lifecycle-report), which raised the tool-list gate from 9,000
-   to 9,800 to admit a capability the v.next surface work does not deliver; it does not
-   change the VN3 targets, and v.next is still expected to return the list to 9,000 or
-   below.
+   headroom rather than move the limits. The one recorded exception,
+   [SC5](#sc5---process-lifecycle-report), has been retired: compacting the output
+   schemas took the list to approximately 6,118 tokens and the gate to 7,000, below
+   both the original 9,000 ceiling and the 7,500 VN3 target.
 
 ## Non-goals
 
@@ -769,8 +797,8 @@ therefore subject to the same gates as the VC backlog.
 | SC1 | Scope cannot name exact processes | `--pid` / `--children` on the scope-aware verbs and tools | High | Shipped (#63) |
 | SC2 | Local native PDBs are never applied to non-runtime modules | `--symbols` behavior fix plus per-module status | High | Shipped (#65) |
 | SC3 | Capture always enables CLR plus disk and network keywords | `collect --profile` | High | Shipped (#64) |
-| SC4 | One ETW session per short invocation | `collect --iterations` plus a command-matrix script | Medium | Open; no gate |
-| SC5 | No wall-clock phase report | Lifecycle verb and tool over process/image events | Medium | Open; gated on SC4 |
+| SC4 | One ETW session per short invocation | `collect --iterations` plus a command-matrix script | Medium | Shipped (#66) |
+| SC5 | No wall-clock phase report | Lifecycle verb and tool over process/image events | Medium | Open; no gate |
 | SC6 | Sub-millisecond sampling rejected before collection | Widened range plus effective-interval reporting | Low | Open; needs platform measurement |
 | SC7 | No short-startup recipe for agents | `workflow.md`, `traps.md`, shipped skill | Low | Open; gated on SC1-SC6 |
 
@@ -931,6 +959,18 @@ manifest with an `invocations` array and a `kind` discriminator and bump
 `schemaVersion`, so `batch` and `diff` keep working across command scenarios instead
 of needing a parallel consumer.
 
+Shipped in #66, plus one addition and one gap worth recording.
+
+`collect` also gained `--format json`, which every other verb already had. The capture
+script has to record each launch accurately, and reading them back out of the human
+summary is not a contract worth depending on - the launched command shares that stream.
+
+Scoping remains by process *name*, so a command matrix warns that the name matched
+several unrelated trees and ranks them together. The manifest records each launch's
+exact process id, but the batch analyzer does not thread a per-case scope through, so
+that data is captured and unused. Consuming it is what would make a command capture
+exact rather than name-approximate, and it is a Core change rather than a script one.
+
 ### SC5 - Process lifecycle report
 
 The `events` verb exposes the kernel `Process/Start`, `Process/Stop`, and image-load
@@ -943,20 +983,69 @@ wall time separately from sampled CPU, and states that inclusive CPU rows overla
 This is the item that answers where a 50 ms command sits blocked, in the loader, in a
 child, and in teardown - which sampled CPU alone cannot.
 
-Decided: raise the `tools/list` ceiling in
-[Test-McpServer.ps1](../tools/Test-McpServer.ps1) with a written justification rather
-than defer the tool. SC1's exact-scope parameters took the list from approximately
-8,301 to approximately 8,950 tokens, leaving too little headroom for a new tool, so the
-gate moved from 9,000 to 9,800 - the measurement plus the largest existing definition
-(`trace_diff`, approximately 830 tokens). That admits exactly one more tool and no
-general slack.
+Decided: SC5 originally required raising the `tools/list` ceiling, because SC1's
+exact-scope parameters took the list from approximately 8,301 to approximately 8,950
+tokens and left no room for a new tool. That raise is retired. Compacting the output
+schemas took the list to approximately 6,118 tokens against a 7,000-token gate in
+[Test-McpServer.ps1](../tools/Test-McpServer.ps1), so a lifecycle tool the size of the
+largest existing definition (`trace_diff`, approximately 830 tokens) fits without
+touching the gate.
 
-This is a knowing departure from goal 7 and from the backlog rule that no capability
-adds a standalone MCP tool before VN3. Three conditions bound it: the raise is an
-interim gate rather than a new target, the VN3 targets of 7,500 and 5,000 are
-unchanged, and VN3 must evaluate folding lifecycle into the report family the same
-way it evaluates every other tool. SC5 makes the output-schema reduction more urgent;
-it does not excuse it.
+SC5 is still bound by the backlog rule that no capability adds a standalone MCP tool
+before VN3, and VN3 must evaluate folding lifecycle into the report family the same way
+it evaluates every other tool. The VN3 targets of 7,500 and 5,000 are unchanged; 7,500
+is already met.
+
+### Tool consolidation - candidates for VN3
+
+Compacting the output schemas removed the pressure that would have forced a
+restructure, so nothing here is needed for the budget. These are recorded because
+consolidation may be right on its own merits, and VN3 is where the surface is decided
+with the eval evidence to judge it. Every option renames or removes a `trace_*` name,
+which [AGENTS.md](../AGENTS.md) holds as a frozen contract, so each needs a deliberate
+breaking-change decision rather than a quiet merge.
+
+Current measurements, post-reduction, for the tools involved:
+
+| Tool | Tokens | Params |
+|---|---:|---:|
+| `trace_rank` | 588 | 14 |
+| `trace_tree` | 470 | 10 |
+| `trace_callers` | 446 | 10 |
+| `trace_lines` | 419 | 8 |
+| `trace_jit` | 206 | 2 |
+| `trace_diskio` | 202 | 2 |
+| `trace_gc` | 201 | 2 |
+| `trace_threadpool` | 161 | 1 |
+
+**Option A - fold the four provider reports into `trace_report(kind)`.**
+`trace_gc`, `trace_jit`, `trace_diskio`, and `trace_threadpool` are near-identical in
+shape: a path, a bound, and a provider-specific result. One tool with a `kind`
+discriminator replaces four.
+*For:* saves roughly 500 tokens; the four already read as one family; it mirrors how
+`trace_rank` unifies seven metrics.
+*Against:* four names disappear from the contract; a `kind` parameter hides which
+providers a trace actually supports, which the separate names advertise for free; and
+the per-kind result shapes differ enough that the result type becomes a union.
+
+**Option B - fold `trace_callers`, `trace_lines`, and `trace_tree` into a drill family.**
+All three answer "having found a frame, show me more about it" and share most
+parameters.
+*For:* saves roughly 700 tokens; the shared scope and folding parameters stop being
+described three times.
+*Against:* these are the most-used drill operations, and collapsing them behind a mode
+makes the common path less discoverable - the opposite of what the surface is for. The
+eval would need to show the mode does not cost calls.
+
+**Option C - leave the surface alone.**
+*For:* the budget no longer requires a change; the names are a frozen contract and each
+one is individually discoverable; the eval currently shows the surface working.
+*Against:* the list still carries seventeen definitions, and the 5,000-token stretch
+target is not reachable without either this or a further schema reduction.
+
+The 5,000 target is worth noting against these: at 6,118 the gap is about 1,100 tokens,
+which Option A alone does not close and Option B roughly does. That is an argument for
+evaluating B on its merits in VN3, not for adopting it now.
 
 ### SC6 - CPU sample interval
 
@@ -997,7 +1086,8 @@ lands last. Run `tools/Test-Docs.ps1 -Fix` after editing a marked block.
   inventory to list every verb implementing a scope option. SC1's two extra options
   across thirteen verbs fit; `rank` is the one to re-check first on any further
   option addition, since it is the largest.
-- `tools/Test-McpServer.ps1` gates the tool-list token budget; see SC5.
+- `tools/Test-McpServer.ps1` gates the tool-list token budget; see
+  [Output schemas were the budget](#output-schemas-were-the-budget).
 - `tools/Test-CaptureBenchmarkTrace.ps1` is the model for a `Capture-CommandTrace.ps1`
   contract test, and SC4's manifest change touches its schema assertions.
 - Fixture coverage is the open item for the remaining items. SC1 was covered from the
@@ -1014,7 +1104,7 @@ lands last. Run `tools/Test-Docs.ps1 -Fix` after editing a marked block.
 SC1 shipped in #63. SC2 and SC3 remain independent of each other and of the transport
 and schema decisions; together with SC1 they remove the investigation-specific
 filtrace fork. SC4 follows, since its manifest is only useful once exact scope and a
-low-perturbation profile exist. SC5 follows SC4 and the tool-list budget decision.
+low-perturbation profile exist. SC5 follows SC4; the tool-list budget no longer gates it.
 SC6 and SC7 close the initiative.
 
 ## Eval and measurement plan
@@ -1064,7 +1154,7 @@ A v.next candidate is acceptable only when:
 - median tool calls do not increase;
 - p95 calls remain within the current six-call ceiling;
 - total investigation tokens fall by at least 20% on the multi-model suite;
-- the tool-list returns to 9,000 tokens or below, retiring the interim SC5 raise;
+- the tool-list stays at or below the 7,000-token gate;
 - no standard result exceeds 25,000 tokens;
 - summary-mode JIT and raw-event count tasks fall below 500 response tokens;
 - CLI help remains within its line budget and documents every advertised command;
@@ -1157,7 +1247,7 @@ into agent guidance.
 | CLI grouping hurts shell discoverability | Compare top-level help/completion and retain intent-bearing commands such as `diff` and `timeline`. |
 | Compatibility aliases erase token gains | Never advertise old and new MCP tools together; bound CLI aliases to one preview. |
 | Eval overfits one model | Run multiple model families and repeat each task; reject any per-model success drop. |
-| Raising the tool-list gate for SC5 becomes the new normal | Record the raise as interim in the script rationale, keep the VN3 targets unchanged, and require VN3 to re-evaluate the lifecycle tool for consolidation. |
+| Reclaimed schema headroom is spent on tool sprawl rather than kept | Hold the 7,000-token gate, keep the VN3 targets unchanged, and require VN3 to re-evaluate every tool - including a future lifecycle tool - for consolidation. |
 | SC1 scope options inflate per-verb help past the 60-line budget | Add the options to `rank` first and measure; consolidate child control into one enum option rather than a flag pair. |
 
 ## Open decisions
