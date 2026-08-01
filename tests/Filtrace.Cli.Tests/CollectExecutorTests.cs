@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using System.Text.Json;
+using Filtrace.Output;
 using Filtrace.Tracing;
 using Filtrace.Tracing.Providers;
 
@@ -188,9 +189,12 @@ public sealed class CollectExecutorTests
     [TestMethod]
     [DataRow(0)]
     [DataRow(-1)]
-    public void Collect_NonPositiveIterations_ThrowsArgumentOutOfRange(int iterations)
+    [DataRow(1001)]
+    public void Collect_IterationsOutsideTheSupportedRange_ThrowsArgumentOutOfRange(int iterations)
     {
-        // Runs before the OS / elevation guard, so this is deterministic on every OS.
+        // The ceiling matters as much as the floor: the capture manifest rejects more
+        // invocations than this, so a capture the core accepted but no manifest could
+        // describe would only fail later, somewhere less obvious.
         Action act = () => EtwCollector.Collect(new EtwCollectRequest
         {
             LaunchExecutable = "app.exe",
@@ -199,6 +203,37 @@ public sealed class CollectExecutorTests
         });
 
         act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [TestMethod]
+    public void SerializedInvocation_CarriesOnlyTheRecordedFacts()
+    {
+        // Duration is derived from the timestamps, so putting it on the wire would repeat
+        // the same information a thousand times over at the maximum iteration count.
+        EtwCollectResult result = new()
+        {
+            OutputPath = "out.etl",
+            ProcessId = 42,
+            ProcessName = "app",
+            ProcessExitCode = 0,
+            Invocations =
+            [
+                new EtwInvocation(1, 42, 0, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddMilliseconds(50))
+            ],
+            FileSizeBytes = 1,
+            Profile = CollectProfile.Cpu,
+            KernelKeywords = "Process",
+            ClrKeywords = "none",
+            EffectiveCpuSampleMSec = 1.0,
+        };
+
+        string json = OutputJson.Serialize(new AnalysisResult<EtwCollectResult>(result, [], []));
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement invocation = document.RootElement
+            .GetProperty("result").GetProperty("invocations")[0];
+        invocation.EnumerateObject().Select(static property => property.Name)
+            .Should().BeEquivalentTo("ordinal", "processId", "exitCode", "startedUtc", "stoppedUtc");
     }
 
     [TestMethod]

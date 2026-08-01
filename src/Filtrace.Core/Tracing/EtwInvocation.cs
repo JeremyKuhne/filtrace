@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json.Serialization;
+
 namespace Filtrace.Tracing;
 
 /// <summary>
@@ -36,5 +38,12 @@ public sealed record EtwInvocation(
     ///  is not the same as its CPU time and overlaps with the other invocations only if
     ///  something ran them concurrently - the capture runs them in sequence.
     /// </summary>
+    /// <remarks>
+    ///  <para>
+    ///   Kept off the wire: it is derivable from the two timestamps, and repeating it per
+    ///   launch would grow the JSON result for no information at a thousand iterations.
+    ///  </para>
+    /// </remarks>
+    [JsonIgnore]
     public TimeSpan Duration => StoppedUtc - StartedUtc;
 }

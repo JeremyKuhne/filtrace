@@ -45,6 +45,13 @@ public static class EtwCollector
     public static bool IsSupported => OperatingSystem.IsWindows();
 
     /// <summary>
+    ///  The most launches one session will wrap. Matches what the <c>collect</c> verb and
+    ///  the capture manifest accept, so a capture taken through any entry point can be
+    ///  described by a manifest the reader will take.
+    /// </summary>
+    public const int MaxIterations = 1000;
+
+    /// <summary>
     ///  Whether the current process is elevated enough to open a kernel ETW session.
     /// </summary>
     public static bool IsElevated => OperatingSystem.IsWindows() && TraceEventSession.IsElevated() == true;
@@ -87,11 +94,11 @@ public static class EtwCollector
                 "The size cap must be positive when set; omit it to write an unbounded sequential file.");
         }
 
-        if (request.Iterations <= 0)
+        if (request.Iterations is <= 0 or > MaxIterations)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(request.Iterations), request.Iterations,
-                "The iteration count must be positive.");
+                $"The iteration count must be between 1 and {MaxIterations}.");
         }
 
         if (!OperatingSystem.IsWindows())

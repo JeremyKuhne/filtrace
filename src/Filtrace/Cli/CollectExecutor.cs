@@ -34,6 +34,13 @@ internal static class CollectExecutor
     /// <param name="output">The writer the result and next steps are reported to.</param>
     /// <param name="error">The writer a failure message is reported to.</param>
     /// <returns>A process exit code (see <see cref="ExitCodes"/>).</returns>
+    /// <returns>
+    ///  A process exit code (see <see cref="ExitCodes"/>). This reports whether the capture
+    ///  ran, not how the launched command fared: a capture whose launches all failed still
+    ///  produced a trace and returns success. Read
+    ///  <see cref="EtwCollectResult.ProcessExitCode"/>, or the printed failure count, to
+    ///  judge the command itself.
+    /// </returns>
     public static int Run(EtwCollectRequest request, TextWriter output, TextWriter error) =>
         Run(request, OutputFormat.Text, output, error);
 
