@@ -338,7 +338,8 @@ public sealed class CollectExecutorTests
 
     [TestMethod]
     public void Run_WhenElevated_RepeatedIterations_RecordsEveryLaunchInOneSession()
-    {        if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
+    {
+        if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
         {
             Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
         }

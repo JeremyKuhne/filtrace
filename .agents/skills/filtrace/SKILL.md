@@ -19,10 +19,10 @@ If `overlay.md` exists beside this file, read it before acting; it contains
 consumer-specific bindings. This core remains usable without it.
 
 filtrace ranks CPU / allocation / exception / contention / wait / activity /
-thread-time data, reports GC / JIT / thread-pool / disk activity, and drills into,
-diffs, or exports CPU profiles from `.nettrace`, `.etl`, and speedscope captures.
-It reads both modern .NET and .NET Framework traces. It is a command-line tool and
-an MCP server - there is no GUI. Output is dense text by default, or compact JSON
+thread-time data, reports GC / JIT / thread-pool / disk / process-lifecycle activity,
+and drills into, diffs, or exports CPU profiles from `.nettrace`, `.etl`, and speedscope
+captures. It reads both modern .NET and .NET Framework traces. It is a command-line tool
+and an MCP server - there is no GUI. Output is dense text by default, or compact JSON
 (`--format json`); the analyzer itself runs on .NET 10.
 
 This skill is the *how*; the full reference is single-sourced in
@@ -48,34 +48,28 @@ Record or produce one, point a verb - or `trace_info` - at it, then pick by the 
   machine-wide. From `filtrace collect`, BenchmarkDotNet `-p ETW`, PerfView, or `wpr`.
   It is the *only* source for wall-clock (`threadtime`), the native GC / JIT / `memcpy` split
   (`--native-symbols` + `classify`), and multi-process scoping (`processes` +
-  `--process`). For a 30-100 ms command, lower `collect --cpu-ms` below the 1 ms default
-  (Windows honors ~0.1221 ms); below the machine's floor it silently samples at the floor
-  while echoing your request, so trust the effective interval `collect` reports.
+  `--process`). For a command that finishes in tens of milliseconds, see trap 13.
 
 So "where's the time / what allocates" on one process -> EventPipe; "CPU-bound or
-blocked?", "GC versus my code?", or a machine-wide capture -> ETW. Two bundled
-scripts wrap the capture-then-analyze loop and print the scoped filtrace commands:
-[scripts/Capture-BenchmarkTrace.ps1](scripts/Capture-BenchmarkTrace.ps1) profiles a
-BenchmarkDotNet micro-benchmark in an isolated run directory, emits an all-case
-manifest, verifies exact generated-child PDBs, and prints commands only for
-known-enabled analyses. Each command uses the benchmark, process, method, or other
-scope supported by its verb; structured reports and orientation commands keep their
-own syntax. Disabled/unknown states become warnings; full BenchmarkDotNet output stays
-in the run log. `-Format Json` gives a compact handoff - stdout stays under 20 KiB,
-falling back to a minimal result pointing at `manifest.json`, and returning
-`status: "timeout"` with `runId` and `log` on a non-fatal elevated wait timeout;
-`-Quiet` gives warnings only. Manifest cases carry explicit benchmark/parameter identity;
-pass both `-OperationCount` and `-OperationUnit` for per-operation metadata, or omit both.
-Analysis state comes only from `filtrace info`, never fabricated: a case it cannot read
-is unknown with no command emitted, and the recorder fallback applies only without filtrace.
-Same-project/same-TFM overlap is rejected rather than sharing outputs. The
-[scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) builds an
-executable project and traces its running output directly - never `dotnet run`,
-whose build/run host is a different process (see the trap catalog).
-[scripts/Capture-CommandTrace.ps1](scripts/Capture-CommandTrace.ps1) captures a matrix of
-short commands, each run repeatedly inside one session (session startup dwarfs a 30-100 ms
-process), writing a `kind: command` manifest that `batch` and `diff` read.
-
+blocked?", "GC versus my code?", or a machine-wide capture -> ETW. Bundled scripts wrap
+the capture-then-analyze loop, each writing a manifest and printing only the commands its
+capture actually unlocks, scoped as each verb supports:
+[scripts/Capture-BenchmarkTrace.ps1](scripts/Capture-BenchmarkTrace.ps1) for a
+BenchmarkDotNet micro-benchmark - isolated run directory, all-case manifest with explicit
+benchmark/parameter identity, exact generated-child PDB verification; pass both
+`-OperationCount` and `-OperationUnit` for per-operation metadata, or omit both, and
+expect same-project/same-TFM overlap to be rejected rather than shared.
+[scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) traces an executable
+project's built output - never `dotnet run`, whose build/run host is a different process
+(see the trap catalog). [scripts/Capture-CommandTrace.ps1](scripts/Capture-CommandTrace.ps1)
+captures a matrix of short commands, each repeated inside one session, writing a
+`kind: command` manifest that `batch` and `diff` read (see trap 13).
+Analysis state comes only from `filtrace info` and is never fabricated: a case it cannot
+read is unknown with no command emitted, and the recorder fallback applies only without
+filtrace. Disabled/unknown states become warnings and full tool output stays in the run
+log. `-Format Json` gives a compact handoff - stdout bounded to 20 KiB, falling back to a
+minimal result pointing at `manifest.json`, and returning `status: "timeout"` with `runId`
+and `log` on a non-fatal elevated wait timeout; `-Quiet` gives warnings only.
 Two more scripts open a filtrace `export` in a hosted viewer with the profile already
 loaded, no manual upload: [scripts/Open-SpeedscopeTrace.ps1](scripts/Open-SpeedscopeTrace.ps1)
 serves a `--format speedscope` profile to speedscope.app (defaulting to the Left Heavy
@@ -83,26 +77,20 @@ hotspot view), and [scripts/Open-PerfettoTrace.ps1](scripts/Open-PerfettoTrace.p
 `--format chromium` synthetic flame-graph trace to the Perfetto UI. Each hosts the
 file on a one-shot loopback listener, so nothing is uploaded.
 
-For `rank --metric wait`, capture a .NET 9+ process with the runtime's default
-keywords plus `WaitHandle` (`0x40000000000`); the combined mask for the runtime
-used here is `0x414C14FCCBD`:
+A plain `dotnet-trace collect` captures CPU, runtime contention, and the structured
+runtime reports its profile selects, but two metrics need an explicit provider on the
+command line. `rank --metric wait` needs a .NET 9+ process captured with the runtime's
+default keywords plus `WaitHandle` (`0x40000000000`); the combined mask for the runtime
+used here is `0x414C14FCCBD`. Activity ranking and `--activity` CPU scope need completed
+EventSource Start/Stop pairs - matching `OperationStart` / `OperationStop` events, or
+explicit Start/Stop opcodes - **and that application provider enabled during capture**.
+Level `5` is Verbose; an all-ones mask enables every keyword:
 
 ```pwsh
+# for rank --metric wait
 dotnet-trace collect --profile cpu-sampling `
    --providers Microsoft-Windows-DotNETRuntime:0x414C14FCCBD:5 -- <app> <args>
-```
-
-A plain `dotnet-trace collect` can capture CPU, runtime contention, and structured
-runtime reports depending on its selected profile, but `wait` needs the explicit
-keyword above.
-
-Activity ranking and `--activity` CPU scope need completed EventSource Start/Stop
-pairs **and that application provider enabled during capture**. Use matching
-`OperationStart` / `OperationStop` events (or explicit Start/Stop opcodes) and add
-the provider alongside CPU sampling - level `5` is Verbose, the mask enables all
-keywords:
-
-```pwsh
+# for metric activity / --activity scope
 dotnet-trace collect --profile cpu-sampling `
    --providers MyCompany-RequestSource:0xFFFFFFFFFFFFFFFF:5 -- <app> <args>
 ```
@@ -115,20 +103,11 @@ Almost every investigation is the same four moves:
    first - `filtrace info <trace>` or the `trace_info` tool. A rate **below 0.8**
    fires a quality warning: inspect the unresolved rows before trusting frame names.
    Managed method names normally come from the capture's CLR rundown; `--symbols`
-   supplies matching PDBs for source lines, not a replacement for missing rundown.
-   Treat that rate as frame-name quality only. Before source-line analysis, inspect
-   `sourceResolution`: require exact matches for the relevant modules, report mapped
-   versus sampled managed frames, and use `highestUnmappedModules` plus
-   `searchedDirectories` to diagnose the missing PDBs. If
-   `pdbIdentityMismatchModules` names a module, the expected PDB filename exists but
-   its GUID or age differs from the trace. For BenchmarkDotNet, point symbols at the
-   generated child output retained with `--keepFiles`. Once the relevant module
-   matches, compare `sourceMappedManagedMethodCount` with
-   `sampledManagedMethodCount`; use `unmappedNamedManagedFrameCount` and
-   `highestUnmappedMethods` to quantify and identify named frames that remain
-   `<no source>`.
-   Unresolved native ETW frames can depress the aggregate while managed-method
-   rankings remain usable; use `--native-symbols` when the native runtime split matters.
+   supplies matching PDBs for source lines, not a replacement for missing rundown, and
+   the rate measures frame names only. Unresolved native ETW frames can depress the
+   aggregate while managed-method rankings remain usable; use `--native-symbols` when
+   the native runtime split matters. Before any source-line analysis, inspect
+   `sourceResolution` - trap 2 has the full field-by-field procedure.
    Check `availableAnalyses` before selecting a metric, then read
    `analyses.<name>`: `captureStatus` and `eventCount` distinguish enabled-zero,
    disabled, observed, and unknown provider state.
@@ -167,6 +146,7 @@ workload:
 | Repeated exceptions | `exceptions` self, then inclusive | thrown types, then the paths that throw them |
 | One captured request or job is slow | metric `activity`, then CPU scoped with `activity` | completed activity paths, then CPU inside the named operation |
 | A spike occurs at an unknown time | `timeline`, then `rank --time` | the busy window, then its stacks |
+| A command finishes in tens of milliseconds | `lifecycle`, then `cpu` (trap 13) | wall-clock phases first; sampled CPU alone cannot explain a blocked command |
 | Physical disk pressure | `diskio` (`.etl` with disk keywords) | files ranked by physical disk service time |
 
 <!-- filtrace:begin verbs -->
@@ -301,10 +281,8 @@ Run `filtrace <verb> --help` for the full option set of any verb.
    (`.speedscope.json` is aggregate-only here and warns that the window was ignored).
 - **Symbols.** Managed frames (including NGEN and ReadyToRun framework methods)
    resolve to method names from the trace's CLR rundown. `--symbols <dir>` supplies
-   matching local PDBs for source-line attribution; do not assume it repairs missing
-   rundown names or that a same-named PDB matches. Confirm exact PDB modules and
-   sampled source mapping in `trace_info.sourceResolution`; for BenchmarkDotNet,
-   prefer the retained generated child output over the outer project output.
+   matching local PDBs for source-line attribution; it does not repair missing rundown
+   names, and a same-named PDB is not a matching one (trap 2).
    `--native-symbols` (CPU `.etl` only, opt-in, network) names the
    unmanaged GC / JIT / `memcpy` frames that otherwise show as a `?` leaf.
 
@@ -315,25 +293,23 @@ Run `filtrace <verb> --help` for the full option set of any verb.
    that the behavior does not exist.
 - State the trace format, selected process/root/time window, metric, and
    self-versus-inclusive measure with the finding. Percentages are relative to that
-   scope; CPU milliseconds are sampled estimates, not exact elapsed duration.
-- Keep counts separate from weight. `trace_info.sampleCount` describes the loaded
-   whole trace after process/activity/time filters; it does not establish that a
-   narrower query is well sampled. Rankings/callers expose
-   `contributingRecordCount`; lines/heat maps expose attributed and unattributed
-   record counts. `scopeWeight` remains metric weight, never a generic record count.
-- Apply the default 200-record method and 1,000-record line guidance only to periodic
-   CPU sampling. Evented speedscope records are duration intervals: report their count
-   separately from weight, but do not apply periodic thresholds. A null count means
-   the source cannot establish meaningful record semantics.
+   scope; CPU milliseconds are sampled estimates scaled to the effective sample
+   interval, not exact elapsed duration, and inclusive rows along one stack overlap
+   (trap 14).
+- Keep counts separate from weight, and read the query's own count rather than the
+   trace's: rankings and callers expose `contributingRecordCount`, lines and heat maps
+   expose attributed and unattributed counts, and `scopeWeight` is metric weight, never
+   a record count. The 200-record method and 1,000-record line thresholds apply only to
+   periodic CPU sampling; evented speedscope records are duration intervals, so report
+   their count without applying those thresholds (trap 5).
 - `alloc` attributes `GCAllocationTick` volume to allocation sites. It does **not**
    report retained bytes, object reachability, or GC-root paths, so it cannot prove a
    memory leak; use a heap snapshot/dump tool for retention.
 - `threadtime` aggregates running and blocked intervals across threads. Do not call
    its total a request's latency unless the scope isolates that request/thread.
-- `lifecycle` reports wall clock from kernel process events, which is not sampled CPU:
-   the gap between a root's lifetime and its sampled CPU is blocked time, and a parent's
-   lifetime contains its children's. Invocations the capture did not see both start and
-   stop are listed but excluded from the medians.
+- `lifecycle` reports wall clock from kernel process events, not sampled CPU; a parent's
+   lifetime contains its children's, and clipped invocations are excluded from the
+   medians (trap 14).
 - `contention`, `wait`, and `activity` pair Start/Stop events. An operation still
    open at trace end may be absent; an empty ranking does not rule out an active
    hang. Use ETW threadtime or a dump/current-state tool when the unfinished state
@@ -479,12 +455,36 @@ The recurring ways a .NET trace investigation goes wrong:
    `--process` or `--pid` (lossless - it keeps
    managed stacks); physically trimming the file by relogging is a transport-only
    optimization that currently drops JITted managed frames.
+
+13. **A 30-100 ms command breaks the capture defaults, quietly.** Every failure here
+   returns a plausible-looking trace. ETW session startup and flush cost roughly 900 ms
+   and the CLR provider perturbs a short process hard, so a capture reporting a 197 ms
+   lifetime against a 28 ms uninstrumented run is measuring the instrument - time the
+   command outside a session first and keep that baseline. Then: `--profile startup` to
+   stop paying for keywords a short run does not read; `--cpu-ms` below the 1 ms default,
+   since 1 ms leaves a 50 ms command with tens of samples, though below the machine's
+   floor Windows keeps sampling at the floor while still reporting the interval you asked
+   for (read the effective one back); `--iterations` to amortize the session over repeated
+   launches instead of opening one per run; and `--pid` with the manifest's exact ids,
+   because a machine-wide `.etl` of a common host name contains every other instance of
+   it. For a Native AOT parent, rank *inclusive* - its cost sits in ancestors that
+   self-time never surfaces - and combine `--symbols` for your own native PDBs with
+   `--native-symbols` for the host, runtime, and OS ones; they compose.
+
+14. **Wall clock is not CPU, and inclusive rows do not add up.** A process blocked in the
+   loader or waiting on a child owns no samples while it waits, so sampled CPU cannot
+   explain a command whose elapsed time exceeds it - derive the phases from kernel process
+   and image events (`lifecycle`) instead, and treat the gap between a root's lifetime and
+   its sampled CPU as the blocked time. Two consequences when reporting: sampled
+   milliseconds are an estimate scaled to the *effective* sample interval, not a measured
+   duration; and inclusive rows along one stack contain each other, so summing them
+   double-counts. An invocation whose start or stop the capture never observed is clipped
+   to the capture window, which makes its lifetime a lower bound rather than a value.
 <!-- filtrace:end traps -->
 
 ## CLI or MCP
 
-The two heads share one analysis core, with deliberately different operational
-surfaces:
+The two heads share one analysis core, with deliberately different operational surfaces:
 
 - **CLI** - `dotnet tool install -g KlutzyNinja.Filtrace`, then `filtrace <verb>`.
 - **MCP server** - `dnx KlutzyNinja.Filtrace.Mcp` over stdio, exposing eighteen

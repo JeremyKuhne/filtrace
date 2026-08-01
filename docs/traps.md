@@ -128,4 +128,29 @@ embeds the marked block below verbatim and
    `--process` or `--pid` (lossless - it keeps
    managed stacks); physically trimming the file by relogging is a transport-only
    optimization that currently drops JITted managed frames.
+
+13. **A 30-100 ms command breaks the capture defaults, quietly.** Every failure here
+   returns a plausible-looking trace. ETW session startup and flush cost roughly 900 ms
+   and the CLR provider perturbs a short process hard, so a capture reporting a 197 ms
+   lifetime against a 28 ms uninstrumented run is measuring the instrument - time the
+   command outside a session first and keep that baseline. Then: `--profile startup` to
+   stop paying for keywords a short run does not read; `--cpu-ms` below the 1 ms default,
+   since 1 ms leaves a 50 ms command with tens of samples, though below the machine's
+   floor Windows keeps sampling at the floor while still reporting the interval you asked
+   for (read the effective one back); `--iterations` to amortize the session over repeated
+   launches instead of opening one per run; and `--pid` with the manifest's exact ids,
+   because a machine-wide `.etl` of a common host name contains every other instance of
+   it. For a Native AOT parent, rank *inclusive* - its cost sits in ancestors that
+   self-time never surfaces - and combine `--symbols` for your own native PDBs with
+   `--native-symbols` for the host, runtime, and OS ones; they compose.
+
+14. **Wall clock is not CPU, and inclusive rows do not add up.** A process blocked in the
+   loader or waiting on a child owns no samples while it waits, so sampled CPU cannot
+   explain a command whose elapsed time exceeds it - derive the phases from kernel process
+   and image events (`lifecycle`) instead, and treat the gap between a root's lifetime and
+   its sampled CPU as the blocked time. Two consequences when reporting: sampled
+   milliseconds are an estimate scaled to the *effective* sample interval, not a measured
+   duration; and inclusive rows along one stack contain each other, so summing them
+   double-counts. An invocation whose start or stop the capture never observed is clipped
+   to the capture window, which makes its lifetime a lower bound rather than a value.
 <!-- filtrace:end traps -->

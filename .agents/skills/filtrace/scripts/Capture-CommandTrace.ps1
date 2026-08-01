@@ -48,9 +48,9 @@
 
 .PARAMETER CpuSampleMSec
     CPU sample interval in milliseconds. Default 1 (the ETW default). A 30-100 ms command
-    gets only tens of samples at 1 ms, so lower it - Windows honors down to about
-    0.1221 ms - and the manifest records what was requested against what the machine
-    actually honored.
+    gets only tens of samples at 1 ms, so lower it - sub-millisecond sampling is honored,
+    down to roughly 0.12 ms on the Windows 11 machine this was measured on - and the
+    manifest records what was requested against what the machine actually honored.
 
 .PARAMETER OutputDirectory
     Run directory for the traces, manifest, and log. Defaults to a run-stamped directory
