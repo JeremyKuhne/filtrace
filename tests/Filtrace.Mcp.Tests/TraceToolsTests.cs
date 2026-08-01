@@ -933,6 +933,81 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Lifecycle_EtlTrace_ReturnsPhasesForTheNamedRoot()
+    {
+        AnalysisResult<LifecycleResult> envelope = TraceTools.Lifecycle(FixturePath(Etw), process: "HotLoop");
+
+        AssertEnvelope(envelope);
+        LifecycleResult result = envelope.Result;
+        result.Scope.Should().Be("HotLoop");
+        result.InvocationCount.Should().Be(1);
+        result.MeasuredCount.Should().Be(1);
+        result.Phases.Select(static phase => phase.Phase).Should().Contain("root lifetime");
+        result.Invocations[0].Children.Should().NotBeEmpty();
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Lifecycle_EtlTrace_HintsSeparateWallClockFromCpu()
+    {
+        AnalysisResult<LifecycleResult> envelope = TraceTools.Lifecycle(FixturePath(Etw), process: "HotLoop");
+
+        envelope.Hints.Should().Contain(hint => hint.Contains("wall clock is not CPU", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Lifecycle_WithImages_ReturnsTheLoaderMilestone()
+    {
+        AnalysisResult<LifecycleResult> envelope = TraceTools.Lifecycle(
+            FixturePath(Etw),
+            process: "HotLoop",
+            image: ["ntdll"]);
+
+        envelope.Result.ImageMilestones.Should().ContainSingle();
+        envelope.Result.ImageMilestones[0].Module.Should().Be("ntdll");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Lifecycle_UnmatchedProcess_WarnsRatherThanThrows()
+    {
+        AnalysisResult<LifecycleResult> envelope = TraceTools.Lifecycle(
+            FixturePath(Etw),
+            process: "no-such-process-name");
+
+        envelope.Result.InvocationCount.Should().Be(0);
+        envelope.Warnings.Should().Contain(warning => warning.Contains("No process matching", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Lifecycle_NonEtlInput_ThrowsMcpException()
+    {
+        // Kernel process events are ETW-only; a .nettrace is rejected up front by the
+        // format guardrail rather than parsed into an empty report.
+        Action act = () => TraceTools.Lifecycle(FixturePath(Alloc));
+
+        act.Should().Throw<McpException>().WithMessage("*requires a Windows ETW .etl*");
+    }
+
+    [TestMethod]
+    public void Lifecycle_NonPositiveTop_Throws()
+    {
+        Action act = () => TraceTools.Lifecycle(FixturePath(Etw), top: 0);
+
+        act.Should().Throw<McpException>().WithMessage("*top must be 1 or greater*");
+    }
+
+    [TestMethod]
+    public void Lifecycle_BothProcessAndPid_Throws()
+    {
+        Action act = () => TraceTools.Lifecycle(FixturePath(Etw), process: "HotLoop", pid: [1234]);
+
+        act.Should().Throw<McpException>().WithMessage("*only one of process and pid*");
+    }
+
+    [TestMethod]
     public void Processes_Speedscope_ListsTheSingleProcess()
     {
         TraceStore store = new();

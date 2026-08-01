@@ -74,8 +74,8 @@ approximately 8,301 tokens against what was then a 9,000-token CI ceiling in
 [Test-McpServer.ps1](../tools/Test-McpServer.ps1). [SC1](#sc1---exact-process-identity-scope)
 then added the exact-scope parameters, taking it to approximately 8,950.
 
-The list now measures approximately **6,050** tokens against a 7,000-token ceiling,
-after the output schemas were compacted - see
+The list now measures approximately **6,388** tokens against a 7,000-token ceiling,
+after the output schemas were compacted and SC5's `trace_lifecycle` was added - see
 [Output schemas were the budget](#output-schemas-were-the-budget). The shares that
 motivated the reduction were:
 
@@ -184,7 +184,8 @@ v.next should improve efficacy, not merely reduce counts.
    headroom rather than move the limits. The one recorded exception,
    [SC5](#sc5---process-lifecycle-report), has been retired: compacting the output
    schemas took the list to approximately 6,050 tokens and the gate to 7,000, below
-   both the original 9,000 ceiling and the 7,500 VN3 target.
+   both the original 9,000 ceiling and the 7,500 VN3 target. SC5's tool then landed
+   inside that headroom, taking the list to approximately 6,388.
 
 ## Non-goals
 
@@ -798,7 +799,7 @@ therefore subject to the same gates as the VC backlog.
 | SC2 | Local native PDBs are never applied to non-runtime modules | `--symbols` behavior fix plus per-module status | High | Shipped (#65) |
 | SC3 | Capture always enables CLR plus disk and network keywords | `collect --profile` | High | Shipped (#64) |
 | SC4 | One ETW session per short invocation | `collect --iterations` plus a command-matrix script | Medium | Shipped (#66) |
-| SC5 | No wall-clock phase report | Lifecycle verb and tool over process/image events | Medium | Open; no gate |
+| SC5 | No wall-clock phase report | Lifecycle verb and tool over process/image events | Medium | Shipped |
 | SC6 | Sub-millisecond sampling rejected before collection | Widened range plus effective-interval reporting | Low | Open; needs platform measurement |
 | SC7 | No short-startup recipe for agents | `workflow.md`, `traps.md`, shipped skill | Low | Open; gated on SC1-SC6 |
 
@@ -996,6 +997,31 @@ before VN3, and VN3 must evaluate folding lifecycle into the report family the s
 it evaluates every other tool. The VN3 targets of 7,500 and 5,000 are unchanged; 7,500
 is already met.
 
+What shipped: a `lifecycle` verb and a `trace_lifecycle` tool over
+[LifecycleProvider](../src/Filtrace.Core/Tracing/Providers/LifecycleProvider.cs). The
+selector chooses invocation *roots* rather than filtering samples - each matched process
+instance is one invocation, keyed on TraceEvent's `ProcessIndex` so a capture matrix that
+reuses process ids keeps its invocations apart. Descendants are always followed, because
+the phases are defined against them, so `--children` and `--all-processes` do not apply
+and the report is documented under its own scope-inventory entry.
+
+Three decisions are worth recording:
+
+- The three child phases are measured against the *span* of every descendant - earliest
+  child start to latest child stop - rather than against a single child. With one child
+  that is exactly the split the plan called for, with several it still partitions the
+  root's lifetime, and the partition is asserted by test.
+- `lastChildStopToRootStop` is signed. The committed ETW fixture has a console host that
+  outlives its parent by 0.7 ms, so clamping at zero would have hidden a real shape.
+- An invocation whose start or stop the capture did not observe is listed and marked but
+  excluded from every median, because TraceEvent clips an unobserved edge to the capture
+  window and a clipped lifetime is a lower bound, not a measurement. The stop signal is
+  the recorded exit status rather than a timestamp comparison, since only a decoded
+  `Process/Stop` sets it.
+
+The tool cost approximately 338 tokens, taking the list from 6,050 to 6,388 against the
+7,000 gate - which is what the retired ceiling had been raised to admit.
+
 ### Tool consolidation - candidates for VN3
 
 Compacting the output schemas removed the pressure that would have forced a
@@ -1040,10 +1066,10 @@ eval would need to show the mode does not cost calls.
 **Option C - leave the surface alone.**
 *For:* the budget no longer requires a change; the names are a frozen contract and each
 one is individually discoverable; the eval currently shows the surface working.
-*Against:* the list still carries seventeen definitions, and the 5,000-token stretch
+*Against:* the list still carries eighteen definitions, and the 5,000-token stretch
 target is not reachable without either this or a further schema reduction.
 
-The 5,000 target is worth noting against these: at 6,050 the gap is about 1,050 tokens,
+The 5,000 target is worth noting against these: at 6,388 the gap is about 1,390 tokens,
 which Option A alone does not close and Option B roughly does. That is an argument for
 evaluating B on its merits in VN3, not for adopting it now.
 
@@ -1091,20 +1117,20 @@ lands last. Run `tools/Test-Docs.ps1 -Fix` after editing a marked block.
 - `tools/Test-CaptureBenchmarkTrace.ps1` is the model for a `Capture-CommandTrace.ps1`
   contract test, and SC4's manifest change touches its schema assertions.
 - Fixture coverage is the open item for the remaining items. SC1 was covered from the
-  existing corpus; SC2 needs a native module with a matching local PDB, SC3 needs a
-  kernel-only capture to compare against the default one, and SC5 needs process start
-  and stop events for repeated invocations. Hosted Windows runners run elevated, so a
-  capture can also be taken during the run rather than committed - which is the only
-  option when the check depends on symbol identity, since a committed capture records
-  no PDB identity of its own and resolves native modules by reading the binary back
-  from the absolute path it recorded.
+  existing corpus; SC3 needs a kernel-only capture to compare against the default one.
+  SC2 is covered by a capture taken during the CI run, and SC5 by the committed
+  `etw.etl`, which carries an observed parent-and-child launch with both process edges.
+  Hosted Windows runners run elevated, so a capture can be taken during the run rather
+  than committed - which is the only option when the check depends on symbol identity,
+  since a committed capture records no PDB identity of its own and resolves native
+  modules by reading the binary back from the absolute path it recorded.
 
 ### SC sequencing
 
 SC1 shipped in #63. SC2 and SC3 remain independent of each other and of the transport
 and schema decisions; together with SC1 they remove the investigation-specific
 filtrace fork. SC4 follows, since its manifest is only useful once exact scope and a
-low-perturbation profile exist. SC5 follows SC4; the tool-list budget no longer gates it.
+low-perturbation profile exist. SC5 followed SC4 and needed no budget change.
 SC6 and SC7 close the initiative.
 
 ## Eval and measurement plan
