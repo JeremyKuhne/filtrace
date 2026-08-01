@@ -40,7 +40,11 @@ A machine-wide `.etl` also grows fast, so keep the capture lean. `filtrace colle
 enables only the sampled-profile, process, thread, and image-load kernel keywords and
 stacks only the sampled events; it never turns on the File/Disk or network keywords,
 whose system-wide *name* rundown enumerates every open file on the machine - hundreds
-of thousands of events that dominate the trace no matter how short the window. Choose
+of thousands of events that dominate the trace no matter how short the window. On the
+CLR side it enables only what an `.etl` analysis reads: the keywords that name managed
+methods, plus GC and exception events for the timeline lanes. It never asks for heap
+survival/movement, bulk type, or CLR event-stack data, which no `.etl` analysis reads
+and which every process on the box would pay for. Choose
 the provider set with `--profile`: `cpu` (the default), `threadtime` (adds the
 context-switch and dispatcher keywords for wall-clock time, and is the most expensive),
 or `startup` (keeps only the CLR keywords that name managed methods, for a short

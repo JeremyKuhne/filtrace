@@ -18,10 +18,11 @@ namespace Filtrace.Tracing;
 public enum CollectProfile
 {
     /// <summary>
-    ///  CPU sampling with full runtime detail: the sampled profiler plus process,
-    ///  thread, and image-load events, and the CLR's default provider keywords. The
-    ///  general-purpose default, and what <c>cpu</c>, <c>classify</c>, <c>timeline</c>,
-    ///  and the GC/JIT reports read.
+    ///  CPU sampling with the runtime detail an <c>.etl</c> analysis reads: the sampled
+    ///  profiler plus process, thread, and image-load events, and the CLR keywords that
+    ///  name managed methods and feed the timeline's GC, allocation, and exception lanes.
+    ///  The general-purpose default, and what <c>cpu</c>, <c>classify</c>, and
+    ///  <c>timeline</c> read.
     /// </summary>
     Cpu,
 
@@ -35,10 +36,10 @@ public enum CollectProfile
 
     /// <summary>
     ///  Low-perturbation CPU sampling for short-lived processes: the same kernel events
-    ///  as <see cref="Cpu"/>, but only the CLR keywords that name managed methods and
-    ///  map them to source. Use it when the capture must not materially change the
-    ///  lifetime of what it measures - a startup path, or a native/AOT parent whose
-    ///  runtime events are noise.
+    ///  as <see cref="Cpu"/>, but only the CLR keywords that name managed methods - not
+    ///  even the GC and exception keywords the timeline lanes read. Use it when the
+    ///  capture must not materially change the lifetime of what it measures - a startup
+    ///  path, or a native/AOT parent whose runtime events are noise.
     /// </summary>
     Startup,
 }

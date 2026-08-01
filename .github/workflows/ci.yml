@@ -116,6 +116,15 @@ jobs:
       - name: Test
         run: dotnet test filtrace.slnx --configuration Release --no-build
 
+      # Hosted Windows runners run elevated, so the one path that needs a real ETW
+      # capture is checked here rather than left to a developer box. Keep the build of
+      # the native fixture ahead of the capture: ilc.exe and other tools access-violate
+      # when a session with the GC heap-dump keyword is already live, so starting the
+      # session first would break unrelated builds on the same runner.
+      - name: Native symbol resolution gate
+        shell: pwsh
+        run: ./tools/Test-NativeSymbolResolution.ps1 -Configuration Release -Require
+
       - name: Eval gate
         shell: pwsh
         run: ./eval/Invoke-Eval.ps1 -Configuration Release

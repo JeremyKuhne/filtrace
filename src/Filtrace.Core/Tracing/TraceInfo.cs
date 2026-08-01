@@ -135,6 +135,12 @@ public sealed class TraceInfo
     public SourceResolutionInfo? SourceResolution { get; init; }
 
     /// <summary>
+    ///  What the local native symbol pass covered, or <see langword="null"/> when no
+    ///  symbol directory was supplied or the trace had no unresolved native frames.
+    /// </summary>
+    public NativeSymbolInfo? NativeSymbols { get; init; }
+
+    /// <summary>
     ///  How this request obtained the ETLX cache, or <see langword="null"/> for
     ///  formats such as speedscope that do not use ETLX.
     /// </summary>

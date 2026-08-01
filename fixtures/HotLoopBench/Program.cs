@@ -16,6 +16,7 @@ using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
+using Microsoft.Diagnostics.Tracing.Parsers.Symbol;
 
 namespace TraceQ.Fixtures.HotLoopBench;
 
@@ -1131,6 +1132,19 @@ internal static class Program
                     or DiskIOInitTraceData
                     or FileIONameTraceData)
                 {
+                    return;
+                }
+
+                // ImageID / DbgID_RSDS carry each module's PDB name, signature, and age.
+                // They are rundown records with no owning process, so the process filter
+                // below drops every one of them. Without them a trimmed trace records no
+                // symbol identity at all, and native symbols can only be resolved by
+                // reading the original binary back from its recorded absolute path - which
+                // does not survive the trace leaving the machine that captured it.
+                if (data is ImageIDTraceData or DbgIDRSDSTraceData or DbgIDILRSDSTraceData)
+                {
+                    relogger.WriteEvent(data);
+                    kept++;
                     return;
                 }
 

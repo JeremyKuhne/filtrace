@@ -768,7 +768,7 @@ therefore subject to the same gates as the VC backlog.
 |---|---|---|:---:|---|
 | SC1 | Scope cannot name exact processes | `--pid` / `--children` on the scope-aware verbs and tools | High | Shipped (#63) |
 | SC2 | Local native PDBs are never applied to non-runtime modules | `--symbols` behavior fix plus per-module status | High | Open; no gate |
-| SC3 | Capture always enables CLR plus disk and network keywords | `collect --profile` | High | Open; no gate |
+| SC3 | Capture always enables CLR plus disk and network keywords | `collect --profile` | High | Shipped (#64) |
 | SC4 | One ETW session per short invocation | `collect --iterations` plus a command-matrix script | Medium | Open; gated on SC3 |
 | SC5 | No wall-clock phase report | Lifecycle verb and tool over process/image events | Medium | Open; gated on SC4 |
 | SC6 | Sub-millisecond sampling rejected before collection | Widened range plus effective-interval reporting | Low | Open; needs platform measurement |
@@ -985,9 +985,11 @@ lands last. Run `tools/Test-Docs.ps1 -Fix` after editing a marked block.
 - Fixture coverage is the open item for the remaining items. SC1 was covered from the
   existing corpus; SC2 needs a native module with a matching local PDB, SC3 needs a
   kernel-only capture to compare against the default one, and SC5 needs process start
-  and stop events for repeated invocations. Committed ETW captures cannot be
-  regenerated without elevation, so decide per test whether to capture and commit a
-  new fixture or to build the case from the existing corpus.
+  and stop events for repeated invocations. Hosted Windows runners run elevated, so a
+  capture can also be taken during the run rather than committed - which is the only
+  option when the check depends on symbol identity, since a committed capture records
+  no PDB identity of its own and resolves native modules by reading the binary back
+  from the absolute path it recorded.
 
 ### SC sequencing
 

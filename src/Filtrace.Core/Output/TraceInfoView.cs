@@ -59,6 +59,12 @@ public sealed record TraceInfoView(
     public SourceResolutionInfo? SourceResolution { get; init; }
 
     /// <summary>
+    ///  What the local native symbol pass covered, omitted when no symbol directory was
+    ///  supplied or the trace had no unresolved native frames.
+    /// </summary>
+    public NativeSymbolInfo? NativeSymbols { get; init; }
+
+    /// <summary>
     ///  Creates the shared CLI/MCP view of <paramref name="info"/>.
     /// </summary>
     /// <param name="info">The loaded trace information to map.</param>
@@ -93,7 +99,8 @@ public sealed record TraceInfoView(
             CacheStateText(etlxCacheState))
         {
             Analyses = analyses,
-            SourceResolution = info.SourceResolution
+            SourceResolution = info.SourceResolution,
+            NativeSymbols = info.NativeSymbols
         };
     }
 

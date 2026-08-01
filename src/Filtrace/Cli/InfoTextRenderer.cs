@@ -92,6 +92,19 @@ internal static class InfoTextRenderer
                 $"highest unmapped methods: {ListOrNone(source.HighestUnmappedMethods)}");
         }
 
+        if (view.NativeSymbols is NativeSymbolInfo native)
+        {
+            output.WriteLine($"unresolved native frames: {native.UnresolvedFrameCount}");
+            output.WriteLine(
+                $"local native symbols applied: {ListOrNone(native.ResolvedModules)}");
+            output.WriteLine(
+                $"native modules without local symbols: {ListOrNone(native.MissingSymbolModules)}");
+            output.WriteLine(
+                $"native PDB identity mismatch modules: {ListOrNone(native.IdentityMismatchModules)}");
+            output.WriteLine(
+                $"native modules whose symbol lookup failed: {ListOrNone(native.LookupFailedModules)}");
+        }
+
         output.WriteLine("threads:");
         if (view.Threads.Count == 0)
         {

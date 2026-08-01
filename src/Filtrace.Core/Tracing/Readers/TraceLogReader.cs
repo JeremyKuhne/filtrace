@@ -92,6 +92,16 @@ internal abstract class TraceLogReader : ITraceReader
                 symbolReader.SymbolPath = localSymbolPath;
             }
 
+            // Apply locally available native symbols while the symbol path still has no
+            // server element on it, so product-specific native modules - a Native AOT
+            // binary, a C++ dependency - resolve offline from the caller's directory.
+            // Native runtime resolution below covers the complementary set (runtime and
+            // OS modules) from the public server, and must stay ordered after this.
+            NativeSymbolInfo? nativeSymbols = localSymbolPath is null
+                ? null
+                : NativeSymbolResolution.CreateInfo(
+                    NativeSymbolResolution.ResolveLocal(traceLog, symbolReader, symbolsDirectory));
+
             // Opt-in native runtime symbols: point the reader at the Microsoft public
             // symbol server (a local cache fronting it) and resolve the unmanaged
             // runtime modules - the GC, the JIT, memset/memcpy, write barriers - whose
@@ -130,7 +140,8 @@ internal abstract class TraceLogReader : ITraceReader
                 activityName,
                 scope?.Window,
                 cacheState,
-                new SourceResolutionTracker(symbolsDirectory, localSymbolPath));
+                new SourceResolutionTracker(symbolsDirectory, localSymbolPath),
+                nativeSymbols);
         }
         finally
         {
@@ -244,7 +255,8 @@ internal abstract class TraceLogReader : ITraceReader
         string? activityName,
         TimeWindow? window,
         EtlxCacheState cacheState,
-        SourceResolutionTracker sourceResolution)
+        SourceResolutionTracker sourceResolution,
+        NativeSymbolInfo? nativeSymbols)
     {
         AnalysisEventCounter analysisEvents = new();
         Dictionary<int, string> locationCache = [];
@@ -439,7 +451,10 @@ internal abstract class TraceLogReader : ITraceReader
             StackRecordSemantics.PeriodicCpuSamples,
             cacheState,
             analysisEvents.Counts,
-            sourceResolution.CreateInfo());
+            sourceResolution.CreateInfo())
+        {
+            NativeSymbols = nativeSymbols
+        };
     }
 
     // Joins the applied-scope phrases into one clause: "A" for one, "A and B" for two,

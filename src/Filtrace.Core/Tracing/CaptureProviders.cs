@@ -36,15 +36,28 @@ internal sealed record CaptureProviders(
 
     // Just enough of the CLR to keep managed frames readable: Jit and NGen name the
     // methods, Loader names their modules, and JittedMethodILToNativeMap carries the
-    // IL offsets that turn a native address into a source line. Everything else in
-    // ClrTraceEventParser.Keywords.Default - GC, Type, Contention, Exception, Threading,
-    // Stack, ThreadTransfer, and the heap keywords - is the volume a startup capture
-    // cannot afford.
+    // IL offsets that turn a native address into a source line.
     private const ClrTraceEventParser.Keywords NamingClrKeywords =
         ClrTraceEventParser.Keywords.Jit
         | ClrTraceEventParser.Keywords.NGen
         | ClrTraceEventParser.Keywords.Loader
         | ClrTraceEventParser.Keywords.JittedMethodILToNativeMap;
+
+    // The naming set plus the two keywords an .etl analysis reads beyond it: GC feeds the
+    // timeline's gc and alloc lanes, Exception feeds its exception lane.
+    //
+    // Deliberately NOT ClrTraceEventParser.Keywords.Default. TraceCapabilities.AnalysesFor
+    // offers only cpu, threadtime, classify, processes, diskio, and events on an .etl, so
+    // Default's remaining keywords are captured and never read - and they are not free.
+    // GCHeapSurvivalAndMovement makes the runtime batch and fire moved/surviving object
+    // ranges on every collection, Type and GCHeapAndTypeNames add bulk type events, and
+    // Stack attaches a stack walk to CLR events whose stacks no analysis consumes (the
+    // .etl CPU stacks come from the kernel Profile keyword). ETW is machine-wide, so every
+    // process on the box pays for all of it.
+    private const ClrTraceEventParser.Keywords AnalyzedClrKeywords =
+        NamingClrKeywords
+        | ClrTraceEventParser.Keywords.GC
+        | ClrTraceEventParser.Keywords.Exception;
 
     /// <summary>
     ///  The providers <paramref name="profile"/> enables.
@@ -59,7 +72,7 @@ internal sealed record CaptureProviders(
         CollectProfile.Cpu => new(
             CpuKernelKeywords,
             KernelTraceEventParser.Keywords.Profile,
-            ClrTraceEventParser.Keywords.Default,
+            AnalyzedClrKeywords,
             TraceEventLevel.Verbose),
 
         CollectProfile.ThreadTime => new(
@@ -67,7 +80,7 @@ internal sealed record CaptureProviders(
                 | KernelTraceEventParser.Keywords.ContextSwitch
                 | KernelTraceEventParser.Keywords.Dispatcher,
             KernelTraceEventParser.Keywords.Profile | KernelTraceEventParser.Keywords.ContextSwitch,
-            ClrTraceEventParser.Keywords.Default,
+            AnalyzedClrKeywords,
             TraceEventLevel.Verbose),
 
         // The level stays Verbose: the method-name payload rides on MethodLoadVerbose,

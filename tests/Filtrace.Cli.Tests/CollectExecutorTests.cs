@@ -10,9 +10,9 @@ namespace Filtrace.Cli;
 [TestClass]
 public sealed class CollectExecutorTests
 {
-    // A real capture needs Windows + Administrator. CI has neither, so the guard and
-    // validation paths run everywhere while the actual-capture path runs only when the
-    // environment can support it (and is inconclusive otherwise).
+    // A real capture needs Windows + Administrator. Hosted Windows runners have both, so
+    // the capture path does run in CI; it stays guarded so the same test is inert on a
+    // non-Windows or unelevated developer box.
 
     [TestMethod]
     public void IsSupported_MatchesWindows()
@@ -77,7 +77,7 @@ public sealed class CollectExecutorTests
     public void Run_WhenElevated_ProducesEtl()
     {
         // The capture step only works on Windows with Administrator; skip cleanly otherwise
-        // so the same test is meaningful on a dev box and inert in CI.
+        // so the same test is meaningful on an unelevated dev box.
         if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
         {
             Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
