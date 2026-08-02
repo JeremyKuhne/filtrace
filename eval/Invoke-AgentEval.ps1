@@ -467,6 +467,7 @@ foreach ($file in $allTaskFiles) {
     $task | Add-Member -NotePropertyName expectOperations -NotePropertyValue @($qa.expectOperations | Where-Object { $_ })
     $task | Add-Member -NotePropertyName forbidOperations -NotePropertyValue @($qa.forbidOperations | Where-Object { $_ })
     $task | Add-Member -NotePropertyName maxCalls -NotePropertyValue $qa.maxCalls
+    $task | Add-Member -NotePropertyName maxResponseTokens -NotePropertyValue $qa.maxResponseTokens
     $selected.Add($task)
 }
 if ($selected.Count -eq 0) { throw "No matching tasks (filter: $($Tasks -join ', '))." }
@@ -594,6 +595,18 @@ function Invoke-EvalRun {
             if ($ok -and $task.maxCalls -and $calls -gt [int]$task.maxCalls) {
                 $ok = $false
                 $note = "$calls calls exceeds this task's $($task.maxCalls)-call budget"
+            }
+            # Restraint is a response-size property, not a call-count one: one call that
+            # asks for ten thousand event records still answers the question, and a call
+            # budget cannot see it. Grade the largest single copy of the payload the
+            # agent pulled, so the ceiling means the same thing on either arm.
+            if ($ok -and $task.maxResponseTokens) {
+                $structuredPayload = if ($null -ne $r.structuredTokens) { [int]$r.structuredTokens } else { 0 }
+                $payloadTokens = [math]::Max($tokens, $structuredPayload)
+                if ($payloadTokens -gt [int]$task.maxResponseTokens) {
+                    $ok = $false
+                    $note = "$payloadTokens response tokens exceeds this task's $($task.maxResponseTokens)-token ceiling"
+                }
             }
 
             if ($ok) { $successes++ }

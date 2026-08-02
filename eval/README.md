@@ -126,6 +126,14 @@ arm and with existing baselines. What the *client* put in front of the model is
 host-specific, so it is not inferred: the host's own reported usage is recorded
 verbatim as `hostUsage` instead.
 
+**Known limit of that split at large payloads.** One measured call that returned a
+big event page recorded text 261 against structured 10,057 and wire 22,207 - and
+wire being about twice structured says two full-size copies really were on the
+wire. The text figure is therefore the host transcript's copy, which appears to be
+truncated above some size, not the wire's. Confirm against raw JSONL before drawing
+a transport conclusion from a text/structured ratio on responses larger than a few
+hundred tokens.
+
 `-McpDll` points the mcp arm at an explicitly built server - how a transport or
 surface variant published under `artifacts/` is measured against the baseline
 without editing committed tasks. A labeled run with fewer than three iterations
@@ -145,6 +153,7 @@ Three optional fields grade *intent* rather than the current tool names:
 | `expectOperations` | Every listed operation must have been called successfully, on either arm. Operations are surface-neutral (`rank`, `source`, `events`, ...) via [Get-OperationName.ps1](Get-OperationName.ps1), so a task keeps grading correctly after a tool is renamed or folded into another. |
 | `forbidOperations` | Attempting any listed operation fails the iteration, whether or not the call succeeded - the way to state "do not reach for source lines on a speedscope profile", which filtrace rejects anyway, so grading only successful calls would never see the mistake. |
 | `maxCalls` | A per-task call budget tighter than the global `-MaxSteps`, for tasks whose whole point is that one call suffices. |
+| `maxResponseTokens` | A ceiling on the largest single copy of the payload an iteration pulled. Restraint is a response-size property, not a call-count one - one call asking for ten thousand event records still answers the question, and `maxCalls` cannot see it. |
 
 The deterministic gate validates all three against the operation vocabulary, so a
 typo fails CI instead of silently never matching.
@@ -216,13 +225,13 @@ outside this loop until a customization-enabled arm is added. The measured loop:
 
 ```pwsh
 # 1. Baseline at HEAD, across a couple of models (evaluator diversity).
-./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models claude-opus-4.6,gpt-5.2 -N 5 -Label baseline
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models gpt-5.6-sol,claude-haiku-4.5 -N 5 -Label baseline
 
 # 2. Edit a surface - e.g. a [Description] on a trace_* tool in TraceTools.cs - and rebuild.
 dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c Release
 
 # 3. Candidate, same models, the other label.
-./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models claude-opus-4.6,gpt-5.2 -N 5 -Label candidate
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models gpt-5.6-sol,claude-haiku-4.5 -N 5 -Label candidate
 
 # 4. Compare; non-zero exit if any model regressed.
 ./eval/Compare-EvalRuns.ps1 -Baseline baseline -Candidate candidate
@@ -232,6 +241,22 @@ dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c Release
   stamps each result so the comparer can pair them. For copilot, `--model` gives
   real model diversity - which is why a second host (e.g. Claude Code) is not
   needed for overfitting detection.
+- **Choose models by tier, and verify the ids before a long run.** The available set
+  changes, and ids are the picker label lowercased and hyphenated
+  (`Claude Opus 5` -> `claude-opus-5`). Cost per session varies enormously by model,
+  so calibrate rather than assume - two tasks at `-N 1` is enough:
+
+  ```pwsh
+  ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models <candidates> -Tasks event-count-only,cpu-hotspot -N 1
+  ```
+
+  Then read `iterations[].hostUsage` from each result. Measured 2026-08-02, premium
+  requests per session: `claude-opus-5` 15, `gemini-3.6-flash` 14,
+  `claude-haiku-4.5` 0.33, `gpt-5.6-sol` 0. A full 23-task run at N=3 is 69 sessions
+  per model, so the tier choice is the difference between roughly 20 and roughly
+  1,000 premium requests. Prefer one zero-multiplier and one cheap model for routine
+  runs - cheaper models succeeding is the contract's own thesis - and spend a
+  frontier model on a reduced subset when you specifically want to check it.
 - **[Compare-EvalRuns.ps1](Compare-EvalRuns.ps1)** pairs the latest run per
   (label, host/arm/model) and reports, per task, the success / calls / tokens
   delta with a verdict. The verdict is the design's regression budget (which also

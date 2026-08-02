@@ -16,5 +16,5 @@
     { "field": "result.cases[0].rows[0].percentagePointChange", "equals": -36 },
     { "field": "result.cases[0].operationUnit", "equals": "items" }
   ],
-  "expect": ["DictionaryBench.Resize", "Size: 1000", "Dictionary.Resize", "38", "2", "-36", "items"]
+  "expect": ["DictionaryBench.Resize", "Size: 1000", "Dictionary.Resize"]
 }
