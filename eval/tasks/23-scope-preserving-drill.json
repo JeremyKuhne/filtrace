@@ -1,0 +1,15 @@
+{
+  "id": "scope-preserving-drill",
+  "title": "Carry the process scope from a ranking into the next drill.",
+  "prompt": "Rank CPU in this machine-wide ETW capture scoped to the HotLoopBench process tree, then say exactly what the next drill command must carry so the scope is not silently lost.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
+  "os": "windows",
+  "steps": [
+    { "args": ["cpu", "{fixture}", "--process", "HotLoopBench", "--top", "3"] }
+  ],
+  "assert": [
+    { "hintContains": "--process 'HotLoopBench'" },
+    { "jsonContains": "Scoped to the 'HotLoopBench' process tree" }
+  ],
+  "expect": ["--process", "HotLoopBench"]
+}

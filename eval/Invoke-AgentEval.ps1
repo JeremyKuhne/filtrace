@@ -35,12 +35,22 @@
   yet wired - the runner reports that and exits cleanly.
 
     METRICS per (task, iteration): success (the final answer contains every
-    `expect` substring, case-insensitive; on the Copilot arm every expected MCP tool
-    also completed successfully), calls (filtrace invocations), tokens
+    `expect` substring, case-insensitive; every expected operation was called, no
+    forbidden operation was; on the Copilot arm every expected MCP tool also
+    completed successfully), calls (filtrace invocations), tokens
   (offline estimate of the tool output the agent consumed, via
   tools/Get-TokenEstimate.ps1 - the same accounting the deterministic gate
   uses), and wall-time. Results are written under eval/results/ and summarized
   as medians with a success rate.
+
+  On the MCP arm the token figure is also broken down per response, because the
+  same payload is currently carried twice on the wire (text content and structured
+  content) and the transport experiment needs those measured apart: textTokens,
+  structuredTokens, and wireTokens (the complete result object). The
+  client-visible value - what the host actually placed in the model's context - is
+  recorded only when the host reports it; Copilot's transcript exposes session
+  usage rather than per-call context, so hostUsage is captured instead of a
+  fabricated per-call number.
 
 .PARAMETER AgentHost
   The agent host. 'ollama' (the cli arm) and 'copilot' (the mcp arm) are
@@ -73,6 +83,11 @@
 .PARAMETER Configuration
   The build configuration whose CLI binary the agent drives. Defaults to Release.
 
+.PARAMETER McpDll
+  An explicit Filtrace.Mcp.dll to serve the mcp arm, overriding the Configuration
+  build output. This is how a transport or surface variant published under
+  artifacts/ is measured against the baseline without editing committed tasks.
+
 .PARAMETER OllamaUrl
   The Ollama chat endpoint. Defaults to http://localhost:11434/api/chat.
 
@@ -94,6 +109,7 @@ param(
     [int]$N = 1,
     [int]$MaxSteps = 6,
     [string]$Configuration = 'Release',
+    [string]$McpDll,
     [string]$OllamaUrl = 'http://localhost:11434/api/chat',
     [string]$OutDir,
     [string]$Label
@@ -116,6 +132,10 @@ if (-not (Test-Path $cliDll)) {
 }
 
 . (Join-Path $root 'tools/Get-TokenEstimate.ps1')
+
+# Surface-neutral operation names, so a task can require the right *intent* even
+# after a tool is renamed or folded into another.
+. (Join-Path $PSScriptRoot 'Get-OperationName.ps1')
 
 $onWindows = [System.OperatingSystem]::IsWindows()
 
@@ -298,15 +318,60 @@ function Invoke-OllamaIteration {
 # the trace_* tools directly - exercising the MCP tool descriptions the cli arm
 # never touches.
 function New-FiltraceMcpConfig {
-    $dll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
+    $dll = if ($McpDll) { $McpDll } else { Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll" }
     if (-not (Test-Path $dll)) {
-        throw "Filtrace.Mcp server not found at '$dll'. Build it: dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c $Configuration."
+        throw "Filtrace.Mcp server not found at '$dll'. Build it: dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c $Configuration, or pass -McpDll."
     }
     $cfg = @{ mcpServers = @{ filtrace = @{ type = 'local'; command = 'dotnet'; args = @((Resolve-Path $dll).Path); tools = @('*') } } }
     $path = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace-mcp-$([guid]::NewGuid().ToString('N')).json"
     $utf8 = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($path, ($cfg | ConvertTo-Json -Depth 6), $utf8)
     return $path
+}
+
+# Break one MCP tool result into the pieces the transport experiment compares.
+# The same payload is currently carried in both content[0].text and
+# structuredContent, so summing them would double-count; they are reported apart
+# and `wire` is the complete result object the host received. `shape` records
+# which members the host actually surfaced, since that is host-dependent and the
+# measurement is only interpretable alongside it.
+function Measure-McpResultTokens {
+    param($Result)
+
+    $text = 0
+    $structured = 0
+    $shape = 'none'
+
+    if ($null -eq $Result) {
+        return [pscustomobject]@{ text = 0; structured = 0; wire = 0; shape = $shape }
+    }
+
+    if ($Result -is [string]) {
+        $text = [int](Get-TokenEstimate -Text $Result)
+        return [pscustomobject]@{ text = $text; structured = 0; wire = $text; shape = 'text' }
+    }
+
+    $members = @($Result.PSObject.Properties.Name)
+    $parts = [System.Collections.Generic.List[string]]::new()
+    if ($members -contains 'content') {
+        $parts.Add('content')
+        foreach ($block in @($Result.content)) {
+            $blockText = if ($block -is [string]) { $block } elseif ($block.text) { [string]$block.text } else { ($block | ConvertTo-Json -Depth 8 -Compress) }
+            $text += [int](Get-TokenEstimate -Text $blockText)
+        }
+    }
+    if ($members -contains 'structuredContent' -and $null -ne $Result.structuredContent) {
+        $parts.Add('structuredContent')
+        $structured = [int](Get-TokenEstimate -Text ($Result.structuredContent | ConvertTo-Json -Depth 12 -Compress))
+    }
+    if ($parts.Count -gt 0) { $shape = $parts -join '+' } else { $shape = 'object' }
+
+    $wire = [int](Get-TokenEstimate -Text ($Result | ConvertTo-Json -Depth 12 -Compress))
+    # A host that flattens the result to one object exposes no separate text block;
+    # attribute the whole payload to text so the headline metric stays comparable
+    # with the cli arm rather than reading as zero.
+    if ($shape -eq 'object') { $text = $wire }
+    return [pscustomobject]@{ text = $text; structured = $structured; wire = $wire; shape = $shape }
 }
 
 # Run one iteration on the Copilot CLI host: hand the agent the task prompt and the
@@ -336,21 +401,25 @@ function Invoke-CopilotIteration {
     $starts = @($events | Where-Object { $_.type -eq 'tool.execution_start' -and $_.data.mcpServerName -eq 'filtrace' })
     $completes = @($events | Where-Object { $_.type -eq 'tool.execution_complete' })
     $tokens = 0
+    $textTokens = 0
+    $structuredTokens = 0
+    $wireTokens = 0
+    $resultShapes = [System.Collections.Generic.List[string]]::new()
     $transcript = [System.Collections.Generic.List[object]]::new()
     foreach ($s in $starts) {
         $c = $completes | Where-Object { $_.data.toolCallId -eq $s.data.toolCallId } | Select-Object -First 1
-        # Use the raw string result when the tool returned one; otherwise serialize
-        # the structured payload deterministically (Out-String would emit PowerShell
-        # table formatting, which is not what the agent actually consumed).
-        $resultText = if ($c) {
-            $rv = $c.data.result
-            if ($rv -is [string]) { $rv } else { ($rv | ConvertTo-Json -Depth 8 -Compress) }
-        }
-        else { '' }
-        $tokens += [int](Get-TokenEstimate -Text $resultText)
+        $split = Measure-McpResultTokens -Result $(if ($c) { $c.data.result } else { $null })
+        # The headline metric stays "what the agent consumed" - the text copy - so it
+        # remains comparable with the cli arm and with existing baselines.
+        $tokens += $split.text
+        $textTokens += $split.text
+        $structuredTokens += $split.structured
+        $wireTokens += $split.wire
+        if (-not $resultShapes.Contains($split.shape)) { $resultShapes.Add($split.shape) }
         $transcript.Add([pscustomobject]@{
                 cmd  = & $mask ("$($s.data.mcpToolName) $($s.data.arguments | ConvertTo-Json -Compress)")
                 ok   = [bool]($c -and $c.data.success); info = ''
+                textTokens = $split.text; structuredTokens = $split.structured; wireTokens = $split.wire
             })
     }
     $result = $events | Where-Object { $_.type -eq 'result' } | Select-Object -First 1
@@ -362,6 +431,12 @@ function Invoke-CopilotIteration {
     $wallMs = if ($result.usage.sessionDurationMs) { [int]$result.usage.sessionDurationMs } else { [int]$sw.ElapsedMilliseconds }
     return [pscustomobject]@{
         answer = $answer; calls = $starts.Count; tokens = $tokens
+        textTokens = $textTokens; structuredTokens = $structuredTokens; wireTokens = $wireTokens
+        resultShape = ($resultShapes -join ',')
+        # Whatever the host reports about its own context spend. Recorded verbatim
+        # rather than reduced, because what a client puts in front of the model is
+        # host-specific and this arm must not guess it.
+        hostUsage = $result.usage
         wallMs = $wallMs; note = $note; transcript = $transcript
     }
 }
@@ -384,7 +459,11 @@ foreach ($file in $allTaskFiles) {
     $os = if ($task.os) { $task.os } else { 'any' }
     if ($os -eq 'windows' -and -not $onWindows) { continue }
     if (-not $mcpQaById.ContainsKey($task.id)) { throw "Task '$($task.id)' is missing from eval/mcp-qa.jsonl." }
-    $task | Add-Member -NotePropertyName expectTools -NotePropertyValue @($mcpQaById[$task.id].expectTools)
+    $qa = $mcpQaById[$task.id]
+    $task | Add-Member -NotePropertyName expectTools -NotePropertyValue @($qa.expectTools)
+    $task | Add-Member -NotePropertyName expectOperations -NotePropertyValue @($qa.expectOperations | Where-Object { $_ })
+    $task | Add-Member -NotePropertyName forbidOperations -NotePropertyValue @($qa.forbidOperations | Where-Object { $_ })
+    $task | Add-Member -NotePropertyName maxCalls -NotePropertyValue $qa.maxCalls
     $selected.Add($task)
 }
 if ($selected.Count -eq 0) { throw "No matching tasks (filter: $($Tasks -join ', '))." }
@@ -403,11 +482,21 @@ if ($AgentHost -eq 'copilot') {
 # The model list. -Models runs the matrix across several models in one invocation
 # (evaluator diversity for the tuning loop). For copilot a $null entry means the
 # CLI's default model. Default: -Model (ollama) or the copilot default.
-$modelList =
-if ($PSBoundParameters.ContainsKey('Models')) { @($Models | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
-elseif ($AgentHost -eq 'copilot' -and -not $PSBoundParameters.ContainsKey('Model')) { @($null) }
-else { @($Model) }
-if (@($modelList).Count -eq 0) { throw '-Models expanded to an empty list. Pass at least one model, e.g. -Models claude-opus-4.6.' }
+#
+# Built as a List rather than from a statement value: assigning `if (...) { @($null) }`
+# unrolls the single null element and leaves $modelList as plain $null, which then
+# iterates zero times - so the whole run silently did nothing while still exiting 0.
+# @($modelList).Count reports 1 in that state, so the emptiness guard below cannot
+# catch it either.
+$modelList = [System.Collections.Generic.List[object]]::new()
+if ($PSBoundParameters.ContainsKey('Models')) {
+    foreach ($name in @($Models | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+        $modelList.Add($name)
+    }
+}
+elseif ($AgentHost -eq 'copilot' -and -not $PSBoundParameters.ContainsKey('Model')) { $modelList.Add($null) }
+else { $modelList.Add($Model) }
+if ($modelList.Count -eq 0) { throw '-Models expanded to an empty list. Pass at least one model, e.g. -Models claude-opus-4.6.' }
 
 # Median over a small int list.
 function Get-Median([System.Collections.Generic.List[int]]$v) {
@@ -429,6 +518,7 @@ function Invoke-EvalRun {
 
     $iterRecords = [System.Collections.Generic.List[object]]::new()
     $rows = [System.Collections.Generic.List[object]]::new()
+    $transportRows = [System.Collections.Generic.List[object]]::new()
     foreach ($task in $selected) {
         $fixtureAbs = (Resolve-Path (Join-Path $root $task.fixture)).Path
         $expect = @($task.expect)
@@ -436,6 +526,10 @@ function Invoke-EvalRun {
         $callsList = [System.Collections.Generic.List[int]]::new()
         $tokensList = [System.Collections.Generic.List[int]]::new()
         $msList = [System.Collections.Generic.List[int]]::new()
+        $textList = [System.Collections.Generic.List[int]]::new()
+        $structuredList = [System.Collections.Generic.List[int]]::new()
+        $wireList = [System.Collections.Generic.List[int]]::new()
+        $shapes = [System.Collections.Generic.List[string]]::new()
 
         for ($i = 1; $i -le $N; $i++) {
             $r = switch ($AgentHost) {
@@ -457,22 +551,54 @@ function Invoke-EvalRun {
             # A correct-looking MCP answer must be grounded in the tools the task is
             # designed to exercise. Extra calls (for example trace_info first) are fine;
             # every expected tool must appear at least once as a successful call.
+            # The first token of a transcript entry is the MCP tool name on the mcp arm
+            # and the CLI verb on the cli arm.
+            $successfulNames = @($transcript |
+                Where-Object { $_.ok } |
+                ForEach-Object { ($_.cmd -split '\s+', 2)[0] })
+            $calledOperations = @($successfulNames | ForEach-Object { Get-OperationName -Name $_ } | Sort-Object -Unique)
+
             if ($ok -and $AgentHost -eq 'copilot') {
-                $successfulTools = @($transcript |
-                    Where-Object { $_.ok } |
-                    ForEach-Object { ($_.cmd -split '\s+', 2)[0] })
-                $missingTools = @($task.expectTools | Where-Object { $successfulTools -notcontains $_ })
+                $missingTools = @($task.expectTools | Where-Object { $successfulNames -notcontains $_ })
                 if ($missingTools.Count -gt 0) {
                     $ok = $false
                     $note = "missing expected successful MCP tool(s): $($missingTools -join ', ')"
                 }
             }
 
+            # Intent grading. Unlike the exact tool names, this survives a rename or a
+            # consolidation, so a baseline and a candidate surface can be compared.
+            if ($ok -and $task.expectOperations.Count -gt 0) {
+                $missingOperations = @($task.expectOperations | Where-Object { $calledOperations -notcontains $_ })
+                if ($missingOperations.Count -gt 0) {
+                    $ok = $false
+                    $note = "missing expected operation(s): $($missingOperations -join ', ')"
+                }
+            }
+            if ($ok -and $task.forbidOperations.Count -gt 0) {
+                $forbiddenUsed = @($task.forbidOperations | Where-Object { $calledOperations -contains $_ })
+                if ($forbiddenUsed.Count -gt 0) {
+                    $ok = $false
+                    $note = "called forbidden operation(s): $($forbiddenUsed -join ', ')"
+                }
+            }
+            if ($ok -and $task.maxCalls -and $calls -gt [int]$task.maxCalls) {
+                $ok = $false
+                $note = "$calls calls exceeds this task's $($task.maxCalls)-call budget"
+            }
+
             if ($ok) { $successes++ }
             $callsList.Add($calls); $tokensList.Add($tokens); $msList.Add($wallMs)
+            if ($null -ne $r.wireTokens) {
+                $textList.Add([int]$r.textTokens); $structuredList.Add([int]$r.structuredTokens); $wireList.Add([int]$r.wireTokens)
+                if ($r.resultShape -and -not $shapes.Contains([string]$r.resultShape)) { $shapes.Add([string]$r.resultShape) }
+            }
             $iterRecords.Add([pscustomobject]@{
                     task = $task.id; iteration = $i; success = $ok; calls = $calls
                     tokens = $tokens; wallMs = $wallMs
+                    textTokens = $r.textTokens; structuredTokens = $r.structuredTokens
+                    wireTokens = $r.wireTokens; resultShape = $r.resultShape; hostUsage = $r.hostUsage
+                    operations = $calledOperations
                     answer = $answer; note = $note; transcript = $transcript
                 })
             $tag = if ($ok) { 'ok ' } else { 'MISS' }
@@ -483,10 +609,21 @@ function Invoke-EvalRun {
                 Task = $task.id; 'Success%' = [int]([math]::Round(100.0 * $successes / $N))
                 MedCalls = (Get-Median $callsList); MedTokens = (Get-Median $tokensList); MedMs = (Get-Median $msList)
             })
+        if ($wireList.Count -gt 0) {
+            $transportRows.Add([pscustomobject]@{
+                    Task = $task.id; MedText = (Get-Median $textList)
+                    MedStructured = (Get-Median $structuredList); MedWire = (Get-Median $wireList)
+                    Shape = ($shapes -join ',')
+                })
+        }
     }
 
     Write-Host ''
     $rows | Format-Table -AutoSize | Out-String | Write-Host
+    if ($transportRows.Count -gt 0) {
+        Write-Host 'Per-response transport cost (text and structured are two copies of the same payload):'
+        $transportRows | Format-Table -AutoSize | Out-String | Write-Host
+    }
 
     New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
     $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
@@ -496,15 +633,17 @@ function Invoke-EvalRun {
     $labelPart = if ($RunLabel) { "$($RunLabel -replace '[^\w.-]', '_')-" } else { '' }
     $resultPath = Join-Path $OutDir "$AgentHost-$safeModel-$labelPart$stamp.json"
     $payload = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         host          = $AgentHost
         model         = $reportModel
         arm           = $arm
         label         = $RunLabel
         n             = $N
         maxSteps      = $MaxSteps
+        mcpDll        = $McpDll
         timestamp     = (Get-Date).ToString('o')
         summary       = $rows
+        transport     = $transportRows
         iterations    = $iterRecords
     }
     $utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -514,6 +653,13 @@ function Invoke-EvalRun {
 }
 
 # --- Run each model in the list -----------------------------------------------
+
+# A labeled run is a baseline or a candidate someone will compare; one or two
+# iterations cannot support a median, and a surface decision taken on that basis
+# is noise. Warn rather than block - a labeled smoke run is still useful.
+if ($Label -and $N -lt 3) {
+    Write-Warning "-Label '$Label' with N=${N}: a baseline or candidate needs at least 3 iterations per task for its medians to mean anything."
+}
 
 foreach ($m in $modelList) { Invoke-EvalRun -RunModel $m -RunLabel $Label | Out-Null }
 

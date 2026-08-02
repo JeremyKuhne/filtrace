@@ -68,6 +68,30 @@
     "lifecycle-phases": {
       "calls": 1,
       "tokens": 391
+    },
+    "alloc-metric-choice": {
+      "calls": 1,
+      "tokens": 199
+    },
+    "speedscope-source-limits": {
+      "calls": 1,
+      "tokens": 127
+    },
+    "capture-status-unknown": {
+      "calls": 1,
+      "tokens": 814
+    },
+    "event-count-only": {
+      "calls": 1,
+      "tokens": 79
+    },
+    "jit-summary-first": {
+      "calls": 1,
+      "tokens": 172
+    },
+    "scope-preserving-drill": {
+      "calls": 1,
+      "tokens": 198
     }
   }
 }

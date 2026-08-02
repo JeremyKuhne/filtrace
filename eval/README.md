@@ -116,12 +116,38 @@ the tool output the agent consumed - the same accounting the gate uses), and
 **wall-time**, plus a per-command transcript. Results land under `eval/results/`
 (git-ignored) as JSON with a median summary.
 
+On the MCP arm each response is also broken into **text**, **structured**, and
+**wire** tokens, because the same payload is currently carried in both
+`content[0].text` and `structuredContent` and the transport experiment has to see
+them apart. A measured single-call example: text 36, structured 36, complete wire
+result 171 - the payload twice, inside a wrapper roughly 4-5x its size. The
+headline `tokens` metric stays the text copy so it remains comparable with the cli
+arm and with existing baselines. What the *client* put in front of the model is
+host-specific, so it is not inferred: the host's own reported usage is recorded
+verbatim as `hostUsage` instead.
+
+`-McpDll` points the mcp arm at an explicitly built server - how a transport or
+surface variant published under `artifacts/` is measured against the baseline
+without editing committed tasks. A labeled run with fewer than three iterations
+per task warns: medians from one or two samples cannot support a surface decision.
+
 **MCP QA file.** [mcp-qa.jsonl](mcp-qa.jsonl) maps each task to the `trace_*` tool
 an ideal MCP run should call and the expected answer (mcp-builder style). The
 `copilot` arm requires every listed tool to appear as a successful call (extra
 orientation calls are allowed), so a lucky answer substring without the intended
 trace evidence does not pass. The file is also the seed for a future host-less
 MCP-client runner.
+
+Three optional fields grade *intent* rather than the current tool names:
+
+| Field | Effect |
+|---|---|
+| `expectOperations` | Every listed operation must have been called successfully, on either arm. Operations are surface-neutral (`rank`, `source`, `events`, ...) via [Get-OperationName.ps1](Get-OperationName.ps1), so a task keeps grading correctly after a tool is renamed or folded into another. |
+| `forbidOperations` | Calling any listed operation fails the iteration - the way to state "do not reach for source lines on a speedscope profile". |
+| `maxCalls` | A per-task call budget tighter than the global `-MaxSteps`, for tasks whose whole point is that one call suffices. |
+
+The deterministic gate validates all three against the operation vocabulary, so a
+typo fails CI instead of silently never matching.
 
 ### Coverage boundary
 
@@ -132,6 +158,16 @@ events, GC, and JIT. They do not yet cover
 `trace_lines`, `trace_heatmap`, `trace_classify`, `trace_diff`, `trace_export`,
 `trace_threadpool`, or `trace_diskio`, and they do not exercise a full
 orient -> rank -> drill -> compare run on one realistic capture.
+
+Four comprehension scenarios the roadmap asks for cannot be expressed against
+today's surface, and are deliberately absent rather than faked:
+
+| Scenario | Why not yet |
+|---|---|
+| Reject or repair `root` plus `benchmark` | It is an error path, and the deterministic gate requires every step to exit 0. |
+| Disambiguate several matching frames | There is no ambiguity diagnostic to assert - `callers <prefix>` silently aggregates every match. |
+| Choose `classify` over a generic report for native runtime CPU | The committed ETW fixture resolves 0% of its CPU frames, so `classify` returns one `other` category. |
+| Escalate from a batch case reference to one ranking | Case references are a v.next output-contract feature; batch repeats the trace path today. |
 
 Live success means the final answer contains each task's expected substring; on the
 Copilot arm, every expected MCP tool must also succeed. That is deterministic enough

@@ -1,0 +1,17 @@
+{
+  "id": "capture-status-unknown",
+  "title": "Separate an enabled provider from an unknown capture state.",
+  "prompt": "This trace returns no lock-contention data. Does that prove the application had no contention? Report the capture status recorded for contention and for wait, and the wait event count.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/wait.nettrace",
+  "os": "any",
+  "steps": [
+    { "args": ["info", "{fixture}"] }
+  ],
+  "assert": [
+    { "field": "result.analyses.wait.captureStatus", "equals": "enabled" },
+    { "field": "result.analyses.wait.eventCount", "equals": 604 },
+    { "field": "result.analyses.contention.captureStatus", "equals": "unknown" },
+    { "hintContains": "absence of events is not proof the provider was disabled" }
+  ],
+  "expect": ["unknown", "enabled", "604"]
+}

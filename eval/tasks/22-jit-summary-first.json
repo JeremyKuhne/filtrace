@@ -1,0 +1,15 @@
+{
+  "id": "jit-summary-first",
+  "title": "Take the JIT aggregate before the per-method detail.",
+  "prompt": "Give me the JIT compilation summary for this trace - how many methods were compiled and how much total compile time - without the full per-method listing.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/jit.nettrace",
+  "os": "any",
+  "steps": [
+    { "args": ["jitstats", "{fixture}", "--top", "1"] }
+  ],
+  "assert": [
+    { "field": "result.methodCount", "equals": 840 },
+    { "field": "result.totalCompileMs", "equals": 48.26 }
+  ],
+  "expect": ["840", "48"]
+}

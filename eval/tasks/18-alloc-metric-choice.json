@@ -1,0 +1,14 @@
+{
+  "id": "alloc-metric-choice",
+  "title": "Choose the allocation metric on the ranking operation.",
+  "prompt": "Which code path allocated the most bytes in this trace? Name the ranking operation and the metric you used, and the top allocation site.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/alloc.nettrace",
+  "os": "any",
+  "steps": [
+    { "args": ["rank", "{fixture}", "--metric", "alloc", "--top", "5"] }
+  ],
+  "assert": [
+    { "topFrame": "TraceQ.Fixtures.HotLoopBench.AllocLoop.AllocateBuffers" }
+  ],
+  "expect": ["rank", "alloc", "AllocateBuffers"]
+}
