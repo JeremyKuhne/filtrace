@@ -295,9 +295,10 @@ function Invoke-OllamaIteration {
             $res = Invoke-FiltraceForAgent -ArgString $action[1] -FixtureAbs $FixtureAbs
             $output = [string]$res[1]
             $clip = if ($output.Length -gt 4000) { $output.Substring(0, 4000) + ' ...[truncated]' } else { $output }
-            $tokens += [int](Get-TokenEstimate -Text $clip)
+            $callTokens = [int](Get-TokenEstimate -Text $clip)
+            $tokens += $callTokens
             $transcript.Add([pscustomobject]@{
-                    cmd = [string]$action[1]; ok = [bool]$res[0]
+                    cmd = [string]$action[1]; ok = [bool]$res[0]; textTokens = $callTokens
                     info = if (-not $res[0]) { $output.Substring(0, [math]::Min(160, $output.Length)) } else { '' }
                 })
             $messages += @{ role = 'user'; content = "OUTPUT:`n$clip" }
@@ -467,6 +468,7 @@ foreach ($file in $allTaskFiles) {
     $task | Add-Member -NotePropertyName expectOperations -NotePropertyValue @($qa.expectOperations | Where-Object { $_ })
     $task | Add-Member -NotePropertyName forbidOperations -NotePropertyValue @($qa.forbidOperations | Where-Object { $_ })
     $task | Add-Member -NotePropertyName maxCalls -NotePropertyValue $qa.maxCalls
+    $task | Add-Member -NotePropertyName maxResponseTokens -NotePropertyValue $qa.maxResponseTokens
     $selected.Add($task)
 }
 if ($selected.Count -eq 0) { throw "No matching tasks (filter: $($Tasks -join ', '))." }
@@ -509,6 +511,14 @@ function Get-Median([System.Collections.Generic.List[int]]$v) {
     return [int][math]::Round(($s[$n / 2 - 1] + $s[$n / 2]) / 2.0)
 }
 
+# Strip thousands separators from digit runs before comparing an answer with a
+# task's expected substrings. A model writes "4,309" where the task pins "4309",
+# and scoring that a miss measures formatting rather than analysis.
+function ConvertTo-ComparableAnswer {
+    param([string]$Text)
+    return [regex]::Replace($Text, '(?<=\d),(?=\d)', '')
+}
+
 # Run one model configuration (tasks x N), print the table, persist a result file,
 # and return its path. $script:CurrentModel drives both host adapters.
 function Invoke-EvalRun {
@@ -546,7 +556,12 @@ function Invoke-EvalRun {
             $ok = $false
             if ($answer) {
                 $ok = $true
-                foreach ($e in $expect) { if ($answer -notmatch [regex]::Escape($e)) { $ok = $false } }
+                $comparableAnswer = ConvertTo-ComparableAnswer -Text $answer
+                foreach ($e in $expect) {
+                    $comparableExpect = ConvertTo-ComparableAnswer -Text $e
+                    if ($comparableAnswer -notmatch [regex]::Escape($comparableExpect)) { $ok = $false }
+                }
+
                 if (-not $ok -and -not $note) { $note = 'answer missing expected content' }
             }
             elseif (-not $note) { $note = 'no answer produced' }
@@ -594,6 +609,24 @@ function Invoke-EvalRun {
             if ($ok -and $task.maxCalls -and $calls -gt [int]$task.maxCalls) {
                 $ok = $false
                 $note = "$calls calls exceeds this task's $($task.maxCalls)-call budget"
+            }
+            # Restraint is a response-size property, not a call-count one: one call that
+            # asks for ten thousand event records still answers the question, and a call
+            # budget cannot see it. Grade the largest single response rather than the
+            # iteration's total - summing would fail an iteration whose responses were
+            # each well inside the ceiling.
+            if ($ok -and $task.maxResponseTokens) {
+                $largestResponse = 0
+                foreach ($entry in $transcript) {
+                    $entryTokens = [math]::Max([int]$entry.textTokens, [int]$entry.structuredTokens)
+                    if ($entryTokens -gt $largestResponse) { $largestResponse = $entryTokens }
+                }
+
+                if ($largestResponse -gt [int]$task.maxResponseTokens) {
+                    $ok = $false
+                    $note = "largest response of $largestResponse tokens exceeds this task's " +
+                        "$($task.maxResponseTokens)-token ceiling"
+                }
             }
 
             if ($ok) { $successes++ }

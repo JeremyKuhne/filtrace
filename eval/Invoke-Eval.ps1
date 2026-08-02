@@ -155,6 +155,9 @@ foreach ($line in Get-Content -LiteralPath $mcpQaPath) {
     if ($null -ne $mcpTask.maxCalls -and [int]$mcpTask.maxCalls -lt 1) {
         throw "MCP QA task '$($mcpTask.id)' has a maxCalls of $($mcpTask.maxCalls); it must be at least 1."
     }
+    if ($null -ne $mcpTask.maxResponseTokens -and [int]$mcpTask.maxResponseTokens -lt 1) {
+        throw "MCP QA task '$($mcpTask.id)' has a maxResponseTokens of $($mcpTask.maxResponseTokens); it must be at least 1."
+    }
     $mcpTaskById[$mcpTask.id] = $mcpTask
 }
 

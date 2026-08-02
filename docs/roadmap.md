@@ -45,8 +45,9 @@ true.
 
 | When | Items | Why now |
 |---|---|---|
-| Now | VN0 | Nothing else can be decided without a repeatable multi-model baseline. |
-| Next | VN1, VN2, SC8 | Transport and output-contract decisions determine how every later capability is exposed; SC8 closes a correctness gap in data already captured. |
+| Done | VN0 | The baseline exists; see below for what it measured. |
+| Now | VN1 | The baseline produced the duplication figure the transport experiment turns on. |
+| Next | VN2, SC8 | The output-contract decision determines how every later capability is exposed; SC8 closes a correctness gap in data already captured. |
 | Then | VN3, VN4, VC1 | Surface selection, then the first capability that fits it. |
 | Later | VC2-VC8, LP-1..LP-5, VN5 | Demand-, dependency-, or decision-gated. |
 | Upstream | TE-P1..TE-P5 | Not actionable in this repository alone. |
@@ -65,9 +66,8 @@ stay frozen.
 
 ### VN0 - baseline and instrumentation
 
-**Priority:** Now. Everything after this is unmeasurable without it.
-
-The instrumentation has shipped; the measurement it enables has not.
+**Status:** Complete. The instrumentation shipped, and the baseline it enables has
+been run.
 
 **Done:**
 
@@ -92,24 +92,41 @@ The instrumentation has shipped; the measurement it enables has not.
   detail, and scope-preserving drill.
 - A labeled run with fewer than three iterations per task now warns.
 
-**Remaining:**
+**The baseline, run 2026-08-02:**
 
-- Run the multi-model baseline itself - at least three iterations per task across
-  more than one model family - and archive the artifacts. This is metered agent
-  time, not code:
+Two models, 23 tasks, three iterations each - 138 sessions, 28 minutes, 22.8 premium
+requests. Both models answered **86%** of iterations correctly (`gpt-5.6-sol` 59/69
+at zero premium cost, `claude-haiku-4.5` 59/69 at 22.8).
 
-  ```pwsh
-  ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models claude-opus-4.6,gpt-5.2 -N 3 -Label baseline
-  ```
+Choose models by *tier*, not by name: the available set changes, and ids are the
+picker label lowercased and hyphenated. Cost per session varies enormously by model
+and is roughly constant across task shapes, so calibrate before a long run. Measured
+the same day, premium requests per session: `claude-opus-5` 15, `gemini-3.6-flash`
+14, `claude-haiku-4.5` 0.33, `gpt-5.6-sol` 0. At 69 sessions per model a frontier
+pairing costs roughly 1,000 premium requests against roughly 20 for a cheap one, so
+prefer one zero-multiplier and one cheap model for routine runs - that cheaper models
+still succeed is the contract's own thesis - and spend a frontier model on a reduced
+subset when the question is specifically about frontier behavior.
 
-**What the instrumentation already showed:**
+```pwsh
+# Calibrate the current ids and their cost, then re-run the baseline.
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models <candidates> -Tasks event-count-only,cpu-hotspot -N 1
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models gpt-5.6-sol,claude-haiku-4.5 -N 3 -Label baseline
+```
 
-- The wire carries the payload twice inside a wrapper roughly 4-5x its size (one
-  `trace_query_events` call: text 36, structured 36, wire 171). VN1 now has a
-  concrete duplication figure rather than an assertion.
+**What the baseline showed:**
+
+- **VN1's number.** The wire carries the payload twice inside a wrapper of stable
+  size: wire/text median **4.11** (range 4.04-4.75) over 131 of 138 iterations, with
+  text equal to structured throughout. The transport decision can be made on
+  measurement rather than argument.
 - Input schemas are 61% of the permanent list against 17% for output schemas and 13%
   for prose. Consolidating parameters is the remaining lever; tightening
   descriptions is not.
+- **It found a product defect.** `OutputBudget` had no callers anywhere in `src/`, so
+  the 25,000-token ceiling had never been applied; an agent asking for 8,000 event
+  records produced a 550,215-token response. Fixed by bounding the page as it is
+  built.
 - The strict tool-grounding check earns its keep: on the first run of the
   count-without-paging task the agent answered correctly from `trace_info`'s
   `analyses.alloc.eventCount` without ever querying events. The task was retargeted
@@ -121,6 +138,28 @@ The instrumentation has shipped; the measurement it enables has not.
   so the emptiness guard could not catch it. Every default-model Copilot run exited
   0 having measured nothing. Fixed; it is the reason a baseline must be read from
   its artifact rather than from an exit code.
+- **A call budget cannot see a restraint failure.** On the count-without-paging task
+  one model asked for ten thousand event records in a single call, answered
+  correctly from the total, and scored 100% within its two-call budget. Restraint is
+  a response-size property, so the task schema gained `maxResponseTokens`, graded
+  against the largest single payload copy. That check is also how the acceptance
+  gate below becomes enforceable rather than aspirational.
+- **The text/structured split is not trustworthy above a few hundred tokens.** Large
+  responses recorded text 261 against structured 10,057 and wire 22,207; wire being
+  about twice structured says two full-size copies were on the wire, so the text
+  figure is the host transcript's truncated copy rather than the wire's. VN1 must
+  confirm against raw JSONL before concluding anything about the text copy from a
+  large response.
+- **Three tasks were measuring their own phrasing, not the surface.** Both models
+  wrote "4,309" where a task expected "4309", and a prompt that did not name the
+  process scope sent both models to a different process than the expectations
+  encoded. Correcting them took two tasks from 0% to 100% and one from 0% to 67%,
+  and lifted both models from 80% and 77% overall to 86%.
+- **What still fails is signal.** Five of six iterations reached for source-line
+  tools on a speedscope profile, across both models and both runs - a surface
+  problem, and the case for VN2's explicit compatibility. The JIT summary task fails
+  because the tool's *default* detail costs 2,251 tokens against the 172 the question
+  needs, which is the detail-profile case stated as a measurement.
 
 **Exit:** repeatable baseline artifacts that separate permanent schema cost, wire
 response cost, and model-visible cost.
@@ -654,7 +693,8 @@ requires:
 - deterministic tests and parity remain exact;
 - summary-mode JIT and raw-event count tasks fall below 500 response tokens - already
   met through existing options at 172 and 79, so v9 must preserve it rather than
-  reach it;
+  reach it, and the two tasks now carry a `maxResponseTokens` of 500 so a live run
+  enforces it;
 - duplicate payload copies are eliminated wherever the chosen clients permit it;
 - tool-list target: at most 7,500 tokens if typed output schemas are retained, at
   most 5,000 if JSON-text-only wins;
@@ -697,8 +737,9 @@ Resolve these with VN0 and VN1 evidence rather than opinion:
 
 ## Immediate next step
 
-Run the VN0 baseline. The accounting, the intent grading, the schema breakdown, and
-the comprehension tasks are in place; what is missing is metered agent time across
-more than one model family, and the artifacts that come out of it. That evidence
-decides the transport, and the transport decides how aggressively everything after
-it can change.
+VN1. VN0 is complete: the accounting, the intent grading, the schema breakdown, the
+comprehension tasks, and a repeatable multi-model baseline all exist, and the
+baseline already produced the number the transport experiment turns on - the wire
+carrying the payload twice inside a 4.11x wrapper. Test variant B first, because the
+envelope-only reduction left output schemas at 1,080 tokens and per-call duplication
+is now the larger prize.
