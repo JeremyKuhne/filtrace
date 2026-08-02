@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Output;
 using Microsoft.Diagnostics.Tracing;
 using Etlx = Microsoft.Diagnostics.Tracing.Etlx;
 
@@ -26,6 +27,28 @@ public sealed class EventQueryProvider
     ///  The default maximum number of characters of an event's rendered payload.
     /// </summary>
     public const int DefaultMaxPayloadChars = 200;
+
+    /// <summary>
+    ///  The token budget for the events on one page, leaving headroom under
+    ///  <see cref="OutputBudget.DefaultCeilingTokens"/> for the envelope, the
+    ///  warnings and hints, and the result's own scalar fields.
+    /// </summary>
+    /// <remarks>
+    ///  <para>
+    ///   <c>take</c> is caller-supplied and multiplies directly into response size, so
+    ///   a row count alone cannot bound the response: a thousand events with the
+    ///   default payload cap measures roughly 69,000 tokens. The page is therefore
+    ///   bounded as it is built, which also caps the memory the page holds. The
+    ///   reserve absorbs the envelope plus the small amount the per-record estimate
+    ///   can under-count, so the serialized response stays under the ceiling itself.
+    ///  </para>
+    /// </remarks>
+    public const int MaxPageTokens = OutputBudget.DefaultCeilingTokens - 2_000;
+
+    // The JSON scaffolding around one event record - the property names, the
+    // punctuation, and the numeric timestamp, process, and thread fields - which the
+    // per-record estimate adds to the record's variable text.
+    private const int RecordScaffoldTokens = 30;
 
     /// <summary>
     ///  Queries events whose <c>Provider/EventName</c> contains <paramref name="nameFilter"/>.
@@ -73,6 +96,8 @@ public sealed class EventQueryProvider
         using Etlx.TraceLog traceLog = OpenTrace(fullPath);
 
         int matched = 0;
+        int pageTokens = 0;
+        bool budgetTruncated = false;
         List<EventRecord> page = [];
         foreach (TraceEvent data in traceLog.Events)
         {
@@ -105,15 +130,31 @@ public sealed class EventQueryProvider
             }
 
             // Count every match for the total, but only materialize the requested page.
-            if (matched >= skip && page.Count < take)
+            if (matched >= skip && page.Count < take && !budgetTruncated)
             {
-                page.Add(new EventRecord(
-                    data.TimeStampRelativeMSec,
-                    data.ProviderName,
-                    data.EventName,
-                    data.ProcessID,
-                    data.ThreadID,
-                    RenderPayload(data, maxPayloadChars)));
+                string renderedPayload = RenderPayload(data, maxPayloadChars);
+                int recordTokens = RecordScaffoldTokens
+                    + OutputBudget.EstimateTokens(data.ProviderName)
+                    + OutputBudget.EstimateTokens(data.EventName)
+                    + OutputBudget.EstimateTokens(renderedPayload);
+
+                // Always return at least one event, so a single pathological payload
+                // pages rather than yielding an empty result the caller cannot advance.
+                if (page.Count > 0 && pageTokens + recordTokens > MaxPageTokens)
+                {
+                    budgetTruncated = true;
+                }
+                else
+                {
+                    page.Add(new EventRecord(
+                        data.TimeStampRelativeMSec,
+                        data.ProviderName,
+                        data.EventName,
+                        data.ProcessID,
+                        data.ThreadID,
+                        renderedPayload));
+                    pageTokens += recordTokens;
+                }
             }
 
             matched++;
@@ -121,7 +162,24 @@ public sealed class EventQueryProvider
 
         // Report the number of matches actually skipped, which is fewer than the
         // requested skip when the query matched fewer events than that.
-        return new EventQueryResult(matched, Math.Min(skip, matched), page);
+        return new EventQueryResult(matched, Math.Min(skip, matched), page, budgetTruncated);
+    }
+
+    /// <summary>
+    ///  The warning a head reports when a page was cut short by the token budget,
+    ///  shared so both heads word it identically.
+    /// </summary>
+    /// <param name="result">The result to describe.</param>
+    /// <returns>The warning, or <see langword="null"/> when the page was not truncated.</returns>
+    public static string? GetBudgetWarning(EventQueryResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result.BudgetTruncated
+            ? $"Returned {result.Events.Count} events; the rest of the requested page would exceed the "
+                + $"{MaxPageTokens}-token response budget. Page from the reported skip, or narrow the "
+                + "query with --name, --payload, or a smaller --max-payload."
+            : null;
     }
 
     // Opens either supported format through the shared concurrency-safe ETLX cache.

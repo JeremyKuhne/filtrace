@@ -65,7 +65,13 @@ internal static class EventsExecutor
                 $"{result.TotalMatched - shownThrough} more match; page with --skip {shownThrough}.");
         }
 
-        AnalysisResult<EventQueryResult> envelope = new(result, hints: hints);
+        List<string> warnings = [];
+        if (EventQueryProvider.GetBudgetWarning(result) is string budgetWarning)
+        {
+            warnings.Add(budgetWarning);
+        }
+
+        AnalysisResult<EventQueryResult> envelope = new(result, warnings, hints);
 
         if (request.Format == OutputFormat.Json)
         {
