@@ -10,6 +10,52 @@ namespace Filtrace.Output;
 public sealed class OutputBudgetTests
 {
     [TestMethod]
+    public void TakeWithinBudget_RowsThatFit_AreAllTaken()
+    {
+        string[] rows = ["a", "b", "c"];
+
+        List<string> kept = OutputBudget.TakeWithinBudget(rows, static _ => 10, budgetTokens: 100, out bool truncated);
+
+        kept.Should().HaveCount(3);
+        truncated.Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void TakeWithinBudget_OverBudget_StopsAndReportsTruncation()
+    {
+        string[] rows = ["a", "b", "c"];
+
+        List<string> kept = OutputBudget.TakeWithinBudget(rows, static _ => 40, budgetTokens: 100, out bool truncated);
+
+        kept.Should().HaveCount(2);
+        truncated.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void TakeWithinBudget_FirstRowOverBudget_IsStillTaken()
+    {
+        // A producer with rows never returns an empty list the caller cannot act on, which
+        // is why each producer has to bound whatever scales a single row's size.
+        string[] rows = ["a", "b"];
+
+        List<string> kept = OutputBudget.TakeWithinBudget(rows, static _ => 1_000, budgetTokens: 10, out bool truncated);
+
+        kept.Should().ContainSingle();
+        truncated.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void TakeWithinBudget_NoRows_IsNotTruncated()
+    {
+        string[] rows = [];
+
+        List<string> kept = OutputBudget.TakeWithinBudget(rows, static _ => 1, budgetTokens: 10, out bool truncated);
+
+        kept.Should().BeEmpty();
+        truncated.Should().BeFalse();
+    }
+
+    [TestMethod]
     public void EstimateTokens_EmptyString_Zero()
     {
         OutputBudget.EstimateTokens(string.Empty).Should().Be(0);

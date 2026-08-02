@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Output;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
@@ -32,6 +33,11 @@ namespace Filtrace.Tracing.Providers;
 /// </remarks>
 public sealed partial class DiskIoProvider
 {
+    // The JSON scaffolding around one file record - the property names, the punctuation,
+    // and the numeric byte, count, and service-time fields - which the per-record
+    // estimate adds to the file name.
+    private const int RecordScaffoldTokens = 38;
+
     /// <summary>
     ///  Reads the disk I/O report from the ETW trace at <paramref name="path"/>.
     /// </summary>
@@ -124,4 +130,59 @@ public sealed partial class DiskIoProvider
             totalDiskMs,
             files);
     }
+
+    /// <summary>
+    ///  Limits a report's per-file detail to the heaviest files that fit both
+    ///  <paramref name="top"/> and <see cref="OutputBudget.DefaultRowBudgetTokens"/>,
+    ///  leaving the aggregate summary untouched.
+    /// </summary>
+    /// <param name="report">The full report, as returned by <see cref="Read"/>.</param>
+    /// <param name="top">The caller's maximum detail row count. Must be positive.</param>
+    /// <param name="warning">
+    ///  The warning naming what was dropped, or <see langword="null"/> when the whole file
+    ///  list was kept.
+    /// </param>
+    /// <returns>
+    ///  The limited report, or <paramref name="report"/> itself when every file fit.
+    /// </returns>
+    /// <remarks>
+    ///  <para>
+    ///   Shared by both heads so they bound and word the result identically. A file row
+    ///   costs about 60 estimated tokens, so a caller-supplied row cap alone stops holding
+    ///   the response under the ceiling at roughly 400 files - well within reach of a
+    ///   machine-wide capture, though no committed fixture is broad enough to reach it.
+    ///   <see cref="Read"/> already ranks the files by disk time, so the order is kept.
+    ///  </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="report"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is not positive.</exception>
+    public static DiskIoResult LimitDetail(DiskIoResult report, int top, out string? warning)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+
+        List<DiskIoFileRecord> kept = OutputBudget.TakeWithinBudget(
+            report.Files.Take(top),
+            EstimateRecordTokens,
+            OutputBudget.DefaultRowBudgetTokens,
+            out bool budgetTruncated);
+
+        if (kept.Count == report.Files.Count)
+        {
+            warning = null;
+            return report;
+        }
+
+        warning = budgetTruncated
+            ? $"Showing {kept.Count} of {report.Files.Count} files by disk time; more would exceed the "
+                + $"{OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response under "
+                + $"the {OutputBudget.DefaultCeilingTokens}-token ceiling. The aggregate summary still covers "
+                + "every file."
+            : $"Showing the top {top} of {report.Files.Count} files by disk time.";
+
+        return report with { Files = kept };
+    }
+
+    private static int EstimateRecordTokens(DiskIoFileRecord file) =>
+        RecordScaffoldTokens + OutputBudget.EstimateTokens(file.FileName);
 }

@@ -4,6 +4,7 @@
 
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using Filtrace.Output;
 
 namespace Filtrace.Tracing;
 
@@ -43,6 +44,11 @@ public sealed partial class FoldingAggregator
     ///  <see cref="StackOverflowException"/>. It is far beyond any readable tree depth.
     /// </summary>
     public const int MaxTreeDepth = 1024;
+
+    // The JSON scaffolding around one ranked row - the property names, the punctuation,
+    // and the numeric weight and percentage - which the per-row estimate adds to the
+    // frame name.
+    private const int RankRowScaffoldTokens = 16;
 
     private readonly StackSampleSource _source;
     private readonly IReadOnlyList<SampleStack> _samples;
@@ -265,6 +271,59 @@ public sealed partial class FoldingAggregator
             RankRows(inclTime, total, top),
             AvailableRecordCount(contributingRecordCount));
     }
+
+    /// <summary>
+    ///  Limits a ranking's rows to those that fit
+    ///  <see cref="OutputBudget.DefaultRowBudgetTokens"/>, leaving the scope totals
+    ///  untouched.
+    /// </summary>
+    /// <param name="ranking">The ranking to bound, as returned by <see cref="SelfTime"/> or <see cref="InclusiveTime"/>.</param>
+    /// <param name="warning">
+    ///  The warning naming what was dropped, or <see langword="null"/> when every row fit.
+    /// </param>
+    /// <returns>
+    ///  The limited ranking, or <paramref name="ranking"/> itself when every row fit.
+    /// </returns>
+    /// <remarks>
+    ///  <para>
+    ///   Shared by both heads so they bound and word the result identically. The row cap
+    ///   the caller passes to <see cref="SelfTime"/> is not a bound on response size: a
+    ///   ranked row costs about 27 estimated tokens, so the response crosses the ceiling
+    ///   at roughly 940 rows, which a broad trace has no trouble producing.
+    ///  </para>
+    ///  <para>
+    ///   This is applied where a ranking becomes a response, not inside the ranking
+    ///   itself, because the diff paths deliberately rank with no cap and pair the full
+    ///   row sets before capping their own output.
+    ///  </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="ranking"/> is <see langword="null"/>.</exception>
+    public static RankingResult LimitRows(RankingResult ranking, out string? warning)
+    {
+        ArgumentNullException.ThrowIfNull(ranking);
+
+        List<RankRow> kept = OutputBudget.TakeWithinBudget(
+            ranking.Rows,
+            EstimateRowTokens,
+            OutputBudget.DefaultRowBudgetTokens,
+            out bool budgetTruncated);
+
+        if (!budgetTruncated)
+        {
+            warning = null;
+            return ranking;
+        }
+
+        warning =
+            $"Showing {kept.Count} of {ranking.Rows.Count} ranked rows; more would exceed the "
+            + $"{OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole response under the "
+            + $"{OutputBudget.DefaultCeilingTokens}-token ceiling. The scope total still covers every frame.";
+
+        return ranking with { Rows = kept };
+    }
+
+    private static int EstimateRowTokens(RankRow row) =>
+        RankRowScaffoldTokens + OutputBudget.EstimateTokens(row.Frame);
 
     /// <summary>
     ///  Reports the immediate callers of the topmost frame matching

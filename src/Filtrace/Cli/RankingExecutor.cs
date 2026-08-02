@@ -43,10 +43,16 @@ internal static class RankingExecutor
         }
 
         TraceInfo info = trace.Info;
-        RankingResult ranking = request.Measure == Measure.Inclusive
+        RankingResult ranked = request.Measure == Measure.Inclusive
             ? trace.Aggregator.InclusiveTime(request.Root, request.Fold, request.Top)
             : trace.Aggregator.SelfTime(request.Root, request.Fold, request.Top);
+        RankingResult ranking = FoldingAggregator.LimitRows(ranked, out string? budgetWarning);
         List<string> warnings = [.. TraceExecution.ResultWarnings(info)];
+        if (budgetWarning is not null)
+        {
+            warnings.Add(budgetWarning);
+        }
+
         if (ContributingRecordQuality.TryGetMethodWarning(
             trace.Source.RecordSemantics,
             ranking.ContributingRecordCount,

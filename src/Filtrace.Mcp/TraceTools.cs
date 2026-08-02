@@ -222,10 +222,16 @@ public sealed class TraceTools
             cancellationToken).ConfigureAwait(false);
         LoadedTrace trace = load.Trace;
         TraceInfo info = trace.Info;
-        RankingResult ranking = inclusive
+        RankingResult ranked = inclusive
             ? trace.Aggregator.InclusiveTime(resolvedRoot, foldPatterns, top)
             : trace.Aggregator.SelfTime(resolvedRoot, foldPatterns, top);
+        RankingResult ranking = FoldingAggregator.LimitRows(ranked, out string? budgetWarning);
         List<string> warnings = [.. info.Warnings];
+        if (budgetWarning is not null)
+        {
+            warnings.Add(budgetWarning);
+        }
+
         AddFrameMatchWarnings(
             warnings,
             trace.Source,
@@ -711,18 +717,16 @@ public sealed class TraceTools
         RequirePositiveTop(top);
         DiskIoResult full = ReadDiskIo(path);
 
-        // Keep the full aggregate summary, but cap the per-file detail to the heaviest
-        // files so a broad capture cannot blow the output budget. An empty report is
-        // conveyed by the empty file list, like the other reports.
+        // Keep the full aggregate summary, but bound the per-file detail by both the
+        // requested row count and the token budget. An empty report is conveyed by the
+        // empty file list, like the other reports.
+        DiskIoResult report = DiskIoProvider.LimitDetail(full, top, out string? warning);
         List<string> warnings = [];
-        IReadOnlyList<DiskIoFileRecord> shown = full.Files;
-        if (shown.Count > top)
+        if (warning is not null)
         {
-            shown = [.. shown.Take(top)];
-            warnings.Add($"Showing the top {top} of {full.Files.Count} files by disk time.");
+            warnings.Add(warning);
         }
 
-        DiskIoResult report = full with { Files = shown };
         return new AnalysisResult<DiskIoResult>(report, warnings);
     }
 
@@ -1100,18 +1104,16 @@ public sealed class TraceTools
         RequirePositiveTop(top);
         JitStatsResult full = ReadJitStats(path);
 
-        // Keep the full aggregate summary, but cap the per-method detail to the
-        // costliest compiles so a startup trace's thousands of methods cannot blow
-        // the output budget.
+        // Keep the full aggregate summary, but bound the per-method detail by both the
+        // requested row count and the token budget, so a startup trace's thousands of
+        // methods cannot blow the output budget.
+        JitStatsResult report = JitStatsProvider.LimitDetail(full, top, out string? warning);
         List<string> warnings = [];
-        IReadOnlyList<JitMethodRecord> shown = full.Methods;
-        if (shown.Count > top)
+        if (warning is not null)
         {
-            shown = [.. shown.OrderByDescending(static m => m.CompileMs).Take(top)];
-            warnings.Add($"Showing the top {top} of {full.MethodCount} methods by compile time.");
+            warnings.Add(warning);
         }
 
-        JitStatsResult report = full with { Methods = shown };
         return new AnalysisResult<JitStatsResult>(report, warnings);
     }
 

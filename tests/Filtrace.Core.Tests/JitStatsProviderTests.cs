@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
+using Filtrace.Output;
+
 namespace Filtrace.Tracing.Providers;
 
 [TestClass]
@@ -62,6 +65,65 @@ public sealed class JitStatsProviderTests
 
         // The JitLoop benchmark's deliberately named methods are jitted once each.
         result.Methods.Should().Contain(m => m.MethodName.Contains("JitMethod", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void LimitDetail_TopLargerThanTheBudget_ClampsTheSerializedResponse()
+    {
+        // The detail row count is caller-supplied and multiplies straight into response
+        // size. Before the list was bounded by tokens, asking this 840-method fixture for
+        // every method serialized to about 79,000 estimated tokens - three times the
+        // ceiling the output budget documents.
+        JitStatsResult full = LoadJitStats();
+
+        JitStatsResult limited = JitStatsProvider.LimitDetail(full, top: 100_000, out string? warning);
+
+        limited.Methods.Count.Should().BeLessThan(full.Methods.Count);
+        limited.MethodCount.Should().Be(full.MethodCount, "the aggregate summary still covers every method");
+        warning.Should().NotBeNull()
+            .And.Contain(OutputBudget.DefaultRowBudgetTokens.ToString(CultureInfo.InvariantCulture));
+
+        string serialized = OutputJson.Serialize(new AnalysisResult<JitStatsResult>(limited));
+        OutputBudget.EstimateTokens(serialized).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
+    public void LimitDetail_TopBelowTheMethodCount_KeepsTheCostliestCompiles()
+    {
+        JitStatsResult full = LoadJitStats();
+
+        JitStatsResult limited = JitStatsProvider.LimitDetail(full, top: 3, out string? warning);
+
+        limited.Methods.Should().HaveCount(3).And.BeInDescendingOrder(static method => method.CompileMs);
+        limited.Methods[0].CompileMs.Should().Be(full.MaxCompileMs);
+        warning.Should().Contain("Showing the top 3");
+    }
+
+    [TestMethod]
+    public void LimitDetail_EverythingFits_ReturnsTheReportUnchanged()
+    {
+        // A report that fits keeps the trace order Read produced, and reports no warning.
+        JitMethodRecord[] methods =
+        [
+            new("Slow.Method", "slow.dll", 10, 20, 5.0, "Optimized"),
+            new("Fast.Method", "fast.dll", 30, 40, 1.0, "QuickJitted")
+        ];
+        JitStatsResult report = new(2, 6.0, 5.0, 3.0, 40, 60, methods);
+
+        JitStatsResult limited = JitStatsProvider.LimitDetail(report, top: 25, out string? warning);
+
+        limited.Should().BeSameAs(report);
+        warning.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void LimitDetail_NonPositiveTop_Throws()
+    {
+        JitStatsResult report = new(0, 0.0, 0.0, 0.0, 0, 0, []);
+
+        Action act = () => JitStatsProvider.LimitDetail(report, top: 0, out _);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [TestMethod]

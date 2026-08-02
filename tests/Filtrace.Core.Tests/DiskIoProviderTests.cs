@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Output;
+
 namespace Filtrace.Tracing.Providers;
 
 [TestClass]
@@ -16,6 +18,45 @@ public sealed class DiskIoProviderTests
     // this provider reads, resolved to the workload's file names.
     private static DiskIoResult LoadDiskIo() =>
         new DiskIoProvider().Read(FixturePath("diskio.etl"));
+
+    [TestMethod]
+    public void LimitDetail_MoreFilesThanTheBudget_ClampsTheSerializedResponse()
+    {
+        // A file row costs about 60 estimated tokens, so a machine-wide capture clears the
+        // ceiling at a few hundred files. The trimmed fixture touches seven, so the report
+        // is built directly rather than read from it.
+        DiskIoResult wide = new(
+            0,
+            2_000,
+            0,
+            2_048_000,
+            1000.0,
+            [.. Enumerable.Range(0, 2_000).Select(static index => new DiskIoFileRecord(
+                $@"C:\data\warehouse\partition-{index}\segment-{index:D6}.bin",
+                0,
+                1024,
+                0,
+                1,
+                0.5))]);
+
+        DiskIoResult limited = DiskIoProvider.LimitDetail(wide, top: 100_000, out string? warning);
+
+        limited.Files.Count.Should().BeLessThan(wide.Files.Count);
+        limited.TotalWriteBytes.Should().Be(wide.TotalWriteBytes, "the aggregate summary still covers every file");
+        warning.Should().NotBeNull();
+
+        string serialized = OutputJson.Serialize(new AnalysisResult<DiskIoResult>(limited));
+        OutputBudget.EstimateTokens(serialized).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
+    public void LimitDetail_WithinTheBudget_ReturnsTheReportUnchanged()
+    {
+        DiskIoResult full = LoadDiskIo();
+
+        DiskIoProvider.LimitDetail(full, top: 100_000, out string? warning).Should().BeSameAs(full);
+        warning.Should().BeNull();
+    }
 
     [TestMethod]
     public void Read_DiskIoFixture_ReportsWrites()
