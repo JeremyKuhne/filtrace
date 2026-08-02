@@ -47,7 +47,7 @@ true.
 |---|---|---|
 | Done | VN0 | The baseline exists; see below for what it measured. |
 | Now | VN1 | The baseline produced the duplication figure the transport experiment turns on. |
-| Next | VN2, SC8, output-budget coverage | The output-contract decision determines how every later capability is exposed; SC8 closes a correctness gap in data already captured. |
+| Next | VN2, SC8 | The output-contract decision determines how every later capability is exposed; SC8 closes a correctness gap in data already captured. |
 | Then | VN3, VN4, VC1 | Surface selection, then the first capability that fits it. |
 | Later | VC2-VC8, LP-1..LP-5, VN5 | Demand-, dependency-, or decision-gated. |
 | Upstream | TE-P1..TE-P5 | Not actionable in this repository alone. |
@@ -116,10 +116,21 @@ subset when the question is specifically about frontier behavior.
 
 **What the baseline showed:**
 
-- **VN1's number.** The wire carries the payload twice inside a wrapper of stable
-  size: wire/text median **4.11** (range 4.04-4.75) over 131 of 138 iterations, with
-  text equal to structured throughout. The transport decision can be made on
-  measurement rather than argument.
+- **VN1's number, corrected.** The payload ships twice - the text block is
+  byte-identical to the serialized `structuredContent` at every size measured - so
+  the MCP result costs **2.02x** the payload
+  ([tools/Measure-McpResultSplit.ps1](../tools/Measure-McpResultSplit.ps1), six calls
+  from 127 to 23,713 tokens, ratio 2.01-2.12).
+
+  The baseline first reported this as **4.11**, read from the Copilot CLI's JSONL
+  transcript. That figure was measuring the host, not the wire: its
+  `tool.execution_complete` result carries four copies of the payload - `content`,
+  `structuredContent`, and the host's own `detailedContent` and `contents` - and the
+  harness had been serializing the whole object. The two host copies never crossed
+  the MCP boundary and no transport variant can remove them, so the duplication a
+  transport change can actually recover is half of a result, not three quarters.
+  The harness now reports the protocol result as `wireTokens` and the host's object
+  separately as `hostResultTokens`; do not read a transport decision off the latter.
 - Input schemas are 61% of the permanent list against 17% for output schemas and 13%
   for prose. Consolidating parameters is the remaining lever; tightening
   descriptions is not.
@@ -193,12 +204,17 @@ not overwrite `eval/baselines.json`; transport comparisons live in the ignored
 **Note the changed arithmetic.** When this experiment was proposed, output schemas
 were ~3,900 tokens and variant C looked like a large permanent win. After the
 envelope-only reduction they measure 1,080. C's case now rests almost entirely on
-per-call duplication, so B is the cheaper hypothesis to test first.
+per-call duplication, so B is the cheaper hypothesis to test first. The prize is
+also smaller than the baseline first suggested: the duplication is 2.02x, not the
+4.11x read off the host transcript, so dropping the text mirror recovers about half
+of each result rather than three quarters.
 
 Record per variant: tool-list characters and tokens; per-tool input/output/
 description/total; text, structured, complete-wire, and client-visible result
 tokens; task success, expected-tool success, calls, wall time, answer accuracy; and
-behavior in Copilot CLI plus at least one other MCP client or model family.
+behavior in Copilot CLI plus at least one other MCP client or model family. Take the
+per-call split from [tools/Measure-McpResultSplit.ps1](../tools/Measure-McpResultSplit.ps1)
+against the variant's own build, not from a host transcript.
 
 Selection rule, in order: reject any variant with a success regression on any model;
 reject any variant that increases median calls; among the rest choose the lowest
@@ -561,29 +577,36 @@ instead. Adding the PerfView-style "merge" step to
 [EtwCollector](../src/Filtrace.Core/Tracing/EtwCollector.cs) would make a portable,
 committable fixture possible.
 
-### Output-budget coverage for row-capped producers
-
-**Priority:** Next. **Cost:** low. **Where:** Core, one producer at a time.
+### Output-budget coverage for row-capped producers - complete
 
 A producer whose row count comes from the caller cannot bound its response with a row
-cap alone. `events`, `jitstats`, `rank`, and `diskio` now bound their row lists
-against `OutputBudget.DefaultRowBudgetTokens` and report what they dropped.
-
-`jitstats` was the second confirmed breach of the ceiling: asking the committed
-840-method JIT fixture for every method measured 78,993 tokens, three times the
-ceiling, and a startup trace jits far more than that. Bounded, the same query returns
-245 rows at 23,713 tokens. `rank` (about 27 tokens per row, crossing at ~940 rows)
-and `diskio` (about 60 tokens per file, crossing at ~412 files) were bounded on the
-same measurement, but no committed fixture is broad enough to reach those counts, so
-those two bounds are pinned against constructed results rather than a reproduced
-failure.
-
-Still unbounded, in the same shape: `callers`, `lines`, `gcstats`, and `lifecycle`.
-`heatmap` needs a bound rather than a tighter one - it takes no row cap at all, and
-its row count is the number of source lines in the requested file. `timeline`
-(buckets clamped 5-200), `tree`
+cap alone. Every producer that returns a variable-length list now bounds it against
+`OutputBudget.DefaultRowBudgetTokens` and reports what it dropped: `events`,
+`jitstats`, `rank`, `diskio`, `callers`, `lines`, `heatmap`, `gcstats`, and
+`lifecycle`. `timeline` (buckets clamped 5-200), `tree`
 ([FoldingAggregator](../src/Filtrace.Core/Tracing/FoldingAggregator.cs)'s maximum
-tree depth), and `threadpool` are bounded by construction and need nothing.
+tree depth), and `threadpool` were already bounded by construction.
+
+Two of those were reproduced breaches rather than precautions. `events --take 8000`
+returned 550,215 tokens, and asking the committed 840-method JIT fixture for every
+method measured 78,993 - three times the ceiling, where a startup trace jits far
+more. The rest are bounded on measured per-row cost (`rank` ~27 tokens, crossing at
+~940 rows; `diskio` ~60 per file, ~412 files) and pinned against constructed results,
+because no committed fixture is broad enough to reach those counts.
+
+`heatmap` was the odd one: it takes no row cap at all, so its size follows the source
+file and the budget is the only bound it has.
+
+The shared mechanism is `OutputBudget.TakeWithinBudget`, which always keeps the first
+row. That places an obligation on each producer - whatever scales a single row's size
+must itself be bounded - and only `EventQueryProvider.MaxPayloadChars` discharges it
+today. The other producers' row sizes come from the trace (symbol names, file names,
+child process lists), not from caller input.
+
+**Do not move a bound into `FoldingAggregator.RankRows`.** The diff paths rank with
+`int.MaxValue` deliberately and pair the full row sets before capping their own
+output, so bounding there truncates diff *inputs* - a wrong-answer bug, not a size
+fix. Bound where a result becomes a response.
 
 ### Skill packaging headroom
 
@@ -762,8 +785,8 @@ Resolve these with VN0 and VN1 evidence rather than opinion:
 ## Immediate next step
 
 VN1. VN0 is complete: the accounting, the intent grading, the schema breakdown, the
-comprehension tasks, and a repeatable multi-model baseline all exist, and the
-baseline already produced the number the transport experiment turns on - the wire
-carrying the payload twice inside a 4.11x wrapper. Test variant B first, because the
+comprehension tasks, and a repeatable multi-model baseline all exist, and the number
+the transport experiment turns on has been measured against the server itself - the
+wire carries the payload twice, at 2.02x. Test variant B first, because the
 envelope-only reduction left output schemas at 1,080 tokens and per-call duplication
 is now the larger prize.

@@ -302,8 +302,14 @@ public sealed class TraceTools
         ScopeRequest? scope = ResolveScope(process, pid, children);
         LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: scope);
         TraceInfo info = trace.Info;
-        CallersResult callers = trace.Aggregator.CallersOf(frame, resolvedRoot, top, callees);
+        CallersResult full = trace.Aggregator.CallersOf(frame, resolvedRoot, top, callees);
+        CallersResult callers = FoldingAggregator.LimitRows(full, out string? budgetWarning);
         List<string> warnings = [.. info.Warnings];
+        if (budgetWarning is not null)
+        {
+            warnings.Add(budgetWarning);
+        }
+
         AddFrameMatchWarnings(
             warnings,
             trace.Source,
@@ -364,8 +370,14 @@ public sealed class TraceTools
             cancellationToken: cancellationToken).ConfigureAwait(false);
         LoadedTrace trace = load.Trace;
         TraceInfo info = trace.Info;
-        LineRankingResult lines = trace.Aggregator.HotLines(method, foldPatterns, top);
+        LineRankingResult full = trace.Aggregator.HotLines(method, foldPatterns, top);
+        LineRankingResult lines = FoldingAggregator.LimitRows(full, out string? budgetWarning);
         List<string> warnings = [.. info.Warnings];
+        if (budgetWarning is not null)
+        {
+            warnings.Add(budgetWarning);
+        }
+
         AddLineRecordWarning(warnings, trace.Source, lines.AttributedRecordCount);
 
         return new AnalysisResult<LineRankingResult>(lines, warnings);
@@ -408,8 +420,14 @@ public sealed class TraceTools
 
         // The trace records the build-time file name, not its full path, so match on the file name.
         string fileName = Path.GetFileName(file);
-        SourceHeatmapResult heatmap = trace.Aggregator.SourceHeatmap(fileName, foldPatterns);
+        SourceHeatmapResult full = trace.Aggregator.SourceHeatmap(fileName, foldPatterns);
+        SourceHeatmapResult heatmap = FoldingAggregator.LimitRows(full, out string? budgetWarning);
         List<string> warnings = [.. info.Warnings];
+        if (budgetWarning is not null)
+        {
+            warnings.Add(budgetWarning);
+        }
+
         AddLineRecordWarning(warnings, trace.Source, heatmap.AttributedRecordCount);
 
         return new AnalysisResult<SourceHeatmapResult>(heatmap, warnings);
@@ -604,17 +622,15 @@ public sealed class TraceTools
         RequirePositiveTop(top);
         GcStatsResult full = ReadGcStats(path);
 
-        // Keep the full aggregate summary, but cap the per-collection detail to the
-        // hottest pauses so a long trace cannot blow the output budget.
+        // Keep the full aggregate summary, but bound the per-collection detail by both
+        // the requested row count and the token budget.
+        GcStatsResult report = GcStatsProvider.LimitDetail(full, top, out string? warning);
         List<string> warnings = [];
-        IReadOnlyList<GcRecord> shown = full.Gcs;
-        if (shown.Count > top)
+        if (warning is not null)
         {
-            shown = [.. shown.OrderByDescending(static g => g.PauseMs).Take(top)];
-            warnings.Add($"Showing the top {top} of {full.GcCount} collections by pause time.");
+            warnings.Add(warning);
         }
 
-        GcStatsResult report = full with { Gcs = shown };
         return new AnalysisResult<GcStatsResult>(report, warnings);
     }
 
@@ -762,18 +778,14 @@ public sealed class TraceTools
         LifecycleResult full = ReadLifecycle(path, scope, image, warnings);
         warnings.AddRange(LifecycleProvider.DescribeCoverage(full));
 
-        // Keep the phase medians over every invocation, but cap the per-invocation detail
-        // so a long capture matrix cannot blow the response budget.
-        IReadOnlyList<LifecycleInvocation> shown = full.Invocations;
-        if (shown.Count > top)
+        // Keep the phase medians over every invocation, but bound the per-invocation
+        // detail by both the requested row count and the token budget.
+        LifecycleResult report = LifecycleProvider.LimitDetail(full, top, out string? warning);
+        if (warning is not null)
         {
-            shown = [.. shown.Take(top)];
-            warnings.Add(
-                $"Showing the first {top} of {full.Invocations.Count} invocations in start order; "
-                + "the medians cover all of them.");
+            warnings.Add(warning);
         }
 
-        LifecycleResult report = full with { Invocations = shown };
         return new AnalysisResult<LifecycleResult>(report, warnings, SteeringHints.ForLifecycle(full));
     }
 

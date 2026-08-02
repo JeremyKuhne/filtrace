@@ -46,9 +46,13 @@
   On the MCP arm the token figure is also broken down per response, because the
   same payload is currently carried twice on the wire (text content and structured
   content) and the transport experiment needs those measured apart: textTokens,
-  structuredTokens, and wireTokens (the complete result object). The
-  client-visible value - what the host actually placed in the model's context - is
-  recorded only when the host reports it; Copilot's transcript exposes session
+  structuredTokens, and wireTokens (the MCP result - the members the protocol
+  defines). hostResultTokens is the whole object the host's transcript recorded,
+  which is NOT the same thing: the Copilot CLI adds its own renderings
+  (detailedContent, contents), so its transcript carries about four copies of a
+  payload the server sent twice. Only wireTokens responds to a transport change.
+  The client-visible value - what the host actually placed in the model's context -
+  is recorded only when the host reports it; Copilot's transcript exposes session
   usage rather than per-call context, so hostUsage is captured instead of a
   fabricated per-call number.
 
@@ -332,10 +336,14 @@ function New-FiltraceMcpConfig {
 
 # Break one MCP tool result into the pieces the transport experiment compares.
 # The same payload is currently carried in both content[0].text and
-# structuredContent, so summing them would double-count; they are reported apart
-# and `wire` is the complete result object the host received. `shape` records
-# which members the host actually surfaced, since that is host-dependent and the
-# measurement is only interpretable alongside it.
+# structuredContent, so summing them would double-count; they are reported apart.
+# `wire` counts only the members the MCP protocol defines, because a transport
+# change moves those and nothing else. `hostResult` counts the whole object the
+# host recorded: the Copilot CLI adds `detailedContent` and `contents`, two further
+# copies that never crossed the MCP boundary, so conflating the two overstates the
+# duplication a transport variant can remove (measured 4x recorded against 2x real).
+# `shape` records which members the host actually surfaced, since that is
+# host-dependent and the measurement is only interpretable alongside it.
 function Measure-McpResultTokens {
     param($Result)
 
@@ -344,38 +352,47 @@ function Measure-McpResultTokens {
     $shape = 'none'
 
     if ($null -eq $Result) {
-        return [pscustomobject]@{ text = 0; structured = 0; wire = 0; shape = $shape }
+        return [pscustomobject]@{ text = 0; structured = 0; wire = 0; hostResult = 0; shape = $shape }
     }
 
     if ($Result -is [string]) {
         $text = [int](Get-TokenEstimate -Text $Result)
-        return [pscustomobject]@{ text = $text; structured = 0; wire = $text; shape = 'text' }
+        return [pscustomobject]@{ text = $text; structured = 0; wire = $text; hostResult = $text; shape = 'text' }
     }
 
     $members = @($Result.PSObject.Properties.Name)
     $parts = [System.Collections.Generic.List[string]]::new()
+    # Rebuild the protocol-defined result so `wire` measures what the server sent
+    # rather than what the host chose to log around it.
+    $canonical = [ordered]@{}
     if ($members -contains 'content') {
         $parts.Add('content')
+        $canonical['content'] = $Result.content
         foreach ($block in @($Result.content)) {
             # Presence of `text`, not truthiness: an empty text block is legitimately
             # zero tokens, and treating it as absent would serialize the whole block
             # and count the wrapper as payload.
-            $blockText = if ($block -is [string]) { $block } elseif ($null -ne $block.text) { [string]$block.text } else { ($block | ConvertTo-Json -Depth 8 -Compress) }
+            $blockText = if ($block -is [string]) { $block } elseif ($null -ne $block.text) { [string]$block.text } else { ($block | ConvertTo-Json -Depth 24 -Compress) }
             $text += [int](Get-TokenEstimate -Text $blockText)
         }
     }
     if ($members -contains 'structuredContent' -and $null -ne $Result.structuredContent) {
         $parts.Add('structuredContent')
-        $structured = [int](Get-TokenEstimate -Text ($Result.structuredContent | ConvertTo-Json -Depth 12 -Compress))
+        $canonical['structuredContent'] = $Result.structuredContent
+        $structured = [int](Get-TokenEstimate -Text ($Result.structuredContent | ConvertTo-Json -Depth 24 -Compress))
     }
+    if ($members -contains 'isError') { $canonical['isError'] = $Result.isError }
     if ($parts.Count -gt 0) { $shape = $parts -join '+' } else { $shape = 'object' }
 
-    $wire = [int](Get-TokenEstimate -Text ($Result | ConvertTo-Json -Depth 12 -Compress))
-    # A host that flattens the result to one object exposes no separate text block;
-    # attribute the whole payload to text so the headline metric stays comparable
-    # with the cli arm rather than reading as zero.
-    if ($shape -eq 'object') { $text = $wire }
-    return [pscustomobject]@{ text = $text; structured = $structured; wire = $wire; shape = $shape }
+    $hostResult = [int](Get-TokenEstimate -Text ($Result | ConvertTo-Json -Depth 24 -Compress))
+    # A host that flattens the result to one object exposes no protocol members to
+    # separate, so the whole object is the best available reading of both.
+    if ($shape -eq 'object') {
+        return [pscustomobject]@{ text = $hostResult; structured = 0; wire = $hostResult; hostResult = $hostResult; shape = $shape }
+    }
+
+    $wire = [int](Get-TokenEstimate -Text (([pscustomobject]$canonical) | ConvertTo-Json -Depth 24 -Compress))
+    return [pscustomobject]@{ text = $text; structured = $structured; wire = $wire; hostResult = $hostResult; shape = $shape }
 }
 
 # Run one iteration on the Copilot CLI host: hand the agent the task prompt and the
@@ -408,6 +425,7 @@ function Invoke-CopilotIteration {
     $textTokens = 0
     $structuredTokens = 0
     $wireTokens = 0
+    $hostResultTokens = 0
     $resultShapes = [System.Collections.Generic.List[string]]::new()
     $transcript = [System.Collections.Generic.List[object]]::new()
     foreach ($s in $starts) {
@@ -419,11 +437,13 @@ function Invoke-CopilotIteration {
         $textTokens += $split.text
         $structuredTokens += $split.structured
         $wireTokens += $split.wire
+        $hostResultTokens += $split.hostResult
         if (-not $resultShapes.Contains($split.shape)) { $resultShapes.Add($split.shape) }
         $transcript.Add([pscustomobject]@{
                 cmd  = & $mask ("$($s.data.mcpToolName) $($s.data.arguments | ConvertTo-Json -Compress)")
                 ok   = [bool]($c -and $c.data.success); info = ''
-                textTokens = $split.text; structuredTokens = $split.structured; wireTokens = $split.wire
+                textTokens = $split.text; structuredTokens = $split.structured
+                wireTokens = $split.wire; hostResultTokens = $split.hostResult
             })
     }
     $result = $events | Where-Object { $_.type -eq 'result' } | Select-Object -First 1
@@ -436,6 +456,7 @@ function Invoke-CopilotIteration {
     return [pscustomobject]@{
         answer = $answer; calls = $starts.Count; tokens = $tokens
         textTokens = $textTokens; structuredTokens = $structuredTokens; wireTokens = $wireTokens
+        hostResultTokens = $hostResultTokens
         resultShape = ($resultShapes -join ',')
         # Whatever the host reports about its own context spend. Recorded verbatim
         # rather than reduced, because what a client puts in front of the model is
@@ -542,6 +563,7 @@ function Invoke-EvalRun {
         $textList = [System.Collections.Generic.List[int]]::new()
         $structuredList = [System.Collections.Generic.List[int]]::new()
         $wireList = [System.Collections.Generic.List[int]]::new()
+        $hostResultList = [System.Collections.Generic.List[int]]::new()
         $shapes = [System.Collections.Generic.List[string]]::new()
 
         for ($i = 1; $i -le $N; $i++) {
@@ -633,13 +655,15 @@ function Invoke-EvalRun {
             $callsList.Add($calls); $tokensList.Add($tokens); $msList.Add($wallMs)
             if ($null -ne $r.wireTokens) {
                 $textList.Add([int]$r.textTokens); $structuredList.Add([int]$r.structuredTokens); $wireList.Add([int]$r.wireTokens)
+                $hostResultList.Add([int]$r.hostResultTokens)
                 if ($r.resultShape -and -not $shapes.Contains([string]$r.resultShape)) { $shapes.Add([string]$r.resultShape) }
             }
             $iterRecords.Add([pscustomobject]@{
                     task = $task.id; iteration = $i; success = $ok; calls = $calls
                     tokens = $tokens; wallMs = $wallMs
                     textTokens = $r.textTokens; structuredTokens = $r.structuredTokens
-                    wireTokens = $r.wireTokens; resultShape = $r.resultShape; hostUsage = $r.hostUsage
+                    wireTokens = $r.wireTokens; hostResultTokens = $r.hostResultTokens
+                    resultShape = $r.resultShape; hostUsage = $r.hostUsage
                     operations = $calledOperations
                     attemptedOperations = $attemptedOperations
                     answer = $answer; note = $note; transcript = $transcript
@@ -656,6 +680,7 @@ function Invoke-EvalRun {
             $transportRows.Add([pscustomobject]@{
                     Task = $task.id; MedText = (Get-Median $textList)
                     MedStructured = (Get-Median $structuredList); MedWire = (Get-Median $wireList)
+                    MedHostResult = (Get-Median $hostResultList)
                     Shape = ($shapes -join ',')
                 })
         }
@@ -664,7 +689,9 @@ function Invoke-EvalRun {
     Write-Host ''
     $rows | Format-Table -AutoSize | Out-String | Write-Host
     if ($transportRows.Count -gt 0) {
-        Write-Host 'Per-response transport cost (text and structured are two copies of the same payload):'
+        Write-Host 'Per-response transport cost. Text and structured are two copies of the same payload;'
+        Write-Host 'MedWire is the MCP result carrying both. MedHostResult is what the host logged around'
+        Write-Host 'it, which includes its own extra renderings and does not respond to a transport change.'
         $transportRows | Format-Table -AutoSize | Out-String | Write-Host
     }
 

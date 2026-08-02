@@ -47,17 +47,15 @@ internal static class GcStatsExecutor
             return ExitCodes.InputError;
         }
 
-        // Keep the full aggregate summary, but cap the per-collection detail to the
-        // hottest pauses so a long trace cannot blow the output budget.
+        // Keep the full aggregate summary, but bound the per-collection detail by both
+        // the requested row count and the token budget.
+        GcStatsResult report = GcStatsProvider.LimitDetail(full, request.Top, out string? warning);
         List<string> warnings = [];
-        IReadOnlyList<GcRecord> shown = full.Gcs;
-        if (shown.Count > request.Top)
+        if (warning is not null)
         {
-            shown = [.. shown.OrderByDescending(static g => g.PauseMs).Take(request.Top)];
-            warnings.Add($"Showing the top {request.Top} of {full.GcCount} collections by pause time.");
+            warnings.Add(warning);
         }
 
-        GcStatsResult report = full with { Gcs = shown };
         AnalysisResult<GcStatsResult> envelope = new(report, warnings);
 
         if (request.Format == OutputFormat.Json)

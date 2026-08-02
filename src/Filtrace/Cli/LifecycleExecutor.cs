@@ -51,16 +51,12 @@ internal static class LifecycleExecutor
 
         warnings.AddRange(LifecycleProvider.DescribeCoverage(full));
 
-        IReadOnlyList<LifecycleInvocation> shown = full.Invocations;
-        if (shown.Count > request.Top)
+        LifecycleResult report = LifecycleProvider.LimitDetail(full, request.Top, out string? warning);
+        if (warning is not null)
         {
-            shown = [.. shown.Take(request.Top)];
-            warnings.Add(
-                $"Showing the first {request.Top} of {full.Invocations.Count} invocations in start order; "
-                + "the medians cover all of them.");
+            warnings.Add(warning);
         }
 
-        LifecycleResult report = full with { Invocations = shown };
         AnalysisResult<LifecycleResult> envelope = new(report, warnings, SteeringHints.ForLifecycle(full));
 
         if (request.Format == OutputFormat.Json)

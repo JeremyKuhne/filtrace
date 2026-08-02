@@ -50,6 +50,11 @@ public sealed partial class FoldingAggregator
     // frame name.
     private const int RankRowScaffoldTokens = 16;
 
+    // The same scaffolding for the other row shapes this type produces.
+    private const int CallerRowScaffoldTokens = 16;
+    private const int LineRowScaffoldTokens = 19;
+    private const int HeatLineScaffoldTokens = 27;
+
     private readonly StackSampleSource _source;
     private readonly IReadOnlyList<SampleStack> _samples;
 
@@ -324,6 +329,163 @@ public sealed partial class FoldingAggregator
 
     private static int EstimateRowTokens(RankRow row) =>
         RankRowScaffoldTokens + OutputBudget.EstimateTokens(row.Frame);
+
+    /// <summary>
+    ///  Limits a caller/callee breakdown to the rows that fit
+    ///  <see cref="OutputBudget.DefaultRowBudgetTokens"/>, leaving the focus totals
+    ///  untouched.
+    /// </summary>
+    /// <param name="callers">The breakdown to bound, as returned by <see cref="CallersOf"/>.</param>
+    /// <param name="warning">
+    ///  The warning naming what was dropped, or <see langword="null"/> when every row fit.
+    /// </param>
+    /// <returns>
+    ///  The limited breakdown, or <paramref name="callers"/> itself when every row fit.
+    /// </returns>
+    /// <remarks>
+    ///  <para>
+    ///   Both lists share one response, so the callers are filled first and the callees
+    ///   take what is left; a caller/callee view that has to drop rows keeps the side
+    ///   that answers "who is calling this".
+    ///  </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="callers"/> is <see langword="null"/>.</exception>
+    public static CallersResult LimitRows(CallersResult callers, out string? warning)
+    {
+        ArgumentNullException.ThrowIfNull(callers);
+
+        List<CallerRow> keptCallers = OutputBudget.TakeWithinBudget(
+            callers.Callers,
+            EstimateCallerTokens,
+            OutputBudget.DefaultRowBudgetTokens,
+            out bool callersTruncated);
+
+        int spent = 0;
+        foreach (CallerRow row in keptCallers)
+        {
+            spent += EstimateCallerTokens(row);
+        }
+
+        bool calleesTruncated = false;
+        IReadOnlyList<CalleeRow>? keptCallees = callers.Callees;
+        if (callers.Callees is IReadOnlyList<CalleeRow> callees)
+        {
+            keptCallees = OutputBudget.TakeWithinBudget(
+                callees,
+                EstimateCalleeTokens,
+                Math.Max(0, OutputBudget.DefaultRowBudgetTokens - spent),
+                out calleesTruncated);
+        }
+
+        if (!callersTruncated && !calleesTruncated)
+        {
+            warning = null;
+            return callers;
+        }
+
+        warning =
+            $"Showing {keptCallers.Count} of {callers.Callers.Count} callers"
+            + (callers.Callees is null ? string.Empty : $" and {keptCallees!.Count} of {callers.Callees.Count} callees")
+            + $"; more would exceed the {OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole "
+            + $"response under the {OutputBudget.DefaultCeilingTokens}-token ceiling. The focus totals still cover "
+            + "every call site.";
+
+        return callers with { Callers = keptCallers, Callees = keptCallees };
+    }
+
+    /// <summary>
+    ///  Limits a line ranking to the rows that fit
+    ///  <see cref="OutputBudget.DefaultRowBudgetTokens"/>, leaving the scope totals
+    ///  untouched.
+    /// </summary>
+    /// <param name="lines">The ranking to bound, as returned by <see cref="HotLines"/>.</param>
+    /// <param name="warning">
+    ///  The warning naming what was dropped, or <see langword="null"/> when every row fit.
+    /// </param>
+    /// <returns>
+    ///  The limited ranking, or <paramref name="lines"/> itself when every row fit.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="lines"/> is <see langword="null"/>.</exception>
+    public static LineRankingResult LimitRows(LineRankingResult lines, out string? warning)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+
+        List<LineRow> kept = OutputBudget.TakeWithinBudget(
+            lines.Rows,
+            EstimateLineTokens,
+            OutputBudget.DefaultRowBudgetTokens,
+            out bool budgetTruncated);
+
+        if (!budgetTruncated)
+        {
+            warning = null;
+            return lines;
+        }
+
+        warning =
+            $"Showing {kept.Count} of {lines.Rows.Count} ranked lines; more would exceed the "
+            + $"{OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole response under the "
+            + $"{OutputBudget.DefaultCeilingTokens}-token ceiling. The scope total still covers every line.";
+
+        return lines with { Rows = kept };
+    }
+
+    /// <summary>
+    ///  Limits a source heat map to the lines that fit
+    ///  <see cref="OutputBudget.DefaultRowBudgetTokens"/>, leaving the file totals
+    ///  untouched.
+    /// </summary>
+    /// <param name="heatmap">The heat map to bound, as returned by <see cref="SourceHeatmap"/>.</param>
+    /// <param name="warning">
+    ///  The warning naming what was dropped, or <see langword="null"/> when every line fit.
+    /// </param>
+    /// <returns>
+    ///  The limited heat map, or <paramref name="heatmap"/> itself when every line fit.
+    /// </returns>
+    /// <remarks>
+    ///  <para>
+    ///   A heat map takes no row cap - its size follows the source file - so the budget
+    ///   is the only bound there is. Lines are ordered for overlaying onto the source, so
+    ///   a truncated map is a prefix of the file rather than its heaviest lines.
+    ///  </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="heatmap"/> is <see langword="null"/>.</exception>
+    public static SourceHeatmapResult LimitRows(SourceHeatmapResult heatmap, out string? warning)
+    {
+        ArgumentNullException.ThrowIfNull(heatmap);
+
+        List<HeatLine> kept = OutputBudget.TakeWithinBudget(
+            heatmap.Lines,
+            EstimateHeatLineTokens,
+            OutputBudget.DefaultRowBudgetTokens,
+            out bool budgetTruncated);
+
+        if (!budgetTruncated)
+        {
+            warning = null;
+            return heatmap;
+        }
+
+        warning =
+            $"Showing the first {kept.Count} of {heatmap.Lines.Count} lines by line number; more would exceed the "
+            + $"{OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole response under the "
+            + $"{OutputBudget.DefaultCeilingTokens}-token ceiling. The file total still covers every line; narrow "
+            + "the request to a hotter file, or rank the lines instead of mapping them.";
+
+        return heatmap with { Lines = kept };
+    }
+
+    private static int EstimateCallerTokens(CallerRow row) =>
+        CallerRowScaffoldTokens + OutputBudget.EstimateTokens(row.Caller);
+
+    private static int EstimateCalleeTokens(CalleeRow row) =>
+        CallerRowScaffoldTokens + OutputBudget.EstimateTokens(row.Callee);
+
+    private static int EstimateLineTokens(LineRow row) =>
+        LineRowScaffoldTokens + OutputBudget.EstimateTokens(row.Method) + OutputBudget.EstimateTokens(row.Location);
+
+    private static int EstimateHeatLineTokens(HeatLine row) =>
+        HeatLineScaffoldTokens + OutputBudget.EstimateTokens(row.Method);
 
     /// <summary>
     ///  Reports the immediate callers of the topmost frame matching

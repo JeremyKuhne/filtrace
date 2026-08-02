@@ -54,6 +54,65 @@ public sealed class FoldingAggregatorTests
     }
 
     [TestMethod]
+    public void LimitRows_MoreCallersThanTheBudget_ClampsTheSerializedResponse()
+    {
+        // Callers and callees share one response, so the callers are filled first and
+        // the callees take what is left.
+        CallerRow[] callers = [.. Enumerable.Range(0, 4_000).Select(static index => new CallerRow(
+            $"Contoso.Widgets.Pipeline.Stage{index}.Invoke(System.String)", 1.0, 0.03))];
+        CalleeRow[] callees = [.. Enumerable.Range(0, 4_000).Select(static index => new CalleeRow(
+            $"Contoso.Widgets.Sinks.Writer{index}.Flush(System.Int32)", 1.0, 0.03))];
+        CallersResult wide = new("Focus", 4000.0, 50.0, 8000.0, callers, callees);
+
+        CallersResult limited = FoldingAggregator.LimitRows(wide, out string? warning);
+
+        limited.Callers.Count.Should().BeLessThan(wide.Callers.Count);
+        limited.TargetWeight.Should().Be(wide.TargetWeight, "the focus totals still cover every call site");
+        warning.Should().NotBeNull();
+
+        string serialized = OutputJson.Serialize(new AnalysisResult<CallersResult>(limited));
+        OutputBudget.EstimateTokens(serialized).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
+    public void LimitRows_MoreLinesThanTheBudget_ClampsTheSerializedResponse()
+    {
+        LineRow[] rows = [.. Enumerable.Range(0, 5_000).Select(static index => new LineRow(
+            $"Contoso.Widgets.Pipeline.Stage{index}.Execute(System.String)",
+            $"C:\\src\\contoso\\widgets\\Pipeline\\Stage{index}.cs:{index}",
+            1.0,
+            0.02))];
+        LineRankingResult wide = new(5000.0, string.Empty, rows);
+
+        LineRankingResult limited = FoldingAggregator.LimitRows(wide, out string? warning);
+
+        limited.Rows.Count.Should().BeLessThan(wide.Rows.Count);
+        warning.Should().NotBeNull();
+
+        string serialized = OutputJson.Serialize(new AnalysisResult<LineRankingResult>(limited));
+        OutputBudget.EstimateTokens(serialized).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
+    public void LimitRows_HeatmapLargerThanTheBudget_ClampsTheSerializedResponse()
+    {
+        // A heat map takes no row cap at all - its size follows the source file - so the
+        // budget is the only bound it has.
+        HeatLine[] lines = [.. Enumerable.Range(1, 8_000).Select(static index => new HeatLine(
+            index, 1.0, 0.01, 3, $"Contoso.Widgets.Pipeline.Stage{index}.Execute(System.String)"))];
+        SourceHeatmapResult wide = new(8000.0, "Pipeline.cs", 8000.0, lines);
+
+        SourceHeatmapResult limited = FoldingAggregator.LimitRows(wide, out string? warning);
+
+        limited.Lines.Count.Should().BeLessThan(wide.Lines.Count);
+        limited.Lines.Should().BeInAscendingOrder(static line => line.Line, "a heat map overlays onto the source");
+        warning.Should().NotBeNull();
+
+        string serialized = OutputJson.Serialize(new AnalysisResult<SourceHeatmapResult>(limited));
+        OutputBudget.EstimateTokens(serialized).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
     public void LimitRows_WithinTheBudget_ReturnsTheRankingUnchanged()
     {
         LoadedTrace trace = LoadFolding();

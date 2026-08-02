@@ -4,6 +4,7 @@
 
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Diagnostics.Tracing.Etlx;
+using Filtrace.Output;
 using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Tracing.Providers;
@@ -28,6 +29,12 @@ namespace Filtrace.Tracing.Providers;
 /// </remarks>
 public sealed class LifecycleProvider
 {
+    // The JSON scaffolding around one invocation - the phase fields and the wrapper -
+    // and around each process inside it, which the per-row estimate adds to the
+    // process names. An invocation carries its root plus every child, so its cost is
+    // driven by the child count rather than by anything the caller passes.
+    private const int InvocationScaffoldTokens = 44;
+    private const int ProcessScaffoldTokens = 55;
     /// <summary>
     ///  The largest number of root invocations reported. A capture matrix runs tens of
     ///  invocations; a name that matches a busy system host could otherwise match
@@ -167,6 +174,70 @@ public sealed class LifecycleProvider
 
     private static LifecycleResult Empty(string scope) =>
         new(scope, 0, 0, 0, 0, [], [], []);
+
+    /// <summary>
+    ///  Limits a report's per-invocation detail to the invocations that fit both
+    ///  <paramref name="top"/> and <see cref="OutputBudget.DefaultRowBudgetTokens"/>,
+    ///  leaving the phase medians untouched.
+    /// </summary>
+    /// <param name="report">The full report, as returned by <see cref="Read"/>.</param>
+    /// <param name="top">The caller's maximum detail row count. Must be positive.</param>
+    /// <param name="warning">
+    ///  The warning naming what was dropped, or <see langword="null"/> when every
+    ///  invocation was kept.
+    /// </param>
+    /// <returns>
+    ///  The limited report, or <paramref name="report"/> itself when every invocation fit.
+    /// </returns>
+    /// <remarks>
+    ///  <para>
+    ///   Invocations stay in start order, because a lifecycle report is read as a
+    ///   sequence. One invocation carries its root process plus every child it launched,
+    ///   so a wide command matrix reaches the budget on row size as well as row count.
+    ///  </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="report"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is not positive.</exception>
+    public static LifecycleResult LimitDetail(LifecycleResult report, int top, out string? warning)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+
+        List<LifecycleInvocation> kept = OutputBudget.TakeWithinBudget(
+            report.Invocations.Take(top),
+            EstimateInvocationTokens,
+            OutputBudget.DefaultRowBudgetTokens,
+            out bool budgetTruncated);
+
+        if (kept.Count == report.Invocations.Count)
+        {
+            warning = null;
+            return report;
+        }
+
+        warning = budgetTruncated
+            ? $"Showing {kept.Count} of {report.InvocationCount} invocations in start order; more would exceed "
+                + $"the {OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response "
+                + $"under the {OutputBudget.DefaultCeilingTokens}-token ceiling. The medians still cover all of them."
+            : $"Showing the first {top} of {report.InvocationCount} invocations in start order; "
+                + "the medians cover all of them.";
+
+        return report with { Invocations = kept };
+    }
+
+    private static int EstimateInvocationTokens(LifecycleInvocation invocation)
+    {
+        int tokens = InvocationScaffoldTokens + EstimateProcessTokens(invocation.Root);
+        foreach (LifecycleProcess child in invocation.Children)
+        {
+            tokens += EstimateProcessTokens(child);
+        }
+
+        return tokens;
+    }
+
+    private static int EstimateProcessTokens(LifecycleProcess process) =>
+        ProcessScaffoldTokens + OutputBudget.EstimateTokens(process.Name);
 
     /// <summary>
     ///  Describes how much of <paramref name="result"/> is measurable, as the warnings
