@@ -47,6 +47,22 @@ public static partial class OutputBudget
     public const int DefaultCeilingTokens = 25_000;
 
     /// <summary>
+    ///  The share of <see cref="DefaultCeilingTokens"/> a producer may spend on its
+    ///  variable-length row list.
+    /// </summary>
+    /// <remarks>
+    ///  <para>
+    ///   A row cap alone cannot bound a response, because the cap is caller-supplied and
+    ///   multiplies straight into response size. Producers whose rows scale that way bound
+    ///   the list against this budget as it is built. The 2,000-token reserve absorbs the
+    ///   envelope, the warnings and hints, the result's own scalar fields, and the small
+    ///   amount a per-row estimate can under-count, so the serialized response stays under
+    ///   the ceiling itself.
+    ///  </para>
+    /// </remarks>
+    public const int DefaultRowBudgetTokens = DefaultCeilingTokens - 2_000;
+
+    /// <summary>
     ///  The per-piece sub-word divisor: a pre-tokenizer piece of <c>L</c> characters
     ///  is modeled as <c>ceil(L / CharsPerSubToken)</c> tokens (at least one).
     ///  Calibrated to 6 against tiktoken cl100k_base over filtrace's JSON, markdown,
@@ -108,6 +124,59 @@ public static partial class OutputBudget
     /// <returns><see langword="true"/> when the estimate exceeds the ceiling.</returns>
     public static bool IsOverBudget(string text, int ceilingTokens = DefaultCeilingTokens) =>
         EstimateTokens(text) > ceilingTokens;
+
+    /// <summary>
+    ///  Takes rows while their estimated cost fits <paramref name="budgetTokens"/>.
+    /// </summary>
+    /// <typeparam name="T">The row type.</typeparam>
+    /// <param name="rows">The candidate rows, most important first.</param>
+    /// <param name="estimateRow">Estimates one row's serialized token cost.</param>
+    /// <param name="budgetTokens">
+    ///  The token budget for the whole list. Must be non-negative; zero yields the first
+    ///  row alone, reported as truncated.
+    /// </param>
+    /// <param name="truncated">Whether the budget stopped the list short.</param>
+    /// <returns>The rows that fit.</returns>
+    /// <remarks>
+    ///  <para>
+    ///   The first row is always taken, so a producer with rows never returns an empty list
+    ///   the caller cannot act on. That places an obligation on the producer: whatever
+    ///   scales a single row's size must itself be bounded - see
+    ///   <c>EventQueryProvider.MaxPayloadChars</c>, which exists for this reason - or one
+    ///   row can exceed the budget by itself.
+    ///  </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">A required argument is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="budgetTokens"/> is negative.</exception>
+    public static List<T> TakeWithinBudget<T>(
+        IEnumerable<T> rows,
+        Func<T, int> estimateRow,
+        int budgetTokens,
+        out bool truncated)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(estimateRow);
+        ArgumentOutOfRangeException.ThrowIfNegative(budgetTokens);
+
+        List<T> kept = [];
+        int tokens = 0;
+        truncated = false;
+
+        foreach (T row in rows)
+        {
+            int rowTokens = estimateRow(row);
+            if (kept.Count > 0 && tokens + rowTokens > budgetTokens)
+            {
+                truncated = true;
+                break;
+            }
+
+            kept.Add(row);
+            tokens += rowTokens;
+        }
+
+        return kept;
+    }
 
     /// <summary>
     ///  Produces a budget warning, with remediation, when <paramref name="text"/>

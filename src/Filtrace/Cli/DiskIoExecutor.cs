@@ -56,18 +56,16 @@ internal static class DiskIoExecutor
             return ExitCodes.InputError;
         }
 
-        // Keep the full aggregate summary, but cap the per-file detail to the heaviest
-        // files so a broad capture cannot blow the output budget. The empty case is shown
-        // by the renderer (and the empty file list in JSON), like the other reports.
+        // Keep the full aggregate summary, but bound the per-file detail by both the
+        // requested row count and the token budget. The empty case is shown by the
+        // renderer (and the empty file list in JSON), like the other reports.
+        DiskIoResult report = DiskIoProvider.LimitDetail(full, request.Top, out string? warning);
         List<string> warnings = [];
-        IReadOnlyList<DiskIoFileRecord> shown = full.Files;
-        if (shown.Count > request.Top)
+        if (warning is not null)
         {
-            shown = [.. shown.Take(request.Top)];
-            warnings.Add($"Showing the top {request.Top} of {full.Files.Count} files by disk time.");
+            warnings.Add(warning);
         }
 
-        DiskIoResult report = full with { Files = shown };
         AnalysisResult<DiskIoResult> envelope = new(report, warnings);
 
         if (request.Format == OutputFormat.Json)

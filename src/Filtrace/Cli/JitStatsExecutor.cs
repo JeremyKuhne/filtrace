@@ -48,18 +48,16 @@ internal static class JitStatsExecutor
             return ExitCodes.InputError;
         }
 
-        // Keep the full aggregate summary, but cap the per-method detail to the
-        // costliest compiles so a startup trace's thousands of methods cannot blow
-        // the output budget.
+        // Keep the full aggregate summary, but bound the per-method detail by both the
+        // requested row count and the token budget, so a startup trace's thousands of
+        // methods cannot blow the output budget.
+        JitStatsResult report = JitStatsProvider.LimitDetail(full, request.Top, out string? warning);
         List<string> warnings = [];
-        IReadOnlyList<JitMethodRecord> shown = full.Methods;
-        if (shown.Count > request.Top)
+        if (warning is not null)
         {
-            shown = [.. shown.OrderByDescending(static m => m.CompileMs).Take(request.Top)];
-            warnings.Add($"Showing the top {request.Top} of {full.MethodCount} methods by compile time.");
+            warnings.Add(warning);
         }
 
-        JitStatsResult report = full with { Methods = shown };
         AnalysisResult<JitStatsResult> envelope = new(report, warnings);
 
         if (request.Format == OutputFormat.Json)

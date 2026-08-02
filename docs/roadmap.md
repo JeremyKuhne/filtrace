@@ -47,7 +47,7 @@ true.
 |---|---|---|
 | Done | VN0 | The baseline exists; see below for what it measured. |
 | Now | VN1 | The baseline produced the duplication figure the transport experiment turns on. |
-| Next | VN2, SC8 | The output-contract decision determines how every later capability is exposed; SC8 closes a correctness gap in data already captured. |
+| Next | VN2, SC8, output-budget coverage | The output-contract decision determines how every later capability is exposed; SC8 closes a correctness gap in data already captured. |
 | Then | VN3, VN4, VC1 | Surface selection, then the first capability that fits it. |
 | Later | VC2-VC8, LP-1..LP-5, VN5 | Demand-, dependency-, or decision-gated. |
 | Upstream | TE-P1..TE-P5 | Not actionable in this repository alone. |
@@ -560,6 +560,30 @@ it, which is why native symbol resolution is verified by capturing during the CI
 instead. Adding the PerfView-style "merge" step to
 [EtwCollector](../src/Filtrace.Core/Tracing/EtwCollector.cs) would make a portable,
 committable fixture possible.
+
+### Output-budget coverage for row-capped producers
+
+**Priority:** Next. **Cost:** low. **Where:** Core, one producer at a time.
+
+A producer whose row count comes from the caller cannot bound its response with a row
+cap alone. `events`, `jitstats`, `rank`, and `diskio` now bound their row lists
+against `OutputBudget.DefaultRowBudgetTokens` and report what they dropped.
+
+`jitstats` was the second confirmed breach of the ceiling: asking the committed
+840-method JIT fixture for every method measured 78,993 tokens, three times the
+ceiling, and a startup trace jits far more than that. Bounded, the same query returns
+245 rows at 23,713 tokens. `rank` (about 27 tokens per row, crossing at ~940 rows)
+and `diskio` (about 60 tokens per file, crossing at ~412 files) were bounded on the
+same measurement, but no committed fixture is broad enough to reach those counts, so
+those two bounds are pinned against constructed results rather than a reproduced
+failure.
+
+Still unbounded, in the same shape: `callers`, `lines`, `gcstats`, and `lifecycle`.
+`heatmap` needs a bound rather than a tighter one - it takes no row cap at all, and
+its row count is the number of source lines in the requested file. `timeline`
+(buckets clamped 5-200), `tree`
+([FoldingAggregator](../src/Filtrace.Core/Tracing/FoldingAggregator.cs)'s maximum
+tree depth), and `threadpool` are bounded by construction and need nothing.
 
 ### Skill packaging headroom
 

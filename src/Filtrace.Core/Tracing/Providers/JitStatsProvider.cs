@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Output;
 using Microsoft.Diagnostics.Tracing.Analysis;
 using Microsoft.Diagnostics.Tracing.Analysis.JIT;
 using TraceLog = Microsoft.Diagnostics.Tracing.Etlx.TraceLog;
@@ -26,6 +27,11 @@ namespace Filtrace.Tracing.Providers;
 /// </remarks>
 public sealed class JitStatsProvider
 {
+    // The JSON scaffolding around one method record - the property names, the
+    // punctuation, and the numeric IL size, native size, and compile-time fields -
+    // which the per-record estimate adds to the record's variable text.
+    private const int RecordScaffoldTokens = 32;
+
     /// <summary>
     ///  Reads the JIT-stats report from the EventPipe trace at <paramref name="path"/>.
     /// </summary>
@@ -74,6 +80,65 @@ public sealed class JitStatsProvider
 
         return Summarize(records);
     }
+
+    /// <summary>
+    ///  Limits a report's per-method detail to the costliest compiles that fit both
+    ///  <paramref name="top"/> and <see cref="OutputBudget.DefaultRowBudgetTokens"/>,
+    ///  leaving the aggregate summary untouched.
+    /// </summary>
+    /// <param name="report">The full report, as returned by <see cref="Read"/>.</param>
+    /// <param name="top">The caller's maximum detail row count. Must be positive.</param>
+    /// <param name="warning">
+    ///  The warning naming what was dropped, or <see langword="null"/> when the whole
+    ///  detail list was kept.
+    /// </param>
+    /// <returns>
+    ///  The limited report, or <paramref name="report"/> itself when every method fit.
+    /// </returns>
+    /// <remarks>
+    ///  <para>
+    ///   Shared by both heads so they bound and word the result identically. A report that
+    ///   fits comes back untouched, in the trace order <see cref="Read"/> produced; only a
+    ///   report that has to drop methods is reordered, so that the costliest compiles are
+    ///   the ones kept. Asking the committed 840-method JIT fixture for every method
+    ///   measured roughly 79,000 estimated tokens before this bound existed, three times
+    ///   the ceiling, and a startup trace jits far more than that.
+    ///  </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="report"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is not positive.</exception>
+    public static JitStatsResult LimitDetail(JitStatsResult report, int top, out string? warning)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+
+        List<JitMethodRecord> kept = OutputBudget.TakeWithinBudget(
+            report.Methods.OrderByDescending(static method => method.CompileMs).Take(top),
+            EstimateRecordTokens,
+            OutputBudget.DefaultRowBudgetTokens,
+            out bool budgetTruncated);
+
+        if (kept.Count == report.Methods.Count)
+        {
+            warning = null;
+            return report;
+        }
+
+        warning = budgetTruncated
+            ? $"Showing {kept.Count} of {report.MethodCount} methods by compile time; more would exceed the "
+                + $"{OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response under "
+                + $"the {OutputBudget.DefaultCeilingTokens}-token ceiling. The aggregate summary still covers "
+                + "every method."
+            : $"Showing the top {top} of {report.MethodCount} methods by compile time.";
+
+        return report with { Methods = kept };
+    }
+
+    private static int EstimateRecordTokens(JitMethodRecord method) =>
+        RecordScaffoldTokens
+        + OutputBudget.EstimateTokens(method.MethodName)
+        + OutputBudget.EstimateTokens(method.ModuleILPath)
+        + OutputBudget.EstimateTokens(method.OptimizationTier);
 
     private static JitStatsResult Summarize(List<JitMethodRecord> records)
     {

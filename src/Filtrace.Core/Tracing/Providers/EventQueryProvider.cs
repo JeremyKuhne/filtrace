@@ -43,7 +43,7 @@ public sealed class EventQueryProvider
     ///   can under-count, so the serialized response stays under the ceiling itself.
     ///  </para>
     /// </remarks>
-    public const int MaxPageTokens = OutputBudget.DefaultCeilingTokens - 2_000;
+    public const int MaxPageTokens = OutputBudget.DefaultRowBudgetTokens;
 
     /// <summary>
     ///  The hard ceiling on an event's rendered payload, in characters, whatever cap

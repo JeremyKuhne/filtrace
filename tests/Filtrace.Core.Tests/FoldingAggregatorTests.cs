@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Output;
+
 namespace Filtrace.Tracing;
 
 [TestClass]
@@ -25,6 +27,40 @@ public sealed class FoldingAggregatorTests
         }
 
         return map;
+    }
+
+    [TestMethod]
+    public void LimitRows_MoreRowsThanTheBudget_ClampsTheSerializedResponse()
+    {
+        // The caller's row cap is not a bound on response size: a ranked row costs about 27
+        // estimated tokens, so a few thousand distinct frames clear the ceiling. No committed
+        // fixture is broad enough to produce them, so the ranking is built directly.
+        RankingResult wide = new(
+            1000.0,
+            string.Empty,
+            [.. Enumerable.Range(0, 5_000).Select(static index => new RankRow(
+                $"Contoso.Widgets.Pipeline.Stage{index}.Execute(System.String, System.Int32)",
+                1.0,
+                0.02))]);
+
+        RankingResult limited = FoldingAggregator.LimitRows(wide, out string? warning);
+
+        limited.Rows.Count.Should().BeLessThan(wide.Rows.Count);
+        limited.ScopeWeight.Should().Be(wide.ScopeWeight, "the scope total still covers every frame");
+        warning.Should().NotBeNull();
+
+        string serialized = OutputJson.Serialize(new AnalysisResult<RankingResult>(limited));
+        OutputBudget.EstimateTokens(serialized).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
+    public void LimitRows_WithinTheBudget_ReturnsTheRankingUnchanged()
+    {
+        LoadedTrace trace = LoadFolding();
+        RankingResult ranking = trace.Aggregator.SelfTime(string.Empty, [], 25);
+
+        FoldingAggregator.LimitRows(ranking, out string? warning).Should().BeSameAs(ranking);
+        warning.Should().BeNull();
     }
 
     [TestMethod]
