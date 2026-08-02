@@ -370,11 +370,14 @@ public sealed partial class FoldingAggregator
         IReadOnlyList<CalleeRow>? keptCallees = callers.Callees;
         if (callers.Callees is IReadOnlyList<CalleeRow> callees)
         {
+            // The response already carries the callers, so a callee that does not fit is
+            // simply dropped rather than admitted by the always-keep-the-first-row rule.
             keptCallees = OutputBudget.TakeWithinBudget(
                 callees,
                 EstimateCalleeTokens,
                 Math.Max(0, OutputBudget.DefaultRowBudgetTokens - spent),
-                out calleesTruncated);
+                out calleesTruncated,
+                takeAtLeastOne: false);
         }
 
         if (!callersTruncated && !calleesTruncated)

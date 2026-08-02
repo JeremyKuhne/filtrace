@@ -3,9 +3,9 @@
 // See LICENSE file in the project root for full license information
 
 using System.Diagnostics.CodeAnalysis;
-using Microsoft.Diagnostics.Tracing.Etlx;
 using Filtrace.Output;
 using Filtrace.Tracing.Readers;
+using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing.Providers;
 

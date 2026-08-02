@@ -75,6 +75,24 @@ public sealed class FoldingAggregatorTests
     }
 
     [TestMethod]
+    public void LimitRows_CallersConsumeTheWholeBudget_DropsEveryCallee()
+    {
+        // "Callers fill first and callees take what is left" has to mean zero callees
+        // when nothing is left; the always-keep-the-first-row rule must not put one back.
+        CallerRow[] callers = [.. Enumerable.Range(0, 4_000).Select(static index => new CallerRow(
+            $"Contoso.Widgets.Pipeline.Stage{index}.Invoke(System.String)", 1.0, 0.03))];
+        CalleeRow[] callees = [.. Enumerable.Range(0, 10).Select(static index => new CalleeRow(
+            $"Contoso.Widgets.Sinks.Writer{index}.Flush(System.Int32)", 1.0, 10.0))];
+        CallersResult wide = new("Focus", 4000.0, 50.0, 8000.0, callers, callees);
+
+        CallersResult limited = FoldingAggregator.LimitRows(wide, out string? warning);
+
+        limited.Callers.Count.Should().BeLessThan(wide.Callers.Count, "the callers alone overrun the budget");
+        limited.Callees.Should().BeEmpty();
+        warning.Should().NotBeNull();
+    }
+
+    [TestMethod]
     public void LimitRows_MoreLinesThanTheBudget_ClampsTheSerializedResponse()
     {
         LineRow[] rows = [.. Enumerable.Range(0, 5_000).Select(static index => new LineRow(
