@@ -1,0 +1,15 @@
+{
+  "id": "speedscope-source-limits",
+  "title": "Recognize that a speedscope profile cannot answer a source-line question.",
+  "prompt": "Can this trace attribute CPU cost to individual source lines? Identify the format and the analyses it supports before answering.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json",
+  "os": "any",
+  "steps": [
+    { "args": ["info", "{fixture}"] }
+  ],
+  "assert": [
+    { "field": "result.format", "equals": "Speedscope" },
+    { "jsonContains": "\"availableAnalyses\":[\"cpu\"]" }
+  ],
+  "expect": ["Speedscope", "cpu"]
+}

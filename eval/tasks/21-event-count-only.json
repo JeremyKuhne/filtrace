@@ -1,0 +1,14 @@
+{
+  "id": "event-count-only",
+  "title": "Count matching raw events without paging the event records.",
+  "prompt": "How many GC/AllocationTick events in this trace name System.String in their payload? Return the count without paging the event records themselves.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/alloc.nettrace",
+  "os": "any",
+  "steps": [
+    { "args": ["events", "{fixture}", "--name", "GC/AllocationTick", "--payload", "System.String", "--take", "1", "--max-payload", "0"] }
+  ],
+  "assert": [
+    { "field": "result.totalMatched", "equals": 90 }
+  ],
+  "expect": ["90"]
+}

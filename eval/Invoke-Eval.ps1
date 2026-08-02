@@ -72,6 +72,10 @@ if (-not (Test-Path $tasksDir)) {
 # The shared offline token estimator (also used by the MCP schema-budget check).
 . (Join-Path $root 'tools/Get-TokenEstimate.ps1')
 
+# The surface-neutral operation vocabulary the live arm grades intent against.
+. (Join-Path $PSScriptRoot 'Get-OperationName.ps1')
+$knownOperations = Get-KnownOperations
+
 $onWindows = [System.OperatingSystem]::IsWindows()
 
 # Walk a dotted path (with optional [index] segments) into a parsed-JSON object,
@@ -140,6 +144,16 @@ foreach ($line in Get-Content -LiteralPath $mcpQaPath) {
         if (-not $knownTools.Contains($toolName)) {
             throw "MCP QA task '$($mcpTask.id)' references unknown tool '$toolName'."
         }
+    }
+    # The live arm also grades surface-neutral intent; a typo there would silently
+    # never match, so validate it against the operation vocabulary here.
+    foreach ($operation in @(@($mcpTask.expectOperations) + @($mcpTask.forbidOperations) | Where-Object { $_ })) {
+        if ($knownOperations -notcontains $operation) {
+            throw "MCP QA task '$($mcpTask.id)' references unknown operation '$operation' (known: $($knownOperations -join ', '))."
+        }
+    }
+    if ($null -ne $mcpTask.maxCalls -and [int]$mcpTask.maxCalls -lt 1) {
+        throw "MCP QA task '$($mcpTask.id)' has a maxCalls of $($mcpTask.maxCalls); it must be at least 1."
     }
     $mcpTaskById[$mcpTask.id] = $mcpTask
 }

@@ -20,21 +20,25 @@ true.
 
 - **The surface is 25 CLI verbs and 18 `trace_*` MCP tools.** The tool list measures
   ~6,388 estimated tokens against a 7,000-token CI gate.
-- **The permanent schema is no longer dominated by output schemas.** Advertising the
-  envelope alone instead of every expanded result type reclaimed roughly 3,000
-  tokens. At the 17-tool measurement the remaining split was input schemas ~3,700,
-  output schemas ~1,020, descriptions ~730. Input schemas are now the largest lever,
-  and prose is the smallest.
+- **The permanent schema is dominated by input schemas, not output schemas.**
+  Advertising the envelope alone instead of every expanded result type reclaimed
+  roughly 3,000 tokens. Measured across the current 18 tools: input schemas 3,883
+  (61%), output schemas 1,080 (17%), descriptions 799 (13%), names and JSON
+  structure the rest. Input schemas are the largest lever; prose is the smallest.
+  Regenerate the breakdown with `tools/Test-McpServer.ps1`, which writes
+  `artifacts/mcp-schema-tokens.json`.
 - **Ordinary responses are already small.** Ranking, caller, process, and tree
   answers land around 105-199 tokens; GC, timeline, thread-time, source-quality,
   batch, and diff around 292-886. The JIT report (~2,251) and a raw allocation-event
   page (~5,538) are the outliers. The 25,000-token ceiling is not the problem;
-  returning detail nobody asked for is.
-- **The remaining measured duplication is per call, not per list.** A live
-  `trace_info` round trip carried the same JSON payload in both `content[0].text`
-  and `structuredContent`. How much of each copy reaches model context is
-  client-dependent and has to be measured per host.
-- **The deterministic eval suite answers all 17 fixture-backed tasks**, most in one
+  returning detail nobody asked for is - and the same two questions answered with a
+  narrower request cost 172 and 79 tokens.
+- **The remaining measured duplication is per call, not per list.** A live MCP call
+  carries the same payload in both `content[0].text` and `structuredContent`, inside
+  a wrapper roughly 4-5x the payload: one measured `trace_query_events` response was
+  text 36, structured 36, complete wire result 171. How much of each copy reaches
+  model context is client-dependent and still has to be measured per host.
+- **The deterministic eval suite answers all 23 fixture-backed tasks**, most in one
   call. The surface works; the open question is efficiency, not correctness.
 
 ## Priorities
@@ -63,39 +67,72 @@ stay frozen.
 
 **Priority:** Now. Everything after this is unmeasurable without it.
 
-- Freeze the current 25-verb / 18-tool results across more than one model family.
-- Extend [Invoke-AgentEval.ps1](../eval/Invoke-AgentEval.ps1) to record, separately:
-  text-content tokens, structured-content tokens, complete MCP result tokens, and
-  the client-visible value supplied to the model where the host exposes it.
-- Record the per-tool schema-token breakdown (input, output, description, total) in
-  the test artifact.
-- Add an experimental server path or config so a baseline and a candidate surface
-  can run without editing committed task expectations between runs.
-- Grade expected *operation intent* as well as exact tool name, so old and
-  consolidated surfaces can be compared at all. `expectTools` stays accepted while
-  the current surface is the baseline.
-- Run at least three iterations per task and compare medians.
-- Add the comprehension tasks below.
+The instrumentation has shipped; the measurement it enables has not.
+
+**Done:**
+
+- [Invoke-AgentEval.ps1](../eval/Invoke-AgentEval.ps1) records text, structured, and
+  complete-wire response tokens separately per call and per task, plus the host's own
+  reported usage. The client-visible value is not inferred - Copilot's transcript
+  reports session usage rather than per-call context, so that is recorded verbatim
+  instead of a fabricated number.
+- [Test-McpServer.ps1](../tools/Test-McpServer.ps1) writes a per-tool schema-token
+  breakdown (input, output, description, total, parameter count) to
+  `artifacts/mcp-schema-tokens.json` on every run.
+- `-McpDll` points the mcp arm at an explicitly built server, so a variant published
+  under `artifacts/` runs against committed tasks unmodified.
+- `expectOperations`, `forbidOperations`, and `maxCalls` in
+  [mcp-qa.jsonl](../eval/mcp-qa.jsonl) grade surface-neutral intent through
+  [Get-OperationName.ps1](../eval/Get-OperationName.ps1), so a baseline and a
+  consolidated candidate can be compared. `expectTools` still grades exact names
+  while the current surface is the baseline. The deterministic gate validates the
+  vocabulary, so a typo fails CI instead of never matching.
+- Six comprehension tasks landed (23 total): allocation-metric choice, speedscope
+  source limits, capture-status honesty, count-without-paging, JIT summary before
+  detail, and scope-preserving drill.
+- A labeled run with fewer than three iterations per task now warns.
+
+**Remaining:**
+
+- Run the multi-model baseline itself - at least three iterations per task across
+  more than one model family - and archive the artifacts. This is metered agent
+  time, not code:
+
+  ```pwsh
+  ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models claude-opus-4.6,gpt-5.2 -N 3 -Label baseline
+  ```
+
+**What the instrumentation already showed:**
+
+- The wire carries the payload twice inside a wrapper roughly 4-5x its size (one
+  `trace_query_events` call: text 36, structured 36, wire 171). VN1 now has a
+  concrete duplication figure rather than an assertion.
+- Input schemas are 61% of the permanent list against 17% for output schemas and 13%
+  for prose. Consolidating parameters is the remaining lever; tightening
+  descriptions is not.
+- The strict tool-grounding check earns its keep: on the first run of the
+  count-without-paging task the agent answered correctly from `trace_info`'s
+  `analyses.alloc.eventCount` without ever querying events. The task was retargeted
+  at a payload-filtered count only the events operation can answer - a reminder that
+  an answer-substring match alone would have scored a pass.
+- **`-AgentHost copilot` with no `-Model` silently did nothing.** The model list was
+  built from a statement value, and PowerShell unrolls a single-null array to
+  `$null`, which iterates zero times - while `@($modelList).Count` still reports 1,
+  so the emptiness guard could not catch it. Every default-model Copilot run exited
+  0 having measured nothing. Fixed; it is the reason a baseline must be read from
+  its artifact rather than from an exit code.
 
 **Exit:** repeatable baseline artifacts that separate permanent schema cost, wire
 response cost, and model-visible cost.
 
-#### Comprehension tasks to add
+#### Comprehension tasks
 
-Each as a normal `eval/tasks/*.json` task with a canonical deterministic step, plus
-the matching `eval/mcp-qa.jsonl` row. Extend the live-agent task schema with
-`expectOperations`, `forbidOperations`, and an optional maximum-call override.
-
-- choose `rank metric=alloc` without inventing a nonexistent `trace_alloc`;
-- skip source-line tools for speedscope input;
-- distinguish enabled-with-zero-events, disabled, and unknown capture status;
-- preserve process and root scope from a ranking into a caller drill;
-- reject or repair `root` plus `benchmark`;
-- disambiguate multiple matching frames;
-- request a report summary first and escalate to detail only when needed;
-- count raw events without returning an event page;
-- escalate from a batch case reference to one detailed ranking;
-- choose `classify` rather than a generic report for native runtime CPU work.
+Six of the ten shipped. Four cannot be expressed against today's surface and are
+recorded in [eval/README.md](../eval/README.md#coverage-boundary) rather than
+faked - the `root` plus `benchmark` conflict is an error path the deterministic gate
+cannot hold, frame ambiguity has no diagnostic to assert, `classify` has no fixture
+whose CPU frames resolve, and a batch case reference is a VN2 feature. Three of the
+four become expressible as VN2 and SC9 land, which is the honest sequencing.
 
 ### VN1 - transport selection
 
@@ -116,7 +153,7 @@ not overwrite `eval/baselines.json`; transport comparisons live in the ignored
 
 **Note the changed arithmetic.** When this experiment was proposed, output schemas
 were ~3,900 tokens and variant C looked like a large permanent win. After the
-envelope-only reduction they are ~1,020. C's case now rests almost entirely on
+envelope-only reduction they measure 1,080. C's case now rests almost entirely on
 per-call duplication, so B is the cheaper hypothesis to test first.
 
 Record per variant: tool-list characters and tokens; per-tool input/output/
@@ -200,6 +237,12 @@ apply to the selected result kind.
 **Detail profiles.** A closed vocabulary - `summary`, `rows`, `full` - only where it
 changes response cardinality. Do not add `detail` to operations whose result is
 already small.
+
+The two outliers already have a cheap answer through existing options, which sizes
+the prize before any schema work: the JIT report costs 2,251 tokens at its default
+`--top 25` and 172 at `--top 1`; a raw event page costs 5,538 and the same count
+with `--take 1 --max-payload 0` costs 79. A `detail` vocabulary is worth adding for
+the defaults and the discoverability, not because the capability is missing.
 
 | Operation | Proposed MCP default | Behavior |
 |---|---|---|
@@ -609,7 +652,9 @@ The enforced gates and efficacy measures live in
 requires:
 
 - deterministic tests and parity remain exact;
-- summary-mode JIT and raw-event count tasks fall below 500 response tokens;
+- summary-mode JIT and raw-event count tasks fall below 500 response tokens - already
+  met through existing options at 172 and 79, so v9 must preserve it rather than
+  reach it;
 - duplicate payload copies are eliminated wherever the chosen clients permit it;
 - tool-list target: at most 7,500 tokens if typed output schemas are retained, at
   most 5,000 if JSON-text-only wins;
@@ -652,7 +697,8 @@ Resolve these with VN0 and VN1 evidence rather than opinion:
 
 ## Immediate next step
 
-Implement VN0 only. Fix the live MCP eval accounting so the text/structured
-duplication is measured accurately per client, add the comprehension tasks, and
-produce a multi-model baseline. That evidence decides the transport, and the
-transport decides how aggressively everything after it can change.
+Run the VN0 baseline. The accounting, the intent grading, the schema breakdown, and
+the comprehension tasks are in place; what is missing is metered agent time across
+more than one model family, and the artifacts that come out of it. That evidence
+decides the transport, and the transport decides how aggressively everything after
+it can change.

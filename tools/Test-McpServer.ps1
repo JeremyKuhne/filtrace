@@ -54,11 +54,18 @@
   so it still admits one more tool and no general slack - and it now sits under the v.next
   target of 7,500 with typed output schemas that docs/roadmap.md holds the
   surface to, leaving 5,000 as the remaining stretch.
+
+.PARAMETER SchemaReportPath
+  Where to write the per-tool schema-token breakdown (input schema, output schema,
+  description, total, parameter count) that the v.next transport and surface
+  experiments compare. Repo-relative unless rooted; defaults to the ignored
+  artifacts/ directory. Pass an empty string to skip writing it.
 #>
 [CmdletBinding()]
 param(
     [string]$Configuration = 'Release',
-    [int]$MaxSchemaTokens = 7000
+    [int]$MaxSchemaTokens = 7000,
+    [string]$SchemaReportPath = 'artifacts/mcp-schema-tokens.json'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -229,12 +236,43 @@ $scopeTools = [ordered]@{
 if ($null -ne $toolsLine) {
     $doc = [System.Text.Json.JsonDocument]::Parse($toolsLine)
     $tools = $doc.RootElement.GetProperty('result').GetProperty('tools')
+    # Per-tool breakdown, so a budget movement can be attributed to a definition
+    # rather than only observed in the total. Descriptions, input schemas, and
+    # output schemas are three independent levers with very different sizes.
+    $toolReport = [System.Collections.Generic.List[object]]::new()
     foreach ($tool in $tools.EnumerateArray()) {
         $toolName = $tool.GetProperty('name').GetString()
         $toolNames += $toolName
         $inputSchema = $tool.GetProperty('inputSchema')
+
+        $descriptionElement = [System.Text.Json.JsonElement]::new()
+        $descriptionTokens = 0
+        if ($tool.TryGetProperty('description', [ref]$descriptionElement)) {
+            $descriptionTokens = [int](Get-TokenEstimate -Text $descriptionElement.GetString())
+        }
+        $outputElement = [System.Text.Json.JsonElement]::new()
+        $outputTokens = 0
+        if ($tool.TryGetProperty('outputSchema', [ref]$outputElement)) {
+            $outputTokens = [int](Get-TokenEstimate -Text $outputElement.GetRawText())
+        }
+
         $properties = [System.Text.Json.JsonElement]::new()
-        if (-not $inputSchema.TryGetProperty('properties', [ref]$properties)) {
+        $hasProperties = $inputSchema.TryGetProperty('properties', [ref]$properties)
+        $parameterCount = 0
+        if ($hasProperties) {
+            foreach ($property in $properties.EnumerateObject()) { $parameterCount++ }
+        }
+
+        $toolReport.Add([pscustomobject][ordered]@{
+                name               = $toolName
+                totalTokens        = [int](Get-TokenEstimate -Text $tool.GetRawText())
+                inputSchemaTokens  = [int](Get-TokenEstimate -Text $inputSchema.GetRawText())
+                outputSchemaTokens = $outputTokens
+                descriptionTokens  = $descriptionTokens
+                parameterCount     = $parameterCount
+            })
+
+        if (-not $hasProperties) {
             continue
         }
         foreach ($scope in $scopeTools.Keys) {
@@ -253,6 +291,27 @@ if ($null -ne $toolsLine) {
     Write-Host "Schema size: $chars chars, ~$estimatedTokens tokens (budget $MaxSchemaTokens)"
     if ($estimatedTokens -gt $MaxSchemaTokens) {
         Add-Failure "Tool-list schema is ~$estimatedTokens tokens (budget $MaxSchemaTokens). Tighten descriptions or trim the surface."
+    }
+
+    if ($SchemaReportPath) {
+        $reportFull = if ([System.IO.Path]::IsPathRooted($SchemaReportPath)) { $SchemaReportPath } else { Join-Path $root $SchemaReportPath }
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $reportFull) | Out-Null
+        $report = [ordered]@{
+            schemaVersion      = 1
+            timestamp          = (Get-Date).ToString('o')
+            configuration      = $Configuration
+            toolCount          = $toolNames.Count
+            characters         = $chars
+            estimatedTokens    = [int]$estimatedTokens
+            budgetTokens       = $MaxSchemaTokens
+            inputSchemaTokens  = [int](($toolReport | Measure-Object -Property inputSchemaTokens -Sum).Sum)
+            outputSchemaTokens = [int](($toolReport | Measure-Object -Property outputSchemaTokens -Sum).Sum)
+            descriptionTokens  = [int](($toolReport | Measure-Object -Property descriptionTokens -Sum).Sum)
+            tools              = @($toolReport | Sort-Object { -$_.totalTokens })
+        }
+        $utf8 = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($reportFull, (($report | ConvertTo-Json -Depth 5) + "`n"), $utf8)
+        Write-Host "Schema breakdown: input $($report.inputSchemaTokens), output $($report.outputSchemaTokens), descriptions $($report.descriptionTokens) tokens -> $SchemaReportPath"
     }
 
     $workflow = Get-Content -LiteralPath (Join-Path $root 'docs/workflow.md') -Raw
