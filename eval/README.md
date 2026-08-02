@@ -116,6 +116,11 @@ the tool output the agent consumed - the same accounting the gate uses), and
 **wall-time**, plus a per-command transcript. Results land under `eval/results/`
 (git-ignored) as JSON with a median summary.
 
+Substring matching removes thousands separators from digit runs on both sides
+first, so a task can pin `4309` and an answer that says "4,309" still matches.
+Without that, an `expect` list measures a model's number formatting rather than its
+analysis - it scored two correct answers as failures before it was added.
+
 On the MCP arm each response is also broken into **text**, **structured**, and
 **wire** tokens, because the same payload is currently carried in both
 `content[0].text` and `structuredContent` and the transport experiment has to see
@@ -153,7 +158,7 @@ Three optional fields grade *intent* rather than the current tool names:
 | `expectOperations` | Every listed operation must have been called successfully, on either arm. Operations are surface-neutral (`rank`, `source`, `events`, ...) via [Get-OperationName.ps1](Get-OperationName.ps1), so a task keeps grading correctly after a tool is renamed or folded into another. |
 | `forbidOperations` | Attempting any listed operation fails the iteration, whether or not the call succeeded - the way to state "do not reach for source lines on a speedscope profile", which filtrace rejects anyway, so grading only successful calls would never see the mistake. |
 | `maxCalls` | A per-task call budget tighter than the global `-MaxSteps`, for tasks whose whole point is that one call suffices. |
-| `maxResponseTokens` | A ceiling on the largest single copy of the payload an iteration pulled. Restraint is a response-size property, not a call-count one - one call asking for ten thousand event records still answers the question, and `maxCalls` cannot see it. |
+| `maxResponseTokens` | A ceiling on the **largest single response** an iteration pulled, not the iteration's total. Restraint is a response-size property, not a call-count one - one call asking for ten thousand event records still answers the question, and `maxCalls` cannot see it - but summing across calls would fail an iteration whose responses were each well inside the ceiling. |
 
 The deterministic gate validates all three against the operation vocabulary, so a
 typo fails CI instead of silently never matching.

@@ -17,5 +17,5 @@
     { "jsonContains": "highestUnmappedMethods" },
     { "jsonContains": "HotLoopBench" }
   ],
-  "expect": ["210", "HotLoopBench"]
+  "expect": ["210", "4309", "HotLoopBench"]
 }
