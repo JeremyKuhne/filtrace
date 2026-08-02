@@ -131,7 +131,10 @@ public static partial class OutputBudget
     /// <typeparam name="T">The row type.</typeparam>
     /// <param name="rows">The candidate rows, most important first.</param>
     /// <param name="estimateRow">Estimates one row's serialized token cost.</param>
-    /// <param name="budgetTokens">The token budget for the whole list.</param>
+    /// <param name="budgetTokens">
+    ///  The token budget for the whole list. Must be non-negative; zero yields the first
+    ///  row alone, reported as truncated.
+    /// </param>
     /// <param name="truncated">Whether the budget stopped the list short.</param>
     /// <returns>The rows that fit.</returns>
     /// <remarks>
@@ -144,6 +147,7 @@ public static partial class OutputBudget
     ///  </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException">A required argument is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="budgetTokens"/> is negative.</exception>
     public static List<T> TakeWithinBudget<T>(
         IEnumerable<T> rows,
         Func<T, int> estimateRow,
@@ -152,6 +156,7 @@ public static partial class OutputBudget
     {
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(estimateRow);
+        ArgumentOutOfRangeException.ThrowIfNegative(budgetTokens);
 
         List<T> kept = [];
         int tokens = 0;

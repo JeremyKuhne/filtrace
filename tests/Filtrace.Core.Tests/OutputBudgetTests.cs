@@ -56,6 +56,31 @@ public sealed class OutputBudgetTests
     }
 
     [TestMethod]
+    public void TakeWithinBudget_ZeroBudget_TakesTheFirstRowAlone()
+    {
+        // Zero is a meaningful budget - a caller subtracting what the envelope already
+        // spent can reach it - and means the same as any budget the first row overruns.
+        string[] rows = ["a", "b"];
+
+        List<string> kept = OutputBudget.TakeWithinBudget(rows, static _ => 1, budgetTokens: 0, out bool truncated);
+
+        kept.Should().ContainSingle();
+        truncated.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void TakeWithinBudget_NegativeBudget_Throws()
+    {
+        // A negative budget can only come from a computation error, and swallowing it
+        // would hide that behind a plausible-looking one-row result.
+        string[] rows = ["a"];
+
+        Action act = () => OutputBudget.TakeWithinBudget(rows, static _ => 1, budgetTokens: -1, out _);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [TestMethod]
     public void EstimateTokens_EmptyString_Zero()
     {
         OutputBudget.EstimateTokens(string.Empty).Should().Be(0);
