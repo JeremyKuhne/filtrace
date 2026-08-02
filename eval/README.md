@@ -167,7 +167,8 @@ the right tool straight from the MCP descriptions:
 |---|---|---|---|---|
 | gc-report | copilot / mcp | 100% | 1 | 1501 |
 
-See [docs/implementation-plan.md](../docs/implementation-plan.md), milestone **M5**.
+See [docs/design.md](../docs/design.md) for the measures this harness enforces, and
+[docs/roadmap.md](../docs/roadmap.md) for the instrumentation VN0 still needs.
 
 ## Tuning the measured surfaces (the loop)
 

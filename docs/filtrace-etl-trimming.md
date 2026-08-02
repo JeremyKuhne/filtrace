@@ -82,11 +82,9 @@ shipped physical trim would ship this limitation with it.
 
 ## Future shipping decision
 
-Physical trim is tracked only as VC7 in the canonical
-[v.next roadmap](vnext-improvement-plan.md#vc7---physical-etl-trim). The earlier
-TraceEvent assessment called the process-tree relog TE-14 and the time-window axis
-TE-15. Analysis-time `--time` scope has since shipped as the lossless way to inspect
-a spike; only a physical `[t0, t1]` relog remains part of the potential transport
+Physical trim is tracked only as VC7 in [roadmap.md](roadmap.md#vc7---physical-etl-trim).
+Analysis-time `--time` scope has since shipped as the lossless way to inspect a
+spike; only a physical `[t0, t1]` relog remains part of the potential transport
 feature.
 
 A user-facing trim should combine process-tree and optional time-window selection,

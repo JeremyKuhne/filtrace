@@ -9,17 +9,15 @@ namespace Filtrace;
 /// </summary>
 /// <remarks>
 ///  <para>
-///   This is the M0 scaffold seed. The folding aggregator, the trace readers
-///   over <c>TraceLog</c>, the stack-source providers (CPU, thread-time,
-///   allocation, ...), and the provider-agnostic question-service engine
-///   described in the implementation plan (section 1A and milestone M1) are
-///   copied in during M1, replacing this placeholder.
+///   The analysis itself lives in the readers, providers, and aggregator in this
+///   assembly. This type survives only as the marker the earliest contract tests
+///   assert against.
 ///  </para>
 /// </remarks>
 public static class FiltraceCore
 {
     /// <summary>
-    ///  The implementation-plan milestone this assembly currently corresponds to.
+    ///  The milestone label this assembly reports.
     /// </summary>
     public static string Milestone => "M1";
 }
