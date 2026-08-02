@@ -45,6 +45,23 @@ public sealed class EventQueryProvider
     /// </remarks>
     public const int MaxPageTokens = OutputBudget.DefaultCeilingTokens - 2_000;
 
+    /// <summary>
+    ///  The hard ceiling on an event's rendered payload, in characters, whatever cap
+    ///  the caller asks for.
+    /// </summary>
+    /// <remarks>
+    ///  <para>
+    ///   The page always returns its first event, so that a single outsized payload
+    ///   pages rather than yielding an empty result the caller cannot advance past.
+    ///   That guarantee is only safe while one record cannot exceed the page budget on
+    ///   its own. The token estimate charges at most one token per character, so a
+    ///   payload bounded to this many characters costs at most that many tokens -
+    ///   comfortably inside <see cref="MaxPageTokens"/> once the provider and event
+    ///   names are added.
+    ///  </para>
+    /// </remarks>
+    public const int MaxPayloadChars = 16_000;
+
     // The JSON scaffolding around one event record - the property names, the
     // punctuation, and the numeric timestamp, process, and thread fields - which the
     // per-record estimate adds to the record's variable text.
@@ -59,7 +76,10 @@ public sealed class EventQueryProvider
     /// </param>
     /// <param name="skip">The number of matches to skip (for paging). Must be non-negative.</param>
     /// <param name="take">The maximum number of matches to return. Must be non-negative.</param>
-    /// <param name="maxPayloadChars">The per-event payload character cap. Must be non-negative.</param>
+    /// <param name="maxPayloadChars">
+    ///  The per-event payload character cap. Must be non-negative, and is itself
+    ///  clamped to <see cref="MaxPayloadChars"/>.
+    /// </param>
     /// <param name="payloadFilter">
     ///  A case-insensitive substring matched against each event's payload <em>values</em>;
     ///  empty applies no payload filter. The full untruncated value is scanned, so a match
@@ -86,6 +106,8 @@ public sealed class EventQueryProvider
         ArgumentOutOfRangeException.ThrowIfNegative(skip);
         ArgumentOutOfRangeException.ThrowIfNegative(take);
         ArgumentOutOfRangeException.ThrowIfNegative(maxPayloadChars);
+
+        maxPayloadChars = Math.Min(maxPayloadChars, MaxPayloadChars);
 
         string fullPath = Path.GetFullPath(path);
         if (!File.Exists(fullPath))
@@ -138,8 +160,9 @@ public sealed class EventQueryProvider
                     + OutputBudget.EstimateTokens(data.EventName)
                     + OutputBudget.EstimateTokens(renderedPayload);
 
-                // Always return at least one event, so a single pathological payload
-                // pages rather than yielding an empty result the caller cannot advance.
+                // Always return at least one event, so a single large payload pages
+                // rather than yielding an empty result the caller cannot advance. The
+                // payload clamp above is what keeps that first record inside the budget.
                 if (page.Count > 0 && pageTokens + recordTokens > MaxPageTokens)
                 {
                     budgetTruncated = true;
@@ -176,9 +199,10 @@ public sealed class EventQueryProvider
         ArgumentNullException.ThrowIfNull(result);
 
         return result.BudgetTruncated
-            ? $"Returned {result.Events.Count} events; the rest of the requested page would exceed the "
-                + $"{MaxPageTokens}-token response budget. Page from the reported skip, or narrow the "
-                + "query with --name, --payload, or a smaller --max-payload."
+            ? $"Returned {result.Events.Count} events; adding more would exceed the {MaxPageTokens}-token "
+                + $"page budget that holds the whole response under the {OutputBudget.DefaultCeilingTokens}-token "
+                + "ceiling. Continue from the reported skip, or narrow the query with the name or payload "
+                + "filters or a smaller payload cap."
             : null;
     }
 

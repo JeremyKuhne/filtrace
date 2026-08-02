@@ -244,6 +244,23 @@ public sealed class EventQueryProviderTests
     }
 
     [TestMethod]
+    public void Query_HugePayloadCap_IsClampedSoOneRecordCannotBreachTheCeiling()
+    {
+        // The page always returns its first event so an outsized payload pages rather
+        // than stalling, which is only safe while one record cannot exceed the budget
+        // by itself. The caller-supplied payload cap is the only amplifier there, so it
+        // is clamped: an int.MaxValue cap must not produce an unbounded record.
+        EventQueryResult result = new EventQueryProvider()
+            .Query(ExceptionsTrace, "Exception", take: 1, maxPayloadChars: int.MaxValue);
+
+        result.Events.Should().ContainSingle();
+        result.Events[0].Payload.Length.Should().BeLessThanOrEqualTo(EventQueryProvider.MaxPayloadChars);
+
+        string serialized = OutputJson.Serialize(new AnalysisResult<EventQueryResult>(result));
+        OutputBudget.EstimateTokens(serialized).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
     public void GetBudgetWarning_TruncatedResult_NamesTheReturnedCountAndTheRemedy()
     {
         EventQueryResult result = new EventQueryProvider().Query(ExceptionsTrace, "Exception", take: 8_000);
