@@ -143,7 +143,7 @@ Three optional fields grade *intent* rather than the current tool names:
 | Field | Effect |
 |---|---|
 | `expectOperations` | Every listed operation must have been called successfully, on either arm. Operations are surface-neutral (`rank`, `source`, `events`, ...) via [Get-OperationName.ps1](Get-OperationName.ps1), so a task keeps grading correctly after a tool is renamed or folded into another. |
-| `forbidOperations` | Calling any listed operation fails the iteration - the way to state "do not reach for source lines on a speedscope profile". |
+| `forbidOperations` | Attempting any listed operation fails the iteration, whether or not the call succeeded - the way to state "do not reach for source lines on a speedscope profile", which filtrace rejects anyway, so grading only successful calls would never see the mistake. |
 | `maxCalls` | A per-task call budget tighter than the global `-MaxSteps`, for tasks whose whole point is that one call suffices. |
 
 The deterministic gate validates all three against the operation vocabulary, so a

@@ -356,7 +356,10 @@ function Measure-McpResultTokens {
     if ($members -contains 'content') {
         $parts.Add('content')
         foreach ($block in @($Result.content)) {
-            $blockText = if ($block -is [string]) { $block } elseif ($block.text) { [string]$block.text } else { ($block | ConvertTo-Json -Depth 8 -Compress) }
+            # Presence of `text`, not truthiness: an empty text block is legitimately
+            # zero tokens, and treating it as absent would serialize the whole block
+            # and count the wrapper as payload.
+            $blockText = if ($block -is [string]) { $block } elseif ($null -ne $block.text) { [string]$block.text } else { ($block | ConvertTo-Json -Depth 8 -Compress) }
             $text += [int](Get-TokenEstimate -Text $blockText)
         }
     }
@@ -557,6 +560,12 @@ function Invoke-EvalRun {
                 Where-Object { $_.ok } |
                 ForEach-Object { ($_.cmd -split '\s+', 2)[0] })
             $calledOperations = @($successfulNames | ForEach-Object { Get-OperationName -Name $_ } | Sort-Object -Unique)
+            # Forbidden operations are graded on the attempt, not the outcome: reaching
+            # for source lines on a speedscope profile is the mistake, and filtrace
+            # rejects it - so scoring only successful calls would never see it.
+            $attemptedOperations = @($transcript |
+                ForEach-Object { Get-OperationName -Name ($_.cmd -split '\s+', 2)[0] } |
+                Sort-Object -Unique)
 
             if ($ok -and $AgentHost -eq 'copilot') {
                 $missingTools = @($task.expectTools | Where-Object { $successfulNames -notcontains $_ })
@@ -576,7 +585,7 @@ function Invoke-EvalRun {
                 }
             }
             if ($ok -and $task.forbidOperations.Count -gt 0) {
-                $forbiddenUsed = @($task.forbidOperations | Where-Object { $calledOperations -contains $_ })
+                $forbiddenUsed = @($task.forbidOperations | Where-Object { $attemptedOperations -contains $_ })
                 if ($forbiddenUsed.Count -gt 0) {
                     $ok = $false
                     $note = "called forbidden operation(s): $($forbiddenUsed -join ', ')"
@@ -599,6 +608,7 @@ function Invoke-EvalRun {
                     textTokens = $r.textTokens; structuredTokens = $r.structuredTokens
                     wireTokens = $r.wireTokens; resultShape = $r.resultShape; hostUsage = $r.hostUsage
                     operations = $calledOperations
+                    attemptedOperations = $attemptedOperations
                     answer = $answer; note = $note; transcript = $transcript
                 })
             $tag = if ($ok) { 'ok ' } else { 'MISS' }
