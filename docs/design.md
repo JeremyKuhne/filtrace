@@ -192,7 +192,7 @@ These are checked by CI; a change that breaks one is not shippable.
 |---|---|---|---|
 | MCP `tools/list` size | <= 7,000 estimated tokens | ~6,388 tokens / 25,563 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | MCP stdout purity | pure JSON-RPC, real `tools/call` round trip | envelope `schemaVersion` 8 | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
-| Single analysis response | <= 25,000 tokens (`OutputBudget.DefaultCeilingTokens`) | bounded in `events`, `jitstats`, `rank`, `diskio`; not yet in `callers`, `lines`, `gcstats`, `lifecycle`, `heatmap` | Core budget plus worst-case tests |
+| Single analysis response | <= 25,000 tokens (`OutputBudget.DefaultCeilingTokens`) | every producer bounds its rows against `OutputBudget.DefaultRowBudgetTokens` | Core budget plus worst-case tests |
 | Per-verb `--help` | <= 60 lines | 25 verbs | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
 | Verb discoverability | every verb in top-level help, with a README example and a scope-inventory entry | 25 verbs | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
 | Catalog completeness | every verb and every `trace_*` tool documented | 25 verbs / 18 tools | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |

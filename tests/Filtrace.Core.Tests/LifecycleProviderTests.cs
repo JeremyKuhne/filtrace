@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Output;
+
 namespace Filtrace.Tracing.Providers;
 
 [TestClass]
@@ -20,6 +22,41 @@ public sealed class LifecycleProviderTests
         IReadOnlyList<string>? images = null,
         List<string>? warnings = null) =>
         new LifecycleProvider().Read(EtwTrace, ScopeRequest.ForProcess("HotLoop"), images, warnings);
+
+    [TestMethod]
+    public void LimitDetail_MoreInvocationsThanTheBudget_ClampsTheSerializedResponse()
+    {
+        // One invocation carries its root plus every child, so a wide capture matrix
+        // reaches the budget on row size as well as row count. No committed fixture is
+        // that wide, so the report is built directly.
+        LifecycleInvocation[] invocations = [.. Enumerable.Range(0, 2_000).Select(static index => new LifecycleInvocation(
+            index,
+            new LifecycleProcess(1000 + index, "dotnet.exe", 0.0, 120.0, 120.0, 40.0, true, true, 0),
+            [new LifecycleProcess(9000 + index, "HotLoopBench.exe", 5.0, 110.0, 105.0, 90.0, true, true, 0)],
+            5.0,
+            105.0,
+            10.0,
+            true))];
+        LifecycleResult wide = new("dotnet", 2_000, 2_000, 80000.0, 180000.0, [], invocations, []);
+
+        LifecycleResult limited = LifecycleProvider.LimitDetail(wide, top: 100_000, out string? warning);
+
+        limited.Invocations.Count.Should().BeLessThan(wide.Invocations.Count);
+        limited.InvocationCount.Should().Be(wide.InvocationCount, "the medians still cover every invocation");
+        warning.Should().NotBeNull();
+
+        string serialized = OutputJson.Serialize(new AnalysisResult<LifecycleResult>(limited));
+        OutputBudget.EstimateTokens(serialized).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
+    public void LimitDetail_WithinTheBudget_ReturnsTheReportUnchanged()
+    {
+        LifecycleResult full = LoadHotLoop();
+
+        LifecycleProvider.LimitDetail(full, top: 100_000, out string? warning).Should().BeSameAs(full);
+        warning.Should().BeNull();
+    }
 
     [TestMethod]
     public void Read_NamedRoot_ReportsOneFullyObservedInvocation()

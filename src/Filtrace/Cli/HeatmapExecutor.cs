@@ -46,8 +46,14 @@ internal static class HeatmapExecutor
         // The trace records the build-time file name, not its full path, so match on
         // the file name; the original path is kept for the source overlay in text mode.
         string fileName = System.IO.Path.GetFileName(request.File);
-        SourceHeatmapResult heatmap = trace.Aggregator.SourceHeatmap(fileName, request.Fold);
+        SourceHeatmapResult full = trace.Aggregator.SourceHeatmap(fileName, request.Fold);
+        SourceHeatmapResult heatmap = FoldingAggregator.LimitRows(full, out string? budgetWarning);
         List<string> warnings = [.. TraceExecution.ResultWarnings(info)];
+        if (budgetWarning is not null)
+        {
+            warnings.Add(budgetWarning);
+        }
+
         if (ContributingRecordQuality.TryGetLineWarning(
             trace.Source.RecordSemantics,
             heatmap.AttributedRecordCount,

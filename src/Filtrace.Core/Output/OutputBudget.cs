@@ -136,12 +136,17 @@ public static partial class OutputBudget
     ///  row alone, reported as truncated.
     /// </param>
     /// <param name="truncated">Whether the budget stopped the list short.</param>
+    /// <param name="takeAtLeastOne">
+    ///  Whether to take the first row even when it does not fit. Pass <see langword="false"/>
+    ///  for a secondary list that shares a response with one already filled, where the
+    ///  response is non-empty without it.
+    /// </param>
     /// <returns>The rows that fit.</returns>
     /// <remarks>
     ///  <para>
-    ///   The first row is always taken, so a producer with rows never returns an empty list
-    ///   the caller cannot act on. That places an obligation on the producer: whatever
-    ///   scales a single row's size must itself be bounded - see
+    ///   By default the first row is always taken, so a producer with rows never returns an
+    ///   empty list the caller cannot act on. That places an obligation on the producer:
+    ///   whatever scales a single row's size must itself be bounded - see
     ///   <c>EventQueryProvider.MaxPayloadChars</c>, which exists for this reason - or one
     ///   row can exceed the budget by itself.
     ///  </para>
@@ -152,7 +157,8 @@ public static partial class OutputBudget
         IEnumerable<T> rows,
         Func<T, int> estimateRow,
         int budgetTokens,
-        out bool truncated)
+        out bool truncated,
+        bool takeAtLeastOne = true)
     {
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(estimateRow);
@@ -165,7 +171,7 @@ public static partial class OutputBudget
         foreach (T row in rows)
         {
             int rowTokens = estimateRow(row);
-            if (kept.Count > 0 && tokens + rowTokens > budgetTokens)
+            if ((kept.Count > 0 || !takeAtLeastOne) && tokens + rowTokens > budgetTokens)
             {
                 truncated = true;
                 break;

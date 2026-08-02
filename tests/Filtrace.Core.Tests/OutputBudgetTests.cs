@@ -45,6 +45,21 @@ public sealed class OutputBudgetTests
     }
 
     [TestMethod]
+    public void TakeWithinBudget_FirstRowOverBudgetAndNotRequired_IsDropped()
+    {
+        // A secondary list sharing a response with one already filled does not need the
+        // carve-out: the response is non-empty without it, so a row that does not fit is
+        // dropped rather than pushed over the budget.
+        string[] rows = ["a", "b"];
+
+        List<string> kept = OutputBudget.TakeWithinBudget(
+            rows, static _ => 1_000, budgetTokens: 10, out bool truncated, takeAtLeastOne: false);
+
+        kept.Should().BeEmpty();
+        truncated.Should().BeTrue();
+    }
+
+    [TestMethod]
     public void TakeWithinBudget_NoRows_IsNotTruncated()
     {
         string[] rows = [];

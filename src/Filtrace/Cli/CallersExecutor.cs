@@ -37,8 +37,14 @@ internal static class CallersExecutor
         }
 
         TraceInfo info = trace.Info;
-        CallersResult callers = trace.Aggregator.CallersOf(request.Frame, request.Root, request.Top, request.Callees);
+        CallersResult full = trace.Aggregator.CallersOf(request.Frame, request.Root, request.Top, request.Callees);
+        CallersResult callers = FoldingAggregator.LimitRows(full, out string? budgetWarning);
         List<string> warnings = [.. TraceExecution.ResultWarnings(info)];
+        if (budgetWarning is not null)
+        {
+            warnings.Add(budgetWarning);
+        }
+
         if (ContributingRecordQuality.TryGetMethodWarning(
             trace.Source.RecordSemantics,
             callers.ContributingRecordCount,

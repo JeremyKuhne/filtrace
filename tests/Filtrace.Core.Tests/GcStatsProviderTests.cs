@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Output;
+
 namespace Filtrace.Tracing.Providers;
 
 [TestClass]
@@ -14,6 +16,35 @@ public sealed class GcStatsProviderTests
     // carries the GC events this provider reads - no separate fixture is needed.
     private static GcStatsResult LoadGcStats() =>
         new GcStatsProvider().Read(FixturePath("alloc.nettrace"));
+
+    [TestMethod]
+    public void LimitDetail_MoreCollectionsThanTheBudget_ClampsTheSerializedResponse()
+    {
+        // A collection record costs about 45 estimated tokens, so a GC-heavy service
+        // trace clears the ceiling at a few hundred collections. The smoke fixture has
+        // seven, so the report is built directly rather than read from it.
+        GcRecord[] collections = [.. Enumerable.Range(0, 3_000).Select(static index => new GcRecord(
+            index, 2, "BackgroundBlockingCollection", "AllocLargeObjectHeap", 1.5, 128.0, 4.0))];
+        GcStatsResult wide = new(3_000, 0, 0, 3_000, 0, 4500.0, 1.5, 1.5, 12.0, 128.0, 12000.0, collections);
+
+        GcStatsResult limited = GcStatsProvider.LimitDetail(wide, top: 100_000, out string? warning);
+
+        limited.Gcs.Count.Should().BeLessThan(wide.Gcs.Count);
+        limited.GcCount.Should().Be(wide.GcCount, "the aggregate summary still covers every collection");
+        warning.Should().NotBeNull();
+
+        string serialized = OutputJson.Serialize(new AnalysisResult<GcStatsResult>(limited));
+        OutputBudget.EstimateTokens(serialized).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
+    public void LimitDetail_WithinTheBudget_ReturnsTheReportUnchanged()
+    {
+        GcStatsResult full = LoadGcStats();
+
+        GcStatsProvider.LimitDetail(full, top: 100_000, out string? warning).Should().BeSameAs(full);
+        warning.Should().BeNull();
+    }
 
     [TestMethod]
     public void Read_GcVerboseFixture_ReportsCollections()

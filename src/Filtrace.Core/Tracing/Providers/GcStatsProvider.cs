@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Output;
 using Microsoft.Diagnostics.Tracing.Analysis;
 using Microsoft.Diagnostics.Tracing.Analysis.GC;
 using TraceLog = Microsoft.Diagnostics.Tracing.Etlx.TraceLog;
@@ -26,6 +27,10 @@ namespace Filtrace.Tracing.Providers;
 /// </remarks>
 public sealed class GcStatsProvider
 {
+    // The JSON scaffolding around one collection record - the property names, the
+    // punctuation, and the numeric generation, pause, heap, and promoted fields -
+    // which the per-record estimate adds to the record's variable text.
+    private const int RecordScaffoldTokens = 40;
     /// <summary>
     ///  Reads the GC-stats report from the EventPipe trace at <paramref name="path"/>.
     /// </summary>
@@ -75,6 +80,61 @@ public sealed class GcStatsProvider
 
         return Summarize(records, traceLog.SessionDuration.TotalMilliseconds);
     }
+
+    /// <summary>
+    ///  Limits a report's per-collection detail to the longest pauses that fit both
+    ///  <paramref name="top"/> and <see cref="OutputBudget.DefaultRowBudgetTokens"/>,
+    ///  leaving the aggregate summary untouched.
+    /// </summary>
+    /// <param name="report">The full report, as returned by <see cref="Read"/>.</param>
+    /// <param name="top">The caller's maximum detail row count. Must be positive.</param>
+    /// <param name="warning">
+    ///  The warning naming what was dropped, or <see langword="null"/> when the whole
+    ///  collection list was kept.
+    /// </param>
+    /// <returns>
+    ///  The limited report, or <paramref name="report"/> itself when every collection fit.
+    /// </returns>
+    /// <remarks>
+    ///  <para>
+    ///   Shared by both heads so they bound and word the result identically. Collections
+    ///   are ranked by pause time only when something has to be dropped, so a report that
+    ///   fits keeps the trace order <see cref="Read"/> produced.
+    ///  </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="report"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is not positive.</exception>
+    public static GcStatsResult LimitDetail(GcStatsResult report, int top, out string? warning)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+
+        List<GcRecord> kept = OutputBudget.TakeWithinBudget(
+            report.Gcs.OrderByDescending(static collection => collection.PauseMs).Take(top),
+            EstimateRecordTokens,
+            OutputBudget.DefaultRowBudgetTokens,
+            out bool budgetTruncated);
+
+        if (kept.Count == report.Gcs.Count)
+        {
+            warning = null;
+            return report;
+        }
+
+        warning = budgetTruncated
+            ? $"Showing {kept.Count} of {report.GcCount} collections by pause time; more would exceed the "
+                + $"{OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response under "
+                + $"the {OutputBudget.DefaultCeilingTokens}-token ceiling. The aggregate summary still covers "
+                + "every collection."
+            : $"Showing the top {top} of {report.GcCount} collections by pause time.";
+
+        return report with { Gcs = kept };
+    }
+
+    private static int EstimateRecordTokens(GcRecord collection) =>
+        RecordScaffoldTokens
+        + OutputBudget.EstimateTokens(collection.Kind)
+        + OutputBudget.EstimateTokens(collection.Reason);
 
     private static GcStatsResult Summarize(List<GcRecord> records, double durationMs)
     {

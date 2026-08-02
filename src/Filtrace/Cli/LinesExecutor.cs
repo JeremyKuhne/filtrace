@@ -42,8 +42,14 @@ internal static class LinesExecutor
         }
 
         TraceInfo info = trace.Info;
-        LineRankingResult lines = trace.Aggregator.HotLines(request.Method, request.Fold, request.Top);
+        LineRankingResult full = trace.Aggregator.HotLines(request.Method, request.Fold, request.Top);
+        LineRankingResult lines = FoldingAggregator.LimitRows(full, out string? budgetWarning);
         List<string> warnings = [.. TraceExecution.ResultWarnings(info)];
+        if (budgetWarning is not null)
+        {
+            warnings.Add(budgetWarning);
+        }
+
         if (ContributingRecordQuality.TryGetLineWarning(
             trace.Source.RecordSemantics,
             lines.AttributedRecordCount,
