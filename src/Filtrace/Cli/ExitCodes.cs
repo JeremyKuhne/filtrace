@@ -9,7 +9,6 @@ namespace Filtrace.Cli;
 /// </summary>
 /// <remarks>
 ///  <para>
-///   These are the codes the M2 head returns (implementation-plan section 4.4.6):
 ///   <see cref="Success"/> for a completed query, <see cref="UsageError"/> for a
 ///   bad command line, <see cref="InputError"/> when the trace could not be
 ///   loaded, and <see cref="StrictGate"/> when an otherwise successful run tripped

@@ -9,7 +9,7 @@ using Filtrace.Tracing;
 namespace Filtrace.Parity.Tests;
 
 /// <summary>
-///  Numeric parity harness (implementation-plan section 3): asserts that
+///  Numeric parity harness: asserts that
 ///  <c>filtrace</c>'s rankings match the frozen legacy oracle
 ///  (<c>Get-TraceHotspots.ps1</c>) on a fixed fixture, within a small relative
 ///  tolerance and identical top-N ordering.

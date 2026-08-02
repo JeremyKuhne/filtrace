@@ -8,7 +8,7 @@
   Lints the filtrace CLI help surface as a build artifact.
 
 .DESCRIPTION
-  Enforces the M2 help contract (docs/filtrace-implementation-plan.md, milestone M2):
+  Enforces the CLI help contract (docs/design.md, "Measures of success"):
 
     1. Every [Command] verb in the CLI is listed in the top-level help.
     2. Each verb's `--help` succeeds, shows a Usage line, and stays within the

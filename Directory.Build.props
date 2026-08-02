@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  filtrace is a self-contained incubation subtree (see docs/filtrace-implementation-plan.md).
+  filtrace is a self-contained repository root.
 
   This file intentionally does NOT import Touki's root Directory.Build.props (no
   GetPathOfFileAbove): by being the nearest Directory.Build.props on the way up

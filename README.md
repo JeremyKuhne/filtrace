@@ -280,8 +280,8 @@ hot frame with callers / lines / tree; diff comparable CPU traces against a base
 | `src/Filtrace.Mcp/` | Stdio MCP host, packaged separately for `dnx KlutzyNinja.Filtrace.Mcp`. |
 | `tests/Filtrace.Core.Tests/` | Unit + golden-file contract tests. |
 | `tests/Filtrace.Parity.Tests/` | Numeric parity against the frozen legacy oracles. |
-| `eval/` | Headless-agent eval harness, tasks, baselines (M5). |
-| `docs/` | Single-source workflow text for the skill / README / help (M4). |
+| `eval/` | Headless-agent eval harness, tasks, baselines. |
+| `docs/` | Design, roadmap, competitive analysis, and the single-source workflow text for the skill / README / help. |
 | `.agents/skills/filtrace/` | The shipped agent skill. |
 
 ## Self-containment

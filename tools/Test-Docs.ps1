@@ -8,7 +8,7 @@
   Drift check for the single-sourced knowledge layer (docs/ -> skill, README).
 
 .DESCRIPTION
-  Enforces the M4 knowledge-layer contract (docs/implementation-plan.md, milestone M4):
+  Enforces the knowledge-layer contract (docs/design.md, "Measures of success"):
 
     1. docs/ is the single source of truth. The marked blocks
        (`<!-- filtrace:begin <id> -->` ... `<!-- filtrace:end <id> -->`) listed in the

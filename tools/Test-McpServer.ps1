@@ -8,8 +8,8 @@
   Validates the filtrace MCP server's wire-protocol contracts as build artifacts.
 
 .DESCRIPTION
-  Enforces the two checks born with the MCP facade (docs/filtrace-implementation-plan.md,
-  milestone M3), plus a scripted client round-trip:
+  Enforces the two checks born with the MCP facade (docs/design.md, "Measures of
+  success"), plus a scripted client round-trip:
 
     1. stdout purity - stdout carries only JSON-RPC. The server is run with a
        deliberately chatty log level (Trace) forced through configuration; every
@@ -52,7 +52,7 @@
   content, which is generated from the returned object rather than the advertised schema,
   is unchanged. 7,000 is the measured 6,050 plus roughly the largest existing definition,
   so it still admits one more tool and no general slack - and it now sits under the v.next
-  target of 7,500 with typed output schemas that docs/vnext-improvement-plan.md holds the
+  target of 7,500 with typed output schemas that docs/roadmap.md holds the
   surface to, leaving 5,000 as the remaining stretch.
 #>
 [CmdletBinding()]

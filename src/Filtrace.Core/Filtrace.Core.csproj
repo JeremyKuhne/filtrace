@@ -18,8 +18,8 @@
       both heads, so the whole graph stays non-AOT until TraceEvent is made
       AOT-safe or replaced. Do not set IsAotCompatible or PublishAot here or on a
       referencing project yet - that would green-light the per-assembly analyzer
-      while a real publish still fails. See the AOT-goal note in
-      docs/filtrace-implementation-plan.md (it reverses the earlier D13 framing).
+      while a real publish still fails. See the known constraints in
+      docs/design.md.
     -->
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />
     <!--

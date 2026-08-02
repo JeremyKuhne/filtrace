@@ -26,8 +26,8 @@ namespace Filtrace.Tracing.Readers;
 ///   resolve <c>file:line</c> for the managed frames.
 ///  </para>
 ///  <para>
-///   See <c>docs/traceevent-embedded-pdb.md</c> for the upstream follow-up to make
-///   TraceEvent read embedded PDBs directly so this workaround can be retired.
+///   The upstream follow-up that would retire this workaround - TraceEvent reading
+///   embedded PDBs directly - is TE-P1 in <c>docs/roadmap.md</c>.
 ///  </para>
 /// </remarks>
 internal static class EmbeddedPdbExtractor
