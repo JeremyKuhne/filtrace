@@ -10,14 +10,14 @@ namespace Filtrace;
 /// <remarks>
 ///  <para>
 ///   The analysis itself lives in the readers, providers, and aggregator in this
-///   assembly. This type survives only as the scaffold marker the earliest
-///   contract tests assert against.
+///   assembly. This type survives only as the marker the earliest contract tests
+///   assert against.
 ///  </para>
 /// </remarks>
 public static class FiltraceCore
 {
     /// <summary>
-    ///  The scaffold generation this assembly corresponds to.
+    ///  The milestone label this assembly reports.
     /// </summary>
     public static string Milestone => "M1";
 }
