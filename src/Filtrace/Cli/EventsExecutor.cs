@@ -65,7 +65,19 @@ internal static class EventsExecutor
                 $"{result.TotalMatched - shownThrough} more match; page with --skip {shownThrough}.");
         }
 
-        AnalysisResult<EventQueryResult> envelope = new(result, hints: hints);
+        List<string> warnings = [];
+        if (request.MaxPayload > EventQueryProvider.MaxPayloadChars)
+        {
+            warnings.Add(
+                $"--max-payload {request.MaxPayload} exceeds the {EventQueryProvider.MaxPayloadChars} maximum; clamped.");
+        }
+
+        if (EventQueryProvider.GetBudgetWarning(result) is string budgetWarning)
+        {
+            warnings.Add(budgetWarning);
+        }
+
+        AnalysisResult<EventQueryResult> envelope = new(result, warnings, hints);
 
         if (request.Format == OutputFormat.Json)
         {

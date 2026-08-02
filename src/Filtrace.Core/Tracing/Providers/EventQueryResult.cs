@@ -11,7 +11,13 @@ namespace Filtrace.Tracing.Providers;
 /// <param name="TotalMatched">The total number of events matching the query across the whole trace.</param>
 /// <param name="Skipped">The number of matches skipped before this page.</param>
 /// <param name="Events">The events on this page, in trace (time) order.</param>
+/// <param name="BudgetTruncated">
+///  Whether the page holds fewer events than were requested because the response
+///  token budget was reached. Distinguishes a short page caused by the budget from
+///  one caused by running out of matches.
+/// </param>
 public sealed record EventQueryResult(
     int TotalMatched,
     int Skipped,
-    IReadOnlyList<EventRecord> Events);
+    IReadOnlyList<EventRecord> Events,
+    bool BudgetTruncated = false);

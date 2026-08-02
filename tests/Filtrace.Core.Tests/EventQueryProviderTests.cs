@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Output;
+
 namespace Filtrace.Tracing.Providers;
 
 [TestClass]
@@ -11,6 +13,8 @@ public sealed class EventQueryProviderTests
         Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
     private static string AllocTrace => FixturePath("alloc.nettrace");
+
+    private static string ExceptionsTrace => FixturePath("exceptions.nettrace");
 
     private static string EtwTrace => FixturePath("etw.etl");
 
@@ -194,6 +198,76 @@ public sealed class EventQueryProviderTests
         // (the total), not the larger requested skip.
         result.Events.Should().BeEmpty();
         result.Skipped.Should().Be(result.TotalMatched);
+    }
+
+    [TestMethod]
+    public void Query_TakeLargerThanTheBudget_ClampsTheSerializedResponse()
+    {
+        // take is caller-supplied and multiplies straight into response size. Before the
+        // page was bounded by tokens, this query serialized to over 500,000 estimated
+        // tokens - twenty times the ceiling the output budget documents.
+        EventQueryResult result = new EventQueryProvider().Query(ExceptionsTrace, "Exception", take: 8_000);
+
+        result.BudgetTruncated.Should().BeTrue();
+        result.Events.Count.Should().BeLessThan(8_000);
+        result.TotalMatched.Should().BeGreaterThan(result.Events.Count);
+
+        string serialized = OutputJson.Serialize(new AnalysisResult<EventQueryResult>(result));
+        OutputBudget.EstimateTokens(serialized).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
+    public void Query_TruncatedPage_StillAdvancesThroughTheMatches()
+    {
+        // A budget-truncated page must remain pageable, or a caller loops forever on a
+        // page that never reaches the end of the matches.
+        EventQueryProvider provider = new();
+        EventQueryResult first = provider.Query(ExceptionsTrace, "Exception", take: 8_000);
+        first.BudgetTruncated.Should().BeTrue();
+
+        int shownThrough = first.Skipped + first.Events.Count;
+        EventQueryResult second = provider.Query(ExceptionsTrace, "Exception", skip: shownThrough, take: 8_000);
+
+        second.Skipped.Should().Be(shownThrough);
+        second.Events.Should().NotBeEmpty();
+        second.Events[0].TimestampMs.Should().BeGreaterThanOrEqualTo(first.Events[^1].TimestampMs);
+    }
+
+    [TestMethod]
+    public void Query_PageWithinTheBudget_IsNotReportedAsTruncated()
+    {
+        EventQueryResult result = new EventQueryProvider().Query(AllocTrace, "AllocationTick", take: 5);
+
+        result.BudgetTruncated.Should().BeFalse();
+        result.Events.Should().HaveCount(5);
+        EventQueryProvider.GetBudgetWarning(result).Should().BeNull();
+    }
+
+    [TestMethod]
+    public void Query_HugePayloadCap_IsClampedSoOneRecordCannotBreachTheCeiling()
+    {
+        // The page always returns its first event so an outsized payload pages rather
+        // than stalling, which is only safe while one record cannot exceed the budget
+        // by itself. The caller-supplied payload cap is the only amplifier there, so it
+        // is clamped: an int.MaxValue cap must not produce an unbounded record.
+        EventQueryResult result = new EventQueryProvider()
+            .Query(ExceptionsTrace, "Exception", take: 1, maxPayloadChars: int.MaxValue);
+
+        result.Events.Should().ContainSingle();
+        result.Events[0].Payload.Length.Should().BeLessThanOrEqualTo(EventQueryProvider.MaxPayloadChars);
+
+        string serialized = OutputJson.Serialize(new AnalysisResult<EventQueryResult>(result));
+        OutputBudget.EstimateTokens(serialized).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
+    public void GetBudgetWarning_TruncatedResult_NamesTheReturnedCountAndTheRemedy()
+    {
+        EventQueryResult result = new EventQueryProvider().Query(ExceptionsTrace, "Exception", take: 8_000);
+
+        EventQueryProvider.GetBudgetWarning(result)
+            .Should().Contain(result.Events.Count.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .And.Contain("skip");
     }
 
     [TestMethod]

@@ -856,6 +856,11 @@ public sealed class TraceTools
         EventQueryResult result = ReadEvents(
             path, name, skip, take, maxPayload, payload, pid >= 0 ? pid : null, tid >= 0 ? tid : null);
 
+        if (EventQueryProvider.GetBudgetWarning(result) is string budgetWarning)
+        {
+            warnings.Add(budgetWarning);
+        }
+
         // When matches remain beyond this page, steer toward the next one rather than
         // leaving the agent to work out the skip arithmetic.
         List<string> hints = [];

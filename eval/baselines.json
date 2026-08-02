@@ -31,7 +31,7 @@
     },
     "alloc-events": {
       "calls": 1,
-      "tokens": 5538
+      "tokens": 5544
     },
     "cpu-inclusive": {
       "calls": 1,
@@ -83,7 +83,7 @@
     },
     "event-count-only": {
       "calls": 1,
-      "tokens": 79
+      "tokens": 85
     },
     "jit-summary-first": {
       "calls": 1,
