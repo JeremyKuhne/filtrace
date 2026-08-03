@@ -33,6 +33,7 @@ namespace Filtrace.Output;
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     GenerationMode = JsonSourceGenerationMode.Metadata,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     WriteIndented = false)]
 [JsonSerializable(typeof(AnalysisEnvelopeSchema))]
 [JsonSerializable(typeof(StructuredAnalysisEnvelopeSchema))]

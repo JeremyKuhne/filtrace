@@ -41,7 +41,7 @@ public sealed class TraceToolsTests
     // assert on the object directly rather than re-parsing JSON.
     private static void AssertEnvelope<T>(AnalysisResult<T> envelope)
     {
-        envelope.SchemaVersion.Should().Be(12);
+        envelope.SchemaVersion.Should().Be(13);
         envelope.Warnings.Should().NotBeNull();
         envelope.Diagnostics.Should().NotBeNull();
         envelope.Hints.Should().NotBeNull();
@@ -1681,6 +1681,22 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void QueryEvents_TakeZero_ReturnsCountWithoutPagingHint()
+    {
+        AnalysisResult<EventQueryResult> envelope = TraceTools.QueryEvents(
+            FixturePath(Alloc),
+            name: "GC/AllocationTick",
+            take: 0,
+            payload: "System.String");
+
+        AssertEnvelope(envelope);
+        envelope.Result.TotalMatched.Should().Be(90);
+        envelope.Result.Events.Should().BeEmpty();
+        envelope.Hints.Should().BeEmpty();
+        envelope.NextSteps.Should().BeEmpty();
+    }
+
+    [TestMethod]
     public void QueryEvents_SpeedscopeInput_ThrowsMcpException()
     {
         // The raw event query spans .nettrace and .etl, but a speedscope export carries
@@ -1696,6 +1712,14 @@ public sealed class TraceToolsTests
         Action act = () => TraceTools.QueryEvents(FixturePath(Alloc), skip: -1);
 
         act.Should().Throw<McpException>().WithMessage("*skip must be 0 or greater*");
+    }
+
+    [TestMethod]
+    public void QueryEvents_NegativeTake_Throws()
+    {
+        Action act = () => TraceTools.QueryEvents(FixturePath(Alloc), take: -1);
+
+        act.Should().Throw<McpException>().WithMessage("*take must be 0 or greater*");
     }
 
     [TestMethod]

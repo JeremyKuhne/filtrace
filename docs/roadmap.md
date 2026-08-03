@@ -268,10 +268,11 @@ a lever - the client re-materializes structured content and already spills an
 oversized result to a file - so the only way to reduce what an investigation costs is
 to send fewer rows and to make a result route its own follow-up. That is this item.
 
-The envelope is at `schemaVersion` 12. Effective context is v9; structured
-diagnostics is v10; structured next steps is v11; discriminated results is v12.
-Each remaining slice below changes the serialized shape and therefore gets its own
-schema version when it ships; do not mutate an earlier version in place.
+The envelope is at `schemaVersion` 13. Effective context is v9; structured
+diagnostics is v10; structured next steps is v11; discriminated results is v12;
+null/default omission is v13. Each remaining slice below changes the serialized
+shape and therefore gets its own schema version when it ships; do not mutate an
+earlier version in place.
 
 **Effective query context - complete.** Every result identifies the surface-neutral
 operation that ran. Stack-backed results also carry normalized metric, measure, unit,
@@ -380,41 +381,84 @@ instead of becoming a bag of nonapplicable optional fields. The advertised MCP
 envelope still leaves `result` unexpanded; naming the two kinds in the `trace_diff`
 description puts tools/list at 6,498 tokens.
 
-**Null and default omission - later schema revision.** Omit null optional properties. Keep empty arrays that
-mean "the query ran and found none"; omit an array only when the concept does not
-apply to the selected result kind.
+**Null and default omission - complete in v13.** The source-generated serializer
+omits null optional properties across every payload. `budgetTruncated: false` is
+also omitted from event pages; the property remains present when truncation occurs.
+Semantically meaningful zeros and empty strings remain, as do empty arrays that mean
+"the query ran and found none". An array is omitted only when it does not apply -
+for example, an unrequested timeline lane or `callees` on a callers-only query.
 
-**Detail profiles.** A closed vocabulary - `summary`, `rows`, `full` - only where it
-changes response cardinality. Do not add `detail` to operations whose result is
-already small.
+Across the 23 deterministic tasks, 12 responses shrink by 235 estimated tokens with
+no answer or call-count change. Timeline drops from 919 to 822 tokens, and the three
+trace-info tasks drop by 18 to 36 tokens each. Canonical responses contain no
+explicit nulls or false default flags after the change. The advertised MCP result
+remains opaque. Documenting the event count-only endpoint puts tools/list at 6,503
+tokens.
 
-The two outliers already have a cheap answer through existing options, which sizes
-the prize before any schema work: the JIT report costs 2,251 tokens at its default
-`--top 25` and 172 at `--top 1`; a raw event page costs 5,538 and the same count
-with `--take 1 --max-payload 0` costs 79. A `detail` vocabulary is worth adding for
-the defaults and the discoverability, not because the capability is missing.
+**Detail profiles - measured; no enum adopted.** Existing cardinality controls cover
+the operations where response size materially varies. Adding a second axis would
+create precedence rules without adding capability.
+
+The two outliers already have cheap answers through their cardinality options. The
+JIT report costs 2,273 tokens at its default and 194 with `top: 0`. A filtered
+90-match event query costs 3,810 tokens for all rows with payloads omitted, 137 for
+one row, and 34 for the count-only `take: 0` result. The remaining question is
+discoverability and default selection, not whether a summary capability exists.
 
 | Operation | Proposed MCP default | Behavior |
 |---|---|---|
-| info | `summary` | source/PDB method and module lists need `rows` |
+| info | no enum | current evidence lists are bounded; a summary/rows candidate regressed compatibility selection |
 | rank / callers / tree / source | current bounded rows | `top` and depth remain the natural control |
-| GC / JIT / disk reports | `summary` | per-GC, per-method, per-file records need `rows` |
+| GC / JIT / disk / lifecycle | no enum | `top: 0` is summary; positive `top` returns rows |
 | thread pool | `summary` | already small |
-| events | count or summary | event records need `rows`; paging stays `skip`/`take` |
+| events | no enum | `take: 0` is count-only; positive `take` returns paged rows |
 | timeline | current bounded buckets | lanes and bucket count remain the control |
 | diff / batch | current structural caps | already compact agent summaries |
 
-The CLI-detailed / MCP-summary asymmetry is a candidate, not a decision. Compare both
-defaults on questions that need only aggregates and on questions that need evidence
-rows; reject a summary default whose saved first-response tokens are offset by
-escalation calls. Deterministic tasks pass an explicit detail level so goldens do not
-depend on host defaults.
+The CLI and MCP use the same profiles: zero rows means summary/count-only where a
+cardinality axis exists, and positive values return bounded rows. `trace_info` keeps
+its current bounded evidence because the default-summary candidate regressed agent
+behavior.
 
 Grade each default with `baseline -> candidate -> Compare-EvalRuns` at **N=10 per
 model**, the way the speedscope wording change was graded. `gpt-5.6-sol` costs no
 premium requests, so a full-suite arm is wall time only; add `claude-haiku-4.5` as
 the overfitting detector when a candidate looks worth keeping. N=3 is not enough to
 size an effect - it put one baseline at 33% where ten iterations put it at 10%.
+
+##### Probed 2026-08-03: align event `take: 0` count-only - kept
+
+The provider and MCP tool already accepted `take: 0`, but the CLI parser required
+at least one row. That asymmetry is removed: both heads now return the same compact
+count envelope, and neither emits a paging next step whose `take: 0` could never
+advance. Negative values remain errors.
+
+For the payload-filtered count task, v13 null/default omission first reduced the
+response from 153 to 147 tokens; this count-only endpoint then reduces 147 to 34.
+The exact CLI and MCP structured envelopes are both 131 characters / 34 estimated
+tokens. Naming the endpoint in the MCP parameter description costs five permanent
+schema tokens. This removes events from the detail-enum experiment: its existing
+`take` axis already expresses count-only and rows without a precedence rule.
+
+##### Probed 2026-08-03: `trace_info` summary/rows - rejected
+
+Candidate: add `detail: summary|rows` to MCP `trace_info`, default to summary, and
+omit source/PDB/native evidence unless rows is requested. `full` was excluded because
+the source tracker already bounds retained evidence (5 methods, 8 modules, 16 matching
+PDB modules), so it has no distinct implementable meaning. The candidate cost 44
+permanent schema tokens (6,503 -> 6,547).
+
+Measured on all four info tasks at N=10 for `gpt-5.6-sol` and
+`claude-haiku-4.5`. Evidence selection worked: source-quality stayed 100%/one call on
+sol and rose 60% -> 90% on haiku; capture-status stayed correct while its median
+response fell 809 -> 529/598 tokens. But haiku's speedscope compatibility task fell
+90% -> 40%, median calls rose 1 -> 2, and median tokens rose 119 -> 176. The
+repository comparator rejected the candidate.
+
+The summary payload itself was not the problem on speedscope - it is the same 119
+tokens because that format has no source/native sections. The added profile grammar
+and changed tool description made the agent more likely to attempt a forbidden source
+operation. The candidate is reverted. `trace_info` retains one bounded view.
 
 ##### Probed 2026-08-03: lowering the two outlier defaults - rejected
 
@@ -973,5 +1017,6 @@ the client re-materializes structured content and already bounds a large result.
 That leaves the later output-contract revisions. The row-cardinality slice is already resolved:
 shrinking defaults was rejected, while `top: 0` gives report tools an aggregate-only
 level on the existing axis; effective query context, structured diagnostics,
-structured next steps, and discriminated results are complete. Next is null/default
-omission, followed by detail profiles.
+structured next steps, discriminated results, and null/default omission are complete.
+Detail-profile selection is complete. Next is manifest case references - the final
+VN2 routing gap - followed by VN3, the MCP surface experiment.

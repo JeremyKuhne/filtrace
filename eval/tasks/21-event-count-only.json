@@ -5,7 +5,7 @@
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/alloc.nettrace",
   "os": "any",
   "steps": [
-    { "args": ["events", "{fixture}", "--name", "GC/AllocationTick", "--payload", "System.String", "--take", "1", "--max-payload", "0"] }
+    { "args": ["events", "{fixture}", "--name", "GC/AllocationTick", "--payload", "System.String", "--take", "0"] }
   ],
   "assert": [
     { "field": "result.totalMatched", "equals": 90 }

@@ -869,7 +869,7 @@ public sealed class TraceTools
     /// <param name="path">Path to the trace file.</param>
     /// <param name="name">Substring matched against <c>Provider/EventName</c>; empty matches every event.</param>
     /// <param name="skip">The number of matches to skip, for paging.</param>
-    /// <param name="take">The maximum number of matches to return on this page.</param>
+    /// <param name="take">The maximum number of matches to return on this page; 0 returns only the total count.</param>
     /// <param name="maxPayload">The per-event payload character cap.</param>
     /// <returns>The events-page envelope.</returns>
     [McpServerTool(Name = "trace_query_events", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
@@ -880,7 +880,7 @@ public sealed class TraceTools
         [Description("Path to a .nettrace EventPipe or Windows ETW .etl trace file.")] string path,
         [Description("Substring matched against Provider/EventName; omit to match every event.")] string name = "",
         [Description("The number of matches to skip, for paging.")] int skip = 0,
-        [Description("The maximum number of matches to return on this page.")] int take = 100,
+        [Description("Maximum matches to return on this page; 0 returns only the total count.")] int take = 100,
         [Description("The per-event payload character cap.")] int maxPayload = 200,
         [Description("Case-insensitive substring matched against payload values; omit for no payload filter.")] string payload = "",
         [Description("Keep only events from this OS process id; -1 (default) keeps every process.")] int pid = -1,
@@ -941,7 +941,7 @@ public sealed class TraceTools
         List<string> hints = [];
         List<AnalysisNextStep> nextSteps = [];
         int shownThrough = result.Skipped + result.Events.Count;
-        if (shownThrough < result.TotalMatched)
+        if (take > 0 && shownThrough < result.TotalMatched)
         {
             string reason = $"{result.TotalMatched - shownThrough} more match; page with skip {shownThrough}.";
             hints.Add(reason);
