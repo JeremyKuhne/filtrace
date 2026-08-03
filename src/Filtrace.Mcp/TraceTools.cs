@@ -342,8 +342,8 @@ public sealed class TraceTools
     /// <returns>The line-level self-time envelope.</returns>
     [McpServerTool(Name = "trace_lines", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
-        "Rank CPU leaf self-time by source line for methods containing method. Requires .nettrace/.etl and "
-        + "optional local PDBs; unresolved locations are '<no source>'. Speedscope carries no line data, so it "
+        "Rank CPU leaf self-time by source line, for methods whose name contains method. Requires .nettrace/.etl "
+        + "and optional local PDBs; unresolved locations are '<no source>'. Speedscope carries no line data, so it "
         + "can only ever return nothing - trace_info's availableAnalyses says whether to call this at all.")]
     public static async Task<AnalysisResult<LineRankingResult>> LinesAsync(
         TraceStore store,

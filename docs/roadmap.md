@@ -190,11 +190,11 @@ candidate says the tool can only ever return nothing on that format and points a
 
 | Model | Baseline | Candidate | Median calls | Median tokens |
 |---|---:|---:|---|---|
-| `gpt-5.6-sol` | 10% | 100% | 2 -> 1 | 165 -> 127 |
+| `gpt-5.6-sol` | 10% | 90% | 2 -> 1 | 165 -> 127 |
 | `claude-haiku-4.5` | 10% | 80% | 3 -> 1 | 209 -> 127 |
 
-N=10 per model; 2 of 20 passing became 18 of 20. It costs 62 permanent schema tokens
-(descriptions 799 -> 855), paid on every request, and is worth it here because the
+N=10 per model; 2 of 20 passing became 17 of 20. It costs 65 permanent schema tokens
+(descriptions 799 -> 858), paid on every request, and is worth it here because the
 failure was not a token overrun but a wrong conclusion: an empty result on a format
 that carries no source data reads as "no line is hot".
 
