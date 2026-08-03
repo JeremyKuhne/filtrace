@@ -85,7 +85,12 @@ internal static class DiffExecutor
         AnalysisResult<RankingDiffResult> envelope = new(
             diff,
             Warnings(before, after, beforeRanking, afterRanking),
-            SteeringHints.ForDiff(diff));
+            SteeringHints.ForDiff(diff),
+            AnalysisContext.ForMetric(
+                "diff",
+                MetricInfo.Cpu,
+                request.Measure == Measure.Inclusive ? "inclusive" : "self",
+                request.Root));
 
         if (request.Format == OutputFormat.Json)
         {
@@ -134,7 +139,12 @@ internal static class DiffExecutor
             AnalysisResult<RankingDiffResult> envelope = new(
                 analysis.Result,
                 analysis.Warnings,
-                SteeringHints.ForDiff(analysis.Result));
+                SteeringHints.ForDiff(analysis.Result),
+                AnalysisContext.ForMetric(
+                    "diff",
+                    MetricInfo.Cpu,
+                    request.Measure == Measure.Inclusive ? "inclusive" : "self",
+                    request.Root));
 
             if (request.Format == OutputFormat.Json)
             {

@@ -43,7 +43,12 @@ internal static class BatchExecutor
                 });
             AnalysisResult<BatchRankingResult> envelope = new(
                 result,
-                hints: SteeringHints.ForBatch(result));
+                hints: SteeringHints.ForBatch(result),
+                context: AnalysisContext.ForMetric(
+                    "batch",
+                    TraceMetricSelector.GetInfo(request.Metric),
+                    request.Measure == Measure.Inclusive ? "inclusive" : "self",
+                    request.Root));
 
             if (request.Format == OutputFormat.Json)
             {
@@ -78,4 +83,5 @@ internal static class BatchExecutor
         TraceMetric.Activity => "activity",
         _ => throw new ArgumentOutOfRangeException(nameof(metric), metric, null)
     };
+
 }

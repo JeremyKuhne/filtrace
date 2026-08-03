@@ -66,7 +66,10 @@ internal static class DiskIoExecutor
             warnings.Add(warning);
         }
 
-        AnalysisResult<DiskIoResult> envelope = new(report, warnings);
+        AnalysisResult<DiskIoResult> envelope = new(
+            report,
+            warnings,
+            context: new AnalysisContext("diskio"));
 
         if (request.Format == OutputFormat.Json)
         {

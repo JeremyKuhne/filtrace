@@ -63,7 +63,16 @@ internal static class ProcessTree
         }
 
         List<string> warnings = [];
-        HashSet<int> keep = ResolvePids(traceLog, new ProcessScope(selector, request.IncludeChildren), warnings);
+        HashSet<int> roots = ResolveRoots(traceLog, selector, warnings);
+        HashSet<int> keep = request.IncludeChildren
+            ? IncludeDescendants(traceLog, roots)
+            : roots;
+        AppliedProcessScope appliedScope = CreateAppliedScope(
+            automatic,
+            selector,
+            roots,
+            keep,
+            request.IncludeChildren);
 
         // An explicit selector always reports (the caller asked to scope, even if it
         // happens to match every process). The automatic scope only reports when it
@@ -71,8 +80,13 @@ internal static class ProcessTree
         // fixture, say) is not "scoped" in any meaningful sense, so it stays silent
         // rather than emit a notice, and its advisories with it, for a no-op.
         return !automatic || NarrowsTheCapture(traceLog, keep)
-            ? new ScopeResolution(keep, Label(selector), Phrase(selector, request.IncludeChildren), warnings)
-            : new ScopeResolution(keep, null, null, []);
+            ? new ScopeResolution(
+                keep,
+                Label(selector),
+                Phrase(selector, request.IncludeChildren),
+                warnings,
+                appliedScope)
+            : new ScopeResolution(keep, null, null, [], appliedScope);
     }
 
     // A short identity for the scope, for structured output and terse rendering.
@@ -227,8 +241,17 @@ internal static class ProcessTree
     /// </exception>
     public static HashSet<int> ResolvePids(TraceLog traceLog, ProcessScope scope, List<string>? warnings = null)
     {
+        HashSet<int> roots = ResolveRoots(traceLog, scope.Selector, warnings);
+        return scope.IncludeChildren ? IncludeDescendants(traceLog, roots) : roots;
+    }
+
+    private static HashSet<int> ResolveRoots(
+        TraceLog traceLog,
+        ProcessSelector selector,
+        List<string>? warnings)
+    {
         HashSet<int> roots = [];
-        switch (scope.Selector)
+        switch (selector)
         {
             case ProcessIdSelector idSelector:
                 ResolveIdRoots(traceLog, idSelector, roots, warnings);
@@ -238,11 +261,11 @@ internal static class ProcessTree
                 break;
         }
 
-        if (!scope.IncludeChildren)
-        {
-            return roots;
-        }
+        return roots;
+    }
 
+    private static HashSet<int> IncludeDescendants(TraceLog traceLog, HashSet<int> roots)
+    {
         HashSet<int> keep = [.. roots];
         foreach (TraceProcess process in traceLog.Processes)
         {
@@ -264,6 +287,33 @@ internal static class ProcessTree
         }
 
         return keep;
+    }
+
+    private static AppliedProcessScope CreateAppliedScope(
+        bool automatic,
+        ProcessSelector selector,
+        HashSet<int> roots,
+        HashSet<int> included,
+        bool includeChildren)
+    {
+        string mode = automatic
+            ? "automatic"
+            : selector is ProcessIdSelector ? "ids" : "name";
+        string? process = selector is ProcessNameSelector nameSelector
+            ? nameSelector.NameSubstring
+            : null;
+        IReadOnlyList<int> requestedIds = selector is ProcessIdSelector idSelector
+            ? idSelector.ProcessIds
+            : [];
+        int[] rootIds = [.. roots.Order()];
+        int[] descendantIds = [.. included.Except(roots).Order()];
+        return new AppliedProcessScope(
+            mode,
+            process,
+            requestedIds,
+            rootIds,
+            descendantIds,
+            includeChildren);
     }
 
     private static void ResolveNameRoots(

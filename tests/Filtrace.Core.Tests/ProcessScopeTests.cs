@@ -282,6 +282,44 @@ public sealed class ProcessScopeTests
             && w.Contains("(no children)", StringComparison.Ordinal));
     }
 
+    [TestMethod]
+    public void Read_ScopedToExactIds_CarriesResolvedRootsInTraceInfo()
+    {
+        int[] jobIds = [.. ProcessIdsOf(Load(ScopeRequest.ForProcess("HotLoopBench-Job", includeChildren: false)))];
+
+        LoadedTrace loaded = new TraceLoader().Load(
+            EtwFixture,
+            scope: ScopeRequest.ForProcessIds(jobIds, includeChildren: false));
+
+        loaded.Info.AppliedProcessScope.Should().NotBeNull();
+        AppliedProcessScope scope = loaded.Info.AppliedProcessScope!;
+        scope.Mode.Should().Be("ids");
+        scope.RequestedProcessIds.Should().Equal(jobIds.Order());
+        scope.RootProcessIds.Should().Equal(jobIds.Order());
+        scope.DescendantProcessIds.Should().BeEmpty();
+        scope.IncludeChildren.Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void Read_AutomaticScope_CarriesTheResolvedProcessInTraceInfo()
+    {
+        LoadedTrace loaded = new TraceLoader().Load(EtwFixture);
+
+        loaded.Info.AppliedProcessScope.Should().NotBeNull();
+        AppliedProcessScope scope = loaded.Info.AppliedProcessScope!;
+        scope.Mode.Should().Be("automatic");
+        scope.Process.Should().NotBeNullOrEmpty();
+        scope.RootProcessIds.Should().NotBeEmpty();
+    }
+
+    [TestMethod]
+    public void Read_AllProcesses_CarriesTheOptOutInTraceInfo()
+    {
+        LoadedTrace loaded = new TraceLoader().Load(EtwFixture, scope: ScopeRequest.AllProcesses);
+
+        loaded.Info.AppliedProcessScope.Should().BeSameAs(AppliedProcessScope.AllProcesses);
+    }
+
     private static IEnumerable<int> ProcessIdsOf(IReadOnlyList<SampleStack> samples) =>
         samples.Select(static s => s.Process).Distinct(StringComparer.Ordinal).Select(ProcessIdOf);
 

@@ -29,4 +29,16 @@ internal sealed record TraceReadResult(
     ///  symbol directory was supplied or the trace had no unresolved native frames.
     /// </summary>
     public NativeSymbolInfo? NativeSymbols { get; init; }
+
+    /// <summary>
+    ///  The process scope applied while reading, or <see langword="null"/> for a
+    ///  format whose reader has no process-scope axis.
+    /// </summary>
+    public AppliedProcessScope? AppliedProcessScope { get; init; }
+
+    /// <summary>The activity scope actually applied, or <see langword="null"/>.</summary>
+    public string? AppliedActivityName { get; init; }
+
+    /// <summary>The time window actually applied, or <see langword="null"/>.</summary>
+    public TimeWindow? AppliedTimeWindow { get; init; }
 }

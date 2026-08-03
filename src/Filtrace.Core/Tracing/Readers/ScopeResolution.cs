@@ -14,18 +14,21 @@ internal sealed class ScopeResolution
     /// <summary>
     ///  The resolution for a read that keeps every process.
     /// </summary>
-    public static ScopeResolution Unscoped { get; } = new(null, null, null, []);
+    public static ScopeResolution Unscoped { get; } =
+        new(null, null, null, [], AppliedProcessScope.AllProcesses);
 
     public ScopeResolution(
         HashSet<int>? processIds,
         string? label,
         string? phrase,
-        IReadOnlyList<string> warnings)
+        IReadOnlyList<string> warnings,
+        AppliedProcessScope appliedScope)
     {
         ProcessIds = processIds;
         Label = label;
         Phrase = phrase;
         Warnings = warnings;
+        AppliedScope = appliedScope;
     }
 
     /// <summary>
@@ -51,4 +54,7 @@ internal sealed class ScopeResolution
     ///  than one unrelated root. Never <see langword="null"/>.
     /// </summary>
     public IReadOnlyList<string> Warnings { get; }
+
+    /// <summary>The machine-readable process scope the read applied.</summary>
+    public AppliedProcessScope AppliedScope { get; }
 }

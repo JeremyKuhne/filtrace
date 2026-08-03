@@ -260,7 +260,7 @@ discriminate, not to be exhaustive.
   small MIT component, or a clean port in either direction, avoids two drifting
   implementations.
 - **A common JSON envelope.** If two analyzers converged on a minimal
-  `{ schemaVersion, warnings, hints, result }` shape, an agent could route by
+  `{ schemaVersion, warnings, hints, context, result }` shape, an agent could route by
   capability rather than by output format.
 - **Complementary routing rather than duplication.** A DATAS or snapshot question
   to pvanalyze; a wall-clock, multi-process, source-line, capture, or diff question

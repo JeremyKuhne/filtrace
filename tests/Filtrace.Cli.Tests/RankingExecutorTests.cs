@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json;
 using Filtrace.Tracing;
 
 namespace Filtrace.Cli;
@@ -59,6 +60,25 @@ public sealed class RankingExecutorTests
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("CPU inclusive-time");
+    }
+
+    [TestMethod]
+    public void Run_JsonFormat_CarriesEffectiveQueryContext()
+    {
+        (int exit, string output, _) = Run(Request(
+            Speedscope,
+            measure: Measure.Inclusive,
+            root: "MyApp.Work",
+            format: OutputFormat.Json));
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement context = document.RootElement.GetProperty("context");
+        context.GetProperty("operation").GetString().Should().Be("rank");
+        context.GetProperty("metric").GetString().Should().Be("cpu");
+        context.GetProperty("measure").GetString().Should().Be("inclusive");
+        context.GetProperty("unit").GetString().Should().Be("ms");
+        context.GetProperty("scope").GetProperty("root").GetString().Should().Be("MyApp.Work");
     }
 
     [TestMethod]

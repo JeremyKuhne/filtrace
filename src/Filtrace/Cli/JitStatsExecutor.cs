@@ -58,7 +58,10 @@ internal static class JitStatsExecutor
             warnings.Add(warning);
         }
 
-        AnalysisResult<JitStatsResult> envelope = new(report, warnings);
+        AnalysisResult<JitStatsResult> envelope = new(
+            report,
+            warnings,
+            context: new AnalysisContext("jit"));
 
         if (request.Format == OutputFormat.Json)
         {

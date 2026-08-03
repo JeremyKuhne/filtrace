@@ -24,7 +24,13 @@ public sealed class OutputContractTests
         return new AnalysisResult<RankingResult>(
             payload,
             warnings: ["symbol resolution 50% (< 80%); pass --symbols <dir>"],
-            hints: SteeringHints.ForRanking(payload));
+            hints: SteeringHints.ForRanking(payload),
+            context: new AnalysisContext("rank")
+            {
+                Metric = "cpu",
+                Measure = "self",
+                Unit = "ms"
+            });
     }
 
     [TestMethod]
@@ -55,7 +61,142 @@ public sealed class OutputContractTests
         root.GetProperty("schemaVersion").GetInt32().Should().Be(AnalysisResult<RankingResult>.CurrentSchemaVersion);
         root.GetProperty("warnings").EnumerateArray().Should().ContainSingle();
         root.GetProperty("hints").EnumerateArray().Should().ContainSingle();
+        root.GetProperty("context").GetProperty("operation").GetString().Should().Be("rank");
+        root.GetProperty("context").GetProperty("metric").GetString().Should().Be("cpu");
         root.GetProperty("result").GetProperty("rows").EnumerateArray().Should().HaveCount(2);
+    }
+
+    [TestMethod]
+    public void Serialize_Context_OmitsFieldsThatDoNotApply()
+    {
+        AnalysisResult<RankingResult> envelope = new(
+            new RankingResult(0.0, string.Empty, []),
+            context: new AnalysisContext("rank") { Metric = "cpu", Unit = "ms" });
+
+        using JsonDocument document = JsonDocument.Parse(OutputJson.Serialize(envelope));
+        JsonElement context = document.RootElement.GetProperty("context");
+
+        context.TryGetProperty("measure", out _).Should().BeFalse();
+        context.TryGetProperty("scope", out _).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void Serialize_Context_CarriesResolvedProcessScope()
+    {
+        AnalysisResult<RankingResult> envelope = new(
+            new RankingResult(0.0, "Workload", []),
+            context: new AnalysisContext("rank")
+            {
+                Metric = "cpu",
+                Measure = "self",
+                Unit = "ms",
+                Scope = new AnalysisScopeContext
+                {
+                    Root = "Workload",
+                    ProcessMode = "ids",
+                    RequestedProcessIds = [9144],
+                    RootProcessIds = [9144],
+                    DescendantProcessIds = [40356],
+                    IncludeChildren = true
+                }
+            });
+
+        using JsonDocument document = JsonDocument.Parse(OutputJson.Serialize(envelope));
+        JsonElement scope = document.RootElement.GetProperty("context").GetProperty("scope");
+
+        scope.GetProperty("root").GetString().Should().Be("Workload");
+        scope.GetProperty("processMode").GetString().Should().Be("ids");
+        scope.GetProperty("rootProcessIds")[0].GetInt32().Should().Be(9144);
+        scope.GetProperty("descendantProcessIds")[0].GetInt32().Should().Be(40356);
+        scope.GetProperty("includeChildren").GetBoolean().Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void ForTrace_ManyProcessIds_BoundsListsAndKeepsCounts()
+    {
+        int[] processIds = [.. Enumerable.Range(1, 100)];
+        TraceInfo info = new(
+            "trace.etl",
+            TraceFormat.Etl,
+            0.0,
+            0,
+            1.0,
+            [],
+            [],
+            [])
+        {
+            AppliedProcessScope = new AppliedProcessScope(
+                "ids",
+                null,
+                processIds,
+                processIds,
+                processIds,
+                true)
+        };
+        LoadedTrace trace = new(info, new StackSampleSource(MetricInfo.Cpu, []));
+
+        AnalysisScopeContext scope = AnalysisContext.ForTrace("rank", trace).Scope!;
+
+        scope.RequestedProcessIds.Should().HaveCount(AnalysisScopeContext.MaxReportedProcessIds);
+        scope.RootProcessIds.Should().HaveCount(AnalysisScopeContext.MaxReportedProcessIds);
+        scope.DescendantProcessIds.Should().HaveCount(AnalysisScopeContext.MaxReportedProcessIds);
+        scope.RequestedProcessIdCount.Should().Be(100);
+        scope.RootProcessIdCount.Should().Be(100);
+        scope.DescendantProcessIdCount.Should().Be(100);
+        scope.ProcessIdsTruncated.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void ForTrace_ExactIdsMatchedNothing_CarriesEmptyResolvedLists()
+    {
+        TraceInfo info = new(
+            "trace.etl",
+            TraceFormat.Etl,
+            0.0,
+            0,
+            1.0,
+            [],
+            [],
+            [])
+        {
+            AppliedProcessScope = new AppliedProcessScope("ids", null, [999999], [], [], true)
+        };
+        LoadedTrace trace = new(info, new StackSampleSource(MetricInfo.Cpu, []));
+
+        AnalysisScopeContext scope = AnalysisContext.ForTrace("rank", trace).Scope!;
+
+        scope.RequestedProcessIds.Should().Equal(999999);
+        scope.RootProcessIds.Should().NotBeNull().And.BeEmpty();
+        scope.DescendantProcessIds.Should().NotBeNull().And.BeEmpty();
+        scope.RootProcessIdCount.Should().Be(0);
+        scope.DescendantProcessIdCount.Should().Be(0);
+
+        AnalysisResult<RankingResult> envelope = new(
+            new RankingResult(0.0, string.Empty, []),
+            context: AnalysisContext.ForTrace("rank", trace));
+        string json = OutputJson.Serialize(envelope);
+        json.Should().Contain("\"rootProcessIds\":[]");
+        json.Should().Contain("\"descendantProcessIds\":[]");
+    }
+
+    [TestMethod]
+    public void ForTrace_AllProcessesWithoutOtherScope_OmitsScope()
+    {
+        TraceInfo info = new(
+            "trace.etl",
+            TraceFormat.Etl,
+            0.0,
+            0,
+            1.0,
+            [],
+            [],
+            [])
+        {
+            AppliedProcessScope = AppliedProcessScope.AllProcesses
+        };
+        LoadedTrace trace = new(info, new StackSampleSource(MetricInfo.Cpu, []));
+
+        AnalysisContext.ForTrace("rank", trace).Scope.Should().BeNull();
     }
 
     [TestMethod]

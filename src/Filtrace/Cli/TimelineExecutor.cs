@@ -81,7 +81,11 @@ internal static class TimelineExecutor
             warnings.Add($"Scoped to process '{result.Process}'. Pass --all-processes to include every process.");
         }
 
-        AnalysisResult<TimelineResult> envelope = new(result, warnings, SteeringHints.ForTimeline(result));
+        AnalysisResult<TimelineResult> envelope = new(
+            result,
+            warnings,
+            SteeringHints.ForTimeline(result),
+            new AnalysisContext("timeline"));
 
         if (request.Format == OutputFormat.Json)
         {

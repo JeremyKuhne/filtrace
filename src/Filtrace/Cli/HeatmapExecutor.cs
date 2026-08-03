@@ -62,7 +62,10 @@ internal static class HeatmapExecutor
             warnings.Add(recordWarning!);
         }
 
-        AnalysisResult<SourceHeatmapResult> envelope = new(heatmap, warnings);
+        AnalysisResult<SourceHeatmapResult> envelope = new(
+            heatmap,
+            warnings,
+            context: AnalysisContext.ForTrace("source", trace));
 
         if (request.Format == OutputFormat.Json)
         {

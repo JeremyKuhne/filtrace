@@ -48,7 +48,10 @@ internal static class ProcessesExecutor
         TraceInfo info = trace.Info;
         ProcessListResult processes = trace.Aggregator.Processes();
 
-        AnalysisResult<ProcessListResult> envelope = new(processes, TraceExecution.ResultWarnings(info));
+        AnalysisResult<ProcessListResult> envelope = new(
+            processes,
+            TraceExecution.ResultWarnings(info),
+            context: new AnalysisContext("processes"));
 
         if (request.Format == OutputFormat.Json)
         {

@@ -41,9 +41,10 @@ public sealed class TraceToolsTests
     // assert on the object directly rather than re-parsing JSON.
     private static void AssertEnvelope<T>(AnalysisResult<T> envelope)
     {
-        envelope.SchemaVersion.Should().Be(8);
+        envelope.SchemaVersion.Should().Be(9);
         envelope.Warnings.Should().NotBeNull();
         envelope.Hints.Should().NotBeNull();
+        envelope.Context.Should().NotBeNull();
         envelope.Result.Should().NotBeNull();
     }
 
@@ -224,6 +225,12 @@ public sealed class TraceToolsTests
         envelope.Result.ContributingRecordCount.Should().Be(4);
         envelope.Warnings.Should().NotContain(
             warning => warning.Contains("periodic CPU records", StringComparison.Ordinal));
+        envelope.Context.Should().NotBeNull();
+        envelope.Context!.Operation.Should().Be("rank");
+        envelope.Context.Metric.Should().Be("cpu");
+        envelope.Context.Measure.Should().Be("self");
+        envelope.Context.Unit.Should().Be("ms");
+        envelope.Context.Scope.Should().BeNull();
     }
 
     [TestMethod]
@@ -234,6 +241,28 @@ public sealed class TraceToolsTests
         AnalysisResult<RankingResult> envelope = TraceTools.Rank(store, FixturePath(Speedscope), measure: "inclusive");
 
         envelope.Result.Rows.Should().NotBeEmpty();
+        envelope.Context!.Measure.Should().Be("inclusive");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Rank_ExactPid_CarriesResolvedRootAndDescendantsInContext()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<RankingResult> envelope = TraceTools.Rank(
+            store,
+            FixturePath(Etw),
+            pid: [9144],
+            children: true);
+
+        envelope.Context!.Scope.Should().NotBeNull();
+        AnalysisScopeContext scope = envelope.Context.Scope!;
+        scope.ProcessMode.Should().Be("ids");
+        scope.RequestedProcessIds.Should().Equal(9144);
+        scope.RootProcessIds.Should().Equal(9144);
+        scope.DescendantProcessIds.Should().Contain(40356);
+        scope.IncludeChildren.Should().BeTrue();
     }
 
     [TestMethod]
@@ -456,6 +485,9 @@ public sealed class TraceToolsTests
         envelope.Result.Rows.Should().NotBeEmpty();
         envelope.Warnings.Should().Contain(w =>
             w.Contains("Scoped to the [0, 100000] ms window", StringComparison.Ordinal));
+        envelope.Context!.Scope.Should().NotBeNull();
+        envelope.Context.Scope!.FromMs.Should().Be(0.0);
+        envelope.Context.Scope.ToMs.Should().Be(100000.0);
     }
 
     [TestMethod]
@@ -497,6 +529,21 @@ public sealed class TraceToolsTests
         AssertEnvelope(envelope);
         envelope.Warnings.Should().Contain(w =>
             w.Contains("not applied to a speedscope", StringComparison.Ordinal));
+        envelope.Context!.Scope.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void Rank_ActivityScope_CarriesTheAppliedActivityInContext()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<RankingResult> envelope = TraceTools.Rank(
+            store,
+            FixturePath(Activity),
+            activity: "Order");
+
+        envelope.Context!.Scope.Should().NotBeNull();
+        envelope.Context.Scope!.Activity.Should().Be("Order");
     }
 
     [TestMethod]

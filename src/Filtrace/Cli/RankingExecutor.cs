@@ -64,7 +64,12 @@ internal static class RankingExecutor
         AnalysisResult<RankingResult> envelope = new(
             ranking,
             warnings,
-            SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, request.Scope));
+            SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, request.Scope),
+            AnalysisContext.ForTrace(
+                "rank",
+                trace,
+                request.Measure == Measure.Inclusive ? "inclusive" : "self",
+                request.Root));
 
         if (request.Format == OutputFormat.Json)
         {

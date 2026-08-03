@@ -31,5 +31,5 @@ public static class TraceServerInstructions
         + "shows what drives a frame; callers/lines/heatmap/tree are CPU-only. trace_lines and trace_heatmap "
         + "attribute CPU time to a source file:line and need a .nettrace "
         + "or .etl trace read with portable PDBs - pass the build-output directory as 'symbols'. Every "
-        + "result shares one envelope: a schemaVersion, a warnings list, next-step hints, and the typed result.";
+        + "result shares one envelope: schemaVersion, warnings, next-step hints, effective query context, and the typed result.";
 }

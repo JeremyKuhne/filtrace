@@ -54,7 +54,10 @@ internal static class ThreadPoolExecutor
             warnings.Add("The trace carries no thread-pool worker-thread adjustment events.");
         }
 
-        AnalysisResult<ThreadPoolResult> envelope = new(report, warnings);
+        AnalysisResult<ThreadPoolResult> envelope = new(
+            report,
+            warnings,
+            context: new AnalysisContext("threadpool"));
 
         if (request.Format == OutputFormat.Json)
         {

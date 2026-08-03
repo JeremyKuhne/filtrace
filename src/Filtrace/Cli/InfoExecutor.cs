@@ -49,7 +49,11 @@ internal static class InfoExecutor
         TraceInfo info = trace.Info;
         TraceInfoView view = TraceInfoView.FromTraceInfo(info, info.EtlxCacheState);
 
-        AnalysisResult<TraceInfoView> envelope = new(view, info.Warnings, SteeringHints.ForTraceInfo(info));
+        AnalysisResult<TraceInfoView> envelope = new(
+            view,
+            info.Warnings,
+            SteeringHints.ForTraceInfo(info),
+            new AnalysisContext("info"));
 
         if (request.Format == OutputFormat.Json)
         {

@@ -74,4 +74,20 @@ public static class TraceMetricSelector
                 return false;
         }
     }
+
+    /// <summary>Returns the metric semantics for a resolved provider view.</summary>
+    /// <param name="metric">The resolved provider metric.</param>
+    /// <returns>The metric's display name and weight unit.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="metric"/> is undefined.</exception>
+    public static MetricInfo GetInfo(TraceMetric metric) => metric switch
+    {
+        TraceMetric.Cpu => MetricInfo.Cpu,
+        TraceMetric.ThreadTime => MetricInfo.ThreadTime,
+        TraceMetric.Allocations => MetricInfo.Allocations,
+        TraceMetric.Exceptions => MetricInfo.Exceptions,
+        TraceMetric.Contention => MetricInfo.Contention,
+        TraceMetric.Wait => MetricInfo.Wait,
+        TraceMetric.Activity => MetricInfo.Activity,
+        _ => throw new ArgumentOutOfRangeException(nameof(metric), metric, "Unknown trace metric.")
+    };
 }

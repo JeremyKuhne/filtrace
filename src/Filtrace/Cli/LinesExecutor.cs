@@ -58,7 +58,10 @@ internal static class LinesExecutor
             warnings.Add(recordWarning!);
         }
 
-        AnalysisResult<LineRankingResult> envelope = new(lines, warnings);
+        AnalysisResult<LineRankingResult> envelope = new(
+            lines,
+            warnings,
+            context: AnalysisContext.ForTrace("source", trace));
 
         if (request.Format == OutputFormat.Json)
         {

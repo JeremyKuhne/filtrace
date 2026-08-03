@@ -258,7 +258,7 @@ result? If they all behave like Copilot CLI, the transport track is moot. That i
 compatibility question to answer by reading client behaviour when a second client is
 wired up, not by building variants.
 
-### VN2 - output contract v9
+### VN2 - output contract evolution
 
 **Priority:** Now. **Gate:** each shape change is graded by the tuning loop before it
 ships, not argued.
@@ -268,14 +268,18 @@ a lever - the client re-materializes structured content and already spills an
 oversized result to a file - so the only way to reduce what an investigation costs is
 to send fewer rows and to make a result route its own follow-up. That is this item.
 
-The envelope is at `schemaVersion` 8. v9 is one semantic revision covering all of
-the following.
+The envelope is at `schemaVersion` 9. Effective context is its semantic revision.
+Each remaining slice below changes the serialized shape and therefore gets its own
+schema version when it ships; do not mutate v9 in place.
 
-**Effective query context.** Every result identifies what actually ran, not only
-what was requested - resolved operation, metric, measure, unit, and scope. This is
-also where a resolved process scope (auto-scope, `--process`, or an exact `--pid`
-set with `--children`) becomes machine-readable instead of prose: the `scope` object
-carries the applied selector and the resolved root and descendant ids.
+**Effective query context - complete.** Every result identifies the surface-neutral
+operation that ran. Stack-backed results also carry normalized metric, measure, unit,
+and effective scope. Process resolution is machine-readable instead of prose:
+selector mode, requested exact ids, matched roots, included descendants, and the
+children flag. Activity, time-window, and root-frame refinements are included only
+when meaningful; null fields are omitted. Each serialized PID category is capped at
+32 entries, with its full count and `processIdsTruncated: true` when shortened, so a
+machine-wide capture cannot turn context into an unbounded response.
 
 ```json
 {
@@ -283,13 +287,23 @@ carries the applied selector and the resolved root and descendant ids.
   "metric": "cpu",
   "measure": "self",
   "unit": "ms",
-  "scope": { "process": "MyApp", "root": "WorkloadAction" }
+  "scope": {
+    "root": "WorkloadAction",
+    "processMode": "ids",
+    "requestedProcessIds": [9144],
+    "rootProcessIds": [9144],
+    "descendantProcessIds": [40356],
+    "includeChildren": true
+  }
 }
 ```
 
-Include only fields meaningful to the operation; omit nulls.
+The runtime result keeps the full typed context. The advertised MCP envelope leaves
+`context` unexpanded, like `result`: expanding its nested PID arrays in all 18 tool
+schemas measured 9,495 tokens and breached the 7,000 gate; the compact form measures
+6,597.
 
-**Structured diagnostics.** Replace `warnings: string[]` with stable records that
+**Structured diagnostics - next schema revision.** Replace `warnings: string[]` with stable records that
 keep a human message:
 
 ```json
@@ -306,7 +320,7 @@ mismatch; unknown or disabled capture status; thin method or line scope; ambiguo
 frame or root match; truncated rows or payload; ignored format-specific scope;
 case-local manifest failure.
 
-**Structured next steps.** Replace CLI-shaped hint strings with operation-neutral
+**Structured next steps - later schema revision.** Replace CLI-shaped hint strings with operation-neutral
 records that the CLI renders as a shell command and MCP maps to a tool call.
 Scope-preserving arguments belong in the record so a follow-up cannot silently lose
 process or root context.
@@ -319,7 +333,7 @@ process or root context.
 }
 ```
 
-**Discriminated results.** Add `kind` where one result type represents unrelated
+**Discriminated results - later schema revision.** Add `kind` where one result type represents unrelated
 shapes - most importantly diff (`trace` versus `manifest`) - and stop serializing
 empty `cases` on a direct diff or empty direct totals on a manifest diff. The same
 rule applies to any consolidated source or report result.
@@ -914,8 +928,7 @@ schema breakdown, the comprehension tasks, and a repeatable multi-model baseline
 spent that machinery to answer the transport question and retain variant A, because
 the client re-materializes structured content and already bounds a large result.
 
-That leaves the schema-v9 result shape. The row-cardinality slice is already resolved:
+That leaves the later output-contract revisions. The row-cardinality slice is already resolved:
 shrinking defaults was rejected, while `top: 0` gives report tools an aggregate-only
-level on the existing axis. Next is effective query context - operation, metric,
-measure, unit, and the now-exact resolved process scope - followed by structured
-diagnostics and next steps.
+level on the existing axis, and effective query context is complete. Next is
+structured diagnostics, followed by structured next steps and discriminated results.

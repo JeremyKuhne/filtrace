@@ -6,7 +6,8 @@ namespace Filtrace.Output;
 
 /// <summary>
 ///  The stable envelope every analysis service returns its payload through: a
-///  schema version, any warnings and steering hints, and the typed result.
+///  schema version, warnings and steering hints, effective query context, and the
+///  typed result.
 /// </summary>
 /// <remarks>
 ///  <para>
@@ -60,8 +61,12 @@ public sealed class AnalysisResult<T>
     ///   Version 8 added normalized and manifest-paired ranking diffs plus compact
     ///   manifest batch rankings.
     ///  </para>
+    ///  <para>
+    ///   Version 9 added the effective query context: the operation, metric semantics,
+    ///   and machine-readable frame/process/activity/time scope that actually ran.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 8;
+    public const int CurrentSchemaVersion = 9;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.
@@ -69,11 +74,17 @@ public sealed class AnalysisResult<T>
     /// <param name="result">The typed payload.</param>
     /// <param name="warnings">Quality-signal warnings, or <see langword="null"/> for none.</param>
     /// <param name="hints">Next-step steering hints, or <see langword="null"/> for none.</param>
-    public AnalysisResult(T result, IReadOnlyList<string>? warnings = null, IReadOnlyList<string>? hints = null)
+    /// <param name="context">The effective query context, or <see langword="null"/> for legacy callers.</param>
+    public AnalysisResult(
+        T result,
+        IReadOnlyList<string>? warnings = null,
+        IReadOnlyList<string>? hints = null,
+        AnalysisContext? context = null)
     {
         Result = result;
         Warnings = warnings ?? [];
         Hints = hints ?? [];
+        Context = context;
     }
 
     /// <summary>
@@ -91,6 +102,14 @@ public sealed class AnalysisResult<T>
     ///  Next-step steering hints for an agent consumer. Empty when there are none.
     /// </summary>
     public IReadOnlyList<string> Hints { get; }
+
+    /// <summary>
+    ///  The operation, metric semantics, and effective query scope, or
+    ///  <see langword="null"/> for a legacy caller that did not supply it.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public AnalysisContext? Context { get; }
 
     /// <summary>
     ///  The typed payload the service produced.
