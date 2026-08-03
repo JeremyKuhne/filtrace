@@ -35,6 +35,8 @@ namespace Filtrace.Output;
     GenerationMode = JsonSourceGenerationMode.Metadata,
     WriteIndented = false)]
 [JsonSerializable(typeof(AnalysisEnvelopeSchema))]
+[JsonSerializable(typeof(AnalysisContext))]
+[JsonSerializable(typeof(AnalysisScopeContext))]
 [JsonSerializable(typeof(AnalysisResult<TraceInfoView>))]
 [JsonSerializable(typeof(AnalysisResult<EtwCollectResult>))]
 [JsonSerializable(typeof(AnalysisResult<RankingResult>))]

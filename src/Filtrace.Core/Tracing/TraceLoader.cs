@@ -141,7 +141,10 @@ public sealed class TraceLoader
             result.AnalysisEventCounts ?? new Dictionary<string, int>(),
             result.EtlxCacheState,
             result.SourceResolution,
-            result.NativeSymbols);
+            result.NativeSymbols,
+            result.AppliedProcessScope,
+            result.AppliedActivityName,
+            result.AppliedTimeWindow);
 
         StackSampleSource source = new(MetricInfo.Cpu, result.Samples, result.RecordSemantics);
         return new LoadedTrace(info, source);
@@ -174,7 +177,8 @@ public sealed class TraceLoader
         // --strict gate are CPU-reader concerns that do not apply to this family.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("alloc", recordCount));
+            warnings, AnalysisRecordCounts("alloc", recordCount),
+            appliedTimeWindow: scope?.Window);
         return new LoadedTrace(info, source);
     }
 
@@ -204,7 +208,8 @@ public sealed class TraceLoader
         // does not apply.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("exceptions", recordCount));
+            warnings, AnalysisRecordCounts("exceptions", recordCount),
+            appliedTimeWindow: scope?.Window);
         return new LoadedTrace(info, source);
     }
 
@@ -237,7 +242,8 @@ public sealed class TraceLoader
         // --strict gate does not apply.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("contention", recordCount));
+            warnings, AnalysisRecordCounts("contention", recordCount),
+            appliedTimeWindow: scope?.Window);
         return new LoadedTrace(info, source);
     }
 
@@ -269,7 +275,8 @@ public sealed class TraceLoader
         // --strict gate does not apply.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("wait", recordCount));
+            warnings, AnalysisRecordCounts("wait", recordCount),
+            appliedTimeWindow: scope?.Window);
         return new LoadedTrace(info, source);
     }
 
@@ -301,7 +308,8 @@ public sealed class TraceLoader
         // complete and the --strict gate does not apply.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("activity", recordCount));
+            warnings, AnalysisRecordCounts("activity", recordCount),
+            appliedTimeWindow: scope?.Window);
         return new LoadedTrace(info, source);
     }
 
@@ -375,7 +383,9 @@ public sealed class TraceLoader
         // apply. The total weight BuildInfo sums is elapsed milliseconds.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.Etl, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("threadtime", recordCount));
+            warnings, AnalysisRecordCounts("threadtime", recordCount),
+            appliedProcessScope: resolved.AppliedScope,
+            appliedTimeWindow: scope?.Window);
         return new LoadedTrace(info, source);
     }
 
@@ -418,7 +428,10 @@ public sealed class TraceLoader
         IReadOnlyDictionary<string, int> analysisEventCounts,
         EtlxCacheState? etlxCacheState = null,
         SourceResolutionInfo? sourceResolution = null,
-        NativeSymbolInfo? nativeSymbols = null)
+        NativeSymbolInfo? nativeSymbols = null,
+        AppliedProcessScope? appliedProcessScope = null,
+        string? appliedActivityName = null,
+        TimeWindow? appliedTimeWindow = null)
     {
         double totalWeight = 0.0;
         Dictionary<string, int> threadCounts = new(StringComparer.Ordinal);
@@ -459,7 +472,10 @@ public sealed class TraceLoader
             etlxCacheState)
         {
             SourceResolution = sourceResolution,
-            NativeSymbols = nativeSymbols
+            NativeSymbols = nativeSymbols,
+            AppliedProcessScope = appliedProcessScope,
+            AppliedActivityName = appliedActivityName,
+            AppliedTimeWindow = appliedTimeWindow
         };
     }
 

@@ -77,7 +77,11 @@ internal static class CollectExecutor
 
             if (format == OutputFormat.Json)
             {
-                output.WriteLine(OutputJson.Serialize(new AnalysisResult<EtwCollectResult>(result, warnings, [])));
+                output.WriteLine(OutputJson.Serialize(new AnalysisResult<EtwCollectResult>(
+                    result,
+                    warnings,
+                    [],
+                    new AnalysisContext("collect"))));
                 return ExitCodes.Success;
             }
 

@@ -56,7 +56,10 @@ internal static class GcStatsExecutor
             warnings.Add(warning);
         }
 
-        AnalysisResult<GcStatsResult> envelope = new(report, warnings);
+        AnalysisResult<GcStatsResult> envelope = new(
+            report,
+            warnings,
+            context: new AnalysisContext("gc"));
 
         if (request.Format == OutputFormat.Json)
         {

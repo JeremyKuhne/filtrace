@@ -33,8 +33,8 @@ namespace Filtrace.Mcp;
 ///   shape the CLI emits - rather than a pre-serialized string, so the server can
 ///   advertise an <c>outputSchema</c> per tool and return both structured content
 ///   (the parsed object) and a text mirror. Every tool shares one shape: a schema
-///   version, warnings, hints, and the typed result. The host registers the tools
-///   with <see cref="OutputJson.SerializerOptions"/>, so that envelope is serialized
+///   version, warnings, hints, effective query context, and the typed result. The host
+///   registers the tools with <see cref="OutputJson.SerializerOptions"/>, so that envelope is serialized
 ///   with the same deterministic naming, encoding, and double-rounding the CLI uses.
 ///   The single injected <see cref="TraceStore"/> caches parsed traces, so repeated
 ///   queries against the same path reuse one parse.
@@ -91,7 +91,11 @@ public sealed class TraceTools
             cancellationToken: cancellationToken).ConfigureAwait(false);
         TraceInfo info = load.Trace.Info;
         TraceInfoView view = TraceInfoView.FromTraceInfo(info, load.EtlxCacheState);
-        return new AnalysisResult<TraceInfoView>(view, info.Warnings, SteeringHints.ForTraceInfo(info));
+        return new AnalysisResult<TraceInfoView>(
+            view,
+            info.Warnings,
+            SteeringHints.ForTraceInfo(info),
+            new AnalysisContext("info"));
     }
 
     /// <inheritdoc cref="RankAsync"/>
@@ -243,7 +247,12 @@ public sealed class TraceTools
         return new AnalysisResult<RankingResult>(
             ranking,
             warnings,
-            SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, scope));
+            SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, scope),
+            AnalysisContext.ForTrace(
+                "rank",
+                trace,
+                inclusive ? "inclusive" : "self",
+                resolvedRoot));
     }
 
     /// <inheritdoc cref="LinesAsync"/>
@@ -322,7 +331,8 @@ public sealed class TraceTools
         return new AnalysisResult<CallersResult>(
             callers,
             warnings,
-            SteeringHints.ForCallers(callers, resolvedRoot, scope));
+            SteeringHints.ForCallers(callers, resolvedRoot, scope),
+            AnalysisContext.ForTrace("callers", trace, root: resolvedRoot));
     }
 
     /// <summary>
@@ -381,7 +391,10 @@ public sealed class TraceTools
 
         AddLineRecordWarning(warnings, trace.Source, lines.AttributedRecordCount);
 
-        return new AnalysisResult<LineRankingResult>(lines, warnings);
+        return new AnalysisResult<LineRankingResult>(
+            lines,
+            warnings,
+            context: AnalysisContext.ForTrace("source", trace));
     }
 
     /// <summary>
@@ -432,7 +445,10 @@ public sealed class TraceTools
 
         AddLineRecordWarning(warnings, trace.Source, heatmap.AttributedRecordCount);
 
-        return new AnalysisResult<SourceHeatmapResult>(heatmap, warnings);
+        return new AnalysisResult<SourceHeatmapResult>(
+            heatmap,
+            warnings,
+            context: AnalysisContext.ForTrace("source", trace));
     }
 
     /// <summary>
@@ -509,7 +525,12 @@ public sealed class TraceTools
                 return new AnalysisResult<RankingDiffResult>(
                     analysis.Result,
                     analysis.Warnings,
-                    SteeringHints.ForDiff(analysis.Result));
+                    SteeringHints.ForDiff(analysis.Result),
+                    AnalysisContext.ForMetric(
+                        "diff",
+                        MetricInfo.Cpu,
+                        inclusive ? "inclusive" : "self",
+                        resolvedRoot));
             }
             catch (Exception exception) when (
                 exception is IOException
@@ -540,7 +561,15 @@ public sealed class TraceTools
         AddFrameMatchWarnings(warnings, before.Source, resolvedRoot, "baseline root", FrameMatchSelection.Outermost);
         AddFrameMatchWarnings(warnings, after.Source, resolvedRoot, "current root", FrameMatchSelection.Outermost);
 
-        return new AnalysisResult<RankingDiffResult>(diff, warnings, SteeringHints.ForDiff(diff));
+        return new AnalysisResult<RankingDiffResult>(
+            diff,
+            warnings,
+            SteeringHints.ForDiff(diff),
+            AnalysisContext.ForMetric(
+                "diff",
+                MetricInfo.Cpu,
+                inclusive ? "inclusive" : "self",
+                resolvedRoot));
     }
 
     /// <summary>Runs one compact ranking query across every case in a capture manifest.</summary>
@@ -594,7 +623,12 @@ public sealed class TraceTools
                     captureManifest.ResolveCaseScope(captureCase, scope)));
             return new AnalysisResult<BatchRankingResult>(
                 result,
-                hints: SteeringHints.ForBatch(result));
+                hints: SteeringHints.ForBatch(result),
+                context: AnalysisContext.ForMetric(
+                    "batch",
+                    MetricInfoFor(resolvedMetric),
+                    inclusive ? "inclusive" : "self",
+                    resolvedRoot));
         }
         catch (Exception exception) when (
             exception is IOException
@@ -633,7 +667,10 @@ public sealed class TraceTools
             warnings.Add(warning);
         }
 
-        return new AnalysisResult<GcStatsResult>(report, warnings);
+        return new AnalysisResult<GcStatsResult>(
+            report,
+            warnings,
+            context: new AnalysisContext("gc"));
     }
 
     /// <summary>
@@ -689,7 +726,11 @@ public sealed class TraceTools
             warnings.Add($"Scoped to process '{result.Process}'.");
         }
 
-        return new AnalysisResult<TimelineResult>(result, warnings, SteeringHints.ForTimeline(result));
+        return new AnalysisResult<TimelineResult>(
+            result,
+            warnings,
+            SteeringHints.ForTimeline(result),
+            new AnalysisContext("timeline"));
     }
 
     /// <summary>
@@ -714,7 +755,10 @@ public sealed class TraceTools
             warnings.Add("The trace carries no thread-pool worker-thread adjustment events.");
         }
 
-        return new AnalysisResult<ThreadPoolResult>(report, warnings);
+        return new AnalysisResult<ThreadPoolResult>(
+            report,
+            warnings,
+            context: new AnalysisContext("threadpool"));
     }
 
     /// <summary>
@@ -745,7 +789,10 @@ public sealed class TraceTools
             warnings.Add(warning);
         }
 
-        return new AnalysisResult<DiskIoResult>(report, warnings);
+        return new AnalysisResult<DiskIoResult>(
+            report,
+            warnings,
+            context: new AnalysisContext("diskio"));
     }
 
     /// <summary>
@@ -788,7 +835,11 @@ public sealed class TraceTools
             warnings.Add(warning);
         }
 
-        return new AnalysisResult<LifecycleResult>(report, warnings, SteeringHints.ForLifecycle(full));
+        return new AnalysisResult<LifecycleResult>(
+            report,
+            warnings,
+            SteeringHints.ForLifecycle(full),
+            new AnalysisContext("lifecycle"));
     }
 
     /// <summary>
@@ -888,7 +939,11 @@ public sealed class TraceTools
             hints.Add($"{result.TotalMatched - shownThrough} more match; page with skip {shownThrough}.");
         }
 
-        return new AnalysisResult<EventQueryResult>(result, warnings, hints);
+        return new AnalysisResult<EventQueryResult>(
+            result,
+            warnings,
+            hints,
+            new AnalysisContext("events"));
     }
 
     /// <summary>
@@ -963,7 +1018,11 @@ public sealed class TraceTools
             benchmark ? "benchmark root" : "root",
             FrameMatchSelection.Outermost);
 
-        return new AnalysisResult<ExportResult>(result, warnings, [hint]);
+        return new AnalysisResult<ExportResult>(
+            result,
+            warnings,
+            [hint],
+            new AnalysisContext("export") { Metric = "cpu", Unit = "ms" });
     }
 
     /// <summary>
@@ -987,7 +1046,10 @@ public sealed class TraceTools
         TraceInfo info = trace.Info;
         ProcessListResult processes = trace.Aggregator.Processes();
 
-        return new AnalysisResult<ProcessListResult>(processes, info.Warnings);
+        return new AnalysisResult<ProcessListResult>(
+            processes,
+            info.Warnings,
+            context: new AnalysisContext("processes"));
     }
 
     /// <summary>
@@ -1038,7 +1100,8 @@ public sealed class TraceTools
 
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
         string resolvedRoot = ResolveRoot(root, benchmark);
-        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: ResolveScope(process, pid, children));
+        ScopeRequest? scope = ResolveScope(process, pid, children);
+        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), scope: scope);
         TraceInfo info = trace.Info;
         CallTreeResult tree = trace.Aggregator.CallTree(resolvedRoot, foldPatterns, maxDepth, minPercent);
         List<string> warnings = [.. info.Warnings];
@@ -1049,7 +1112,10 @@ public sealed class TraceTools
             benchmark ? "benchmark root" : "root",
             FrameMatchSelection.Outermost);
 
-        return new AnalysisResult<CallTreeResult>(tree, warnings);
+        return new AnalysisResult<CallTreeResult>(
+            tree,
+            warnings,
+            context: AnalysisContext.ForTrace("tree", trace, root: resolvedRoot));
     }
 
     /// <summary>
@@ -1086,7 +1152,14 @@ public sealed class TraceTools
         bool benchmark = false)
     {
         string resolvedRoot = ResolveRoot(root, benchmark);
-        LoadedTrace trace = Load(store, path, NullIfEmpty(symbols), TraceMetric.Cpu, ResolveScope(process, pid, children), ResolveSymbols(nativeSymbols));
+        ScopeRequest? scope = ResolveScope(process, pid, children);
+        LoadedTrace trace = Load(
+            store,
+            path,
+            NullIfEmpty(symbols),
+            TraceMetric.Cpu,
+            scope,
+            ResolveSymbols(nativeSymbols));
         TraceInfo info = trace.Info;
         ClassifyResult classification = trace.Aggregator.Classify(resolvedRoot);
         List<string> warnings = [.. info.Warnings];
@@ -1097,7 +1170,10 @@ public sealed class TraceTools
             benchmark ? "benchmark root" : "root",
             FrameMatchSelection.Outermost);
 
-        return new AnalysisResult<ClassifyResult>(classification, warnings);
+        return new AnalysisResult<ClassifyResult>(
+            classification,
+            warnings,
+            context: AnalysisContext.ForTrace("classify", trace, root: resolvedRoot));
     }
 
     /// <summary>
@@ -1128,7 +1204,10 @@ public sealed class TraceTools
             warnings.Add(warning);
         }
 
-        return new AnalysisResult<JitStatsResult>(report, warnings);
+        return new AnalysisResult<JitStatsResult>(
+            report,
+            warnings,
+            context: new AnalysisContext("jit"));
     }
 
     /// <summary>
@@ -1203,6 +1282,18 @@ public sealed class TraceTools
             ? resolved
             : throw new McpException(
                 $"Unknown metric '{metric}'. Valid metrics: {string.Join(", ", TraceMetricSelector.Selectors)}.");
+
+    private static MetricInfo MetricInfoFor(TraceMetric metric) => metric switch
+    {
+        TraceMetric.Cpu => MetricInfo.Cpu,
+        TraceMetric.ThreadTime => MetricInfo.ThreadTime,
+        TraceMetric.Allocations => MetricInfo.Allocations,
+        TraceMetric.Exceptions => MetricInfo.Exceptions,
+        TraceMetric.Contention => MetricInfo.Contention,
+        TraceMetric.Wait => MetricInfo.Wait,
+        TraceMetric.Activity => MetricInfo.Activity,
+        _ => throw new ArgumentOutOfRangeException(nameof(metric), metric, "Unknown trace metric.")
+    };
 
     private static bool ResolveMeasure(string measure)
     {

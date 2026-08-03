@@ -77,7 +77,11 @@ internal static class EventsExecutor
             warnings.Add(budgetWarning);
         }
 
-        AnalysisResult<EventQueryResult> envelope = new(result, warnings, hints);
+        AnalysisResult<EventQueryResult> envelope = new(
+            result,
+            warnings,
+            hints,
+            new AnalysisContext("events"));
 
         if (request.Format == OutputFormat.Json)
         {

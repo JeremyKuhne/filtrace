@@ -57,7 +57,11 @@ internal static class LifecycleExecutor
             warnings.Add(warning);
         }
 
-        AnalysisResult<LifecycleResult> envelope = new(report, warnings, SteeringHints.ForLifecycle(full));
+        AnalysisResult<LifecycleResult> envelope = new(
+            report,
+            warnings,
+            SteeringHints.ForLifecycle(full),
+            new AnalysisContext("lifecycle"));
 
         if (request.Format == OutputFormat.Json)
         {

@@ -133,9 +133,7 @@ internal abstract class TraceLogReader : ITraceReader
             return ReadCore(
                 traceLog,
                 symbolReader,
-                resolved.ProcessIds,
-                resolved.Phrase,
-                resolved.Warnings,
+                resolved,
                 activitySamples,
                 activityName,
                 scope?.Window,
@@ -248,9 +246,7 @@ internal abstract class TraceLogReader : ITraceReader
     private static TraceReadResult ReadCore(
         TraceLog traceLog,
         SymbolReader symbolReader,
-        HashSet<int>? scopePids,
-        string? appliedScope,
-        IReadOnlyList<string> scopeWarnings,
+        ScopeResolution resolvedScope,
         HashSet<EventIndex>? activitySamples,
         string? activityName,
         TimeWindow? window,
@@ -258,6 +254,9 @@ internal abstract class TraceLogReader : ITraceReader
         SourceResolutionTracker sourceResolution,
         NativeSymbolInfo? nativeSymbols)
     {
+        HashSet<int>? scopePids = resolvedScope.ProcessIds;
+        string? appliedScope = resolvedScope.Phrase;
+        IReadOnlyList<string> scopeWarnings = resolvedScope.Warnings;
         AnalysisEventCounter analysisEvents = new();
         Dictionary<int, string> locationCache = [];
 
@@ -453,7 +452,10 @@ internal abstract class TraceLogReader : ITraceReader
             analysisEvents.Counts,
             sourceResolution.CreateInfo())
         {
-            NativeSymbols = nativeSymbols
+            NativeSymbols = nativeSymbols,
+            AppliedProcessScope = resolvedScope.AppliedScope,
+            AppliedActivityName = activityName,
+            AppliedTimeWindow = window
         };
     }
 

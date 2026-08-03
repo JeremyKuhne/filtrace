@@ -54,7 +54,10 @@ internal static class TreeExecutor
             request.MaxDepth,
             request.MinPercent);
 
-        AnalysisResult<CallTreeResult> envelope = new(tree, TraceExecution.ResultWarnings(info));
+        AnalysisResult<CallTreeResult> envelope = new(
+            tree,
+            TraceExecution.ResultWarnings(info),
+            context: AnalysisContext.ForTrace("tree", trace, root: request.Root));
 
         if (request.Format == OutputFormat.Json)
         {

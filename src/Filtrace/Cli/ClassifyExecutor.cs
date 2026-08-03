@@ -40,7 +40,10 @@ internal static class ClassifyExecutor
         TraceInfo info = trace.Info;
         ClassifyResult classification = trace.Aggregator.Classify(request.Root);
 
-        AnalysisResult<ClassifyResult> envelope = new(classification, TraceExecution.ResultWarnings(info));
+        AnalysisResult<ClassifyResult> envelope = new(
+            classification,
+            TraceExecution.ResultWarnings(info),
+            context: AnalysisContext.ForTrace("classify", trace, root: request.Root));
 
         if (request.Format == OutputFormat.Json)
         {

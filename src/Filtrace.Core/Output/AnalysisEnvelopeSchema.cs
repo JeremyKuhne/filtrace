@@ -19,9 +19,14 @@ namespace Filtrace.Output;
 /// <param name="SchemaVersion">The envelope version.</param>
 /// <param name="Warnings">Quality warnings; empty when there are none.</param>
 /// <param name="Hints">Suggested next steps; empty when there are none.</param>
+/// <param name="Context">
+///  The effective operation and scope, left unexpanded so its nested process-id arrays
+///  are not repeated in every tool's permanent schema.
+/// </param>
 /// <param name="Result">The typed payload, whose shape varies by tool.</param>
 public sealed record AnalysisEnvelopeSchema(
     int SchemaVersion,
     IReadOnlyList<string> Warnings,
     IReadOnlyList<string> Hints,
+    object Context,
     object Result);

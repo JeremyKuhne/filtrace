@@ -56,7 +56,8 @@ internal static class CallersExecutor
         AnalysisResult<CallersResult> envelope = new(
             callers,
             warnings,
-            SteeringHints.ForCallers(callers, request.Root, request.Scope));
+            SteeringHints.ForCallers(callers, request.Root, request.Scope),
+            AnalysisContext.ForTrace("callers", trace, root: request.Root));
 
         if (request.Format == OutputFormat.Json)
         {
