@@ -611,7 +611,7 @@ public sealed class TraceTools
     ///  the aggregate pause and heap summary plus the hottest per-collection records.
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
-    /// <param name="top">Maximum per-collection records to return, ranked by pause time.</param>
+    /// <param name="top">Maximum per-collection records to return, ranked by pause time, or 0 for the summary alone.</param>
     /// <returns>The GC-report envelope.</returns>
     [McpServerTool(Name = "trace_gc", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
@@ -722,7 +722,7 @@ public sealed class TraceTools
     ///  reads and writes aggregated by file, ranked by disk service time.
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
-    /// <param name="top">Maximum per-file rows to return, ranked by disk time.</param>
+    /// <param name="top">Maximum per-file rows to return, ranked by disk time, or 0 for the totals alone.</param>
     /// <returns>The disk-I/O report envelope.</returns>
     [McpServerTool(Name = "trace_diskio", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
@@ -757,7 +757,7 @@ public sealed class TraceTools
     /// <param name="process">Process-name substring choosing the invocation roots.</param>
     /// <param name="pid">Exact process ids to use as the invocation roots.</param>
     /// <param name="image">Module-name substrings to time as loader milestones.</param>
-    /// <param name="top">Maximum per-invocation rows to return.</param>
+    /// <param name="top">Maximum per-invocation rows to return, or 0 for the medians alone.</param>
     /// <returns>The lifecycle report envelope.</returns>
     [McpServerTool(Name = "trace_lifecycle", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
@@ -1105,7 +1105,7 @@ public sealed class TraceTools
     ///  the aggregate compile summary plus the costliest per-method records.
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
-    /// <param name="top">Maximum per-method records to return, ranked by compile time.</param>
+    /// <param name="top">Maximum per-method records to return, ranked by compile time, or 0 for the summary alone.</param>
     /// <returns>The JIT-report envelope.</returns>
     [McpServerTool(Name = "trace_jit", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(

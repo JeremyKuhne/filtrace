@@ -181,7 +181,10 @@ public sealed class LifecycleProvider
     ///  leaving the phase medians untouched.
     /// </summary>
     /// <param name="report">The full report, as returned by <see cref="Read"/>.</param>
-    /// <param name="top">The caller's maximum detail row count. Must be positive.</param>
+    /// <param name="top">
+    ///  The caller's maximum detail row count. Must be non-negative; zero keeps the
+    ///  phase medians and drops every invocation row.
+    /// </param>
     /// <param name="warning">
     ///  The warning naming what was dropped, or <see langword="null"/> when every
     ///  invocation was kept.
@@ -197,7 +200,7 @@ public sealed class LifecycleProvider
     ///  </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="report"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is not positive.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is negative.</exception>
     public static LifecycleResult LimitDetail(LifecycleResult report, int top, out string? warning)
     {
         ArgumentNullException.ThrowIfNull(report);
