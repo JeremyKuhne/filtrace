@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json;
+
 namespace Filtrace.Cli;
 
 [TestClass]
@@ -85,14 +87,14 @@ public sealed class CallersExecutorTests
     }
 
     [TestMethod]
-    public void Run_WithoutCallees_JsonHasNullCallees()
+    public void Run_WithoutCallees_JsonOmitsCallees()
     {
         (int exit, string output, _) = Run(Request(Speedscope, format: OutputFormat.Json));
 
         exit.Should().Be(ExitCodes.Success);
-        // Callers-only: the callee list is absent (null), distinguishing it from an
-        // empty caller/callee view.
-        output.Should().Contain("\"callees\":null");
+        using JsonDocument document = JsonDocument.Parse(output);
+        document.RootElement.GetProperty("result")
+            .TryGetProperty("callees", out _).Should().BeFalse();
     }
 
     [TestMethod]

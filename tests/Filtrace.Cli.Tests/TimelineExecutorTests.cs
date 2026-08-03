@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json;
 using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Cli;
@@ -61,14 +62,18 @@ public sealed class TimelineExecutorTests
     }
 
     [TestMethod]
-    public void Run_LanesSelector_LimitsLanesAndNullsTheRest()
+    public void Run_LanesSelector_LimitsLanesAndOmitsTheRest()
     {
         (int exit, string output, _) = Run(Request(Alloc, lanes: "gc", format: OutputFormat.Json));
 
         exit.Should().Be(ExitCodes.Success);
-        output.Should().Contain("\"gc\":[");
-        output.Should().Contain("\"cpu\":null");
-        output.Should().Contain("\"alloc\":null");
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement result = document.RootElement.GetProperty("result");
+        result.GetProperty("gc").GetArrayLength().Should().BeGreaterThan(0);
+        result.TryGetProperty("cpu", out _).Should().BeFalse();
+        result.TryGetProperty("exceptions", out _).Should().BeFalse();
+        result.TryGetProperty("alloc", out _).Should().BeFalse();
+        result.TryGetProperty("jit", out _).Should().BeFalse();
     }
 
     [TestMethod]

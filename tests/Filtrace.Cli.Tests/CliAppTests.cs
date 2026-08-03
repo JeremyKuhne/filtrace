@@ -983,6 +983,29 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_EventsTakeZero_ReturnsCountWithoutPagingRows()
+    {
+        (int exit, string output, _) = Run(
+            "events",
+            Alloc,
+            "--name",
+            "GC/AllocationTick",
+            "--payload",
+            "System.String",
+            "--take",
+            "0",
+            "--format",
+            "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement root = document.RootElement;
+        root.GetProperty("result").GetProperty("totalMatched").GetInt32().Should().Be(90);
+        root.GetProperty("result").GetProperty("events").GetArrayLength().Should().Be(0);
+        root.GetProperty("hints").GetArrayLength().Should().Be(0);
+    }
+
+    [TestMethod]
     public void Run_EventsNameFilterAndTakeAlias_AreParsed()
     {
         // -n is the take alias; the name option filters by provider/event substring.
@@ -997,6 +1020,14 @@ public sealed class CliAppTests
     {
         // ConsoleAppFramework's [Range(0, ...)] rejects a negative skip before the verb runs.
         (int exit, _, _) = Run("events", Alloc, "--skip", "-1");
+
+        exit.Should().Be(ExitCodes.UsageError);
+    }
+
+    [TestMethod]
+    public void Run_EventsNegativeTake_ReturnsUsageError()
+    {
+        (int exit, _, _) = Run("events", Alloc, "--take", "-1");
 
         exit.Should().Be(ExitCodes.UsageError);
     }

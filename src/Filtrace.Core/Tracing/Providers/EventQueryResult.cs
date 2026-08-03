@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json.Serialization;
+
 namespace Filtrace.Tracing.Providers;
 
 /// <summary>
@@ -20,4 +22,4 @@ public sealed record EventQueryResult(
     int TotalMatched,
     int Skipped,
     IReadOnlyList<EventRecord> Events,
-    bool BudgetTruncated = false);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool BudgetTruncated = false);

@@ -4,6 +4,7 @@
 
 using System.Text.Json;
 using Filtrace.Tracing;
+using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Output;
 
@@ -280,6 +281,90 @@ public sealed class OutputContractTests
     }
 
     [TestMethod]
+    public void Serialize_NullOptionalsAreOmittedWhileSemanticEmptyValuesRemain()
+    {
+        AnalysisResult<RankingResult> rankingEnvelope = new(
+            new RankingResult(0.0, string.Empty, []));
+        using JsonDocument rankingDocument = JsonDocument.Parse(OutputJson.Serialize(rankingEnvelope));
+        JsonElement ranking = rankingDocument.RootElement.GetProperty("result");
+        ranking.TryGetProperty("contributingRecordCount", out _).Should().BeFalse();
+        ranking.GetProperty("rootFrame").GetString().Should().BeEmpty();
+        ranking.GetProperty("rows").GetArrayLength().Should().Be(0);
+
+        AnalysisResult<CallersResult> callersEnvelope = new(
+            new CallersResult("Focus", 0.0, 0.0, 0.0, []));
+        using JsonDocument callersDocument = JsonDocument.Parse(OutputJson.Serialize(callersEnvelope));
+        JsonElement callers = callersDocument.RootElement.GetProperty("result");
+        callers.TryGetProperty("callees", out _).Should().BeFalse();
+        callers.TryGetProperty("contributingRecordCount", out _).Should().BeFalse();
+        callers.GetProperty("callers").GetArrayLength().Should().Be(0);
+        callers.GetProperty("targetWeight").GetDouble().Should().Be(0.0);
+
+        AnalysisResult<TimelineResult> timelineEnvelope = new(
+            new TimelineResult(
+                0.0,
+                1.0,
+                1.0,
+                1,
+                Process: null,
+                Gc: null,
+                Cpu: [],
+                Exceptions: null,
+                Alloc: null,
+                Jit: null));
+        using JsonDocument timelineDocument = JsonDocument.Parse(OutputJson.Serialize(timelineEnvelope));
+        JsonElement timeline = timelineDocument.RootElement.GetProperty("result");
+        timeline.TryGetProperty("process", out _).Should().BeFalse();
+        timeline.TryGetProperty("gc", out _).Should().BeFalse();
+        timeline.TryGetProperty("exceptions", out _).Should().BeFalse();
+        timeline.TryGetProperty("alloc", out _).Should().BeFalse();
+        timeline.TryGetProperty("jit", out _).Should().BeFalse();
+        timeline.GetProperty("cpu").GetArrayLength().Should().Be(0);
+        timeline.GetProperty("fromMs").GetDouble().Should().Be(0.0);
+    }
+
+    [TestMethod]
+    public void Serialize_TraceInfoOmitsUnavailableOptionalSections()
+    {
+        TraceInfoView view = new(
+            "trace.speedscope.json",
+            "Speedscope",
+            0.0,
+            0,
+            0.0,
+            [],
+            []);
+
+        using JsonDocument document = JsonDocument.Parse(
+            OutputJson.Serialize(new AnalysisResult<TraceInfoView>(view)));
+        JsonElement result = document.RootElement.GetProperty("result");
+
+        result.TryGetProperty("etlxCacheState", out _).Should().BeFalse();
+        result.TryGetProperty("analyses", out _).Should().BeFalse();
+        result.TryGetProperty("sourceResolution", out _).Should().BeFalse();
+        result.TryGetProperty("nativeSymbols", out _).Should().BeFalse();
+        result.GetProperty("threads").GetArrayLength().Should().Be(0);
+        result.GetProperty("availableAnalyses").GetArrayLength().Should().Be(0);
+    }
+
+    [TestMethod]
+    public void Serialize_EventBudgetFlagIsPresentOnlyWhenTruncated()
+    {
+        AnalysisResult<EventQueryResult> completeEnvelope = new(
+            new EventQueryResult(0, 0, []));
+        using JsonDocument completeDocument = JsonDocument.Parse(OutputJson.Serialize(completeEnvelope));
+        JsonElement complete = completeDocument.RootElement.GetProperty("result");
+        complete.TryGetProperty("budgetTruncated", out _).Should().BeFalse();
+        complete.GetProperty("events").GetArrayLength().Should().Be(0);
+
+        AnalysisResult<EventQueryResult> truncatedEnvelope = new(
+            new EventQueryResult(2, 0, [], BudgetTruncated: true));
+        using JsonDocument truncatedDocument = JsonDocument.Parse(OutputJson.Serialize(truncatedEnvelope));
+        truncatedDocument.RootElement.GetProperty("result")
+            .GetProperty("budgetTruncated").GetBoolean().Should().BeTrue();
+    }
+
+    [TestMethod]
     public void Serialize_Doubles_RoundedToTwoDecimals()
     {
         RankingResult payload = new(
@@ -442,7 +527,7 @@ public sealed class OutputContractTests
             .Should().Be("disabled");
         JsonElement exceptions = result.GetProperty("analyses").GetProperty("exceptions");
         exceptions.GetProperty("captureStatus").GetString().Should().Be("unknown");
-        exceptions.GetProperty("eventCount").ValueKind.Should().Be(JsonValueKind.Null);
+        exceptions.TryGetProperty("eventCount", out _).Should().BeFalse();
         JsonElement source = result.GetProperty("sourceResolution");
         source.GetProperty("sourceResolutionRate").GetDouble().Should().Be(0.25);
         source.GetProperty("matchingPdbModules")[0].GetString().Should().Be("MyApp");
@@ -463,10 +548,8 @@ public sealed class OutputContractTests
         JsonElement unavailableSource = unavailableDoc.RootElement
             .GetProperty("result")
             .GetProperty("sourceResolution");
-        unavailableSource.GetProperty("sampledManagedMethodCount").ValueKind
-            .Should().Be(JsonValueKind.Null);
-        unavailableSource.GetProperty("sourceMappedManagedMethodCount").ValueKind
-            .Should().Be(JsonValueKind.Null);
+        unavailableSource.TryGetProperty("sampledManagedMethodCount", out _).Should().BeFalse();
+        unavailableSource.TryGetProperty("sourceMappedManagedMethodCount", out _).Should().BeFalse();
     }
 
     [TestMethod]

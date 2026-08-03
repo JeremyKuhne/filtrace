@@ -71,6 +71,23 @@ public sealed class EventsExecutorTests
     }
 
     [TestMethod]
+    public void Run_TakeZero_ReturnsCountWithoutPagingHint()
+    {
+        (int exit, string output, _) = Run(Request(
+            Alloc,
+            name: "GC/AllocationTick",
+            take: 0,
+            payload: "System.String",
+            format: OutputFormat.Json));
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output);
+        document.RootElement.GetProperty("result").GetProperty("totalMatched").GetInt32().Should().Be(90);
+        document.RootElement.GetProperty("result").GetProperty("events").GetArrayLength().Should().Be(0);
+        document.RootElement.GetProperty("hints").GetArrayLength().Should().Be(0);
+    }
+
+    [TestMethod]
     public void Run_MorePagesRemain_EmitsAPagingHint()
     {
         // The fixture carries many events, so a tiny page leaves more matching and the

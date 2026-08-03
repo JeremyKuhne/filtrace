@@ -60,7 +60,7 @@ internal static class EventsExecutor
         List<string> hints = [];
         List<AnalysisNextStep> nextSteps = [];
         int shownThrough = result.Skipped + result.Events.Count;
-        if (shownThrough < result.TotalMatched)
+        if (request.Take > 0 && shownThrough < result.TotalMatched)
         {
             string reason =
                 $"{result.TotalMatched - shownThrough} more match; page with --skip {shownThrough}.";

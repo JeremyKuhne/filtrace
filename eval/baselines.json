@@ -3,15 +3,15 @@
   "tasks": {
     "cpu-hotspot": {
       "calls": 2,
-      "tokens": 255
+      "tokens": 250
     },
     "alloc-hotspot": {
       "calls": 1,
-      "tokens": 222
+      "tokens": 215
     },
     "exception-sites": {
       "calls": 1,
-      "tokens": 130
+      "tokens": 123
     },
     "gc-report": {
       "calls": 1,
@@ -31,7 +31,7 @@
     },
     "alloc-events": {
       "calls": 1,
-      "tokens": 5605
+      "tokens": 5599
     },
     "cpu-inclusive": {
       "calls": 1,
@@ -39,11 +39,11 @@
     },
     "threadtime-hotpath": {
       "calls": 1,
-      "tokens": 632
+      "tokens": 625
     },
     "timeline-window": {
       "calls": 1,
-      "tokens": 919
+      "tokens": 822
     },
     "caller-callee": {
       "calls": 1,
@@ -51,11 +51,11 @@
     },
     "trace-info-orientation": {
       "calls": 1,
-      "tokens": 137
+      "tokens": 119
     },
     "source-quality": {
       "calls": 1,
-      "tokens": 777
+      "tokens": 741
     },
     "manifest-batch": {
       "calls": 1,
@@ -71,19 +71,19 @@
     },
     "alloc-metric-choice": {
       "calls": 1,
-      "tokens": 222
+      "tokens": 215
     },
     "speedscope-source-limits": {
       "calls": 1,
-      "tokens": 137
+      "tokens": 119
     },
     "capture-status-unknown": {
       "calls": 1,
-      "tokens": 830
+      "tokens": 809
     },
     "event-count-only": {
       "calls": 1,
-      "tokens": 153
+      "tokens": 34
     },
     "jit-summary-first": {
       "calls": 1,

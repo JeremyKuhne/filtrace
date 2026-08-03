@@ -77,8 +77,12 @@ public sealed class AnalysisResult<T>
     ///   Version 12 discriminated unrelated result shapes and omitted fields that do
     ///   not apply to the selected kind.
     ///  </para>
+    ///  <para>
+    ///   Version 13 omitted null optional properties and false event-budget truncation
+    ///   while retaining semantically meaningful empty arrays, empty strings, and zeros.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 12;
+    public const int CurrentSchemaVersion = 13;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.
