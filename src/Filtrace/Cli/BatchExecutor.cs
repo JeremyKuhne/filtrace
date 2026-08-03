@@ -43,12 +43,12 @@ internal static class BatchExecutor
                 });
             AnalysisResult<BatchRankingResult> envelope = new(
                 result,
-                    hints: SteeringHints.ForBatch(result),
-                    context: AnalysisContext.ForMetric(
-                        "batch",
-                        MetricInfoFor(request.Metric),
-                        request.Measure == Measure.Inclusive ? "inclusive" : "self",
-                        request.Root));
+                hints: SteeringHints.ForBatch(result),
+                context: AnalysisContext.ForMetric(
+                    "batch",
+                    TraceMetricSelector.GetInfo(request.Metric),
+                    request.Measure == Measure.Inclusive ? "inclusive" : "self",
+                    request.Root));
 
             if (request.Format == OutputFormat.Json)
             {
@@ -84,15 +84,4 @@ internal static class BatchExecutor
         _ => throw new ArgumentOutOfRangeException(nameof(metric), metric, null)
     };
 
-    private static MetricInfo MetricInfoFor(TraceMetric metric) => metric switch
-    {
-        TraceMetric.Cpu => MetricInfo.Cpu,
-        TraceMetric.ThreadTime => MetricInfo.ThreadTime,
-        TraceMetric.Allocations => MetricInfo.Allocations,
-        TraceMetric.Exceptions => MetricInfo.Exceptions,
-        TraceMetric.Contention => MetricInfo.Contention,
-        TraceMetric.Wait => MetricInfo.Wait,
-        TraceMetric.Activity => MetricInfo.Activity,
-        _ => throw new ArgumentOutOfRangeException(nameof(metric), metric, "Unknown trace metric.")
-    };
 }

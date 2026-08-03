@@ -626,7 +626,7 @@ public sealed class TraceTools
                 hints: SteeringHints.ForBatch(result),
                 context: AnalysisContext.ForMetric(
                     "batch",
-                    MetricInfoFor(resolvedMetric),
+                    TraceMetricSelector.GetInfo(resolvedMetric),
                     inclusive ? "inclusive" : "self",
                     resolvedRoot));
         }
@@ -1282,18 +1282,6 @@ public sealed class TraceTools
             ? resolved
             : throw new McpException(
                 $"Unknown metric '{metric}'. Valid metrics: {string.Join(", ", TraceMetricSelector.Selectors)}.");
-
-    private static MetricInfo MetricInfoFor(TraceMetric metric) => metric switch
-    {
-        TraceMetric.Cpu => MetricInfo.Cpu,
-        TraceMetric.ThreadTime => MetricInfo.ThreadTime,
-        TraceMetric.Allocations => MetricInfo.Allocations,
-        TraceMetric.Exceptions => MetricInfo.Exceptions,
-        TraceMetric.Contention => MetricInfo.Contention,
-        TraceMetric.Wait => MetricInfo.Wait,
-        TraceMetric.Activity => MetricInfo.Activity,
-        _ => throw new ArgumentOutOfRangeException(nameof(metric), metric, "Unknown trace metric.")
-    };
 
     private static bool ResolveMeasure(string measure)
     {

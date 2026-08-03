@@ -52,4 +52,31 @@ public sealed class TraceMetricSelectorTests
     {
         TraceMetricSelector.Selectors.Should().Equal("cpu", "threadtime", "alloc", "exceptions", "contention", "wait", "activity");
     }
+
+    [TestMethod]
+    [DataRow(TraceMetric.Cpu, "CPU", "ms")]
+    [DataRow(TraceMetric.ThreadTime, "ThreadTime", "ms")]
+    [DataRow(TraceMetric.Allocations, "Allocations", "bytes")]
+    [DataRow(TraceMetric.Exceptions, "Exceptions", "count")]
+    [DataRow(TraceMetric.Contention, "Contention", "ms")]
+    [DataRow(TraceMetric.Wait, "Wait", "ms")]
+    [DataRow(TraceMetric.Activity, "Activity", "ms")]
+    public void GetInfo_KnownMetric_ReturnsItsSemantics(
+        TraceMetric metric,
+        string expectedName,
+        string expectedUnit)
+    {
+        MetricInfo info = TraceMetricSelector.GetInfo(metric);
+
+        info.Name.Should().Be(expectedName);
+        info.Unit.Should().Be(expectedUnit);
+    }
+
+    [TestMethod]
+    public void GetInfo_UndefinedMetric_Throws()
+    {
+        Action act = () => TraceMetricSelector.GetInfo((TraceMetric)int.MaxValue);
+
+        act.Should().Throw<ArgumentOutOfRangeException>().WithParameterName("metric");
+    }
 }
