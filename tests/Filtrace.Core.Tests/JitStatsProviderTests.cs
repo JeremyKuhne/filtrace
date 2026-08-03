@@ -117,13 +117,40 @@ public sealed class JitStatsProviderTests
     }
 
     [TestMethod]
-    public void LimitDetail_NonPositiveTop_Throws()
+    public void LimitDetail_ZeroTopOnAnEmptyReport_ReportsNothingToDrop()
+    {
+        // Nothing was withheld, so the "Aggregate only" warning would be misleading:
+        // the early return covers this before the top 0 wording is reached.
+        JitStatsResult empty = new(0, 0.0, 0.0, 0.0, 0, 0, []);
+
+        JitStatsResult limited = JitStatsProvider.LimitDetail(empty, top: 0, out string? warning);
+
+        limited.Should().BeSameAs(empty);
+        warning.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void LimitDetail_NegativeTop_Throws()
     {
         JitStatsResult report = new(0, 0.0, 0.0, 0.0, 0, 0, []);
 
-        Action act = () => JitStatsProvider.LimitDetail(report, top: 0, out _);
+        Action act = () => JitStatsProvider.LimitDetail(report, top: -1, out _);
 
         act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [TestMethod]
+    public void LimitDetail_ZeroTop_KeepsTheAggregateAndDropsEveryRow()
+    {
+        // Zero is how an agent asks for the summary alone; it is a point on the row
+        // axis, not an error.
+        JitStatsResult full = LoadJitStats();
+
+        JitStatsResult limited = JitStatsProvider.LimitDetail(full, top: 0, out string? warning);
+
+        limited.Methods.Should().BeEmpty();
+        limited.MethodCount.Should().Be(full.MethodCount);
+        warning.Should().Contain("Aggregate only");
     }
 
     [TestMethod]

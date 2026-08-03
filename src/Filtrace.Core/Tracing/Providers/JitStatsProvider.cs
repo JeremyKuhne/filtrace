@@ -110,7 +110,7 @@ public sealed class JitStatsProvider
     public static JitStatsResult LimitDetail(JitStatsResult report, int top, out string? warning)
     {
         ArgumentNullException.ThrowIfNull(report);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+        ArgumentOutOfRangeException.ThrowIfNegative(top);
 
         List<JitMethodRecord> kept = OutputBudget.TakeWithinBudget(
             report.Methods.OrderByDescending(static method => method.CompileMs).Take(top),
@@ -129,7 +129,10 @@ public sealed class JitStatsProvider
                 + $"{OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response under "
                 + $"the {OutputBudget.DefaultCeilingTokens}-token ceiling. The aggregate summary still covers "
                 + "every method."
-            : $"Showing the top {top} of {report.MethodCount} methods by compile time.";
+            : top == 0
+                ? $"Aggregate only: {report.MethodCount} methods were not listed. Ask again with a positive top "
+                    + "for the per-method detail."
+                : $"Showing the top {top} of {report.MethodCount} methods by compile time.";
 
         return report with { Methods = kept };
     }

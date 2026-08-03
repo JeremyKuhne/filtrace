@@ -621,7 +621,7 @@ public sealed class TraceTools
         [Description("Path to a .nettrace EventPipe trace file.")] string path,
         [Description("Maximum number of per-collection records to return, ranked by pause time.")] int top = 25)
     {
-        RequirePositiveTop(top);
+        RequireNonNegativeTop(top);
         GcStatsResult full = ReadGcStats(path);
 
         // Keep the full aggregate summary, but bound the per-collection detail by both
@@ -732,7 +732,7 @@ public sealed class TraceTools
         [Description("Path to a Windows ETW .etl trace file.")] string path,
         [Description("Maximum number of per-file rows to return, ranked by disk service time.")] int top = 25)
     {
-        RequirePositiveTop(top);
+        RequireNonNegativeTop(top);
         DiskIoResult full = ReadDiskIo(path);
 
         // Keep the full aggregate summary, but bound the per-file detail by both the
@@ -771,7 +771,7 @@ public sealed class TraceTools
         [Description("Module-name substrings to time as loader milestones, such as hostfxr.")] string[]? image = null,
         [Description("Maximum number of per-invocation rows to return; medians cover every invocation.")] int top = 25)
     {
-        RequirePositiveTop(top);
+        RequireNonNegativeTop(top);
 
         // Descendants are the measurement, not an option: the phases are defined against
         // them, so the children axis the other scoped tools expose does not apply here.
@@ -1115,7 +1115,7 @@ public sealed class TraceTools
         [Description("Path to a .nettrace EventPipe trace file.")] string path,
         [Description("Maximum number of per-method records to return, ranked by compile time.")] int top = 25)
     {
-        RequirePositiveTop(top);
+        RequireNonNegativeTop(top);
         JitStatsResult full = ReadJitStats(path);
 
         // Keep the full aggregate summary, but bound the per-method detail by both the
@@ -1270,6 +1270,16 @@ public sealed class TraceTools
         if (top < 1)
         {
             throw new McpException("top must be 1 or greater.");
+        }
+    }
+
+    // The aggregate-report tools accept 0 as "aggregate only, no detail rows", which is
+    // what agents already reach for when a question needs the summary alone.
+    private static void RequireNonNegativeTop(int top)
+    {
+        if (top < 0)
+        {
+            throw new McpException("top must be 0 or greater.");
         }
     }
 

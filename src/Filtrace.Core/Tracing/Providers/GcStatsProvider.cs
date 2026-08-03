@@ -107,7 +107,7 @@ public sealed class GcStatsProvider
     public static GcStatsResult LimitDetail(GcStatsResult report, int top, out string? warning)
     {
         ArgumentNullException.ThrowIfNull(report);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+        ArgumentOutOfRangeException.ThrowIfNegative(top);
 
         List<GcRecord> kept = OutputBudget.TakeWithinBudget(
             report.Gcs.OrderByDescending(static collection => collection.PauseMs).Take(top),
@@ -126,7 +126,10 @@ public sealed class GcStatsProvider
                 + $"{OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response under "
                 + $"the {OutputBudget.DefaultCeilingTokens}-token ceiling. The aggregate summary still covers "
                 + "every collection."
-            : $"Showing the top {top} of {report.GcCount} collections by pause time.";
+            : top == 0
+                ? $"Aggregate only: {report.GcCount} collections were not listed. Ask again with a positive top "
+                    + "for the per-collection detail."
+                : $"Showing the top {top} of {report.GcCount} collections by pause time.";
 
         return report with { Gcs = kept };
     }

@@ -30,11 +30,11 @@ internal static class LifecycleExecutor
     /// <returns>A process exit code (see <see cref="ExitCodes"/>).</returns>
     public static int Run(LifecycleRequest request, TextWriter output, TextWriter error)
     {
-        // Defensive: the verb enforces top >= 1, but Run is also called directly, so
-        // guard the boundary rather than emit a confusing "top 0" report.
-        if (request.Top < 1)
+        // Defensive: the verb enforces top >= 0, but Run is also called directly, so
+        // guard the boundary rather than emit a confusing negative-row report.
+        if (request.Top < 0)
         {
-            error.WriteLine("top must be 1 or greater.");
+            error.WriteLine("top must be 0 or greater.");
             return ExitCodes.UsageError;
         }
 

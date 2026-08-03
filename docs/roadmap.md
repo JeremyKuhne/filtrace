@@ -360,6 +360,81 @@ premium requests, so a full-suite arm is wall time only; add `claude-haiku-4.5` 
 the overfitting detector when a candidate looks worth keeping. N=3 is not enough to
 size an effect - it put one baseline at 33% where ten iterations put it at 10%.
 
+##### Probed 2026-08-03: lowering the two outlier defaults - rejected
+
+Simply shrinking the defaults, without adding a vocabulary, was measured and
+rejected. Candidate: `trace_jit` `top` 25 -> 5 and `trace_query_events` `take`
+100 -> 10, one variable per tool, graded on `gpt-5.6-sol` at N=10.
+
+| Task | Baseline | Candidate | |
+|---|---:|---:|---|
+| `jit-report` | 100%, 2,666 tokens | 100%, **950** tokens | the prize is real |
+| `jit-summary-first` | 90%, 2 calls | **40%**, 3 calls | rejected on calls |
+| `event-count-only` | 90%, 255 tokens | 80%, 468 tokens | rejected |
+
+**What actually went wrong is not what the selection rule anticipated.** The extra
+call is not the agent fetching more after too small a page. It is the agent asking
+for `trace_jit` with `top: 0` - "give me the aggregate and no rows" - and filtrace
+rejecting it, then retrying with `top: 1`. That rejected call appeared in 1 of 10
+baseline iterations and **7 of 10** candidate iterations.
+
+So the agent already reaches for a summary level that the surface does not offer, and
+a smaller default makes it reach more often. That is direct evidence for a detail
+vocabulary rather than tuned defaults: the missing thing is a way to *say* summary,
+not a better guess at how many rows to send. Whether the vocabulary removes the extra
+call is the next probe's question, not a conclusion from this one - as is whether a
+gentler reduction keeps `jit-report`'s 64% saving without the regression, since only
+one candidate pair was tried.
+
+A cheap intermediate exists and is worth measuring first: let `top: 0` mean "aggregate
+only" on the report tools instead of throwing. It gives the agent exactly what it is
+already asking for, needs no envelope change, and is testable against these same five
+tasks.
+
+##### Probed 2026-08-03: `top: 0` means aggregate only - kept
+
+Measured against the same baseline, same five tasks, `gpt-5.6-sol` at N=10.
+
+| | `trace_jit` calls | using `top: 0` | rejected |
+|---|---:|---:|---:|
+| Before | 21 | 1 | **1** |
+| After | 20 | **6** | **0** |
+
+`jit-summary-first` went 90% -> **100%** at 587 -> 501 tokens. `jit-report` did not
+move: still 100% at 2,666 tokens, because an agent that wants the detail still asks
+for it. An aggregate-only call costs 86 estimated tokens against 2,251 at the default.
+
+**No description was added.** Agents reached for `top: 0` unprompted in both arms;
+adoption rose only because it stopped failing. So this bought a summary level for
+zero permanent schema tokens, which is the opposite of the trade a `detail` enum
+would make.
+
+**Why this rather than a `detail` vocabulary.** `top` already means "how many detail
+rows", and zero is a coherent endpoint on that axis. A `detail: summary|rows|full`
+parameter would sit *beside* `top` and create combinations with no obvious meaning -
+`detail: summary` with `top: 25` needs a precedence rule, and a rule an agent has to
+learn is a rule it can get wrong. One axis with a defined endpoint beats two axes
+with an interaction. The enum stays on the table only for operations where cardinality
+is not already expressed by a row count.
+
+**The untested risk** is that some tools use `0` to mean *unlimited*, so an agent
+could read `top: 0` as "everything" and receive nothing. Nothing in this run showed
+it, and nothing in this run tested it. The CLI documents the meaning in `--help`,
+which is free; adding it to the MCP parameter description costs schema tokens and
+would change the string this probe measured, so it is a separate question with its own
+before-and-after.
+
+**Also worth knowing:** `Compare-EvalRuns` returned REJECT on this run, for
+`event-count-only` tokens rising 255 -> 468 at *identical* 90% success - on the events
+tool, which this change does not touch. That is the second time the comparison has
+flagged a task the candidate cannot affect. It has no notion of blast radius, so read
+its verdict alongside what the change actually reaches.
+
+**Do not grade this family at N=5.** The same comparison at N=5 flagged
+`scope-preserving-drill` as the regression - a task these defaults cannot affect - and
+missed the `jit-summary-first` regression entirely. It also read that baseline as 40%
+where ten iterations read 90%.
+
 **Manifest case references.** Expose the `id` that manifest schema v1 already
 requires on each case in `BatchRankingCaseResult`, and let follow-up operations
 accept `manifestPath` plus `caseId`. Keep the resolved path at `full` detail for

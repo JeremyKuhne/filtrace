@@ -159,7 +159,7 @@ public sealed partial class DiskIoProvider
     public static DiskIoResult LimitDetail(DiskIoResult report, int top, out string? warning)
     {
         ArgumentNullException.ThrowIfNull(report);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+        ArgumentOutOfRangeException.ThrowIfNegative(top);
 
         List<DiskIoFileRecord> kept = OutputBudget.TakeWithinBudget(
             report.Files.Take(top),
@@ -178,7 +178,10 @@ public sealed partial class DiskIoProvider
                 + $"{OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response under "
                 + $"the {OutputBudget.DefaultCeilingTokens}-token ceiling. The aggregate summary still covers "
                 + "every file."
-            : $"Showing the top {top} of {report.Files.Count} files by disk time.";
+            : top == 0
+                ? $"Aggregate only: {report.Files.Count} files were not listed. Ask again with a positive top "
+                    + "for the per-file detail."
+                : $"Showing the top {top} of {report.Files.Count} files by disk time.";
 
         return report with { Files = kept };
     }
