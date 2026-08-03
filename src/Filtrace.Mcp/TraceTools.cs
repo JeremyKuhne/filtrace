@@ -869,7 +869,7 @@ public sealed class TraceTools
     /// <param name="path">Path to the trace file.</param>
     /// <param name="name">Substring matched against <c>Provider/EventName</c>; empty matches every event.</param>
     /// <param name="skip">The number of matches to skip, for paging.</param>
-    /// <param name="take">The maximum number of matches to return on this page.</param>
+    /// <param name="take">The maximum number of matches to return on this page; 0 returns only the total count.</param>
     /// <param name="maxPayload">The per-event payload character cap.</param>
     /// <returns>The events-page envelope.</returns>
     [McpServerTool(Name = "trace_query_events", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
