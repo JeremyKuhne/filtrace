@@ -268,9 +268,10 @@ a lever - the client re-materializes structured content and already spills an
 oversized result to a file - so the only way to reduce what an investigation costs is
 to send fewer rows and to make a result route its own follow-up. That is this item.
 
-The envelope is at `schemaVersion` 9. Effective context is its semantic revision.
+The envelope is at `schemaVersion` 12. Effective context is v9; structured
+diagnostics is v10; structured next steps is v11; discriminated results is v12.
 Each remaining slice below changes the serialized shape and therefore gets its own
-schema version when it ships; do not mutate v9 in place.
+schema version when it ships; do not mutate an earlier version in place.
 
 **Effective query context - complete.** Every result identifies the surface-neutral
 operation that ran. Stack-backed results also carry normalized metric, measure, unit,
@@ -303,8 +304,8 @@ The runtime result keeps the full typed context. The advertised MCP envelope lea
 schemas measured 9,495 tokens and breached the 7,000 gate; the compact form measures
 6,597.
 
-**Structured diagnostics - next schema revision.** Replace `warnings: string[]` with stable records that
-keep a human message:
+**Structured diagnostics - complete in v10.** Serialized `warnings` are stable
+records that keep a human message:
 
 ```json
 {
@@ -317,13 +318,34 @@ keep a human message:
 
 Initial stable codes: low frame-name resolution; low source mapping; PDB identity
 mismatch; unknown or disabled capture status; thin method or line scope; ambiguous
-frame or root match; truncated rows or payload; ignored format-specific scope;
-case-local manifest failure.
+frame or root match; truncated rows or payload; clamped caller limits; applied or
+ignored format-specific scope; case-local manifest failure.
 
-**Structured next steps - later schema revision.** Replace CLI-shaped hint strings with operation-neutral
-records that the CLI renders as a shell command and MCP maps to a tool call.
-Scope-preserving arguments belong in the record so a follow-up cannot silently lose
-process or root context.
+The bridge is deliberately one-way: Core producers and text renderers keep their
+existing string messages, while `AnalysisResult.Diagnostics` classifies them for
+JSON. Standardized thin-scope and frame-resolution messages also carry numeric data;
+known families get stable codes, and anything not yet classified uses the stable
+generic `warning` code rather than losing the message. This lets producers migrate
+to richer data incrementally without duplicating text output or breaking source
+callers in the same revision.
+
+As with context and result, the advertised MCP envelope leaves warning records
+unexpanded. Runtime structured content remains typed, and tools/list measures 6,543
+tokens - lower than v9's 6,597 because an object array is smaller than the old string
+schema.
+
+**Structured next steps - complete in v11.** Serialized `hints` are
+operation-neutral records that retain the human reason. Source callers and CLI text
+renderers keep the existing string messages through the same snapshot bridge used
+by diagnostics.
+
+Complete follow-ups carry typed arguments: frame/root, metric/measure, bounded exact
+process ids and descendant mode, activity/time window, event paging/filter values,
+and path where the producer knows it. Explanatory guidance has no `operation` rather
+than being forced into a tool call with missing arguments. In particular, compact
+batch guidance stays reason-only until manifest case references can carry the exact
+per-case scope SC8 now applies; making it an executable rank step today would silently
+drop those ids.
 
 ```json
 {
@@ -333,12 +355,32 @@ process or root context.
 }
 ```
 
-**Discriminated results - later schema revision.** Add `kind` where one result type represents unrelated
-shapes - most importantly diff (`trace` versus `manifest`) - and stop serializing
-empty `cases` on a direct diff or empty direct totals on a manifest diff. The same
-rule applies to any consolidated source or report result.
+The advertised MCP envelope leaves next-step arguments unexpanded, like context,
+diagnostics, and result. Runtime structured content remains typed; tools/list is
+6,489 tokens, down from v10's 6,543 because object records advertise more compactly
+than strings.
 
-**Null and default omission.** Omit null optional properties. Keep empty arrays that
+**Discriminated results - complete in v12.** Diff now carries `kind: "trace"` or
+`kind: "manifest"`. A direct trace diff serializes its totals and `rows` but no
+`cases`; a manifest diff serializes `cases` but no top-level direct totals or
+`rows`. Applicable empty arrays remain present, so `rows: []` means a direct diff
+ran and found no changes while `cases: []` means no manifest cases paired.
+
+```json
+{ "kind": "trace", "beforeScopeWeight": 10, "afterScopeWeight": 12, "scopeDelta": 2, "rows": [] }
+```
+
+```json
+{ "kind": "manifest", "cases": [] }
+```
+
+Diff is the only current result type that represents unrelated shapes. Any future
+consolidated source or report result must use the same explicit discriminator rule
+instead of becoming a bag of nonapplicable optional fields. The advertised MCP
+envelope still leaves `result` unexpanded; naming the two kinds in the `trace_diff`
+description puts tools/list at 6,498 tokens.
+
+**Null and default omission - later schema revision.** Omit null optional properties. Keep empty arrays that
 mean "the query ran and found none"; omit an array only when the concept does not
 apply to the selected result kind.
 
@@ -876,14 +918,14 @@ requires:
 
 - deterministic tests and parity remain exact;
 - summary-mode JIT and raw-event count tasks fall below 500 response tokens - already
-  met through existing options at 172 and 79, so v9 must preserve it rather than
+  met through existing options at 172 and 79, so the current schema must preserve it rather than
   reach it, and the two tasks now carry a `maxResponseTokens` of 500 so a live run
   enforces it;
 - duplicate payload copies are eliminated wherever the chosen clients permit it;
 - tool-list target: at most 7,500 tokens if typed output schemas are retained, at
   most 5,000 if JSON-text-only wins;
 - the 20% total-token reduction applies to a token-motivated breaking
-  consolidation - not to every semantic v9 improvement. VN0 records the repeatable
+  consolidation - not to every semantic output-contract improvement. VN0 records the repeatable
   baseline before that threshold is locked.
 
 ## Risks
@@ -930,5 +972,6 @@ the client re-materializes structured content and already bounds a large result.
 
 That leaves the later output-contract revisions. The row-cardinality slice is already resolved:
 shrinking defaults was rejected, while `top: 0` gives report tools an aggregate-only
-level on the existing axis, and effective query context is complete. Next is
-structured diagnostics, followed by structured next steps and discriminated results.
+level on the existing axis; effective query context, structured diagnostics,
+structured next steps, and discriminated results are complete. Next is null/default
+omission, followed by detail profiles.

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json;
+
 namespace Filtrace.Cli;
 
 /// <summary>
@@ -171,7 +173,8 @@ public sealed class CliAppTests
         (int exit, string output, _) = Run("cpu", Speedscope, "-n", "1", "--format", "json");
 
         exit.Should().Be(ExitCodes.Success);
-        Regex.Matches(output, "\"frame\":").Count.Should().Be(1);
+        using JsonDocument document = JsonDocument.Parse(output);
+        document.RootElement.GetProperty("result").GetProperty("rows").GetArrayLength().Should().Be(1);
     }
 
     [TestMethod]

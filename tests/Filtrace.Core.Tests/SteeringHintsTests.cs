@@ -61,6 +61,12 @@ public sealed class SteeringHintsTests
 
         hints.Should().ContainSingle().Which.Should().Contain("cannot preserve that slice");
         hints.Should().NotContain(hint => hint.StartsWith("drill into", StringComparison.Ordinal));
+
+        AnalysisNextStep next = new AnalysisResult<RankingResult>(ranking, hints: hints).NextSteps[0];
+        next.Operation.Should().Be("rank");
+        next.Arguments.Should().NotBeNull();
+        next.Arguments!.FromMs.Should().Be(1000.0);
+        next.Arguments.ToMs.Should().Be(2000.0);
     }
 
     [TestMethod]
@@ -73,6 +79,12 @@ public sealed class SteeringHintsTests
 
         hints.Should().ContainSingle().Which.Should().Be(
             "drill into the hot frame with: callers MyApp.Inner --root 'WorkloadAction' --process 'MyApp'");
+
+        AnalysisNextStepArguments arguments = new AnalysisResult<RankingResult>(ranking, hints: hints)
+            .NextSteps[0].Arguments!;
+        arguments.Frame.Should().Be("MyApp.Inner");
+        arguments.Root.Should().Be("WorkloadAction");
+        arguments.Process.Should().Be("MyApp");
     }
 
     [TestMethod]
@@ -87,6 +99,51 @@ public sealed class SteeringHintsTests
         // separate options would silently widen the drill-down to one process.
         hints.Should().ContainSingle().Which.Should().Be(
             "drill into the hot frame with: callers MyApp.Inner --pid 9144,40356");
+
+        AnalysisResult<RankingResult> envelope = new(ranking, hints: hints);
+        envelope.NextSteps.Should().ContainSingle();
+        AnalysisNextStep next = envelope.NextSteps[0];
+        next.Operation.Should().Be("callers");
+        next.Arguments.Should().NotBeNull();
+        next.Arguments!.Frame.Should().Be("MyApp.Inner");
+        next.Arguments.ProcessIds.Should().Equal(9144, 40356);
+        next.Arguments.IncludeChildren.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void ForRanking_ProcessIdsAtMetadataLimit_AreComplete()
+    {
+        int[] processIds = [.. Enumerable.Range(1, AnalysisScopeContext.MaxReportedProcessIds)];
+        RankingResult ranking = new(25.0, "", [new RankRow("MyApp.Inner", 16.0, 64.0)]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking,
+            MetricInfo.Cpu,
+            ScopeRequest.ForProcessIds(processIds));
+        AnalysisResult<RankingResult> envelope = new(ranking, hints: hints);
+
+        AnalysisNextStepArguments arguments = envelope.NextSteps[0].Arguments!;
+        arguments.ProcessIds.Should().Equal(processIds);
+        arguments.ProcessIdCount.Should().Be(processIds.Length);
+        arguments.ProcessIdsTruncated.Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void ForRanking_ProcessIdsOverMetadataLimit_AreBoundedAndCounted()
+    {
+        int[] processIds = [.. Enumerable.Range(1, AnalysisScopeContext.MaxReportedProcessIds + 1)];
+        RankingResult ranking = new(25.0, "", [new RankRow("MyApp.Inner", 16.0, 64.0)]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking,
+            MetricInfo.Cpu,
+            ScopeRequest.ForProcessIds(processIds));
+        AnalysisResult<RankingResult> envelope = new(ranking, hints: hints);
+
+        AnalysisNextStepArguments arguments = envelope.NextSteps[0].Arguments!;
+        arguments.ProcessIds.Should().Equal(processIds.Take(AnalysisScopeContext.MaxReportedProcessIds));
+        arguments.ProcessIdCount.Should().Be(processIds.Length);
+        arguments.ProcessIdsTruncated.Should().BeTrue();
     }
 
     [TestMethod]
@@ -99,6 +156,11 @@ public sealed class SteeringHintsTests
 
         hints.Should().ContainSingle().Which.Should().Be(
             "drill into the hot frame with: callers MyApp.Inner --pid 9144 --children exclude");
+
+        AnalysisNextStepArguments arguments = new AnalysisResult<RankingResult>(ranking, hints: hints)
+            .NextSteps[0].Arguments!;
+        arguments.ProcessIds.Should().Equal(9144);
+        arguments.IncludeChildren.Should().BeFalse();
     }
 
     [TestMethod]
@@ -148,6 +210,10 @@ public sealed class SteeringHintsTests
             && h.Contains("alloc", StringComparison.Ordinal)
             && h.Contains("gcstats", StringComparison.Ordinal));
         hints.Should().NotContain(h => h.Contains("growing memory", StringComparison.Ordinal));
+
+        AnalysisResult<TraceInfo> envelope = new(info, hints: hints);
+        envelope.NextSteps.Should().HaveSameCount(hints);
+        envelope.NextSteps.Should().OnlyContain(step => step.Operation == null);
     }
 
     [TestMethod]
@@ -323,6 +389,16 @@ public sealed class SteeringHintsTests
             "continue up the stack with: callers Program.Main --root 'WorkloadAction' --process 'MyApp'");
         hints[1].Should().Be(
             "continue down into the callee with: callers MyApp.Inner --callees --root 'WorkloadAction' --process 'MyApp'");
+
+        AnalysisResult<CallersResult> envelope = new(callers, hints: hints);
+        envelope.NextSteps.Should().HaveCount(2);
+        envelope.NextSteps.Should().OnlyContain(step => step.Operation == "callers");
+        envelope.NextSteps.Should().OnlyContain(step => step.Arguments!.Root == "WorkloadAction");
+        envelope.NextSteps.Should().OnlyContain(step => step.Arguments!.Process == "MyApp");
+        envelope.NextSteps[0].Arguments!.Frame.Should().Be("Program.Main");
+        envelope.NextSteps[0].Arguments!.Callees.Should().BeNull();
+        envelope.NextSteps[1].Arguments!.Frame.Should().Be("MyApp.Inner");
+        envelope.NextSteps[1].Arguments!.Callees.Should().BeTrue();
     }
 
     [TestMethod]
@@ -374,6 +450,12 @@ public sealed class SteeringHintsTests
         IReadOnlyList<string> hints = SteeringHints.ForDiff(diff);
 
         hints.Should().ContainSingle().Which.Should().Be("the largest change is MyApp.Slow; drill into it with: callers MyApp.Slow");
+
+        AnalysisNextStep next = new AnalysisResult<RankingDiffResult>(diff, hints: hints).NextSteps[0];
+        next.Operation.Should().Be("callers");
+        next.Arguments.Should().NotBeNull();
+        next.Arguments!.Metric.Should().Be("cpu");
+        next.Arguments.Frame.Should().Be("MyApp.Slow");
     }
 
     [TestMethod]
@@ -384,6 +466,45 @@ public sealed class SteeringHintsTests
         IReadOnlyList<string> hints = SteeringHints.ForDiff(diff);
 
         hints.Should().ContainSingle().Which.Should().Contain("no frames changed");
+    }
+
+    [TestMethod]
+    public void ForDiff_EmptyManifest_NotesThatNoCaseChanged()
+    {
+        RankingDiffResult diff = new([]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForDiff(diff);
+
+        hints.Should().ContainSingle().Which.Should().Contain("paired manifest cases");
+        hints.Should().NotContain(hint => hint.Contains("two rankings match", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ForBatch_CompactCaseGuidance_IsReasonOnlyUntilCaseReferencesExist()
+    {
+        BatchRankingResult batch = new(
+            "manifest.json",
+            "cpu",
+            "self",
+            string.Empty,
+            [new BatchRankingCaseResult(
+                "Command.Run",
+                string.Empty,
+                "command.etl",
+                10.0,
+                "ms",
+                "MyApp.Hot",
+                8.0,
+                80.0,
+                10,
+                [])]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForBatch(batch);
+        AnalysisResult<BatchRankingResult> envelope = new(batch, hints: hints);
+
+        envelope.NextSteps.Should().ContainSingle();
+        envelope.NextSteps[0].Operation.Should().BeNull();
+        envelope.NextSteps[0].Reason.Should().Contain("Command.Run");
     }
 
     [TestMethod]
@@ -431,6 +552,16 @@ public sealed class SteeringHintsTests
         // A scoped timeline propagates its process into the drill so the follow-up
         // ranking stays on the same tree rather than re-auto-scoping.
         hints.Should().ContainSingle().Which.Should().EndWith("--time 40,60 --process HotLoopBench");
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: hints);
+        envelope.NextSteps.Should().ContainSingle();
+        AnalysisNextStep next = envelope.NextSteps[0];
+        next.Operation.Should().Be("rank");
+        next.Arguments.Should().NotBeNull();
+        next.Arguments!.Metric.Should().Be("cpu");
+        next.Arguments.Process.Should().Be("HotLoopBench");
+        next.Arguments.FromMs.Should().Be(40.0);
+        next.Arguments.ToMs.Should().Be(60.0);
     }
 
     [TestMethod]

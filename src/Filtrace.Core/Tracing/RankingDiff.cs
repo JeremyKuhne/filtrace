@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
+using Filtrace.Output;
+
 namespace Filtrace.Tracing;
 
 /// <summary>
@@ -11,6 +15,9 @@ namespace Filtrace.Tracing;
 /// </summary>
 public static class RankingDiff
 {
+    private static readonly JsonTypeInfo<DiffRow> s_diffRowJsonTypeInfo =
+        (JsonTypeInfo<DiffRow>)OutputJson.SerializerOptions.GetTypeInfo(typeof(DiffRow));
+
     /// <summary>
     ///  Diffs <paramref name="before"/> against <paramref name="after"/>, matching
     ///  rows by frame name and ordering the result by the size of the change.
@@ -62,6 +69,68 @@ public static class RankingDiff
             afterOperationCount,
             operationUnit);
     }
+
+    /// <summary>
+    ///  Limits a direct diff's rows and frame text to the shared response budget,
+    ///  leaving both scope totals untouched.
+    /// </summary>
+    /// <param name="diff">The direct trace diff to bound.</param>
+    /// <param name="warning">
+    ///  The warning naming shortened frame text or omitted rows, or
+    ///  <see langword="null"/> when the result was unchanged.
+    /// </param>
+    /// <returns>The bounded diff, or <paramref name="diff"/> when it already fits.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="diff"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="diff"/> is not a direct trace diff.</exception>
+    public static RankingDiffResult LimitRows(RankingDiffResult diff, out string? warning)
+    {
+        ArgumentNullException.ThrowIfNull(diff);
+        if (diff.Kind != RankingDiffResult.TraceKind)
+        {
+            throw new ArgumentException("Only a direct trace diff has top-level rows to limit.", nameof(diff));
+        }
+
+        List<DiffRow> boundedFrames = new(diff.Rows.Count);
+        bool frameNamesBounded = false;
+        foreach (DiffRow row in diff.Rows)
+        {
+            string frame = CaptureManifestOutput.BoundFrame(row.Frame);
+            bool frameChanged = !string.Equals(frame, row.Frame, StringComparison.Ordinal);
+            frameNamesBounded |= frameChanged;
+            boundedFrames.Add(frameChanged ? row with { Frame = frame } : row);
+        }
+
+        List<DiffRow> kept = OutputBudget.TakeWithinBudget(
+            boundedFrames,
+            EstimateRowTokens,
+            OutputBudget.DefaultRowBudgetTokens,
+            out bool rowsTruncated);
+
+        if (!frameNamesBounded && !rowsTruncated)
+        {
+            warning = null;
+            return diff;
+        }
+
+        string frameWarning = frameNamesBounded
+            ? $"Frame names were truncated to {CaptureManifestOutput.MaxFrameLength} characters or had control characters replaced. "
+            : string.Empty;
+        string rowWarning = rowsTruncated
+            ? $"Showing {kept.Count} of {diff.Rows.Count} changed rows; more would exceed the "
+                + $"{OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole response under the "
+                + $"{OutputBudget.DefaultCeilingTokens}-token ceiling. "
+            : string.Empty;
+        warning = $"{frameWarning}{rowWarning}Scope totals still cover every frame.";
+
+        return diff with
+        {
+            Rows = kept,
+            FrameNamesBounded = frameNamesBounded
+        };
+    }
+
+    private static int EstimateRowTokens(DiffRow row) =>
+        OutputBudget.EstimateTokens(JsonSerializer.Serialize(row, s_diffRowJsonTypeInfo)) + 1;
 
     private static RankingDiffResult DiffCore(
         RankingResult before,

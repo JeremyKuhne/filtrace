@@ -96,7 +96,7 @@ public static class CaptureManifestDiffAnalyzer
             }
         }
 
-        RankingDiffResult result = new(0.0, 0.0, 0.0, []) { Cases = cases };
+        RankingDiffResult result = new(cases);
         return new CaptureManifestDiffAnalysis(result, warnings);
     }
 

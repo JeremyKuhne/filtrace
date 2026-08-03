@@ -41,9 +41,11 @@ public sealed class TraceToolsTests
     // assert on the object directly rather than re-parsing JSON.
     private static void AssertEnvelope<T>(AnalysisResult<T> envelope)
     {
-        envelope.SchemaVersion.Should().Be(9);
+        envelope.SchemaVersion.Should().Be(12);
         envelope.Warnings.Should().NotBeNull();
+        envelope.Diagnostics.Should().NotBeNull();
         envelope.Hints.Should().NotBeNull();
+        envelope.NextSteps.Should().NotBeNull();
         envelope.Context.Should().NotBeNull();
         envelope.Result.Should().NotBeNull();
     }
@@ -726,6 +728,7 @@ public sealed class TraceToolsTests
         AnalysisResult<RankingDiffResult> envelope = TraceTools.Diff(store, path, path);
 
         AssertEnvelope(envelope);
+        envelope.Result.Kind.Should().Be(RankingDiffResult.TraceKind);
         envelope.Result.ScopeDelta.Should().Be(0.0);
         envelope.Result.Rows.Should().OnlyContain(row => row.Delta == 0.0);
     }
@@ -786,6 +789,7 @@ public sealed class TraceToolsTests
                 afterManifest);
 
             AssertEnvelope(envelope);
+            envelope.Result.Kind.Should().Be(RankingDiffResult.ManifestKind);
             envelope.Result.Cases.Should().ContainSingle();
             RankingDiffCaseResult captureCase = envelope.Result.Cases[0];
             captureCase.Benchmark.Should().Be("Bench.Work");
@@ -1666,6 +1670,13 @@ public sealed class TraceToolsTests
         if (envelope.Result.TotalMatched > 1)
         {
             envelope.Hints.Should().Contain(h => h.Contains("page with skip", StringComparison.Ordinal));
+            envelope.NextSteps.Should().ContainSingle();
+            AnalysisNextStep next = envelope.NextSteps[0];
+            next.Operation.Should().Be("events");
+            next.Arguments.Should().NotBeNull();
+            next.Arguments!.Path.Should().EndWith(Alloc);
+            next.Arguments.Skip.Should().Be(1);
+            next.Arguments.Take.Should().Be(1);
         }
     }
 

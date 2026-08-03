@@ -113,9 +113,12 @@ function Test-Assertion {
         return @($ok, "$($Assert.field) expected '$($Assert.equals)', got '$actual'")
     }
     if ($null -ne $Assert.hintContains) {
-        $hints = ($Json.hints -join "`n")
-        $ok = $hints.Contains([string]$Assert.hintContains)
-        return @($ok, "a hint should contain '$($Assert.hintContains)' (hints: $hints)")
+        $hintText = @($Json.hints | ForEach-Object {
+                if ($_ -is [string]) { $_ }
+                elseif ($null -ne $_.reason) { [string]$_.reason }
+            }) -join "`n"
+        $ok = $hintText.Contains([string]$Assert.hintContains)
+        return @($ok, "a hint should contain '$($Assert.hintContains)' (hints: $hintText)")
     }
     if ($null -ne $Assert.jsonContains) {
         $ok = $Raw.Contains([string]$Assert.jsonContains)

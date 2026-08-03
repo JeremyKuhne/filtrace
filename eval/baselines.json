@@ -3,15 +3,15 @@
   "tasks": {
     "cpu-hotspot": {
       "calls": 2,
-      "tokens": 203
+      "tokens": 255
     },
     "alloc-hotspot": {
       "calls": 1,
-      "tokens": 220
+      "tokens": 222
     },
     "exception-sites": {
       "calls": 1,
-      "tokens": 128
+      "tokens": 130
     },
     "gc-report": {
       "calls": 1,
@@ -19,11 +19,11 @@
     },
     "jit-report": {
       "calls": 1,
-      "tokens": 2259
+      "tokens": 2273
     },
     "etl-processes": {
       "calls": 1,
-      "tokens": 203
+      "tokens": 234
     },
     "cpu-tree": {
       "calls": 1,
@@ -31,67 +31,67 @@
     },
     "alloc-events": {
       "calls": 1,
-      "tokens": 5552
+      "tokens": 5605
     },
     "cpu-inclusive": {
       "calls": 1,
-      "tokens": 127
+      "tokens": 154
     },
     "threadtime-hotpath": {
       "calls": 1,
-      "tokens": 630
+      "tokens": 632
     },
     "timeline-window": {
       "calls": 1,
-      "tokens": 895
+      "tokens": 919
     },
     "caller-callee": {
       "calls": 1,
-      "tokens": 140
+      "tokens": 198
     },
     "trace-info-orientation": {
       "calls": 1,
-      "tokens": 135
+      "tokens": 137
     },
     "source-quality": {
       "calls": 1,
-      "tokens": 769
+      "tokens": 777
     },
     "manifest-batch": {
       "calls": 1,
-      "tokens": 313
+      "tokens": 315
     },
     "manifest-diff": {
       "calls": 1,
-      "tokens": 415
+      "tokens": 373
     },
     "lifecycle-phases": {
       "calls": 1,
-      "tokens": 400
+      "tokens": 404
     },
     "alloc-metric-choice": {
       "calls": 1,
-      "tokens": 220
+      "tokens": 222
     },
     "speedscope-source-limits": {
       "calls": 1,
-      "tokens": 135
+      "tokens": 137
     },
     "capture-status-unknown": {
       "calls": 1,
-      "tokens": 822
+      "tokens": 830
     },
     "event-count-only": {
       "calls": 1,
-      "tokens": 93
+      "tokens": 153
     },
     "jit-summary-first": {
       "calls": 1,
-      "tokens": 180
+      "tokens": 194
     },
     "scope-preserving-drill": {
       "calls": 1,
-      "tokens": 266
+      "tokens": 370
     }
   }
 }

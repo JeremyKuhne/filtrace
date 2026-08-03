@@ -80,9 +80,11 @@
 
 .PARAMETER FiltracePath
     Path or command name for filtrace. When it resolves, the helper verifies version
-    0.6.0 or newer and info JSON schema 8 before capture, then uses it to verify which
-    logged BenchmarkDotNet child output has an exact PDB match for each trace. When it
-    does not resolve, recorder-established analysis statuses remain the fallback.
+    0.6.0 or newer and the fields introduced by info JSON schema 8 before capture,
+    then uses it to verify which logged BenchmarkDotNet child output has an exact PDB
+    match for each trace. Newer envelope schemas are accepted when those fields remain
+    present. When filtrace does not resolve, recorder-established analysis statuses
+    remain the fallback.
 
 .PARAMETER Format
     Final result format: Text (default) or Json. BenchmarkDotNet output always stays
@@ -584,7 +586,7 @@ function Get-ObjectPropertyInfo($Object, [string]$Name) {
 
 function Assert-FiltraceCompatibility([string]$FiltraceCommand) {
     $minimumVersion = [Version]'0.6.0'
-    $expectedSchemaVersion = 8
+    $minimumSchemaVersion = 8
     $upgradeGuidance = 'Upgrade with: dotnet tool update -g KlutzyNinja.Filtrace'
 
     try {
@@ -649,13 +651,13 @@ function Assert-FiltraceCompatibility([string]$FiltraceCommand) {
         $captureStatusProperty = Get-ObjectPropertyInfo $cpuAnalysis 'captureStatus'
         $eventCountProperty = Get-ObjectPropertyInfo $cpuAnalysis 'eventCount'
         if ($null -eq $schemaVersionProperty -or
-            [int]$schemaVersionProperty.Value -ne $expectedSchemaVersion -or
+            [int]$schemaVersionProperty.Value -lt $minimumSchemaVersion -or
             $null -eq $resultProperty -or
             $null -eq $analysesProperty -or
             $null -eq $cpuProperty -or
             $null -eq $captureStatusProperty -or
             $null -eq $eventCountProperty) {
-            throw "info --format json did not match schema $expectedSchemaVersion"
+            throw "info --format json did not match schema $minimumSchemaVersion or newer"
         }
     }
     catch {

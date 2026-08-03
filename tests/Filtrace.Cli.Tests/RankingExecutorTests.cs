@@ -179,7 +179,8 @@ public sealed class RankingExecutorTests
         (int exit, string output, _) = Run(Request(Speedscope, top: 1, format: OutputFormat.Json));
 
         exit.Should().Be(ExitCodes.Success);
-        Regex.Matches(output, "\"frame\":").Count.Should().Be(1);
+        using JsonDocument document = JsonDocument.Parse(output);
+        document.RootElement.GetProperty("result").GetProperty("rows").GetArrayLength().Should().Be(1);
     }
 
     [TestMethod]

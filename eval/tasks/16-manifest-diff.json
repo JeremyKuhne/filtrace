@@ -8,6 +8,7 @@
     { "args": ["diff", "{fixture}", "tests/Filtrace.Core.Tests/Fixtures/manifests/diff/after/manifest.json"] }
   ],
   "assert": [
+    { "field": "result.kind", "equals": "manifest" },
     { "field": "result.cases[0].benchmark", "equals": "DictionaryBench.Resize" },
     { "field": "result.cases[0].parameters", "equals": "Size: 1000" },
     { "field": "result.cases[0].rows[0].frame", "equals": "Dictionary.Resize" },

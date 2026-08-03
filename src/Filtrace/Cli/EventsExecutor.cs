@@ -58,11 +58,28 @@ internal static class EventsExecutor
         // When matches remain beyond this page, steer toward the next one rather than
         // leaving the agent to guess the skip arithmetic.
         List<string> hints = [];
+        List<AnalysisNextStep> nextSteps = [];
         int shownThrough = result.Skipped + result.Events.Count;
         if (shownThrough < result.TotalMatched)
         {
-            hints.Add(
-                $"{result.TotalMatched - shownThrough} more match; page with --skip {shownThrough}.");
+            string reason =
+                $"{result.TotalMatched - shownThrough} more match; page with --skip {shownThrough}.";
+            hints.Add(reason);
+            nextSteps.Add(new AnalysisNextStep(reason)
+            {
+                Operation = "events",
+                Arguments = new AnalysisNextStepArguments
+                {
+                    Path = request.Path,
+                    Name = string.IsNullOrEmpty(request.Name) ? null : request.Name,
+                    Skip = shownThrough,
+                    Take = request.Take,
+                    MaxPayload = request.MaxPayload,
+                    Payload = string.IsNullOrEmpty(request.Payload) ? null : request.Payload,
+                    ProcessId = request.Pid,
+                    ThreadId = request.Tid
+                }
+            });
         }
 
         List<string> warnings = [];
@@ -81,7 +98,8 @@ internal static class EventsExecutor
             result,
             warnings,
             hints,
-            new AnalysisContext("events"));
+            new AnalysisContext("events"),
+            nextSteps);
 
         if (request.Format == OutputFormat.Json)
         {
