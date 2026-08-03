@@ -233,9 +233,16 @@ public static class CaptureManifestReader
             }
 
             ValidateUniqueProperties(invocationElement, "invocation");
+            int processId = RequiredInt32(invocationElement, "processId", id);
+            if (processId <= 0)
+            {
+                throw new InvalidDataException(
+                    $"Capture case '{id}' has an invocation whose processId must be positive.");
+            }
+
             invocations.Add(new CaptureInvocation(
                 RequiredInt32(invocationElement, "ordinal", id),
-                RequiredInt32(invocationElement, "processId", id),
+                processId,
                 RequiredInt32(invocationElement, "exitCode", id),
                 RequiredTimestamp(invocationElement, "startedUtc", id),
                 RequiredTimestamp(invocationElement, "stoppedUtc", id)));

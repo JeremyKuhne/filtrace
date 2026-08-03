@@ -754,6 +754,48 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Diff_CommandManifests_UseEachCaseInvocationProcessIds()
+    {
+        TraceStore store = new();
+        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-mcp-command-diff-{Guid.NewGuid():N}");
+        string beforeDirectory = Path.Combine(directory, "before");
+        string afterDirectory = Path.Combine(directory, "after");
+        Directory.CreateDirectory(beforeDirectory);
+        Directory.CreateDirectory(afterDirectory);
+        string beforeManifest = Path.Combine(beforeDirectory, "manifest.json");
+        string afterManifest = Path.Combine(afterDirectory, "manifest.json");
+        string trace = FixturePath(Etw).Replace("\\", "\\\\", StringComparison.Ordinal);
+        try
+        {
+            string beforeJson = CommandManifestJson(trace, id: "before", processId: 999998);
+            string afterJson = CommandManifestJson(trace, id: "after", processId: 999999);
+            File.WriteAllText(beforeManifest, beforeJson);
+            File.WriteAllText(afterManifest, afterJson);
+
+            AnalysisResult<RankingDiffResult> envelope = TraceTools.Diff(
+                store,
+                beforeManifest,
+                afterManifest);
+
+            envelope.Result.Cases.Should().ContainSingle();
+            RankingDiffCaseResult captureCase = envelope.Result.Cases[0];
+            captureCase.BeforeScopeWeight.Should().Be(0.0);
+            captureCase.AfterScopeWeight.Should().Be(0.0);
+            captureCase.Warnings.Should().Contain(warning =>
+                warning.Contains("999998", StringComparison.Ordinal)
+                && warning.Contains("not found in this trace", StringComparison.Ordinal));
+            captureCase.Warnings.Should().Contain(warning =>
+                warning.Contains("999999", StringComparison.Ordinal)
+                && warning.Contains("not found in this trace", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void Batch_Manifest_ReturnsTypedCaseSummary()
     {
         TraceStore store = new();
@@ -780,6 +822,46 @@ public sealed class TraceToolsTests
             captureCase.ScopeWeightPerOperation.Should().Be(2.5);
             envelope.Hints.Should().ContainSingle(
                 hint => hint.Contains("rank against", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static string CommandManifestJson(string trace, string id, int processId) =>
+        $$"""
+        {"schemaVersion":2,"kind":"command","process":"HotLoopBench","cases":[{"id":"{{id}}","benchmark":"Command.Run","parameters":"","benchmarkDisplay":"Command.Run","trace":"{{trace}}","invocations":[{"ordinal":1,"processId":{{processId}},"exitCode":0,"startedUtc":"2026-08-03T00:00:00Z","stoppedUtc":"2026-08-03T00:00:01Z"}]}]}
+        """;
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Batch_CommandManifest_UsesTheCaseInvocationProcessIds()
+    {
+        TraceStore store = new();
+        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-mcp-command-batch-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string manifest = Path.Combine(directory, "manifest.json");
+        string trace = FixturePath(Etw).Replace("\\", "\\\\", StringComparison.Ordinal);
+        try
+        {
+            // The process name matches the fixture, but the recorded id does not. Exact
+            // per-case scope must therefore report the id as missing; the old name fallback
+            // would silently analyze HotLoopBench instead.
+            File.WriteAllText(
+                manifest,
+                $$"""
+                {"schemaVersion":2,"kind":"command","process":"HotLoopBench","cases":[{"id":"command","benchmark":"Command.Run","parameters":"","benchmarkDisplay":"Command.Run","trace":"{{trace}}","invocations":[{"ordinal":1,"processId":999999,"exitCode":0,"startedUtc":"2026-08-03T00:00:00Z","stoppedUtc":"2026-08-03T00:00:01Z"}]}]}
+                """);
+
+            AnalysisResult<BatchRankingResult> envelope = TraceTools.Batch(store, manifest);
+
+            envelope.Result.Cases.Should().ContainSingle();
+            BatchRankingCaseResult captureCase = envelope.Result.Cases[0];
+            captureCase.ScopeWeight.Should().Be(0.0);
+            captureCase.Warnings.Should().Contain(warning =>
+                warning.Contains("999999", StringComparison.Ordinal)
+                && warning.Contains("not found in this trace", StringComparison.Ordinal));
         }
         finally
         {

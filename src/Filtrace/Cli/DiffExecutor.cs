@@ -121,12 +121,11 @@ internal static class DiffExecutor
                 request.Top,
                 (manifest, captureCase) =>
                 {
-                    ScopeRequest? scope = ManifestScope(manifest, request.Scope);
                     LoadedTrace trace = store.Get(
                         captureCase.TracePath,
                         request.Symbols ?? captureCase.SymbolsDirectory,
                         TraceMetric.Cpu,
-                        scope);
+                        manifest.ResolveCaseScope(captureCase, request.Scope));
                     belowThreshold |= SymbolGate.IsBelowThreshold(
                         trace.Info.SymbolResolutionRate,
                         trace.Info.SampleCount);
@@ -161,20 +160,6 @@ internal static class DiffExecutor
             error.WriteLine(exception.Message);
             return ExitCodes.InputError;
         }
-    }
-
-    private static ScopeRequest? ManifestScope(CaptureManifest manifest, ScopeRequest? requested)
-    {
-        if (requested is { Selector: not null } or { IncludeAll: true })
-        {
-            return requested;
-        }
-
-        // The descendant mode is an independent axis, so it survives the fallback to the
-        // manifest's recorded process.
-        return manifest.Process is null
-            ? requested
-            : ScopeRequest.ForProcess(manifest.Process, requested?.IncludeChildren ?? true);
     }
 
     // Rank every frame (no row cap) so the diff is not skewed by per-side truncation;

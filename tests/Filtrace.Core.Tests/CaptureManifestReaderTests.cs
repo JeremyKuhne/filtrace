@@ -111,6 +111,23 @@ public sealed class CaptureManifestReaderTests
     }
 
     [TestMethod]
+    [DataRow(0)]
+    [DataRow(-1)]
+    public void Read_InvocationWithNonPositiveProcessId_Rejects(int processId)
+    {
+        using TemporaryManifest manifest = new(
+            $$"""
+            {"schemaVersion":2,"kind":"command","cases":[
+              {"id":"a","trace":"a.etl","invocations":[{"ordinal":1,"processId":{{processId}},"exitCode":0,"startedUtc":"2026-08-03T00:00:00Z","stoppedUtc":"2026-08-03T00:00:01Z"}]}
+            ]}
+            """);
+
+        Action act = () => CaptureManifestReader.Read(manifest.ManifestPath);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*processId must be positive*");
+    }
+
+    [TestMethod]
     public void Read_MoreInvocationsThanTheToolCanCapture_Rejects()
     {
         string invocations = string.Join(

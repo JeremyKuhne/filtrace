@@ -35,7 +35,7 @@ internal static class BatchExecutor
                         captureCase.TracePath,
                         request.Symbols ?? captureCase.SymbolsDirectory,
                         request.Metric,
-                        ManifestScope(captureManifest, request.Scope));
+                        captureManifest.ResolveCaseScope(captureCase, request.Scope));
                     belowThreshold |= SymbolGate.IsBelowThreshold(
                         trace.Info.SymbolResolutionRate,
                         trace.Info.SampleCount);
@@ -65,21 +65,6 @@ internal static class BatchExecutor
             error.WriteLine(exception.Message);
             return ExitCodes.InputError;
         }
-    }
-
-    private static ScopeRequest? ManifestScope(CaptureManifest manifest, ScopeRequest? requested)
-    {
-        // Explicit process/all-process input overrides the capture's recorded process;
-        // otherwise preserve the manifest scope, falling back to automatic scope. The
-        // descendant mode is an independent axis, so it survives the fallback.
-        if (requested is { Selector: not null } or { IncludeAll: true })
-        {
-            return requested;
-        }
-
-        return manifest.Process is null
-            ? requested
-            : ScopeRequest.ForProcess(manifest.Process, requested?.IncludeChildren ?? true);
     }
 
     private static string MetricSelector(TraceMetric metric) => metric switch
