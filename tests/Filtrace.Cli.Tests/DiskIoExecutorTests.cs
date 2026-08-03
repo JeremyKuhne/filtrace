@@ -90,13 +90,22 @@ public sealed class DiskIoExecutorTests
     }
 
     [TestMethod]
-    public void Run_NonPositiveTop_ReturnsUsageError()
+    public void Run_NegativeTop_ReturnsUsageError()
     {
-        // The verb enforces top >= 1, but the executor guards the boundary too so a
-        // direct call with a bad top fails cleanly rather than emitting a "top 0" report.
-        (int exit, _, string error) = Run(Request(DiskIo, top: 0));
+        // The verb enforces top >= 0, but the executor guards the boundary too so a
+        // direct call with a bad top fails cleanly rather than emitting a negative report.
+        (int exit, _, string error) = Run(Request(DiskIo, top: -1));
 
         exit.Should().Be(ExitCodes.UsageError);
-        error.Should().Contain("top must be 1 or greater");
+        error.Should().Contain("top must be 0 or greater");
+    }
+
+    [TestMethod]
+    public void Run_ZeroTop_ReportsTheTotalsWithoutFileRows()
+    {
+        (int exit, string output, _) = Run(Request(DiskIo, top: 0, format: OutputFormat.Json));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("\"files\":[]").And.Contain("Aggregate only");
     }
 }

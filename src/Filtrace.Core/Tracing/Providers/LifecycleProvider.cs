@@ -181,7 +181,10 @@ public sealed class LifecycleProvider
     ///  leaving the phase medians untouched.
     /// </summary>
     /// <param name="report">The full report, as returned by <see cref="Read"/>.</param>
-    /// <param name="top">The caller's maximum detail row count. Must be positive.</param>
+    /// <param name="top">
+    ///  The caller's maximum detail row count. Must be non-negative; zero keeps the
+    ///  phase medians and drops every invocation row.
+    /// </param>
     /// <param name="warning">
     ///  The warning naming what was dropped, or <see langword="null"/> when every
     ///  invocation was kept.
@@ -197,11 +200,11 @@ public sealed class LifecycleProvider
     ///  </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="report"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is not positive.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is negative.</exception>
     public static LifecycleResult LimitDetail(LifecycleResult report, int top, out string? warning)
     {
         ArgumentNullException.ThrowIfNull(report);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+        ArgumentOutOfRangeException.ThrowIfNegative(top);
 
         List<LifecycleInvocation> kept = OutputBudget.TakeWithinBudget(
             report.Invocations.Take(top),
@@ -219,8 +222,11 @@ public sealed class LifecycleProvider
             ? $"Showing {kept.Count} of {report.InvocationCount} invocations in start order; more would exceed "
                 + $"the {OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response "
                 + $"under the {OutputBudget.DefaultCeilingTokens}-token ceiling. The medians still cover all of them."
-            : $"Showing the first {top} of {report.InvocationCount} invocations in start order; "
-                + "the medians cover all of them.";
+            : top == 0
+                ? $"Aggregate only: {report.InvocationCount} invocations were not listed; the medians cover all "
+                    + "of them. Ask again with a positive top for the per-invocation detail."
+                : $"Showing the first {top} of {report.InvocationCount} invocations in start order; "
+                    + "the medians cover all of them.";
 
         return report with { Invocations = kept };
     }

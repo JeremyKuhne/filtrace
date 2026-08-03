@@ -137,7 +137,10 @@ public sealed partial class DiskIoProvider
     ///  leaving the aggregate summary untouched.
     /// </summary>
     /// <param name="report">The full report, as returned by <see cref="Read"/>.</param>
-    /// <param name="top">The caller's maximum detail row count. Must be positive.</param>
+    /// <param name="top">
+    ///  The caller's maximum detail row count. Must be non-negative; zero keeps the
+    ///  aggregate summary and drops every file row.
+    /// </param>
     /// <param name="warning">
     ///  The warning naming what was dropped, or <see langword="null"/> when the whole file
     ///  list was kept.
@@ -155,11 +158,11 @@ public sealed partial class DiskIoProvider
     ///  </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="report"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is not positive.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is negative.</exception>
     public static DiskIoResult LimitDetail(DiskIoResult report, int top, out string? warning)
     {
         ArgumentNullException.ThrowIfNull(report);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+        ArgumentOutOfRangeException.ThrowIfNegative(top);
 
         List<DiskIoFileRecord> kept = OutputBudget.TakeWithinBudget(
             report.Files.Take(top),
@@ -178,7 +181,10 @@ public sealed partial class DiskIoProvider
                 + $"{OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response under "
                 + $"the {OutputBudget.DefaultCeilingTokens}-token ceiling. The aggregate summary still covers "
                 + "every file."
-            : $"Showing the top {top} of {report.Files.Count} files by disk time.";
+            : top == 0
+                ? $"Aggregate only: {report.Files.Count} files were not listed. Ask again with a positive top "
+                    + "for the per-file detail."
+                : $"Showing the top {top} of {report.Files.Count} files by disk time.";
 
         return report with { Files = kept };
     }

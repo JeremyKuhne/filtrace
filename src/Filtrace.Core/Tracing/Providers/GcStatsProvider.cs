@@ -87,7 +87,10 @@ public sealed class GcStatsProvider
     ///  leaving the aggregate summary untouched.
     /// </summary>
     /// <param name="report">The full report, as returned by <see cref="Read"/>.</param>
-    /// <param name="top">The caller's maximum detail row count. Must be positive.</param>
+    /// <param name="top">
+    ///  The caller's maximum detail row count. Must be non-negative; zero keeps the
+    ///  aggregate summary and drops every collection row.
+    /// </param>
     /// <param name="warning">
     ///  The warning naming what was dropped, or <see langword="null"/> when the whole
     ///  collection list was kept.
@@ -103,11 +106,11 @@ public sealed class GcStatsProvider
     ///  </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="report"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is not positive.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="top"/> is negative.</exception>
     public static GcStatsResult LimitDetail(GcStatsResult report, int top, out string? warning)
     {
         ArgumentNullException.ThrowIfNull(report);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(top);
+        ArgumentOutOfRangeException.ThrowIfNegative(top);
 
         List<GcRecord> kept = OutputBudget.TakeWithinBudget(
             report.Gcs.OrderByDescending(static collection => collection.PauseMs).Take(top),
@@ -126,7 +129,10 @@ public sealed class GcStatsProvider
                 + $"{OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response under "
                 + $"the {OutputBudget.DefaultCeilingTokens}-token ceiling. The aggregate summary still covers "
                 + "every collection."
-            : $"Showing the top {top} of {report.GcCount} collections by pause time.";
+            : top == 0
+                ? $"Aggregate only: {report.GcCount} collections were not listed. Ask again with a positive top "
+                    + "for the per-collection detail."
+                : $"Showing the top {top} of {report.GcCount} collections by pause time.";
 
         return report with { Gcs = kept };
     }

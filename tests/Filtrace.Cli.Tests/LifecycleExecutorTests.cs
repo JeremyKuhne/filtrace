@@ -138,12 +138,21 @@ public sealed class LifecycleExecutorTests
     }
 
     [TestMethod]
-    public void Run_NonPositiveTop_ReturnsUsageError()
+    public void Run_NegativeTop_ReturnsUsageError()
     {
-        (int exit, _, string error) = Run(Request(Etw, top: 0));
+        (int exit, _, string error) = Run(Request(Etw, top: -1));
 
         exit.Should().Be(ExitCodes.UsageError);
-        error.Should().Contain("top must be 1 or greater.");
+        error.Should().Contain("top must be 0 or greater.");
+    }
+
+    [TestMethod]
+    public void Run_ZeroTop_KeepsTheMediansWithoutInvocationRows()
+    {
+        (int exit, string output, _) = Run(Request(Etw, top: 0, format: OutputFormat.Json));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("\"invocations\":[]").And.Contain("Aggregate only");
     }
 
     [TestMethod]

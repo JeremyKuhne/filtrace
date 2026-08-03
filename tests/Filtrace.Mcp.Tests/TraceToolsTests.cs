@@ -808,11 +808,21 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
-    public void Gc_NonPositiveTop_Throws()
+    public void Gc_NegativeTop_Throws()
     {
-        Action act = () => TraceTools.Gc(FixturePath(Alloc), top: 0);
+        Action act = () => TraceTools.Gc(FixturePath(Alloc), top: -1);
 
-        act.Should().Throw<McpException>().WithMessage("*top must be 1 or greater*");
+        act.Should().Throw<McpException>().WithMessage("*top must be 0 or greater*");
+    }
+
+    [TestMethod]
+    public void Gc_ZeroTop_ReturnsTheAggregateWithoutRows()
+    {
+        AnalysisResult<GcStatsResult> envelope = TraceTools.Gc(FixturePath(Alloc), top: 0);
+
+        envelope.Result.Gcs.Should().BeEmpty();
+        envelope.Result.GcCount.Should().BeGreaterThan(0, "the aggregate still covers every collection");
+        envelope.Warnings.Should().Contain(w => w.Contains("Aggregate only", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -925,11 +935,21 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
-    public void DiskIo_NonPositiveTop_Throws()
+    public void DiskIo_NegativeTop_Throws()
     {
-        Action act = () => TraceTools.DiskIo(FixturePath(DiskIoTrace), top: 0);
+        Action act = () => TraceTools.DiskIo(FixturePath(DiskIoTrace), top: -1);
 
-        act.Should().Throw<McpException>().WithMessage("*top must be 1 or greater*");
+        act.Should().Throw<McpException>().WithMessage("*top must be 0 or greater*");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void DiskIo_ZeroTop_ReturnsTheAggregateWithoutRows()
+    {
+        AnalysisResult<DiskIoResult> envelope = TraceTools.DiskIo(FixturePath(DiskIoTrace), top: 0);
+
+        envelope.Result.Files.Should().BeEmpty();
+        envelope.Warnings.Should().Contain(w => w.Contains("Aggregate only", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -992,11 +1012,25 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
-    public void Lifecycle_NonPositiveTop_Throws()
+    public void Lifecycle_NegativeTop_Throws()
     {
-        Action act = () => TraceTools.Lifecycle(FixturePath(Etw), top: 0);
+        Action act = () => TraceTools.Lifecycle(FixturePath(Etw), top: -1);
 
-        act.Should().Throw<McpException>().WithMessage("*top must be 1 or greater*");
+        act.Should().Throw<McpException>().WithMessage("*top must be 0 or greater*");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Lifecycle_ZeroTop_ReturnsTheMediansWithoutInvocations()
+    {
+        AnalysisResult<LifecycleResult> envelope = TraceTools.Lifecycle(
+            FixturePath(Etw),
+            process: "HotLoop",
+            top: 0);
+
+        envelope.Result.Invocations.Should().BeEmpty();
+        envelope.Result.Phases.Should().NotBeEmpty("the medians cover every invocation");
+        envelope.Warnings.Should().Contain(w => w.Contains("Aggregate only", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -1124,11 +1158,23 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
-    public void Jit_NonPositiveTop_Throws()
+    public void Jit_NegativeTop_Throws()
     {
-        Action act = () => TraceTools.Jit(FixturePath(Jit), top: 0);
+        Action act = () => TraceTools.Jit(FixturePath(Jit), top: -1);
 
-        act.Should().Throw<McpException>().WithMessage("*top must be 1 or greater*");
+        act.Should().Throw<McpException>().WithMessage("*top must be 0 or greater*");
+    }
+
+    [TestMethod]
+    public void Jit_ZeroTop_ReturnsTheAggregateWithoutRows()
+    {
+        // Agents reach for top 0 to mean "the summary, no detail rows"; it costs 86
+        // estimated tokens against 2,251 at the default.
+        AnalysisResult<JitStatsResult> envelope = TraceTools.Jit(FixturePath(Jit), top: 0);
+
+        envelope.Result.Methods.Should().BeEmpty();
+        envelope.Result.MethodCount.Should().BeGreaterThan(0, "the aggregate still covers every method");
+        envelope.Warnings.Should().Contain(w => w.Contains("Aggregate only", StringComparison.Ordinal));
     }
 
     [TestMethod]

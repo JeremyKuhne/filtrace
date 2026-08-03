@@ -520,7 +520,7 @@ internal sealed class TraceCommands
     /// <param name="process">Root processes are those whose name contains this; omit to use the busiest.</param>
     /// <param name="pid">Use these exact process ids as the invocation roots (comma-separated); excludes --process.</param>
     /// <param name="image">Module-name substrings to time as loader milestones (comma-separated), such as hostfxr.</param>
-    /// <param name="top">-n, Maximum number of per-invocation rows to show; medians always cover every invocation.</param>
+    /// <param name="top">-n, Maximum number of per-invocation rows to show, or 0 for the medians alone; medians always cover every invocation.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -536,7 +536,7 @@ internal sealed class TraceCommands
         string process = "",
         int[]? pid = null,
         string[]? image = null,
-        [Range(1, int.MaxValue)] int top = 25,
+        [Range(0, int.MaxValue)] int top = 25,
         OutputFormat format = OutputFormat.Text)
     {
         if (!RankRequestFactory.TryResolveScope(process, pid, Children.Include, allProcesses: false, out ScopeRequest scope, out string? scopeError))
@@ -609,7 +609,7 @@ internal sealed class TraceCommands
     ///  Report physical disk I/O by file: bytes read and written to each file, and disk service time.
     /// </summary>
     /// <param name="trace">Path to a Windows ETW .etl file captured with the DiskIO (and DiskFileIO, for file names) kernel keyword.</param>
-    /// <param name="top">-n, Maximum number of per-file rows to show, ranked by disk time.</param>
+    /// <param name="top">-n, Maximum number of per-file rows to show, ranked by disk time, or 0 for the totals alone.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -620,7 +620,7 @@ internal sealed class TraceCommands
     [Command("diskio")]
     public int DiskIo(
         [Argument] string trace,
-        [Range(1, int.MaxValue)] int top = 25,
+        [Range(0, int.MaxValue)] int top = 25,
         OutputFormat format = OutputFormat.Text)
     {
         DiskIoRequest request = new(trace, top, format);
@@ -868,7 +868,7 @@ internal sealed class TraceCommands
     ///  Report garbage-collection behavior: counts by generation, pause-time summary, and per-collection detail.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe file captured with GC events (GcVerbose).</param>
-    /// <param name="top">-n, Maximum number of per-collection rows to show, ranked by pause time.</param>
+    /// <param name="top">-n, Maximum number of per-collection rows to show, ranked by pause time, or 0 for the summary alone.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -878,7 +878,7 @@ internal sealed class TraceCommands
     [Command("gcstats")]
     public int GcStats(
         [Argument] string trace,
-        [Range(1, int.MaxValue)] int top = 50,
+        [Range(0, int.MaxValue)] int top = 50,
         OutputFormat format = OutputFormat.Text)
     {
         GcStatsRequest request = new(trace, top, format);
@@ -924,7 +924,7 @@ internal sealed class TraceCommands
     ///  Report just-in-time compilation: method count, compile-time summary, and per-method detail.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe file captured with JIT events.</param>
-    /// <param name="top">-n, Maximum number of per-method rows to show, ranked by compile time.</param>
+    /// <param name="top">-n, Maximum number of per-method rows to show, ranked by compile time, or 0 for the summary alone.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -934,7 +934,7 @@ internal sealed class TraceCommands
     [Command("jitstats")]
     public int JitStats(
         [Argument] string trace,
-        [Range(1, int.MaxValue)] int top = 25,
+        [Range(0, int.MaxValue)] int top = 25,
         OutputFormat format = OutputFormat.Text)
     {
         JitStatsRequest request = new(trace, top, format);

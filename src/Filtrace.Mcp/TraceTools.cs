@@ -611,7 +611,7 @@ public sealed class TraceTools
     ///  the aggregate pause and heap summary plus the hottest per-collection records.
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
-    /// <param name="top">Maximum per-collection records to return, ranked by pause time.</param>
+    /// <param name="top">Maximum per-collection records to return, ranked by pause time, or 0 for the summary alone.</param>
     /// <returns>The GC-report envelope.</returns>
     [McpServerTool(Name = "trace_gc", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
@@ -621,7 +621,7 @@ public sealed class TraceTools
         [Description("Path to a .nettrace EventPipe trace file.")] string path,
         [Description("Maximum number of per-collection records to return, ranked by pause time.")] int top = 25)
     {
-        RequirePositiveTop(top);
+        RequireNonNegativeTop(top);
         GcStatsResult full = ReadGcStats(path);
 
         // Keep the full aggregate summary, but bound the per-collection detail by both
@@ -722,7 +722,7 @@ public sealed class TraceTools
     ///  reads and writes aggregated by file, ranked by disk service time.
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
-    /// <param name="top">Maximum per-file rows to return, ranked by disk time.</param>
+    /// <param name="top">Maximum per-file rows to return, ranked by disk time, or 0 for the totals alone.</param>
     /// <returns>The disk-I/O report envelope.</returns>
     [McpServerTool(Name = "trace_diskio", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
@@ -732,7 +732,7 @@ public sealed class TraceTools
         [Description("Path to a Windows ETW .etl trace file.")] string path,
         [Description("Maximum number of per-file rows to return, ranked by disk service time.")] int top = 25)
     {
-        RequirePositiveTop(top);
+        RequireNonNegativeTop(top);
         DiskIoResult full = ReadDiskIo(path);
 
         // Keep the full aggregate summary, but bound the per-file detail by both the
@@ -757,7 +757,7 @@ public sealed class TraceTools
     /// <param name="process">Process-name substring choosing the invocation roots.</param>
     /// <param name="pid">Exact process ids to use as the invocation roots.</param>
     /// <param name="image">Module-name substrings to time as loader milestones.</param>
-    /// <param name="top">Maximum per-invocation rows to return.</param>
+    /// <param name="top">Maximum per-invocation rows to return, or 0 for the medians alone.</param>
     /// <returns>The lifecycle report envelope.</returns>
     [McpServerTool(Name = "trace_lifecycle", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
@@ -771,7 +771,7 @@ public sealed class TraceTools
         [Description("Module-name substrings to time as loader milestones, such as hostfxr.")] string[]? image = null,
         [Description("Maximum number of per-invocation rows to return; medians cover every invocation.")] int top = 25)
     {
-        RequirePositiveTop(top);
+        RequireNonNegativeTop(top);
 
         // Descendants are the measurement, not an option: the phases are defined against
         // them, so the children axis the other scoped tools expose does not apply here.
@@ -1105,7 +1105,7 @@ public sealed class TraceTools
     ///  the aggregate compile summary plus the costliest per-method records.
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
-    /// <param name="top">Maximum per-method records to return, ranked by compile time.</param>
+    /// <param name="top">Maximum per-method records to return, ranked by compile time, or 0 for the summary alone.</param>
     /// <returns>The JIT-report envelope.</returns>
     [McpServerTool(Name = "trace_jit", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(AnalysisEnvelopeSchema))]
     [Description(
@@ -1115,7 +1115,7 @@ public sealed class TraceTools
         [Description("Path to a .nettrace EventPipe trace file.")] string path,
         [Description("Maximum number of per-method records to return, ranked by compile time.")] int top = 25)
     {
-        RequirePositiveTop(top);
+        RequireNonNegativeTop(top);
         JitStatsResult full = ReadJitStats(path);
 
         // Keep the full aggregate summary, but bound the per-method detail by both the
@@ -1270,6 +1270,16 @@ public sealed class TraceTools
         if (top < 1)
         {
             throw new McpException("top must be 1 or greater.");
+        }
+    }
+
+    // The aggregate-report tools accept 0 as "aggregate only, no detail rows", which is
+    // what agents already reach for when a question needs the summary alone.
+    private static void RequireNonNegativeTop(int top)
+    {
+        if (top < 0)
+        {
+            throw new McpException("top must be 0 or greater.");
         }
     }
 
