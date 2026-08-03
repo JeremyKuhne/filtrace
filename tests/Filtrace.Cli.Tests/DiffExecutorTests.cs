@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json;
 using Filtrace.Tracing;
 
 namespace Filtrace.Cli;
@@ -131,7 +132,12 @@ public sealed class DiffExecutorTests
         string json = output.Trim();
         json.Should().NotContain("\n");
         json.Should().Contain("\"schemaVersion\"");
-        json.Should().Contain("\"scopeDelta\"");
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement result = document.RootElement.GetProperty("result");
+        result.GetProperty("kind").GetString().Should().Be(RankingDiffResult.TraceKind);
+        result.GetProperty("scopeDelta").GetDouble().Should().Be(0.0);
+        result.GetProperty("rows").GetArrayLength().Should().Be(0);
+        result.TryGetProperty("cases", out _).Should().BeFalse();
     }
 
     [TestMethod]
@@ -248,6 +254,14 @@ public sealed class DiffExecutorTests
             output.Should().Contain("\"operationUnit\":\"items\"");
             output.Should().Contain("\"percentagePointChange\"");
             output.Should().Contain("\"scopeWeightPerOperationDelta\":-0.5");
+            using JsonDocument document = JsonDocument.Parse(output);
+            JsonElement result = document.RootElement.GetProperty("result");
+            result.GetProperty("kind").GetString().Should().Be(RankingDiffResult.ManifestKind);
+            result.GetProperty("cases").GetArrayLength().Should().Be(1);
+            result.TryGetProperty("beforeScopeWeight", out _).Should().BeFalse();
+            result.TryGetProperty("afterScopeWeight", out _).Should().BeFalse();
+            result.TryGetProperty("scopeDelta", out _).Should().BeFalse();
+            result.TryGetProperty("rows", out _).Should().BeFalse();
 
             (int textExit, string textOutput, _) = Run(Request(beforeManifest, afterManifest));
             textExit.Should().Be(ExitCodes.Success);

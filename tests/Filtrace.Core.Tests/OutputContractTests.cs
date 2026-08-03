@@ -23,7 +23,7 @@ public sealed class OutputContractTests
 
         return new AnalysisResult<RankingResult>(
             payload,
-            warnings: ["symbol resolution 50% (< 80%); pass --symbols <dir>"],
+            warnings: ["Only 50% of frames resolved to a method name (< 80%); native frames may be unresolved."],
             hints: SteeringHints.ForRanking(payload),
             context: new AnalysisContext("rank")
             {
@@ -60,7 +60,18 @@ public sealed class OutputContractTests
 
         root.GetProperty("schemaVersion").GetInt32().Should().Be(AnalysisResult<RankingResult>.CurrentSchemaVersion);
         root.GetProperty("warnings").EnumerateArray().Should().ContainSingle();
+        JsonElement warning = root.GetProperty("warnings")[0];
+        warning.GetProperty("code").GetString().Should().Be(AnalysisDiagnosticCodes.LowFrameResolution);
+        warning.GetProperty("severity").GetString().Should().Be("warning");
+        warning.GetProperty("message").GetString().Should().Contain("Only 50% of frames resolved");
+        warning.GetProperty("data").GetProperty("resolutionPercent").GetInt32().Should().Be(50);
+        warning.GetProperty("data").GetProperty("minimumResolutionPercent").GetInt32().Should().Be(80);
         root.GetProperty("hints").EnumerateArray().Should().ContainSingle();
+        JsonElement next = root.GetProperty("hints")[0];
+        next.GetProperty("operation").GetString().Should().Be("callers");
+        next.GetProperty("reason").GetString().Should().Contain("drill into the hot frame");
+        next.GetProperty("arguments").GetProperty("frame").GetString().Should().Be("MyApp.Inner");
+        next.GetProperty("arguments").GetProperty("metric").GetString().Should().Be("cpu");
         root.GetProperty("context").GetProperty("operation").GetString().Should().Be("rank");
         root.GetProperty("context").GetProperty("metric").GetString().Should().Be("cpu");
         root.GetProperty("result").GetProperty("rows").EnumerateArray().Should().HaveCount(2);
@@ -213,6 +224,62 @@ public sealed class OutputContractTests
     }
 
     [TestMethod]
+    public void Constructor_PreservesWarningMessagesForTextRenderers()
+    {
+        AnalysisResult<RankingResult> envelope = new(
+            new RankingResult(0.0, string.Empty, []),
+            warnings: ["plain warning"]);
+
+        envelope.Warnings.Should().ContainSingle("plain warning");
+        envelope.Diagnostics.Should().ContainSingle();
+        envelope.Diagnostics[0].Message.Should().Be("plain warning");
+    }
+
+    [TestMethod]
+    public void Constructor_SnapshotsWarningAndHintInputs()
+    {
+        List<string> warnings = ["first warning"];
+        List<string> hints = ["first hint"];
+        AnalysisResult<RankingResult> envelope = new(
+            new RankingResult(0.0, string.Empty, []),
+            warnings,
+            hints);
+
+        warnings.Add("late warning");
+        hints.Add("late hint");
+
+        envelope.Warnings.Should().ContainSingle("first warning");
+        envelope.Diagnostics.Should().ContainSingle();
+        envelope.Hints.Should().ContainSingle("first hint");
+        envelope.NextSteps.Should().ContainSingle();
+        envelope.NextSteps[0].Reason.Should().Be("first hint");
+        envelope.NextSteps[0].Operation.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void Constructor_LegacyFourParameterSignature_RemainsAvailable()
+    {
+        Type envelopeType = typeof(AnalysisResult<RankingResult>);
+
+        envelopeType.GetConstructor(
+        [
+            typeof(RankingResult),
+            typeof(IReadOnlyList<string>),
+            typeof(IReadOnlyList<string>),
+            typeof(AnalysisContext)
+        ]).Should().NotBeNull();
+    }
+
+    [TestMethod]
+    public void AnalysisEnvelopeSchema_LegacyChannelsRemainStringLists()
+    {
+        typeof(AnalysisEnvelopeSchema).GetProperty(nameof(AnalysisEnvelopeSchema.Warnings))!
+            .PropertyType.Should().Be(typeof(IReadOnlyList<string>));
+        typeof(AnalysisEnvelopeSchema).GetProperty(nameof(AnalysisEnvelopeSchema.Hints))!
+            .PropertyType.Should().Be(typeof(IReadOnlyList<string>));
+    }
+
+    [TestMethod]
     public void Serialize_Doubles_RoundedToTwoDecimals()
     {
         RankingResult payload = new(
@@ -269,6 +336,46 @@ public sealed class OutputContractTests
         json.Should().Contain("\"beforeWeightPerOperation\":1");
         json.Should().Contain("\"afterWeightPerOperation\":2");
         json.Should().Contain("\"perOperationDelta\":1");
+    }
+
+    [TestMethod]
+    public void Serialize_DiffKinds_KeepApplicableEmptyArraysAndOmitUnrelatedFields()
+    {
+        AnalysisResult<RankingDiffResult> traceEnvelope = new(
+            new RankingDiffResult(0.0, 0.0, 0.0, []));
+        AnalysisResult<RankingDiffResult> manifestEnvelope = new(
+            new RankingDiffResult([]));
+
+        using JsonDocument traceDocument = JsonDocument.Parse(OutputJson.Serialize(traceEnvelope));
+        JsonElement trace = traceDocument.RootElement.GetProperty("result");
+        trace.GetProperty("kind").GetString().Should().Be(RankingDiffResult.TraceKind);
+        trace.GetProperty("rows").GetArrayLength().Should().Be(0);
+        trace.TryGetProperty("cases", out _).Should().BeFalse();
+
+        using JsonDocument manifestDocument = JsonDocument.Parse(OutputJson.Serialize(manifestEnvelope));
+        JsonElement manifest = manifestDocument.RootElement.GetProperty("result");
+        manifest.GetProperty("kind").GetString().Should().Be(RankingDiffResult.ManifestKind);
+        manifest.GetProperty("cases").GetArrayLength().Should().Be(0);
+        manifest.TryGetProperty("beforeScopeWeight", out _).Should().BeFalse();
+        manifest.TryGetProperty("afterScopeWeight", out _).Should().BeFalse();
+        manifest.TryGetProperty("scopeDelta", out _).Should().BeFalse();
+        manifest.TryGetProperty("rows", out _).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void Constructor_DiffCasesInitializer_SelectsManifestKind()
+    {
+        RankingDiffResult result = new(0.0, 0.0, 0.0, []) { Cases = [] };
+
+        result.Kind.Should().Be(RankingDiffResult.ManifestKind);
+    }
+
+    [TestMethod]
+    public void Constructor_DiffNullRows_ThrowsArgumentNull()
+    {
+        Action act = () => _ = new RankingDiffResult(0.0, 0.0, 0.0, null!);
+
+        act.Should().Throw<ArgumentNullException>().WithParameterName("Rows");
     }
 
     [TestMethod]

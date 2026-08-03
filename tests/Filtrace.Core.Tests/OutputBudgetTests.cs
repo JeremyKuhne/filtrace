@@ -256,11 +256,67 @@ public sealed class OutputBudgetTests
                 })
         ];
         AnalysisResult<RankingDiffResult> envelope = new(
-            new RankingDiffResult(0.0, 0.0, 0.0, []) { Cases = cases });
+            new RankingDiffResult(cases));
 
         string json = OutputJson.Serialize(envelope);
 
         OutputBudget.IsOverBudget(json).Should().BeFalse(
             $"bounded diff output estimated {OutputBudget.EstimateTokens(json)} tokens");
+    }
+
+    [TestMethod]
+    public void DirectDiff_ManyRows_IsBoundedBelowDefaultCeiling()
+    {
+        DiffRow[] rows =
+        [
+            .. Enumerable.Range(0, 2_000)
+                .Select(index => new DiffRow($"Frame.{index}.{new string('f', 120)}", 10.0, 20.0, 10.0))
+        ];
+        RankingDiffResult full = new(100.0, 200.0, 100.0, rows);
+
+        RankingDiffResult bounded = RankingDiff.LimitRows(full, out string? warning);
+        AnalysisResult<RankingDiffResult> envelope = new(bounded, warnings: [warning!]);
+        string json = OutputJson.Serialize(envelope);
+
+        bounded.Rows.Count.Should().BeLessThan(rows.Length);
+        warning.Should().Contain("changed rows");
+        OutputBudget.IsOverBudget(json).Should().BeFalse(
+            $"bounded direct diff estimated {OutputBudget.EstimateTokens(json)} tokens");
+    }
+
+    [TestMethod]
+    public void DirectDiff_OversizedFrame_IsShortenedAndBounded()
+    {
+        RankingDiffResult full = new(
+            100.0,
+            200.0,
+            100.0,
+            [new DiffRow(new string('f', 100_000), 10.0, 20.0, 10.0)]);
+
+        RankingDiffResult bounded = RankingDiff.LimitRows(full, out string? warning);
+        AnalysisResult<RankingDiffResult> envelope = new(bounded, warnings: [warning!]);
+        string json = OutputJson.Serialize(envelope);
+
+        bounded.Rows.Should().ContainSingle();
+        bounded.Rows[0].Frame.Should().HaveLength(CaptureManifestOutput.MaxFrameLength);
+        bounded.FrameNamesBounded.Should().BeTrue();
+        warning.Should().Contain("Frame names").And.Contain("truncated");
+        OutputBudget.IsOverBudget(json).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void DirectDiff_ControlCharactersInFrame_AreReplaced()
+    {
+        RankingDiffResult full = new(
+            100.0,
+            200.0,
+            100.0,
+            [new DiffRow("Frame\r\nInjected", 10.0, 20.0, 10.0)]);
+
+        RankingDiffResult bounded = RankingDiff.LimitRows(full, out string? warning);
+
+        bounded.Rows[0].Frame.Should().Be("Frame  Injected");
+        bounded.FrameNamesBounded.Should().BeTrue();
+        warning.Should().Contain("control characters replaced");
     }
 }

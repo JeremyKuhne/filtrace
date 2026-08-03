@@ -23,6 +23,7 @@ public sealed class RankingDiffTests
 
         RankingDiffResult diff = RankingDiff.Diff(before, after, 25);
 
+        diff.Kind.Should().Be(RankingDiffResult.TraceKind);
         diff.BeforeScopeWeight.Should().Be(100.0);
         diff.AfterScopeWeight.Should().Be(150.0);
         diff.ScopeDelta.Should().Be(50.0);

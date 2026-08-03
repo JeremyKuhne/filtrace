@@ -80,11 +80,17 @@ internal static class DiffExecutor
 
         RankingResult beforeRanking = Rank(before, request.Measure, request.Root, request.Fold);
         RankingResult afterRanking = Rank(after, request.Measure, request.Root, request.Fold);
-        RankingDiffResult diff = RankingDiff.Diff(beforeRanking, afterRanking, request.Top);
+        RankingDiffResult fullDiff = RankingDiff.Diff(beforeRanking, afterRanking, request.Top);
+        RankingDiffResult diff = RankingDiff.LimitRows(fullDiff, out string? budgetWarning);
+        List<string> warnings = [.. Warnings(before, after, beforeRanking, afterRanking)];
+        if (budgetWarning is not null)
+        {
+            warnings.Add(budgetWarning);
+        }
 
         AnalysisResult<RankingDiffResult> envelope = new(
             diff,
-            Warnings(before, after, beforeRanking, afterRanking),
+            warnings,
             SteeringHints.ForDiff(diff),
             AnalysisContext.ForMetric(
                 "diff",

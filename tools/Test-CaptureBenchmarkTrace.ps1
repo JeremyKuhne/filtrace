@@ -389,7 +389,15 @@ if ($isPreflight) {
         $global:LASTEXITCODE = 0
         return
     }
-    $schemaVersion = if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'incompatible-schema') { 7 } else { 8 }
+    $schemaVersion = if ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'incompatible-schema') {
+        7
+    }
+    elseif ($env:FILTRACE_CAPTURE_PREFLIGHT_MODE -eq 'newer-schema') {
+        12
+    }
+    else {
+        8
+    }
     [ordered]@{
         schemaVersion = $schemaVersion
         warnings = @()
@@ -544,42 +552,42 @@ $global:LASTEXITCODE = 0
             [ordered]@{
                 mode = 'incompatible-schema'
                 runId = 'incompatible-schema-run'
-                expected = 'did not match schema 8'
+                expected = 'did not match schema 8 or newer'
             },
             [ordered]@{
                 mode = 'missing-result'
                 runId = 'missing-result-run'
-                expected = 'did not match schema 8'
+                expected = 'did not match schema 8 or newer'
             },
             [ordered]@{
                 mode = 'missing-analyses'
                 runId = 'missing-analyses-run'
-                expected = 'did not match schema 8'
+                expected = 'did not match schema 8 or newer'
             },
             [ordered]@{
                 mode = 'missing-cpu'
                 runId = 'missing-cpu-run'
-                expected = 'did not match schema 8'
+                expected = 'did not match schema 8 or newer'
             },
             [ordered]@{
                 mode = 'incomplete-cpu'
                 runId = 'incomplete-cpu-run'
-                expected = 'did not match schema 8'
+                expected = 'did not match schema 8 or newer'
             },
             [ordered]@{
                 mode = 'array-result'
                 runId = 'array-result-run'
-                expected = 'did not match schema 8'
+                expected = 'did not match schema 8 or newer'
             },
             [ordered]@{
                 mode = 'array-analyses'
                 runId = 'array-analyses-run'
-                expected = 'did not match schema 8'
+                expected = 'did not match schema 8 or newer'
             },
             [ordered]@{
                 mode = 'array-cpu'
                 runId = 'array-cpu-run'
-                expected = 'did not match schema 8'
+                expected = 'did not match schema 8 or newer'
             }
         )
         foreach ($preflightCase in $preflightCases) {
@@ -625,6 +633,7 @@ $global:LASTEXITCODE = 0
 
     $env:FILTRACE_CAPTURE_ARGS = $argsPath
     $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
+    $env:FILTRACE_CAPTURE_PREFLIGHT_MODE = 'newer-schema'
     Push-Location $temporaryRoot
     try {
         $global:LASTEXITCODE = 0
@@ -636,6 +645,7 @@ $global:LASTEXITCODE = 0
         Pop-Location
         $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
         $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $previousChildSymbols
+        $env:FILTRACE_CAPTURE_PREFLIGHT_MODE = $previousPreflightMode
     }
 
     $currentRun = Join-Path $globalArtifacts 'filtrace-runs/current-run'

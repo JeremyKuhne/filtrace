@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json;
+
 namespace Filtrace.Cli;
 
 [TestClass]
@@ -78,6 +80,34 @@ public sealed class EventsExecutorTests
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("more match");
         output.Should().Contain("--skip 1");
+    }
+
+    [TestMethod]
+    public void Run_MorePagesRemain_JsonCarriesReplayablePagingStep()
+    {
+        EventsRequest request = Request(
+            Alloc,
+            name: "GC/AllocationTick",
+            take: 1,
+            maxPayload: 0,
+            payload: "System.String",
+            format: OutputFormat.Json);
+
+        (int exit, string output, _) = Run(request);
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement next = document.RootElement.GetProperty("hints")[0];
+        next.GetProperty("operation").GetString().Should().Be("events");
+        JsonElement arguments = next.GetProperty("arguments");
+        arguments.GetProperty("path").GetString().Should().Be(Alloc);
+        arguments.GetProperty("name").GetString().Should().Be("GC/AllocationTick");
+        arguments.GetProperty("payload").GetString().Should().Be("System.String");
+        arguments.GetProperty("skip").GetInt32().Should().Be(1);
+        arguments.GetProperty("take").GetInt32().Should().Be(1);
+        arguments.GetProperty("maxPayload").GetInt32().Should().Be(0);
+        arguments.TryGetProperty("processId", out _).Should().BeFalse();
+        arguments.TryGetProperty("threadId", out _).Should().BeFalse();
     }
 
     [TestMethod]

@@ -24,8 +24,10 @@ namespace Filtrace.Output;
 ///   frame to pass it, matching the hint pinned by the output-contract golden.
 ///  </para>
 ///  <para>
-///   The hints are advisory text, not commands; the CLI and MCP heads render them
-///   verbatim. When a result is empty the nudge steers toward widening the scope
+///   The text hints remain advisory messages for source and CLI compatibility. The
+///   returned list also carries operation-neutral metadata for a complete follow-up;
+///   explanatory guidance remains reason-only instead of inventing incomplete
+///   arguments. When a result is empty the nudge steers toward widening the scope
 ///   instead of drilling, because there is nothing to drill into.
 ///  </para>
 /// </remarks>
@@ -47,6 +49,60 @@ public static class SteeringHints
     ///  The nudge emitted when a verb's scope contains no frames to drill into.
     /// </summary>
     private const string EmptyScope = "no frames in scope; widen the filter or check symbol resolution";
+
+    private static IReadOnlyList<string> Guidance(string reason) =>
+        new SteeringHintSet([reason]);
+
+    private static IReadOnlyList<string> Guidance(
+        string reason,
+        string operation,
+        AnalysisNextStepArguments? arguments = null) =>
+        new SteeringHintSet(
+            [reason],
+            [new AnalysisNextStep(reason) { Operation = operation, Arguments = arguments }]);
+
+    private static AnalysisNextStep Step(
+        string reason,
+        string? operation = null,
+        AnalysisNextStepArguments? arguments = null) =>
+        new(reason) { Operation = operation, Arguments = arguments };
+
+    private static AnalysisNextStepArguments CpuScopeArguments(
+        ScopeRequest? scope,
+        string root = "",
+        string? frame = null,
+        bool? callees = null)
+    {
+        IReadOnlyList<int>? processIds = null;
+        int? processIdCount = null;
+        bool processIdsTruncated = false;
+        if (scope?.Selector is ProcessIdSelector ids)
+        {
+            processIdCount = ids.ProcessIds.Count;
+            processIdsTruncated = ids.ProcessIds.Count > AnalysisScopeContext.MaxReportedProcessIds;
+            processIds = processIdsTruncated
+                ? [.. ids.ProcessIds.Take(AnalysisScopeContext.MaxReportedProcessIds)]
+                : ids.ProcessIds;
+        }
+
+        TimeWindow? window = scope?.Window;
+        return new AnalysisNextStepArguments
+        {
+            Metric = "cpu",
+            Frame = frame,
+            Root = string.IsNullOrEmpty(root) ? null : root,
+            Process = (scope?.Selector as ProcessNameSelector)?.NameSubstring,
+            ProcessIds = processIds,
+            ProcessIdCount = processIdCount,
+            ProcessIdsTruncated = processIdsTruncated,
+            IncludeChildren = scope is null ? null : scope.IncludeChildren,
+            AllProcesses = scope?.IncludeAll == true ? true : null,
+            Activity = scope?.ActivityName,
+            FromMs = window is TimeWindow appliedWindow ? appliedWindow.StartMSec : null,
+            ToMs = window is TimeWindow boundedWindow ? boundedWindow.EndMSec : null,
+            Callees = callees
+        };
+    }
 
     /// <summary>
     ///  The next-step hints for a trace-info orientation: distinguish format support
@@ -160,7 +216,7 @@ public static class SteeringHints
             }
         }
 
-        return hints;
+        return new SteeringHintSet(hints);
     }
 
     private static string FormatRate(double value) =>
@@ -197,27 +253,29 @@ public static class SteeringHints
 
         if (ranking.Rows.Count == 0)
         {
-            return [EmptyScope];
+            return Guidance(EmptyScope);
         }
 
         if (metric != MetricInfo.Cpu)
         {
-            return
-            [
-                $"refine the {metric.Name} ranking with self/inclusive measure, root, or time; callers, lines, heatmap, and tree analyze CPU only"
-            ];
+            string reason =
+                $"refine the {metric.Name} ranking with self/inclusive measure, root, or time; callers, lines, heatmap, and tree analyze CPU only";
+            return Guidance(reason);
         }
 
         if (scope?.ActivityName is not null || scope?.Window is not null)
         {
-            return
-            [
-                "this CPU ranking is activity/time-scoped; callers, lines, heatmap, and tree cannot preserve that slice - refine it with self/inclusive measure or root in rank"
-            ];
+            string reason =
+                "this CPU ranking is activity/time-scoped; callers, lines, heatmap, and tree cannot preserve that slice - refine it with self/inclusive measure or root in rank";
+            return Guidance(reason, "rank", CpuScopeArguments(scope, ranking.RootFrame));
         }
 
         string hint = $"drill into the hot frame with: callers {ranking.Rows[0].Frame}";
-        return [PreserveCpuScope(hint, ranking.RootFrame, scope)];
+        string message = PreserveCpuScope(hint, ranking.RootFrame, scope);
+        return Guidance(
+            message,
+            "callers",
+            CpuScopeArguments(scope, ranking.RootFrame, ranking.Rows[0].Frame));
     }
 
     /// <summary>
@@ -248,19 +306,24 @@ public static class SteeringHints
 
         if (callers.Callers.Count == 0)
         {
-            return [EmptyScope];
+            return Guidance(EmptyScope);
         }
 
         List<string> hints = [];
+        List<AnalysisNextStep> steps = [];
 
         string topCaller = callers.Callers[0].Caller;
         if (string.Equals(topCaller, RootFrame, StringComparison.Ordinal))
         {
-            hints.Add("the focus frame is called directly from the root; it is a top-level entry point");
+            string reason = "the focus frame is called directly from the root; it is a top-level entry point";
+            hints.Add(reason);
+            steps.Add(Step(reason));
         }
         else
         {
-            hints.Add(PreserveCpuScope($"continue up the stack with: callers {topCaller}", root, scope));
+            string reason = PreserveCpuScope($"continue up the stack with: callers {topCaller}", root, scope);
+            hints.Add(reason);
+            steps.Add(Step(reason, "callers", CpuScopeArguments(scope, root, topCaller)));
         }
 
         // With a caller/callee view, also point down into the heaviest real callee, skipping
@@ -271,16 +334,21 @@ public static class SteeringHints
             {
                 if (!string.Equals(callee.Callee, SelfFrame, StringComparison.Ordinal))
                 {
-                    hints.Add(PreserveCpuScope(
+                    string reason = PreserveCpuScope(
                         $"continue down into the callee with: callers {callee.Callee} --callees",
                         root,
-                        scope));
+                        scope);
+                    hints.Add(reason);
+                    steps.Add(Step(
+                        reason,
+                        "callers",
+                        CpuScopeArguments(scope, root, callee.Callee, callees: true)));
                     break;
                 }
             }
         }
 
-        return hints;
+        return new SteeringHintSet(hints, steps);
     }
 
     private static string PreserveCpuScope(string hint, string root, ScopeRequest? scope)
@@ -320,7 +388,7 @@ public static class SteeringHints
     {
         ArgumentNullException.ThrowIfNull(diff);
 
-        if (diff.Cases.Count > 0)
+        if (diff.Kind == RankingDiffResult.ManifestKind)
         {
             (RankingDiffCaseResult Case, DiffRow Row)? largest = diff.Cases
                 .SelectMany(static captureCase => captureCase.Rows.Select(row => (captureCase, row)))
@@ -330,25 +398,32 @@ public static class SteeringHints
                 .FirstOrDefault();
             if (largest is null)
             {
-                return ["paired manifest cases have no changed ranking rows"];
+                return Guidance("paired manifest cases have no changed ranking rows");
             }
 
             string identity = string.IsNullOrEmpty(largest.Value.Case.Parameters)
                 ? largest.Value.Case.Benchmark
                 : $"{largest.Value.Case.Benchmark} ({largest.Value.Case.Parameters})";
-            return
-            [
-                $"largest normalized change is {largest.Value.Row.Frame} in {identity}; drill into the paired traces with callers"
-            ];
+            return Guidance(
+                $"largest normalized change is {largest.Value.Row.Frame} in {identity}; drill into the paired traces with callers");
         }
 
         if (diff.Rows.Count == 0)
         {
-            return ["the two rankings match in scope; no frames changed"];
+            return Guidance("the two rankings match in scope; no frames changed");
+        }
+
+        if (diff.FrameNamesBounded)
+        {
+            return Guidance("one or more changed frame names were shortened for output; narrow the diff with a root before drilling");
         }
 
         string top = diff.Rows[0].Frame;
-        return [$"the largest change is {top}; drill into it with: callers {top}"];
+        string reason = $"the largest change is {top}; drill into it with: callers {top}";
+        return Guidance(
+            reason,
+            "callers",
+            new AnalysisNextStepArguments { Metric = "cpu", Frame = top });
     }
 
     /// <summary>Next step after a manifest batch summary.</summary>
@@ -359,9 +434,16 @@ public static class SteeringHints
             .Where(static captureCase => captureCase.TopFrame is not null)
             .OrderByDescending(static captureCase => captureCase.TopPercentOfScope)
             .FirstOrDefault();
-        return hottest is null
-            ? ["no manifest case produced a ranked frame; inspect case warnings and capture availability"]
-            : [$"inspect {hottest.Benchmark} in detail with rank against: {hottest.TracePath}"];
+        if (hottest is null)
+        {
+            return Guidance("no manifest case produced a ranked frame; inspect case warnings and capture availability");
+        }
+
+        string reason = $"inspect {hottest.Benchmark} in detail with rank against: {hottest.TracePath}";
+        // A command-manifest case needs its recorded process ids, which this compact
+        // result does not carry yet. Keep the guidance reason-only until manifest case
+        // references can express a complete, scope-preserving follow-up.
+        return Guidance(reason);
     }
 
     /// <summary>
@@ -380,26 +462,27 @@ public static class SteeringHints
         // nothing to point at, so it is skipped.
         if (TryPeakBucket(timeline.Cpu, static bucket => bucket.SampleCount, out int cpuIndex))
         {
-            return [DrillWindowHint("CPU", "cpu", timeline, cpuIndex)];
+            return DrillWindowGuidance("CPU", "cpu", timeline, cpuIndex);
         }
 
         if (TryPeakBucket(timeline.Alloc, static bucket => bucket.Count, out int allocIndex))
         {
-            return [DrillWindowHint("allocation", "alloc", timeline, allocIndex)];
+            return DrillWindowGuidance("allocation", "alloc", timeline, allocIndex);
         }
 
         if (TryPeakBucket(timeline.Exceptions, static bucket => bucket.Count, out int exceptionIndex))
         {
-            return [DrillWindowHint("exception", "exceptions", timeline, exceptionIndex)];
+            return DrillWindowGuidance("exception", "exceptions", timeline, exceptionIndex);
         }
 
         if (TryPeakBucket(timeline.Gc, static bucket => bucket.Count, out int gcIndex))
         {
             (double start, double end) = WindowOf(timeline, gcIndex);
-            return [$"busiest GC window is bucket {gcIndex} ({FormatMs(start)}-{FormatMs(end)} ms); inspect collections with: gcstats"];
+            string reason = $"busiest GC window is bucket {gcIndex} ({FormatMs(start)}-{FormatMs(end)} ms); inspect collections with: gcstats";
+            return Guidance(reason, "gc");
         }
 
-        return ["the timeline is empty in every requested lane; widen the window or check the capture carries these events"];
+        return Guidance("the timeline is empty in every requested lane; widen the window or check the capture carries these events");
     }
 
     /// <summary>
@@ -415,13 +498,15 @@ public static class SteeringHints
 
         if (lifecycle.InvocationCount == 0)
         {
-            return ["no invocation matched; list what the capture holds with: processes"];
+            return Guidance(
+                "no invocation matched; list what the capture holds with: processes",
+                "processes");
         }
 
         LifecyclePhase? rootLifetime = lifecycle.Phases.FirstOrDefault(static phase => phase.Phase == "root lifetime");
         if (rootLifetime is null)
         {
-            return ["every invocation was clipped to the capture window; recapture with the command launched inside the session"];
+            return Guidance("every invocation was clipped to the capture window; recapture with the command launched inside the session");
         }
 
         // The phase that owns the most median wall clock, excluding the root lifetime it
@@ -448,7 +533,7 @@ public static class SteeringHints
             $"wall clock is not CPU: rank sampled work in the same processes with: cpu, "
             + $"and time it against {FormatMs(sampledCpuMs)} ms of sampled CPU across the matched tree");
 
-        return hints;
+        return new SteeringHintSet(hints);
     }
 
     // The index of the highest-weight bucket in a lane, or false when the lane is absent
@@ -500,6 +585,26 @@ public static class SteeringHints
         string to = FormatMs(end);
         return $"busiest {laneLabel} window is bucket {index} ({from}-{to} ms); "
             + $"scope a ranking with: rank --metric {metric} --time {from},{to}{ProcessScope(timeline)}";
+    }
+
+    private static IReadOnlyList<string> DrillWindowGuidance(
+        string laneLabel,
+        string metric,
+        TimelineResult timeline,
+        int index)
+    {
+        (double start, double end) = WindowOf(timeline, index);
+        string reason = DrillWindowHint(laneLabel, metric, timeline, index);
+        return Guidance(
+            reason,
+            "rank",
+            new AnalysisNextStepArguments
+            {
+                Metric = metric,
+                Process = timeline.Process,
+                FromMs = start,
+                ToMs = end
+            });
     }
 
     // The " --process <name>" suffix a scoped timeline's drill hint carries so the
