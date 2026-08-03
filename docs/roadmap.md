@@ -45,9 +45,8 @@ true.
 
 | When | Items | Why now |
 |---|---|---|
-| Done | VN0 | The baseline exists; see below for what it measured. |
-| Now | VN1 | The baseline produced the duplication figure the transport experiment turns on. |
-| Next | VN2, SC8 | The output-contract decision determines how every later capability is exposed; SC8 closes a correctness gap in data already captured. |
+| Done | VN0, VN1 | The baseline exists, and the transport question is answered; see below for what each measured. |
+| Now | VN2, SC8 | The output-contract decision determines how every later capability is exposed; SC8 closes a correctness gap in data already captured. |
 | Then | VN3, VN4, VC1 | Surface selection, then the first capability that fits it. |
 | Later | VC2-VC8, LP-1..LP-5, VN5 | Demand-, dependency-, or decision-gated. |
 | Upstream | TE-P1..TE-P5 | Not actionable in this repository alone. |
@@ -155,12 +154,13 @@ subset when the question is specifically about frontier behavior.
   a response-size property, so the task schema gained `maxResponseTokens`, graded
   against the largest single payload copy. That check is also how the acceptance
   gate below becomes enforceable rather than aspirational.
-- **The text/structured split is not trustworthy above a few hundred tokens.** Large
-  responses recorded text 261 against structured 10,057 and wire 22,207; wire being
-  about twice structured says two full-size copies were on the wire, so the text
-  figure is the host transcript's truncated copy rather than the wire's. VN1 must
-  confirm against raw JSONL before concluding anything about the text copy from a
-  large response.
+- **The recorded text figure is small on purpose, and VN1 settled why.** Large
+  responses recorded text 261 against structured 10,057. That is not a transcript
+  artifact: Copilot CLI spills an oversized tool result to a temp file and gives the
+  model a pointer plus a head, suggesting `rg`, `head`, and `jq` for the rest.
+  Measured directly, a 23,298-token `trace_query_events` result reached the model as
+  about 230 tokens. So the harness's headline token figure is the right one - it is
+  what the agent actually consumed - while `wireTokens` carries the protocol cost.
 - **Three tasks were measuring their own phrasing, not the surface.** Both models
   wrote "4,309" where a task expected "4309", and a prompt that did not name the
   process scope sent both models to a different process than the expectations
@@ -212,50 +212,61 @@ cannot hold, frame ambiguity has no diagnostic to assert, `classify` has no fixt
 whose CPU frames resolve, and a batch case reference is a VN2 feature. Three of the
 four become expressible as VN2 and SC9 land, which is the honest sequencing.
 
-### VN1 - transport selection
+### VN1 - transport selection - closed, variant A retained
 
-**Priority:** Next. **Gate:** multi-model comparison, not preference.
+**Decided on measurement, 2026-08-02.** Keep variant A (typed `structuredContent`
+plus the SDK's text mirror). Variants B and C are not worth building, and the
+three-variant `FiltraceMcpTransport` harness was never built - the probe answered the
+question first.
 
-Run three implementations behind a build property `FiltraceMcpTransport`
-(`Structured`, `StructuredMinimal`, `JsonText`), each published to
-`artifacts/vnext/<variant>/`, with an `-McpDll` override in the live agent harness
-so every run points at the exact variant and stamps it into the result label. Do
-not overwrite `eval/baselines.json`; transport comparisons live in the ignored
-`eval/results/` artifacts.
+**The mechanism works.** A tool may declare a `CallToolResult` return type for full
+control of the response. Prototyped on `trace_info`, that cut the MCP result from 269
+to 145 estimated tokens - the 2.02x duplication collapsing to about 1.14x, exactly as
+predicted.
 
-| Variant | Shape | What it tests |
-|---|---|---|
-| A | typed `structuredContent` plus SDK-generated text mirror, current schemas | correctness baseline |
-| B | typed `structuredContent`, minimal text block | removes per-call duplication; keeps advertised typing |
-| C | compact JSON text only, no advertised output schema | removes duplication and ~1,000 list tokens; loses advertised typing |
+**The client undoes it.** Copilot CLI concatenates its own serialization of
+`structuredContent` onto whatever text block the tool supplies. Under variant B its
+recorded `content` was `"See structuredContent.\n\n{...full envelope...}"` - 132
+tokens against 127 for variant A. The model sees the same payload plus the pointer,
+so variant B is about five tokens per call *worse*. An A/B over all 23 tasks at N=5 on
+`gpt-5.6-sol` agreed: 87% -> 88% overall, flat, with every `trace_info`-using task up
+about five tokens.
 
-**Note the changed arithmetic.** When this experiment was proposed, output schemas
-were ~3,900 tokens and variant C looked like a large permanent win. After the
-envelope-only reduction they measure 1,080. C's case now rests almost entirely on
-per-call duplication, so B is the cheaper hypothesis to test first. The prize is
-also smaller than the baseline first suggested: the duplication is 2.02x, not the
-4.11x read off the host transcript, so dropping the text mirror recovers about half
-of each result rather than three quarters.
+**And model-visible cost is already bounded by the client.** A `trace_query_events`
+response measuring 23,298 tokens at the server reached the model as roughly 230 -
+Copilot CLI spills a large result to a temp file and hands the model a pointer plus a
+head, suggesting `rg`, `head`, and `jq` to read the rest. Transport duplication is
+real on the wire and largely invisible in context.
 
-Record per variant: tool-list characters and tokens; per-tool input/output/
-description/total; text, structured, complete-wire, and client-visible result
-tokens; task success, expected-tool success, calls, wall time, answer accuracy; and
-behavior in Copilot CLI plus at least one other MCP client or model family. Take the
-per-call split from [tools/Measure-McpResultSplit.ps1](../tools/Measure-McpResultSplit.ps1)
-against the variant's own build, not from a host transcript.
+Variant C rests on the same premise as B - that removing the server's text copy
+reduces what the model consumes - which this client falsifies directly, while
+additionally giving up advertised typing.
 
-Selection rule, in order: reject any variant with a success regression on any model;
-reject any variant that increases median calls; among the rest choose the lowest
-total investigation tokens; retain typed structured output when the difference is
-inconclusive.
+**What it would have cost, recorded so nobody re-derives it:** `CallToolResult` is
+not in `FiltraceJsonContext`, and `Filtrace.Core` deliberately does not reference the
+MCP SDK, so the server fails *at startup* with `NotSupportedException: JsonTypeInfo
+metadata for type ...CallToolResult` until
+`ModelContextProtocol.McpJsonUtilities.DefaultOptions.TypeInfoResolver` is chained
+behind filtrace's in `Program.cs`. All 18 tools would lose their typed return,
+breaking the sync wrappers `TraceToolsTests` asserts against, and
+[tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1)'s round-trip check looks for
+the envelope in the text block.
 
-**Exit:** one documented transport decision. No result-shape changes in the same
-run.
+**The one question left open** is narrower than a transport experiment: does any
+other MCP client fail to re-materialize structured content, or fail to bound a large
+result? If they all behave like Copilot CLI, the transport track is moot. That is a
+compatibility question to answer by reading client behaviour when a second client is
+wired up, not by building variants.
 
 ### VN2 - output contract v9
 
-**Priority:** Next, after VN1. **Gate:** do not mix transport and result-shape
-changes in one A/B run.
+**Priority:** Now. **Gate:** each shape change is graded by the tuning loop before it
+ships, not argued.
+
+VN1 raised this item's value rather than lowering it. Transport turned out not to be
+a lever - the client re-materializes structured content and already spills an
+oversized result to a file - so the only way to reduce what an investigation costs is
+to send fewer rows and to make a result route its own follow-up. That is this item.
 
 The envelope is at `schemaVersion` 8. v9 is one semantic revision covering all of
 the following.
@@ -337,11 +348,17 @@ the defaults and the discoverability, not because the capability is missing.
 | timeline | current bounded buckets | lanes and bucket count remain the control |
 | diff / batch | current structural caps | already compact agent summaries |
 
-The CLI-detailed / MCP-summary asymmetry is a candidate, not a decision. VN0 must
-compare both defaults on questions that need only aggregates and on questions that
-need evidence rows; reject a summary default whose saved first-response tokens are
-offset by escalation calls. Deterministic tasks pass an explicit detail level so
-goldens do not depend on host defaults.
+The CLI-detailed / MCP-summary asymmetry is a candidate, not a decision. Compare both
+defaults on questions that need only aggregates and on questions that need evidence
+rows; reject a summary default whose saved first-response tokens are offset by
+escalation calls. Deterministic tasks pass an explicit detail level so goldens do not
+depend on host defaults.
+
+Grade each default with `baseline -> candidate -> Compare-EvalRuns` at **N=10 per
+model**, the way the speedscope wording change was graded. `gpt-5.6-sol` costs no
+premium requests, so a full-suite arm is wall time only; add `claude-haiku-4.5` as
+the overfitting detector when a candidate looks worth keeping. N=3 is not enough to
+size an effect - it put one baseline at 33% where ten iterations put it at 10%.
 
 **Manifest case references.** Expose the `id` that manifest schema v1 already
 requires on each case in `BatchRankingCaseResult`, and let follow-up operations
@@ -581,13 +598,24 @@ items shipped; these are what they exposed.
 
 ### SC8 - per-case exact scope in batch and diff
 
-**Priority:** Next. **Cost:** low-medium. **Where:** Core, not the capture script.
+**Priority:** Now. **Cost:** low - smaller than first assumed, see below. **Where:**
+Core, not the capture script.
 
 `collect --iterations` records each launch's exact root process id in the capture
 manifest, but the batch analyzer does not thread a per-case scope through, so the
 recorded ids are captured and unused. A command matrix therefore still scopes by
 process *name*, which warns when the name matches several unrelated trees and ranks
 them together.
+
+**No plumbing is needed.** `CaptureManifestBatchAnalyzer.Analyze` already takes its
+loader as `Func<CaptureManifest, CaptureManifestCase, LoadedTrace>`, so the case is
+already in hand at the point the scope is chosen, and `CaptureManifestCase.Invocations`
+already carries each `ProcessId`. The change is confined to the four `load` lambdas
+that call `ManifestScope` - batch and diff in each head - plus the three near-identical
+`ManifestScope` helpers in [BatchExecutor](../src/Filtrace/Cli/BatchExecutor.cs),
+[DiffExecutor](../src/Filtrace/Cli/DiffExecutor.cs), and
+[TraceTools](../src/Filtrace.Mcp/TraceTools.cs), which are worth collapsing to one
+while they are being touched.
 
 Consuming the recorded ids is what makes a command capture exact rather than
 name-approximate. It composes with VN2's effective query context, which is where the
@@ -796,8 +824,10 @@ requires:
 
 Resolve these with VN0 and VN1 evidence rather than opinion:
 
-1. Does JSON-text-only preserve agent composition well enough to remove advertised
-   output schemas, now that they cost ~1,020 tokens rather than ~3,900?
+1. ~~Does JSON-text-only preserve agent composition well enough to remove advertised
+   output schemas?~~ **Moot.** VN1 showed the client re-materializes structured
+   content into the model's view, so removing the server's text copy saves nothing
+   there; the remaining ~1,020 tokens are a tool-list question, not a transport one.
 2. Can the MCP SDK express useful discriminated `trace_source` and `trace_report`
    schemas without a large optional-parameter bag?
 3. Should CLI report defaults stay detailed while MCP defaults to summary?
@@ -812,9 +842,13 @@ Resolve these with VN0 and VN1 evidence rather than opinion:
 
 ## Immediate next step
 
-VN1. VN0 is complete: the accounting, the intent grading, the schema breakdown, the
-comprehension tasks, and a repeatable multi-model baseline all exist, and the number
-the transport experiment turns on has been measured against the server itself - the
-wire carries the payload twice, at 2.02x. Test variant B first, because the
-envelope-only reduction left output schemas at 1,080 tokens and per-call duplication
-is now the larger prize.
+VN2. VN0 and VN1 are both closed. VN0 built the accounting, the intent grading, the
+schema breakdown, the comprehension tasks, and a repeatable multi-model baseline; VN1
+spent that machinery to answer the transport question and retain variant A, because
+the client re-materializes structured content and already bounds a large result.
+
+That leaves result shape, which is where the measured wins actually are: the JIT
+summary task fails because a tool's default detail costs 2,251 tokens against the 172
+the question needs, and the same shape shows up in `events`. VN2's detail profiles
+address that directly, and unlike transport they change what the model is asked to
+read rather than how it is delivered.
