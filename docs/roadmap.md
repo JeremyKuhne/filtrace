@@ -168,12 +168,40 @@ subset when the question is specifically about frontier behavior.
   and lifted both models from 80% and 77% overall to 86%.
 - **What still fails is signal.** Five of six iterations reached for source-line
   tools on a speedscope profile, across both models and both runs - a surface
-  problem, and the case for VN2's explicit compatibility. The JIT summary task fails
+  problem, since `trace_info` had already told them the format supports `cpu` only.
+  Resolved by rewording, and the measurement is below. The JIT summary task fails
   because the tool's *default* detail costs 2,251 tokens against the 172 the question
   needs, which is the detail-profile case stated as a measurement.
 
 **Exit:** repeatable baseline artifacts that separate permanent schema cost, wire
 response cost, and model-visible cost.
+
+#### The tuning loop, exercised on the speedscope finding
+
+The first use of `baseline -> candidate -> Compare-EvalRuns` against a real change
+rather than a synthetic regression, and it settled the finding above.
+
+Both models called `trace_info` first, read `availableAnalyses: ["cpu"]`, and reached
+for `trace_lines` anyway. The cause was wording: tools that reject a speedscope input
+say "rejected", but `trace_lines` and `trace_heatmap` said "speedscope is empty",
+which reads as a blank result worth confirming rather than a reason not to call. The
+candidate says the tool can only ever return nothing on that format and points at
+`availableAnalyses`.
+
+| Model | Baseline | Candidate | Median calls | Median tokens |
+|---|---:|---:|---|---|
+| `gpt-5.6-sol` | 10% | 90% | 2 -> 1 | 165 -> 127 |
+| `claude-haiku-4.5` | 10% | 80% | 3 -> 1 | 209 -> 127 |
+
+N=10 per model; 2 of 20 passing became 17 of 20. It costs 65 permanent schema tokens
+(descriptions 799 -> 858), paid on every request, and is worth it here because the
+failure was not a token overrun but a wrong conclusion: an empty result on a format
+that carries no source data reads as "no line is hot".
+
+**Run it at N=10, not N=3.** The same comparison at N=3 reported 33% -> 67% and
+0% -> 33% and put the `gpt-5.6-sol` baseline at 33% where ten iterations put it at
+10%. The direction happened to be right, but the effect size was wrong in both
+directions, and a smaller effect would have been indistinguishable from noise.
 
 #### Comprehension tasks
 
