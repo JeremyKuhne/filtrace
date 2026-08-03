@@ -45,8 +45,8 @@ true.
 
 | When | Items | Why now |
 |---|---|---|
-| Done | VN0, VN1 | The baseline exists, and the transport question is answered; see below for what each measured. |
-| Now | VN2, SC8 | The output-contract decision determines how every later capability is exposed; SC8 closes a correctness gap in data already captured. |
+| Done | VN0, VN1, SC8 | The baseline and transport decision exist, and manifest cases replay their recorded process ids exactly. |
+| Now | VN2 | The output-contract decision determines how every later capability is exposed. |
 | Then | VN3, VN4, VC1 | Surface selection, then the first capability that fits it. |
 | Later | VC2-VC8, LP-1..LP-5, VN5 | Demand-, dependency-, or decision-gated. |
 | Upstream | TE-P1..TE-P5 | Not actionable in this repository alone. |
@@ -671,30 +671,22 @@ The remaining gaps from the short-command capture initiative
 ([issue #62](https://github.com/JeremyKuhne/filtrace/issues/62)). Its seven original
 items shipped; these are what they exposed.
 
-### SC8 - per-case exact scope in batch and diff
+### SC8 - per-case exact scope in batch and diff - complete
 
-**Priority:** Now. **Cost:** low - smaller than first assumed, see below. **Where:**
-Core, not the capture script.
+`collect --iterations` already recorded each launch's exact root process id in the
+capture manifest. Batch and diff now replay those ids for each case instead of
+falling back to a process-name match that could include unrelated trees.
 
-`collect --iterations` records each launch's exact root process id in the capture
-manifest, but the batch analyzer does not thread a per-case scope through, so the
-recorded ids are captured and unused. A command matrix therefore still scopes by
-process *name*, which warns when the name matches several unrelated trees and ranks
-them together.
+`CaptureManifest.ResolveCaseScope` owns one precedence rule for both heads: an
+explicit caller process or all-processes override wins; otherwise the case's
+invocation ids win; a legacy case with no invocations falls back to the manifest
+process name. The caller's children, activity, and time-window refinements survive a
+fallback. The four loader lambdas call that resolver, and the three duplicate
+`ManifestScope` helpers are gone.
 
-**No plumbing is needed.** `CaptureManifestBatchAnalyzer.Analyze` already takes its
-loader as `Func<CaptureManifest, CaptureManifestCase, LoadedTrace>`, so the case is
-already in hand at the point the scope is chosen, and `CaptureManifestCase.Invocations`
-already carries each `ProcessId`. The change is confined to the four `load` lambdas
-that call `ManifestScope` - batch and diff in each head - plus the three near-identical
-`ManifestScope` helpers in [BatchExecutor](../src/Filtrace/Cli/BatchExecutor.cs),
-[DiffExecutor](../src/Filtrace/Cli/DiffExecutor.cs), and
-[TraceTools](../src/Filtrace.Mcp/TraceTools.cs), which are worth collapsing to one
-while they are being touched.
-
-Consuming the recorded ids is what makes a command capture exact rather than
-name-approximate. It composes with VN2's effective query context, which is where the
-resolved scope becomes machine-readable.
+The end-to-end batch and diff regressions supply a valid manifest process name and
+unknown recorded pids. Both operations report those exact ids as missing; the old
+name fallback would have silently analyzed the matching process instead.
 
 ### SC9 - cross-machine native symbol fixtures
 
@@ -922,8 +914,8 @@ schema breakdown, the comprehension tasks, and a repeatable multi-model baseline
 spent that machinery to answer the transport question and retain variant A, because
 the client re-materializes structured content and already bounds a large result.
 
-That leaves result shape, which is where the measured wins actually are: the JIT
-summary task fails because a tool's default detail costs 2,251 tokens against the 172
-the question needs, and the same shape shows up in `events`. VN2's detail profiles
-address that directly, and unlike transport they change what the model is asked to
-read rather than how it is delivered.
+That leaves the schema-v9 result shape. The row-cardinality slice is already resolved:
+shrinking defaults was rejected, while `top: 0` gives report tools an aggregate-only
+level on the existing axis. Next is effective query context - operation, metric,
+measure, unit, and the now-exact resolved process scope - followed by structured
+diagnostics and next steps.

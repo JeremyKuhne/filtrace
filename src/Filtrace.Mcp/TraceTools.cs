@@ -505,7 +505,7 @@ public sealed class TraceTools
                         captureCase.TracePath,
                         resolvedSymbols ?? captureCase.SymbolsDirectory,
                         TraceMetric.Cpu,
-                        ManifestScope(manifest, scope)));
+                        manifest.ResolveCaseScope(captureCase, scope)));
                 return new AnalysisResult<RankingDiffResult>(
                     analysis.Result,
                     analysis.Warnings,
@@ -591,7 +591,7 @@ public sealed class TraceTools
                     captureCase.TracePath,
                     resolvedSymbols ?? captureCase.SymbolsDirectory,
                     resolvedMetric,
-                    ManifestScope(captureManifest, scope)));
+                    captureManifest.ResolveCaseScope(captureCase, scope)));
             return new AnalysisResult<BatchRankingResult>(
                 result,
                 hints: SteeringHints.ForBatch(result));
@@ -1696,21 +1696,6 @@ public sealed class TraceTools
         return string.IsNullOrEmpty(process)
             ? (children ? null : ScopeRequest.AutoScope(includeChildren: false))
             : ScopeRequest.ForProcess(process, children);
-    }
-
-    private static ScopeRequest? ManifestScope(CaptureManifest manifest, ScopeRequest? requested)
-    {
-        // Explicit process input overrides the capture's recorded process; otherwise
-        // preserve the manifest scope, falling back to automatic scope. The descendant
-        // mode is an independent axis, so it survives the fallback.
-        if (requested is { Selector: not null } or { IncludeAll: true })
-        {
-            return requested;
-        }
-
-        return manifest.Process is null
-            ? requested
-            : ScopeRequest.ForProcess(manifest.Process, requested?.IncludeChildren ?? true);
     }
 
     /// <summary>
