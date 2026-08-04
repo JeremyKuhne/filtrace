@@ -63,6 +63,69 @@ try {
 
     [string] $adapter = Join-Path $root 'tools/fixtures/Fake-TrackDMeasurements.ps1'
 
+    [string] $firstCommandDirectory = Join-Path $temporaryRoot 'path-first'
+    [string] $secondCommandDirectory = Join-Path $temporaryRoot 'path-second'
+    [System.IO.Directory]::CreateDirectory($firstCommandDirectory) | Out-Null
+    [System.IO.Directory]::CreateDirectory($secondCommandDirectory) | Out-Null
+    [string] $duplicateCommandName = "filtrace-duplicate-$([Guid]::NewGuid().ToString('N'))"
+    [string] $duplicateCommandFileName = if ($IsWindows) {
+        "$duplicateCommandName.cmd"
+    }
+    else {
+        $duplicateCommandName
+    }
+    [object[]] $duplicateCommandDefinitions = @(
+        [pscustomobject]@{ Directory = $firstCommandDirectory; Output = 'first-path-match' },
+        [pscustomobject]@{ Directory = $secondCommandDirectory; Output = 'second-path-match' })
+    foreach ($commandDefinition in $duplicateCommandDefinitions) {
+        [string] $commandPath = Join-Path $commandDefinition.Directory $duplicateCommandFileName
+        [string] $commandContents = if ($IsWindows) {
+            "@echo off`r`necho $($commandDefinition.Output)`r`n"
+        }
+        else {
+            "#!/bin/sh`nprintf '%s\n' '$($commandDefinition.Output)'`n"
+        }
+        [System.IO.File]::WriteAllText($commandPath, $commandContents, $utf8)
+        if (-not $IsWindows) {
+            [System.IO.File]::SetUnixFileMode(
+                $commandPath,
+                [System.IO.UnixFileMode]::UserRead -bor
+                    [System.IO.UnixFileMode]::UserWrite -bor
+                    [System.IO.UnixFileMode]::UserExecute)
+        }
+    }
+
+    [System.Management.Automation.CommandInfo] $gitCommand = @(
+        Get-Command git -CommandType Application -ErrorAction Stop)[0]
+    [string] $previousPath = $env:PATH
+    [string] $duplicatePathRun = Join-Path $temporaryRoot 'duplicate-path'
+    try {
+        $env:PATH = "$firstCommandDirectory$([System.IO.Path]::PathSeparator)" +
+            "$secondCommandDirectory$([System.IO.Path]::PathSeparator)$previousPath"
+        [System.Management.Automation.CommandInfo[]] $duplicateCommands = @(
+            Get-Command $duplicateCommandName -CommandType Application -ErrorAction Stop)
+        Assert-True ($duplicateCommands.Count -eq 2) 'Duplicate command setup did not produce two PATH matches.'
+        & $script `
+            -InputCorpusDirectory $corpus `
+            -BaselineCheckout $root `
+            -CandidateCheckout $root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $duplicatePathRun `
+            -NoBuild `
+            -DotnetPath $duplicateCommandName `
+            -GitPath $gitCommand.Source `
+            -TestAdapterPath $adapter
+    }
+    finally {
+        $env:PATH = $previousPath
+    }
+    [object] $duplicatePathResult = Get-Content `
+        -LiteralPath (Join-Path $duplicatePathRun 'run.json') `
+        -Raw | ConvertFrom-Json
+    Assert-True `
+        ($duplicatePathResult.sdkVersion -eq 'first-path-match') `
+        'Multiple PATH matches did not select the first executable.'
+
     [string] $success = Join-Path $temporaryRoot 'success'
     & $script `
         -InputCorpusDirectory $corpus `

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Reflection.PortableExecutable;
@@ -34,6 +35,8 @@ internal static class EmbeddedPdbExtractor
 {
     // 'M' 'P' 'D' 'B' little-endian: the signature of an embedded portable PDB blob.
     private const uint EmbeddedPdbMagic = 0x4244504D;
+    private const long MaximumExtractedBytes = 256L * 1024 * 1024;
+    private const int CopyBufferSize = 81920;
 
     /// <summary>
     ///  Extracts every embedded portable PDB found in the DLLs of
@@ -47,6 +50,14 @@ internal static class EmbeddedPdbExtractor
     ///  when finished.
     /// </returns>
     public static string? Extract(string buildOutputDirectory)
+    {
+        long remainingExtractedBytes = MaximumExtractedBytes;
+        return ExtractCore(buildOutputDirectory, ref remainingExtractedBytes);
+    }
+
+    private static string? ExtractCore(
+        string buildOutputDirectory,
+        ref long remainingExtractedBytes)
     {
         if (string.IsNullOrEmpty(buildOutputDirectory) || !Directory.Exists(buildOutputDirectory))
         {
@@ -82,6 +93,15 @@ internal static class EmbeddedPdbExtractor
                         continue;
                     }
 
+                    uint uncompressedSize = BinaryPrimitives.ReadUInt32LittleEndian(
+                        image.AsSpan(dataOffset + 4, 4));
+                    if (uncompressedSize == 0 || uncompressedSize > remainingExtractedBytes)
+                    {
+                        continue;
+                    }
+
+                    remainingExtractedBytes -= uncompressedSize;
+
                     tempDirectory ??= CreateTempDirectory();
                     string pdbPath = Path.Join(
                         tempDirectory,
@@ -98,7 +118,7 @@ internal static class EmbeddedPdbExtractor
                     using (DeflateStream deflate = new(compressed, CompressionMode.Decompress))
                     using (FileStream outPdb = File.Create(temporaryPdbPath))
                     {
-                        deflate.CopyTo(outPdb);
+                        CopyExactly(deflate, outPdb, uncompressedSize);
                     }
 
                     File.Move(temporaryPdbPath, pdbPath, overwrite: true);
@@ -122,6 +142,38 @@ internal static class EmbeddedPdbExtractor
         }
 
         return tempDirectory;
+    }
+
+    private static void CopyExactly(Stream source, Stream destination, long expectedBytes)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(CopyBufferSize);
+        try
+        {
+            long remainingBytes = expectedBytes;
+            while (remainingBytes > 0)
+            {
+                int bytesRead = source.Read(
+                    buffer.AsSpan(0, (int)Math.Min(buffer.Length, remainingBytes)));
+                if (bytesRead == 0)
+                {
+                    throw new InvalidDataException(
+                        "Embedded PDB is shorter than its declared uncompressed size.");
+                }
+
+                destination.Write(buffer.AsSpan(0, bytesRead));
+                remainingBytes -= bytesRead;
+            }
+
+            if (source.ReadByte() != -1)
+            {
+                throw new InvalidDataException(
+                    "Embedded PDB is longer than its declared uncompressed size.");
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     private static string CreateTempDirectory()

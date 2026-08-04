@@ -9,7 +9,7 @@ using Filtrace.Tracing.Readers;
 namespace Filtrace.Core.Tests;
 
 [TestClass]
-public sealed class EmbeddedPdbExtractorTests
+public sealed partial class EmbeddedPdbExtractorTests
 {
     private static string EmbeddedAssembly =>
         Path.Combine(AppContext.BaseDirectory, "touki.dll");

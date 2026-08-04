@@ -114,15 +114,16 @@ function Resolve-Executable([string] $Command, [string] $Purpose) {
         return (Resolve-Path -LiteralPath $Command).Path
     }
 
-    [System.Management.Automation.CommandInfo] $resolved = Get-Command `
-        $Command `
-        -CommandType Application `
-        -ErrorAction SilentlyContinue
-    if ($null -eq $resolved) {
+    [System.Management.Automation.CommandInfo[]] $resolved = @(
+        Get-Command `
+            $Command `
+            -CommandType Application `
+            -ErrorAction SilentlyContinue)
+    if ($resolved.Count -eq 0) {
         throw "$Purpose was not found at '$Command' or on PATH."
     }
 
-    return $resolved.Source
+    return $resolved[0].Source
 }
 
 function Format-Command([string] $Executable, [string[]] $Arguments) {
