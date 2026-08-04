@@ -18,6 +18,12 @@ public static class Program
     /// <returns>Zero on success; two for invalid arguments.</returns>
     public static int Main(string[] args)
     {
+        if (args is ["--help" or "-h"])
+        {
+            Console.WriteLine(WorkloadOptions.Usage);
+            return 0;
+        }
+
         if (!WorkloadOptions.TryParse(args, out WorkloadOptions? options, out string? error))
         {
             Console.Error.WriteLine(error);

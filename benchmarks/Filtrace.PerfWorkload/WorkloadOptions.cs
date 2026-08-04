@@ -32,7 +32,7 @@ internal sealed record WorkloadOptions(
     {
         options = null;
         error = null;
-        if (args.Length == 0 || args[0] is "--help" or "-h")
+        if (args.Length == 0)
         {
             error = Usage;
             return false;
