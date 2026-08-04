@@ -1,7 +1,7 @@
 # Filtrace agent skills
 
 Filtrace carries one tool-shipped local skill, one locally authored portable core,
-and nine portable cores vendored from the
+and twelve portable cores vendored from the
 [agent-skills commons](https://github.com/JeremyKuhne/agent-skills). Commons cores
 are immutable mirrors carrying provenance metadata; repository paths and
 conventions belong in each sibling `overlay.md`.
@@ -15,8 +15,11 @@ conventions belong in each sibling `overlay.md`.
 | [pre-pr-self-review](pre-pr-self-review/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Binds the repository's tests and all product/agent gates. |
 | [create-pr](create-pr/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Uses filtrace's explicit publishing boundary. |
 | [address-pr-feedback](address-pr-feedback/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Uses the same boundary for PR follow-up. |
+| [engineering-baseline](engineering-baseline/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Audits filtrace's .NET repository baseline without replacing its existing scaffold. |
+| [fuzz-testing](fuzz-testing/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Project-gated guidance for the untrusted manifest, metadata, and speedscope parsers. |
 | [security-review](security-review/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Focuses on untrusted trace and event input. |
-| [performance-testing](performance-testing/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Binds the manual HotLoopBench fixture generator and hands traces to filtrace. |
+| [performance-testing](performance-testing/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Binds the product benchmark project and hands captured profiles to filtrace. |
+| [il-copy-inspection](il-copy-inspection/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Audits emitted struct copies in Release assemblies before runtime measurement. |
 | [code-comprehension](code-comprehension/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Defers to filtrace's style rules and the analysis vocabulary. |
 | [github-actions-cost-optimization](github-actions-cost-optimization/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.13.0` | Protects the required `ci` check and the Windows-only ETW leg. |
 
@@ -26,7 +29,29 @@ Use `security-review` for the wider product threat model, and
 happens to be implemented in PowerShell.
 Use `code-comprehension` for readability and cognitive load, and
 `performance-testing` for runtime cost; use `github-actions-cost-optimization` for
-CI spend, never for filtrace's own runtime performance.
+CI spend, never for filtrace's own runtime performance. Use
+`il-copy-inspection` for emitted struct copies and `engineering-baseline` only for
+repository-wide engineering audits or scaffolding decisions.
+
+## Applicability audit
+
+The complete `agent-skills` v0.13.0 portfolio was reviewed on 2026-08-03. The
+project-gated `fuzz-testing` core is vendored even though its harness is not built
+yet: filtrace owns JSON manifest, metadata, and speedscope parsers over untrusted
+input, so the project prerequisite is applicable future work rather than an
+unrelated domain. `il-copy-inspection` supplies the compiler-emitted-copy layer
+between the product benchmark project and runtime traces, while
+`engineering-baseline` supplies the brownfield repository audit used to keep those
+build, test, performance, and agent surfaces coherent.
+
+The remaining commons cores are intentionally not vendored:
+
+- `cswin32-com` and `cswin32-interop`: filtrace has no CsWin32 or COM surface;
+- `dotnet-polyfills`, `framework-jit-optimization`, and
+	`scratch-buffer-strategy`: the analyzer product targets net10.0 only, while the
+	net481 benchmark fixture is captured input rather than a product target;
+- `roslyn-analyzers`: this repository does not author diagnostic analyzers or code
+	fixes.
 
 The filtrace skill is complete as shipped. A consuming repository may add an
 `overlay.md` beside `SKILL.md` for project paths, capture defaults, symbol locations,

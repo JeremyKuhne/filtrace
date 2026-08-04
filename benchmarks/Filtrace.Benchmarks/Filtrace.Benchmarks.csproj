@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Filtrace.Benchmarks</RootNamespace>
+    <AssemblyName>Filtrace.Benchmarks</AssemblyName>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <ProjectReference Include="..\..\src\Filtrace.Core\Filtrace.Core.csproj" />
+  </ItemGroup>
+
+</Project>

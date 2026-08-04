@@ -17,6 +17,7 @@ Layout:
 - `src/Filtrace/` - the CLI (`filtrace` command; ConsoleAppFramework verbs)
 - `src/Filtrace.Core/` - the analysis library and public object model
 - `src/Filtrace.Mcp/` - the MCP stdio server exposing the `trace_*` tools
+- `benchmarks/Filtrace.Benchmarks/` - BenchmarkDotNet performance harness for the analysis core
 - `tests/Filtrace.*.Tests/` - unit and parity tests (Microsoft.Testing.Platform runner)
 - `fixtures/` - HotLoopBench and the committed binary captures the tests read
 - `tools/` - CI contract scripts (CLI help lint, MCP server check)
@@ -26,6 +27,7 @@ Layout:
 
 - `dotnet build filtrace.slnx -c Release`
 - `dotnet test filtrace.slnx -c Release`
+- `dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter *FoldingAggregatorBenchmarks*`
 
 CI also runs six contract and evaluation checks that must stay green:
 
