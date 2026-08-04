@@ -919,11 +919,12 @@ nupkg packs only `SKILL.md`.
 
 ## Track D - performance and parallelism
 
-**Status:** Phase 0 in progress; no optimization shipped. The synthetic aggregation
-corpus, sequential degree seams, parameterized CPU/activity workload, and first
-verified corpus archiver are implemented. **Date of analysis:** 2026-07-28. The
-remaining BenchmarkDotNet, CLI self-profiling, artifact, sequencing, and keep/reject
-plan is in
+**Status:** Phase 0 in progress; no optimization shipped. Aggregation, activity-read,
+embedded-PDB, and warm/cold single/manifest CLI benchmarks are implemented, together
+with sequential degree seams, a CPU/activity workload, corpus archiver, and
+per-launch child-process telemetry. **Date of analysis:** 2026-07-28. The remaining
+durable corpus restore, exact no-op reconstruction, Layer C wiring, sequencing, and
+keep/reject plan is in
 [parallelism-opportunities.md](parallelism-opportunities.md).
 
 Where the CPU goes on every `.nettrace` or `.etl` analysis:

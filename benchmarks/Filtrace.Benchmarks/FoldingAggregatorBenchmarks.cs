@@ -10,6 +10,8 @@ namespace Filtrace.Benchmarks;
 [MemoryDiagnoser]
 public class FoldingAggregatorBenchmarks
 {
+    private const string FocusFrame = "Pipeline.Frame1.Run";
+    private const string SourceFile = "Pipeline.cs";
     private FoldingAggregator _aggregator = null!;
 
     /// <summary>The sample-count, stack-depth, and frame-cardinality scenario.</summary>
@@ -24,9 +26,15 @@ public class FoldingAggregatorBenchmarks
     public void Setup()
     {
         _aggregator = new FoldingAggregator(FoldingBenchmarkCorpus.Create(Scenario));
-        if (SelfTime().Rows.Count == 0 || InclusiveTime().Rows.Count == 0)
+        if (SelfTime().Rows.Count == 0
+            || InclusiveTime().Rows.Count == 0
+            || CallersOf().Callers.Count == 0
+            || HotLines().Rows.Count == 0
+            || SourceHeatmap().Lines.Count == 0
+            || CallTree().Root.Children.Count == 0
+            || Classify().Categories.Count == 0)
         {
-            throw new InvalidOperationException($"Scenario '{Scenario}' produced no ranking rows.");
+            throw new InvalidOperationException($"Scenario '{Scenario}' produced an empty analysis result.");
         }
     }
 
@@ -39,4 +47,29 @@ public class FoldingAggregatorBenchmarks
     [Benchmark]
     public RankingResult InclusiveTime() =>
         _aggregator.InclusiveTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
+
+    /// <summary>Finds immediate callers of a stable synthetic focus frame.</summary>
+    [Benchmark]
+    public CallersResult CallersOf() =>
+        _aggregator.CallersOf(FocusFrame, string.Empty, top: 25);
+
+    /// <summary>Ranks location-bearing synthetic leaf samples by source line.</summary>
+    [Benchmark]
+    public LineRankingResult HotLines() =>
+        _aggregator.HotLines("Pipeline.Frame", FrameNames.DefaultFoldPatterns, top: 25);
+
+    /// <summary>Builds the per-line heatmap for the synthetic source file.</summary>
+    [Benchmark]
+    public SourceHeatmapResult SourceHeatmap() =>
+        _aggregator.SourceHeatmap(SourceFile, FrameNames.DefaultFoldPatterns);
+
+    /// <summary>Builds a bounded top-down tree over the synthetic stacks.</summary>
+    [Benchmark]
+    public CallTreeResult CallTree() =>
+        _aggregator.CallTree(string.Empty, FrameNames.DefaultFoldPatterns, maxDepth: 20, minPercentOfScope: 0.0);
+
+    /// <summary>Classifies synthetic self-time by runtime work category.</summary>
+    [Benchmark]
+    public ClassifyResult Classify() =>
+        _aggregator.Classify(string.Empty);
 }

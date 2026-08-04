@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Reflection.PortableExecutable;
@@ -34,6 +35,8 @@ internal static class EmbeddedPdbExtractor
 {
     // 'M' 'P' 'D' 'B' little-endian: the signature of an embedded portable PDB blob.
     private const uint EmbeddedPdbMagic = 0x4244504D;
+    private const long MaximumExtractedBytes = 256L * 1024 * 1024;
+    private const int CopyBufferSize = 81920;
 
     /// <summary>
     ///  Extracts every embedded portable PDB found in the DLLs of
@@ -48,6 +51,14 @@ internal static class EmbeddedPdbExtractor
     /// </returns>
     public static string? Extract(string buildOutputDirectory)
     {
+        long remainingExtractedBytes = MaximumExtractedBytes;
+        return ExtractCore(buildOutputDirectory, ref remainingExtractedBytes);
+    }
+
+    private static string? ExtractCore(
+        string buildOutputDirectory,
+        ref long remainingExtractedBytes)
+    {
         if (string.IsNullOrEmpty(buildOutputDirectory) || !Directory.Exists(buildOutputDirectory))
         {
             return null;
@@ -57,6 +68,7 @@ internal static class EmbeddedPdbExtractor
 
         foreach (string dll in Directory.EnumerateFiles(buildOutputDirectory, "*.dll"))
         {
+            string? temporaryPdbPath = null;
             try
             {
                 byte[] image = File.ReadAllBytes(dll);
@@ -81,27 +93,87 @@ internal static class EmbeddedPdbExtractor
                         continue;
                     }
 
+                    uint uncompressedSize = BinaryPrimitives.ReadUInt32LittleEndian(
+                        image.AsSpan(dataOffset + 4, 4));
+                    if (uncompressedSize == 0 || uncompressedSize > remainingExtractedBytes)
+                    {
+                        continue;
+                    }
+
+                    remainingExtractedBytes -= uncompressedSize;
+
                     tempDirectory ??= CreateTempDirectory();
                     string pdbPath = Path.Join(
                         tempDirectory,
                         Path.GetFileNameWithoutExtension(dll) + ".pdb");
+                    temporaryPdbPath = $"{pdbPath}.{Guid.NewGuid():N}.tmp";
 
                     // Layout of the embedded blob: 4-byte 'MPDB' magic, 4-byte
                     // uncompressed size, then the portable PDB as a raw deflate stream.
-                    using MemoryStream compressed = new(image, dataOffset + 8, entry.DataSize - 8, writable: false);
-                    using DeflateStream deflate = new(compressed, CompressionMode.Decompress);
-                    using FileStream outPdb = File.Create(pdbPath);
-                    deflate.CopyTo(outPdb);
+                    using (MemoryStream compressed = new(
+                        image,
+                        dataOffset + 8,
+                        entry.DataSize - 8,
+                        writable: false))
+                    using (DeflateStream deflate = new(compressed, CompressionMode.Decompress))
+                    using (FileStream outPdb = File.Create(temporaryPdbPath))
+                    {
+                        CopyExactly(deflate, outPdb, uncompressedSize);
+                    }
+
+                    File.Move(temporaryPdbPath, pdbPath, overwrite: true);
+                    temporaryPdbPath = null;
                 }
             }
             catch (Exception)
             {
                 // Extraction is best-effort: a DLL that cannot be read or whose
                 // embedded PDB cannot be decompressed simply contributes no symbols.
+                if (temporaryPdbPath is not null)
+                {
+                    TryDelete(temporaryPdbPath);
+                }
+
+                if (tempDirectory is not null && TryDeleteEmptyDirectory(tempDirectory))
+                {
+                    tempDirectory = null;
+                }
             }
         }
 
         return tempDirectory;
+    }
+
+    private static void CopyExactly(Stream source, Stream destination, long expectedBytes)
+    {
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(CopyBufferSize);
+        try
+        {
+            long remainingBytes = expectedBytes;
+            while (remainingBytes > 0)
+            {
+                int bytesRead = source.Read(
+                    buffer.AsSpan(0, (int)Math.Min(buffer.Length, remainingBytes)));
+                if (bytesRead == 0)
+                {
+                    throw new InvalidDataException(
+                        "Embedded PDB is shorter than its declared uncompressed size.");
+                }
+
+                destination.Write(buffer.AsSpan(0, bytesRead));
+                remainingBytes -= bytesRead;
+            }
+
+            if (source.ReadByte() != -1)
+            {
+                throw new InvalidDataException(
+                    "Embedded PDB is longer than its declared uncompressed size.");
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     private static string CreateTempDirectory()
@@ -109,5 +181,36 @@ internal static class EmbeddedPdbExtractor
         string path = Path.Join(Path.GetTempPath(), $"filtrace-pdb-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception)
+        {
+            // Preserve best-effort extraction when cleanup itself loses a race.
+        }
+    }
+
+    private static bool TryDeleteEmptyDirectory(string path)
+    {
+        try
+        {
+            if (Directory.EnumerateFileSystemEntries(path).Any())
+            {
+                return false;
+            }
+
+            Directory.Delete(path);
+            return true;
+        }
+        catch (Exception)
+        {
+            // Preserve best-effort extraction when cleanup itself loses a race.
+            return false;
+        }
     }
 }

@@ -67,32 +67,38 @@ with an older checkout that does not contain the same harness.
 
 ### Layer B: end-to-end CLI benchmarks
 
-Add two BenchmarkDotNet classes before changing production code:
+Three BenchmarkDotNet classes own this layer:
 
-- `CliWarmBenchmarks`: starts the checkout's built `filtrace.exe` against prepared
+- `CliWarmBenchmarks` starts the checkout's built `filtrace.exe` against prepared
   inputs whose ETLX caches already exist. This measures process startup plus trace
   load, analysis, JSON rendering, and exit.
-- `CliColdConversionBenchmarks`: gives each iteration a fresh trace copy with no ETLX,
+- `CliColdConversionBenchmarks` gives each iteration a fresh trace copy with no ETLX,
   invokes the command once, and deletes the trace and generated ETLX in cleanup. One
   invocation per iteration is intentional because cold state cannot be reused.
+- `CliColdManifestBenchmarks` does the same for independent 8/24-case batch and
+  paired diff trees, verifying every distinct trace produced an ETLX before cleanup.
 
-Both launch the executable, consume stdout and stderr asynchronously, require exit
-code zero, and return a digest of exit code plus output length so the work cannot be
-elided. `[MemoryDiagnoser]` remains on the classes, but its `Allocated` column belongs
-to the benchmark host and process-launch wrapper, not the child filtrace process; do
-not report it as CLI allocation. Core allocation evidence comes from Layer A. Child
-CPU and lifecycle evidence come from Layer C.
+All launch the executable, consume bounded stdout and stderr asynchronously, require
+exit code zero with nonempty stdout and empty stderr, and return exit/output metadata
+so the work cannot be elided. `[MemoryDiagnoser]` remains on the classes, but its
+`Allocated` column belongs to the benchmark host and process-launch wrapper, not the
+child filtrace process; do not report it as CLI allocation. Core allocation evidence
+comes from Layer A. Child CPU and lifecycle evidence come from Layer C.
 
 After each retained timing run, run a separate untimed telemetry pass of 25 launches
-through the same process runner. Record `TotalProcessorTime`, `PeakWorkingSet64`, the
-maximum sampled `PrivateMemorySize64`, exit code, and output digest for each child in
-`cli-process.json`. `PeakWorkingSet64` is resident memory, not total committed memory;
-report both memory fields with that distinction. Keep telemetry outside the timed
-BenchmarkDotNet method so querying process counters cannot become the measured
-workload. Capture child managed allocations with an explicit EventPipe allocation
-trace only when allocation inside the CLI process is the question, and call it sampled
-allocation volume rather than exact retained memory. The startup ETW profile used
-below does not carry allocation data.
+through the same process runner. `--cli-telemetry` supports the implemented warm and
+cold single-trace/batch/diff scenarios. It samples cumulative `TotalProcessorTime`,
+`PeakWorkingSet64`, and `PrivateMemorySize64` while each child is alive, then records
+their maxima, exact per-launch arguments, exit code, output lengths, and SHA-256 output
+digest in `cli-process.json`. Warm launches reuse one prepared tree; each cold launch
+gets new trace/manifest paths and records those paths before cleanup.
+`PeakWorkingSet64` is resident memory, not total committed memory; report both memory
+fields with that distinction. Keep telemetry outside the timed BenchmarkDotNet method
+so querying process counters cannot become the measured workload. Capture child
+managed allocations with an explicit EventPipe allocation trace only when allocation
+inside the CLI process is the question, and call it sampled allocation volume rather
+than exact retained memory. The startup ETW profile used below does not carry
+allocation data.
 
 Keep these scenario names stable so baseline and candidate reports pair cleanly:
 
@@ -305,7 +311,7 @@ These gates are fixed before testing a candidate:
 
 Complete this before any production parallelism edit.
 
-**Initial slice implemented 2026-08-03:**
+**Phase 0 implementation through 2026-08-04:**
 
 - feasible location-bearing synthetic stacks from 100 to 1,000,000 samples, with
   explicit cold and warm self/inclusive benchmarks;
@@ -318,11 +324,32 @@ Complete this before any production parallelism edit.
   workload options, native recorder failure, nonempty output, and paths containing
   spaces. It publishes through same-volume staging, fails closed on derived ETLX,
   and validates archive hashes against a portable no-BOM manifest before publication.
+- committed-fixture `ActivityReadBenchmarks` for unscoped and `Order`-scoped CPU
+  loads, plus a public-path embedded-PDB matrix at 1/8/32/64 DLLs and exact feasible
+  0/25/100% hit rates;
+- `CliWarmBenchmarks` for `info`, self, inclusive, activity, batch 8/24, and diff
+  8/24, plus symbols 1/32; `CliColdConversionBenchmarks` for `info-cold`;
+  `CliColdManifestBenchmarks` for cold batch/diff 8/24; and warm/cold child telemetry
+  with exact per-launch arguments and validated BOM-free JSON.
+- warm and cold CPU aggregation methods for self, inclusive, callers, hot lines,
+  source heatmap, call tree, and classification over all 20 synthetic scenarios.
+- focused thread-time, allocation-byte, and count metric parity over all seven
+  aggregation families.
+- adaptive `Capture-TrackDCorpus.ps1 -Scale` capture for CPU 10k/100k/1m at depths
+  5/20 and activity-scoped CPU 10k/100k at depth 20. A local 2026-08-04 run produced
+  9,995-1,000,403 target records across eight traces; its 8,923,614-byte archive hash
+  is `A504CDFEC912F38390A68BE3B5DAA0823AE3A4FB869589550A0A63AF113B7635`.
+- `Invoke-TrackDInvestigation.ps1` for benchmark-tree equality, corpus restoration,
+  filtered BDN and CLI telemetry A/B, exact commands, run/comparison JSON, and a
+  starter ledger. A same-checkout dry smoke paired three rows with zero allocation
+  deltas and a largest absolute timing delta of 9.61%.
+- `Test-TrackDInvestigation.ps1` fake-driven contracts for neutral comparison,
+  injected adapter failure with retained commands/status, and test-adapter gating.
 
-Remaining Phase 0 work is the activity-read, embedded-PDB, and CLI process benchmark
-classes; calibrated 10k/100k/1m retained corpus tiers; child-process telemetry; and
-the baseline/candidate `Invoke-TrackDInvestigation.ps1` wrapper with fake-driven
-failure tests and a no-op reconstruction run.
+Remaining Phase 0 work is copying/restoring the reviewed corpus archive in approved
+durable storage, optional Layer C capture wiring, and a post-merge exact-worktree
+no-op run using the default job and 25-launch telemetry. The local ignored archive
+and dirty-checkout dry smoke are not durable acceptance evidence.
 
 ### Benchmark additions
 
@@ -331,11 +358,12 @@ Complete the following benchmark set in `Filtrace.Benchmarks`:
 - `FoldingAggregatorBenchmarks`: the initial CPU self/inclusive matrix now covers
   sample counts `100`, `1_000`, `5_000`, `10_000`, `100_000`, and `1_000_000`;
   stack depths 5 and 20; feasible low/high frame cardinality; source locations; and
-  fractional, zero, and large exactly-representable weights. Add separate benchmark
-  methods and nonempty setup assertions for `CallersOf`, `HotLines`,
-  `SourceHeatmap`, `CallTree`, and `Classify`, then repeat parity scenarios across
-  thread-time, allocation, and count metrics. Split classes if the cross product
-  makes a normal run unreasonably long.
+  fractional, zero, and large exactly-representable weights. Separate benchmark
+  methods and nonempty setup assertions now cover `CallersOf`, `HotLines`,
+  `SourceHeatmap`, `CallTree`, and `Classify`.
+  `FoldingAggregatorMetricBenchmarks` applies all seven families to one representative
+  10k/depth-20/high-cardinality source for thread-time, allocation bytes, and count
+  without multiplying the full CPU matrix.
 - `FoldingAggregatorColdBenchmarks` now constructs a fresh aggregator over a prepared
   immutable source inside each operation, measuring the first query with an empty
   short-name cache. The warm class reuses and explicitly primes its aggregator. Keep
@@ -349,12 +377,21 @@ Complete the following benchmark set in `Filtrace.Benchmarks`:
   implementation, while the legacy overload remains sequential. This gives both arms
   the same API and benchmark shape without shipping parallel behavior; LP-1 changes
   only the new overload's implementation and then opts the audited heads into it.
-- `ActivityReadBenchmarks`: `TraceLoader.Load` over the same preconverted activity
-  trace with no activity scope and with a named activity scope.
-- `EmbeddedPdbBenchmarks`: public `TraceLoader.Load(trace, symbolsDirectory)` over
-  controlled symbol directories. Do not widen `EmbeddedPdbExtractor` accessibility
-  for the benchmark.
-- `CliWarmBenchmarks` and `CliColdConversionBenchmarks` as defined above.
+- `ActivityReadBenchmarks` is implemented over the same preconverted committed
+  activity trace with no activity scope and with the named `Order` scope. Add the
+  generated 10k/100k traces after the retained scale corpus is calibrated.
+- `EmbeddedPdbBenchmarks` is implemented through public
+  `TraceLoader.Load(trace, symbolsDirectory)` at 1/8/32/64 DLLs. Its embedded and
+  non-embedded source PEs are verified at setup and padded to equal length so hit
+  rate is the changed axis. Exact extractor tests cover embedded, no-PDB, corrupt,
+  locked, duplicate-copy, and mixed directories without widening accessibility.
+- `CliWarmBenchmarks` covers `info-warm`, `rank-self-warm`,
+  `rank-inclusive-warm`, `rank-activity-warm`, `batch-8/24`, and `diff-8/24`;
+  `CliColdConversionBenchmarks` covers `info-cold`; and
+  `CliColdManifestBenchmarks` covers cold batch/diff 8/24. Their manifest corpus owns
+  distinct paths, exact pairing, warm/cold ETLX validation, and cleanup.
+  `symbols-1/32` use the same byte-normalized 100%-embedded corpus as the public PDB
+  benchmark. Every implemented timing scenario is also accepted by child telemetry.
 - `Filtrace.PerfWorkload` is implemented as a small net10.0 console project with
   `cpu` and `activity` modes. It accepts `--workers`, `--duration-ms`, `--depth`, and
   `--activity-rounds`; the CPU mode runs a non-inlined call chain at the requested
@@ -384,26 +421,34 @@ producer.
 
 ### Orchestration
 
-Add `benchmarks/Invoke-TrackDInvestigation.ps1` to:
+`benchmarks/Invoke-TrackDInvestigation.ps1` now:
 
 - create unique result directories;
 - build an exact detached baseline and the candidate;
 - verify both arms use the same `harnessCommit` and benchmark tree hash;
-- generate/copy the scale corpus, archive its bytes, and record hashes;
+- copies/restores the scale corpus and records its archive hash;
 - run the filtered BenchmarkDotNet baseline and candidate commands;
-- invoke `Capture-CommandTrace.ps1` with a fixed collector;
-- extract exact invocation IDs and run `info`, `lifecycle`, `cpu`, `callers`, and
-  `lines` through the fixed analyzer;
 - write `run.json`, `commands.txt`, and a starter ledger without deciding whether a
   candidate passed.
+
+Still add optional Layer C invocation of `Capture-CommandTrace.ps1`, extraction of
+exact invocation IDs, and fixed-analyzer `info`, `lifecycle`, `cpu`, `callers`, and
+`lines` output after arbitrary launch arguments have a reviewed encoding path.
 
 [`Capture-TrackDCorpus.ps1`](../benchmarks/Capture-TrackDCorpus.ps1) is the first
 implemented subset of that orchestrator: it builds the workload, captures one
 CPU/activity pair, verifies both with filtrace, removes derived ETLX files, archives
 the raw trace bytes under their portable `inputs/` paths, validates a SHA-256
 manifest, and publishes the complete corpus from a same-volume staging directory.
-Extend it to calibrated tiers and fold it into `Invoke-TrackDInvestigation.ps1`; do
-not create a second capture path with different provider or archive semantics.
+Its `-Scale` mode owns the retained matrix and adapts duration from observed target
+records until every trace lands within tolerance. The resulting local archive still
+needs an approved durable location and a clean-checkout restore before supporting a
+kept claim.
+
+The A/B wrapper's explicit-checkout mode is test-only. Exact mode creates detached
+worktrees; both modes refuse benchmark-tree drift, restore identical corpus bytes,
+record raw BDN mean/allocation and child telemetry deltas, and retain failed partial
+runs with `status: failed`.
 
 Test the script with fake baseline/candidate executables before relying on an
 expensive ETW run. The script must distinguish absent, nonzero, malformed, and valid

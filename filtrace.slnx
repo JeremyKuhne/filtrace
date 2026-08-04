@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/benchmarks/">
+    <File Path="benchmarks/Capture-TrackDCorpus.ps1" />
     <Project Path="benchmarks/Filtrace.Benchmarks/Filtrace.Benchmarks.csproj" />
     <File Path="benchmarks/README.md" />
     <Project Path="benchmarks/Filtrace.PerfWorkload/Filtrace.PerfWorkload.csproj" />
+    <File Path="benchmarks/Invoke-TrackDInvestigation.ps1" />
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />
