@@ -37,10 +37,11 @@ internal static class RankingExecutor
         }
 
         string path = request.Path;
-        string? symbols = request.Symbols;
+        string? symbols = string.IsNullOrEmpty(request.Symbols) ? null : request.Symbols;
         ScopeRequest? scope = request.Scope;
-        if (request.CaseId is string caseId)
+        if (!string.IsNullOrEmpty(request.CaseId))
         {
+            string caseId = request.CaseId;
             try
             {
                 CaptureManifest manifest = CaptureManifestReader.Read(request.Path);

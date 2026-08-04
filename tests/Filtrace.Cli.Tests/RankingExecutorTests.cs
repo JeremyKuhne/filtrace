@@ -226,6 +226,66 @@ public sealed class RankingExecutorTests
     }
 
     [TestMethod]
+    public void Run_EmptyCaseId_RanksDirectTrace()
+    {
+        RankRequest request = Request(Speedscope, format: OutputFormat.Json) with { CaseId = string.Empty };
+
+        (int exit, string output, string error) = Run(request);
+
+        exit.Should().Be(ExitCodes.Success);
+        error.Should().BeEmpty();
+        using JsonDocument document = JsonDocument.Parse(output);
+        document.RootElement.GetProperty("result").GetProperty("rows")[0]
+            .GetProperty("frame").GetString().Should().Be("MyApp.Inner");
+    }
+
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    public void Run_ManifestCase_NullOrEmptySymbolsUsesRecordedDirectory(string? symbols)
+    {
+        string missingSymbols = Path.Combine(Path.GetTempPath(), $"missing-symbols-{Guid.NewGuid():N}");
+        string manifest = WriteManifestWithSymbols("source", Activity, missingSymbols);
+        try
+        {
+            RankRequest request = Request(manifest) with { CaseId = "source", Symbols = symbols };
+
+            (int exit, _, string error) = Run(request);
+
+            exit.Should().Be(ExitCodes.InputError);
+            error.Should().Contain(missingSymbols).And.Contain("was not found");
+        }
+        finally
+        {
+            File.Delete(manifest);
+        }
+    }
+
+    [TestMethod]
+    public void Run_ManifestCase_ExplicitSymbolsOverridesRecordedDirectory()
+    {
+        string missingSymbols = Path.Combine(Path.GetTempPath(), $"missing-symbols-{Guid.NewGuid():N}");
+        string manifest = WriteManifestWithSymbols("source", Activity, missingSymbols);
+        try
+        {
+            RankRequest request = Request(manifest) with
+            {
+                CaseId = "source",
+                Symbols = AppContext.BaseDirectory
+            };
+
+            (int exit, _, string error) = Run(request);
+
+            exit.Should().Be(ExitCodes.Success);
+            error.Should().BeEmpty();
+        }
+        finally
+        {
+            File.Delete(manifest);
+        }
+    }
+
+    [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
     public void Run_CommandManifestCase_ReplaysExactProcessId()
     {
@@ -260,6 +320,19 @@ public sealed class RankingExecutorTests
             manifest,
             $$"""
             {"schemaVersion":1,"cases":[{"id":"{{caseId}}","benchmark":"Bench.Work","parameters":"Size: 1","benchmarkDisplay":"Work(Size: 1)","speedscope":"{{trace}}"}]}
+            """);
+        return manifest;
+    }
+
+    private static string WriteManifestWithSymbols(string caseId, string tracePath, string symbolsDirectory)
+    {
+        string manifest = Path.Combine(Path.GetTempPath(), $"filtrace-rank-case-{Guid.NewGuid():N}.json");
+        string trace = tracePath.Replace("\\", "\\\\", StringComparison.Ordinal);
+        string symbols = symbolsDirectory.Replace("\\", "\\\\", StringComparison.Ordinal);
+        File.WriteAllText(
+            manifest,
+            $$"""
+            {"schemaVersion":1,"cases":[{"id":"{{caseId}}","benchmark":"Bench.Work","parameters":"","benchmarkDisplay":"Work","trace":"{{trace}}","symbolsDirectory":"{{symbols}}"}]}
             """);
         return manifest;
     }
