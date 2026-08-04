@@ -197,7 +197,7 @@ These are checked by CI; a change that breaks one is not shippable.
 | Verb discoverability | every verb in top-level help, with a README example and a scope-inventory entry | 25 verbs | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
 | Catalog completeness | every verb and every `trace_*` tool documented | 25 verbs / 18 tools | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
 | Knowledge-layer drift | zero drift between `docs/` blocks and their embedded copies | 4 blocks | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
-| Deterministic eval | every task keeps its answer, call count, and output budget | 24 tasks | [eval/Invoke-Eval.ps1](../eval/Invoke-Eval.ps1) |
+| Deterministic eval | every task keeps its answer, call count, and output budget | 26 tasks | [eval/Invoke-Eval.ps1](../eval/Invoke-Eval.ps1) |
 | Numeric parity | rankings match the frozen oracle within tolerance and ordering | committed fixtures | `tests/Filtrace.Parity.Tests` |
 | Capture contract | run artifacts isolated, overlap rejected, every case in the manifest | - | [tools/Test-CaptureBenchmarkTrace.ps1](../tools/Test-CaptureBenchmarkTrace.ps1) |
 | Native symbol resolution | frames resolve with `--symbols` and not without | - | [tools/Test-NativeSymbolResolution.ps1](../tools/Test-NativeSymbolResolution.ps1) |

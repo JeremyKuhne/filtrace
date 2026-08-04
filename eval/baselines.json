@@ -96,6 +96,14 @@
     "manifest-case-drill": {
       "calls": 2,
       "tokens": 463
+    },
+    "threadpool-report": {
+      "calls": 1,
+      "tokens": 97
+    },
+    "diskio-report": {
+      "calls": 1,
+      "tokens": 433
     }
   }
 }

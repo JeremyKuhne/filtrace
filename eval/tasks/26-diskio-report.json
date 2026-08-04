@@ -1,0 +1,16 @@
+{
+  "id": "diskio-report",
+  "title": "Summarize physical disk I/O and the hottest file.",
+  "prompt": "Summarize physical disk I/O in this ETW trace. Report the write count, total bytes written, and the file with the most disk time.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/diskio.etl",
+  "os": "windows",
+  "steps": [
+    { "args": ["diskio", "{fixture}"] }
+  ],
+  "assert": [
+    { "field": "result.writeCount", "equals": 117 },
+    { "field": "result.totalWriteBytes", "equals": 2654208 },
+    { "field": "result.files[0].fileName", "equals": "C:\\$LogFile" }
+  ],
+  "expect": ["117", "2654208", "$LogFile"]
+}
