@@ -59,7 +59,7 @@
     },
     "manifest-batch": {
       "calls": 1,
-      "tokens": 315
+      "tokens": 358
     },
     "manifest-diff": {
       "calls": 1,
@@ -92,6 +92,10 @@
     "scope-preserving-drill": {
       "calls": 1,
       "tokens": 370
+    },
+    "manifest-case-drill": {
+      "calls": 2,
+      "tokens": 463
     }
   }
 }

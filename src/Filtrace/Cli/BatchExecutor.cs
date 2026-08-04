@@ -43,7 +43,7 @@ internal static class BatchExecutor
                 });
             AnalysisResult<BatchRankingResult> envelope = new(
                 result,
-                hints: SteeringHints.ForBatch(result),
+                hints: SteeringHints.ForBatch(result, request.Scope, request.Symbols, request.Fold),
                 context: AnalysisContext.ForMetric(
                     "batch",
                     TraceMetricSelector.GetInfo(request.Metric),

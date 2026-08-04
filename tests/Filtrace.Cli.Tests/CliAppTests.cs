@@ -178,6 +178,38 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_RankManifestCase_IsParsed()
+    {
+        string manifest = Path.Combine(Path.GetTempPath(), $"filtrace-rank-case-{Guid.NewGuid():N}.json");
+        string trace = Speedscope.Replace("\\", "\\\\", StringComparison.Ordinal);
+        File.WriteAllText(
+            manifest,
+            $$"""
+            {"schemaVersion":1,"cases":[{"id":"size-1","benchmark":"Bench.Work","parameters":"Size: 1","benchmarkDisplay":"Work(Size: 1)","speedscope":"{{trace}}"}]}
+            """);
+        try
+        {
+            (int exit, string output, string error) = Run(
+                "rank",
+                manifest,
+                "--case-id",
+                "size-1",
+                "--format",
+                "json");
+
+            exit.Should().Be(ExitCodes.Success);
+            error.Should().BeEmpty();
+            using JsonDocument document = JsonDocument.Parse(output);
+            document.RootElement.GetProperty("result").GetProperty("rows")[0]
+                .GetProperty("frame").GetString().Should().Be("MyApp.Inner");
+        }
+        finally
+        {
+            File.Delete(manifest);
+        }
+    }
+
+    [TestMethod]
     public void Run_CpuShortcut_MatchesRankDefault()
     {
         (int rankExit, string rankOut, _) = Run("rank", Speedscope);

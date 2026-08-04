@@ -184,6 +184,87 @@ public sealed class RankingExecutorTests
     }
 
     [TestMethod]
+    public void Run_ManifestCase_RanksReferencedTrace()
+    {
+        string manifest = WriteManifest("size-1");
+        try
+        {
+            RankRequest request = Request(manifest, format: OutputFormat.Json) with { CaseId = "size-1" };
+
+            (int exit, string output, string error) = Run(request);
+
+            exit.Should().Be(ExitCodes.Success);
+            error.Should().BeEmpty();
+            using JsonDocument document = JsonDocument.Parse(output);
+            document.RootElement.GetProperty("result").GetProperty("rows")[0]
+                .GetProperty("frame").GetString().Should().Be("MyApp.Inner");
+        }
+        finally
+        {
+            File.Delete(manifest);
+        }
+    }
+
+    [TestMethod]
+    public void Run_ManifestCase_MissingIdReturnsInputError()
+    {
+        string manifest = WriteManifest("size-1");
+        try
+        {
+            RankRequest request = Request(manifest) with { CaseId = "missing" };
+
+            (int exit, _, string error) = Run(request);
+
+            exit.Should().Be(ExitCodes.InputError);
+            error.Should().Contain("Could not resolve manifest case 'missing'")
+                .And.Contain("no case with id 'missing'");
+        }
+        finally
+        {
+            File.Delete(manifest);
+        }
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_CommandManifestCase_ReplaysExactProcessId()
+    {
+        string manifest = Path.Combine(Path.GetTempPath(), $"filtrace-rank-command-{Guid.NewGuid():N}.json");
+        string trace = Etw.Replace("\\", "\\\\", StringComparison.Ordinal);
+        File.WriteAllText(
+            manifest,
+            $$"""
+            {"schemaVersion":2,"kind":"command","process":"HotLoopBench","cases":[{"id":"command","benchmark":"Command.Run","parameters":"","benchmarkDisplay":"Command.Run","trace":"{{trace}}","invocations":[{"ordinal":1,"processId":999999,"exitCode":0,"startedUtc":"2026-08-03T00:00:00Z","stoppedUtc":"2026-08-03T00:00:01Z"}]}]}
+            """);
+        try
+        {
+            RankRequest request = Request(manifest) with { CaseId = "command" };
+
+            (int exit, string output, string error) = Run(request);
+
+            exit.Should().Be(ExitCodes.Success);
+            error.Should().BeEmpty();
+            output.Should().Contain("999999").And.Contain("not found in this trace");
+        }
+        finally
+        {
+            File.Delete(manifest);
+        }
+    }
+
+    private static string WriteManifest(string caseId)
+    {
+        string manifest = Path.Combine(Path.GetTempPath(), $"filtrace-rank-case-{Guid.NewGuid():N}.json");
+        string trace = Speedscope.Replace("\\", "\\\\", StringComparison.Ordinal);
+        File.WriteAllText(
+            manifest,
+            $$"""
+            {"schemaVersion":1,"cases":[{"id":"{{caseId}}","benchmark":"Bench.Work","parameters":"Size: 1","benchmarkDisplay":"Work(Size: 1)","speedscope":"{{trace}}"}]}
+            """);
+        return manifest;
+    }
+
+    [TestMethod]
     public void Run_MissingFile_ReturnsInputError()
     {
         (int exit, _, string error) = Run(Request(FixturePath("does-not-exist.nettrace")));

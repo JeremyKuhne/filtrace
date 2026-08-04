@@ -85,6 +85,7 @@ internal sealed class TraceCommands
     /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl CPU captures only.</param>
     /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
     /// <param name="noFold">Fold only the synthetic sample markers, not the JIT-helper thunks, so native runtime leaves rank on their own. Mutually exclusive with --fold.</param>
+    /// <param name="caseId">Select this exact case when <paramref name="trace"/> is a capture manifest.</param>
     /// <returns>A process exit code.</returns>
     [Command("rank")]
     public int Rank(
@@ -106,7 +107,8 @@ internal sealed class TraceCommands
         bool benchmark = false,
         bool nativeSymbols = false,
         string symbolCache = "",
-        bool noFold = false)
+        bool noFold = false,
+        string caseId = "")
     {
         if (!RankRequestFactory.TryResolveMetric(metric, out TraceMetric resolved))
         {
@@ -160,7 +162,10 @@ internal sealed class TraceCommands
         }
 
         RankRequest request = RankRequestFactory.Create(
-            trace, resolved, measure, resolvedRoot, top, foldPatterns, symbols, format, strict, scope, symbolOptions);
+            trace, resolved, measure, resolvedRoot, top, foldPatterns, symbols, format, strict, scope, symbolOptions) with
+        {
+            CaseId = string.IsNullOrEmpty(caseId) ? null : caseId
+        };
         return RankingExecutor.Run(request, Console.Out, Console.Error);
     }
 

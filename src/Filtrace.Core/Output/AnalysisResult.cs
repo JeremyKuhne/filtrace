@@ -81,8 +81,12 @@ public sealed class AnalysisResult<T>
     ///   Version 13 omitted null optional properties and false event-budget truncation
     ///   while retaining semantically meaningful empty arrays, empty strings, and zeros.
     ///  </para>
+    ///  <para>
+    ///   Version 14 added manifest case identifiers and actionable case-addressed rank
+    ///   next steps that preserve the batch query's scope and overrides.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 13;
+    public const int CurrentSchemaVersion = 14;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.

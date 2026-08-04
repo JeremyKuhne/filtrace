@@ -265,6 +265,44 @@ public sealed class OutputBudgetTests
     }
 
     [TestMethod]
+    public void BatchNextStep_MaximumOverrides_StaysUnderDefaultCeiling()
+    {
+        BatchRankingCaseResult captureCase = new(
+            "Bench.Work",
+            string.Empty,
+            "trace.etl",
+            10.0,
+            "ms",
+            "MyApp.Hot",
+            8.0,
+            80.0,
+            10,
+            [])
+        {
+            CaseId = "case"
+        };
+        BatchRankingResult batch = new(
+            "manifest.json",
+            "cpu",
+            "self",
+            string.Empty,
+            [captureCase]);
+        string symbols = new('s', 1024);
+        string[] foldPatterns = [.. Enumerable.Repeat(new string('f', 256), 32)];
+        IReadOnlyList<string> hints = SteeringHints.ForBatch(
+            batch,
+            scope: null,
+            symbols,
+            foldPatterns);
+        AnalysisResult<BatchRankingResult> envelope = new(batch, hints: hints);
+
+        string json = OutputJson.Serialize(envelope);
+
+        OutputBudget.IsOverBudget(json).Should().BeFalse(
+            $"bounded batch follow-up estimated {OutputBudget.EstimateTokens(json)} tokens");
+    }
+
+    [TestMethod]
     public void DirectDiff_ManyRows_IsBoundedBelowDefaultCeiling()
     {
         DiffRow[] rows =

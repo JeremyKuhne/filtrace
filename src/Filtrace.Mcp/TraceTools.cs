@@ -132,6 +132,45 @@ public sealed class TraceTools
             nativeSymbols,
             benchmark).GetAwaiter().GetResult();
 
+    /// <inheritdoc cref="RankToolAsync"/>
+    public static Task<AnalysisResult<RankingResult>> RankAsync(
+        TraceStore store,
+        string path,
+        string metric = "cpu",
+        string measure = "self",
+        string root = "",
+        int top = 25,
+        string[]? fold = null,
+        string symbols = "",
+        string process = "",
+        int[]? pid = null,
+        bool children = true,
+        string activity = "",
+        string time = "",
+        bool nativeSymbols = false,
+        bool benchmark = false,
+        CancellationToken cancellationToken = default) =>
+        RankToolAsync(
+            store,
+            path,
+            metric,
+            measure,
+            root,
+            top,
+            fold,
+            symbols,
+            process,
+            pid,
+            children,
+            activity,
+            time,
+            nativeSymbols,
+            benchmark,
+            allProcesses: false,
+            manifestPath: "",
+            caseId: "",
+            cancellationToken);
+
     /// <summary>
     ///  Ranks the hottest frames over a chosen provider metric by self or inclusive
     ///  time, folding JIT-helper sampling artifacts back into the real methods.
@@ -151,16 +190,19 @@ public sealed class TraceTools
     /// <param name="time">Optional time window 'start,end' in ms scoping the ranking to that slice; any metric.</param>
     /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.</param>
     /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
+    /// <param name="allProcesses">Read every process rather than automatic or manifest scope.</param>
+    /// <param name="manifestPath">Capture manifest path; requires <paramref name="caseId"/> and excludes <paramref name="path"/>.</param>
+    /// <param name="caseId">Exact case id within <paramref name="manifestPath"/>.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The ranking envelope.</returns>
     [McpServerTool(Name = "trace_rank", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Rank frames by self or inclusive metric weight. Metrics: cpu, threadtime, alloc, exceptions, "
-        + "contention, wait, or activity; all but cpu and threadtime need .nettrace. Scope with root or "
-        + "benchmark=true (BenchmarkDotNet measured workload).")]
-    public static async Task<AnalysisResult<RankingResult>> RankAsync(
+        + "contention, wait, or activity; all but cpu and threadtime need .nettrace. Address either a trace "
+        + "path or one manifestPath+caseId. Scope with root or benchmark=true.")]
+    public static async Task<AnalysisResult<RankingResult>> RankToolAsync(
         TraceStore store,
-        [Description("Trace path (.speedscope.json, .nettrace, or .etl).")] string path,
+        [Description("Trace path; excludes manifestPath and caseId.")] string path = "",
         [Description("Metric: cpu, threadtime, alloc, exceptions, contention, wait, or activity.")] string metric = "cpu",
         [Description("Measure: self or inclusive.")] string measure = "self",
         [Description("Frame substring that roots the ranking.")] string root = "",
@@ -182,6 +224,12 @@ public sealed class TraceTools
         bool nativeSymbols = false,
         [Description("BenchmarkDotNet workload root; conflicts with 'root'.")]
         bool benchmark = false,
+        [Description("Read every process; excludes process and pid.")]
+        bool allProcesses = false,
+        [Description("Capture manifest path; requires caseId and excludes path.")]
+        string manifestPath = "",
+        [Description("Exact manifest case id; requires manifestPath.")]
+        string caseId = "",
         CancellationToken cancellationToken = default)
     {
         TraceMetric resolved = ResolveMetric(metric);
@@ -198,7 +246,7 @@ public sealed class TraceTools
                 "The activity scope applies to the cpu metric only. Use metric=cpu (or omit metric) to scope to an activity.");
         }
 
-        ScopeRequest? scope = ResolveScope(process, pid, children);
+        ScopeRequest? scope = ResolveScope(process, pid, children, allProcesses);
         if (!string.IsNullOrEmpty(activity))
         {
             scope = (scope ?? ScopeRequest.Auto).WithActivity(activity);
@@ -216,10 +264,42 @@ public sealed class TraceTools
             scope = (scope ?? ScopeRequest.Auto).WithTimeWindow(startMSec, endMSec);
         }
 
+        bool hasPath = !string.IsNullOrEmpty(path);
+        bool hasManifestPath = !string.IsNullOrEmpty(manifestPath);
+        bool hasCaseId = !string.IsNullOrEmpty(caseId);
+        if ((hasPath ? 1 : 0) + (hasManifestPath ? 1 : 0) != 1
+            || hasManifestPath != hasCaseId)
+        {
+            throw new McpException(
+                "Specify either path, or both manifestPath and caseId; do not combine the address forms.");
+        }
+
+        string resolvedPath = path;
+        string? resolvedSymbols = NullIfEmpty(symbols);
+        if (hasManifestPath)
+        {
+            try
+            {
+                CaptureManifest manifest = CaptureManifestReader.Read(manifestPath);
+                CaptureManifestCase captureCase = manifest.GetCase(caseId);
+                resolvedPath = captureCase.TracePath;
+                resolvedSymbols ??= captureCase.SymbolsDirectory;
+                scope = manifest.ResolveCaseScope(captureCase, scope);
+            }
+            catch (Exception exception) when (
+                exception is IOException
+                or UnauthorizedAccessException
+                or InvalidDataException
+                or ArgumentException)
+            {
+                throw new McpException(exception.Message);
+            }
+        }
+
         TraceStoreLoadResult load = await LoadAsync(
             store,
-            path,
-            NullIfEmpty(symbols),
+            resolvedPath,
+            resolvedSymbols,
             resolved,
             scope,
             ResolveSymbols(nativeSymbols),
@@ -629,7 +709,7 @@ public sealed class TraceTools
                     captureManifest.ResolveCaseScope(captureCase, scope)));
             return new AnalysisResult<BatchRankingResult>(
                 result,
-                hints: SteeringHints.ForBatch(result),
+                hints: SteeringHints.ForBatch(result, scope, resolvedSymbols, foldPatterns),
                 context: AnalysisContext.ForMetric(
                     "batch",
                     TraceMetricSelector.GetInfo(resolvedMetric),
@@ -1776,16 +1856,33 @@ public sealed class TraceTools
     // default), a no-op on a single-process .nettrace/speedscope trace. A process name
     // scopes a multi-process .etl to the matching trees; exact ids scope to those
     // processes and cannot pick up an unrelated instance of a common host name.
-    private static ScopeRequest? ResolveScope(string process, int[]? processIds = null, bool children = true)
+    private static ScopeRequest? ResolveScope(
+        string process,
+        int[]? processIds = null,
+        bool children = true,
+        bool allProcesses = false)
     {
-        if (processIds is { Length: > 0 })
+        bool hasProcess = !string.IsNullOrEmpty(process);
+        bool hasProcessIds = processIds is { Length: > 0 };
+        if (hasProcess && hasProcessIds && !allProcesses)
         {
-            if (!string.IsNullOrEmpty(process))
-            {
-                throw new McpException("Specify only one of process and pid.");
-            }
+            throw new McpException("Specify only one of process and pid.");
+        }
 
-            foreach (int processId in processIds)
+        if ((hasProcess ? 1 : 0) + (hasProcessIds ? 1 : 0) + (allProcesses ? 1 : 0) > 1)
+        {
+            throw new McpException("Specify only one of process, pid, and allProcesses.");
+        }
+
+        if (allProcesses && !children)
+        {
+            throw new McpException(
+                "children applies to process, pid, or automatic scope; allProcesses already reads every process.");
+        }
+
+        if (hasProcessIds)
+        {
+            foreach (int processId in processIds!)
             {
                 if (processId <= 0)
                 {
@@ -1793,12 +1890,14 @@ public sealed class TraceTools
                 }
             }
 
-            return ScopeRequest.ForProcessIds(processIds, children);
+            return ScopeRequest.ForProcessIds(processIds!, children);
         }
 
-        return string.IsNullOrEmpty(process)
-            ? (children ? null : ScopeRequest.AutoScope(includeChildren: false))
-            : ScopeRequest.ForProcess(process, children);
+        return allProcesses
+            ? ScopeRequest.AllProcesses
+            : hasProcess
+                ? ScopeRequest.ForProcess(process, children)
+                : children ? null : ScopeRequest.AutoScope(includeChildren: false);
     }
 
     /// <summary>

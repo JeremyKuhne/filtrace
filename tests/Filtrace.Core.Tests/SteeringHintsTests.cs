@@ -480,7 +480,7 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
-    public void ForBatch_CompactCaseGuidance_IsReasonOnlyUntilCaseReferencesExist()
+    public void ForBatch_LegacyCaseWithoutId_RemainsReasonOnly()
     {
         BatchRankingResult batch = new(
             "manifest.json",
@@ -506,6 +506,131 @@ public sealed class SteeringHintsTests
         envelope.NextSteps[0].Operation.Should().BeNull();
         envelope.NextSteps[0].Reason.Should().Contain("Command.Run");
     }
+
+    [TestMethod]
+    public void ForBatch_CaseReference_PreservesRankOverrides()
+    {
+        BatchRankingCaseResult captureCase = new(
+            "Command.Run",
+            string.Empty,
+            "command.etl",
+            10.0,
+            "ms",
+            "MyApp.Hot",
+            8.0,
+            80.0,
+            10,
+            [])
+        {
+            CaseId = "command"
+        };
+        BatchRankingResult batch = new(
+            "manifest.json",
+            "cpu",
+            "inclusive",
+            "Workload",
+            [captureCase]);
+        ScopeRequest scope = ScopeRequest.ForProcessIds([9144, 40356], includeChildren: false);
+
+        IReadOnlyList<string> hints = SteeringHints.ForBatch(
+            batch,
+            scope,
+            symbols: "symbols",
+            foldPatterns: ["CustomFold"]);
+        AnalysisResult<BatchRankingResult> envelope = new(batch, hints: hints);
+
+        AnalysisNextStep next = envelope.NextSteps.Should().ContainSingle().Subject;
+        next.Operation.Should().Be("rank");
+        next.Arguments.Should().NotBeNull();
+        AnalysisNextStepArguments arguments = next.Arguments!;
+        arguments.ManifestPath.Should().Be("manifest.json");
+        arguments.CaseId.Should().Be("command");
+        arguments.Metric.Should().Be("cpu");
+        arguments.Measure.Should().Be("inclusive");
+        arguments.Root.Should().Be("Workload");
+        arguments.ProcessIds.Should().Equal(9144, 40356);
+        arguments.IncludeChildren.Should().BeFalse();
+        arguments.Symbols.Should().Be("symbols");
+        arguments.Fold.Should().Equal("CustomFold");
+        next.Reason.Should().Be("inspect manifest case 'command' in detail");
+    }
+
+    [TestMethod]
+    public void ForBatch_CaseReference_AtOverrideLimitsRemainsActionable()
+    {
+        BatchRankingResult batch = BatchWithCaseId();
+        string symbols = new('s', 1024);
+        string[] foldPatterns = [.. Enumerable.Repeat(new string('f', 256), 32)];
+
+        IReadOnlyList<string> hints = SteeringHints.ForBatch(
+            batch,
+            scope: null,
+            symbols,
+            foldPatterns);
+
+        AnalysisNextStep next = new AnalysisResult<BatchRankingResult>(batch, hints: hints).NextSteps[0];
+        next.Operation.Should().Be("rank");
+        next.Arguments!.Symbols.Should().HaveLength(1024);
+        next.Arguments.Fold.Should().HaveCount(32);
+    }
+
+    [TestMethod]
+    public void ForBatch_CaseReference_TooManyFoldPatternsUsesReasonOnlyGuidance()
+    {
+        BatchRankingResult batch = BatchWithCaseId();
+        string[] foldPatterns = [.. Enumerable.Repeat("fold", 33)];
+
+        IReadOnlyList<string> hints = SteeringHints.ForBatch(batch, null, null, foldPatterns);
+        AnalysisNextStep next = new AnalysisResult<BatchRankingResult>(batch, hints: hints).NextSteps[0];
+
+        next.Operation.Should().BeNull();
+        next.Arguments.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForBatch_CaseReference_OverlongFoldPatternUsesReasonOnlyGuidance()
+    {
+        BatchRankingResult batch = BatchWithCaseId();
+
+        IReadOnlyList<string> hints = SteeringHints.ForBatch(batch, null, null, [new string('f', 257)]);
+        AnalysisNextStep next = new AnalysisResult<BatchRankingResult>(batch, hints: hints).NextSteps[0];
+
+        next.Operation.Should().BeNull();
+        next.Arguments.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForBatch_CaseReference_OverlongSymbolsUsesReasonOnlyGuidance()
+    {
+        BatchRankingResult batch = BatchWithCaseId();
+
+        IReadOnlyList<string> hints = SteeringHints.ForBatch(batch, null, new string('s', 1025), null);
+        AnalysisNextStep next = new AnalysisResult<BatchRankingResult>(batch, hints: hints).NextSteps[0];
+
+        next.Operation.Should().BeNull();
+        next.Arguments.Should().BeNull();
+    }
+
+    private static BatchRankingResult BatchWithCaseId() =>
+        new(
+            "manifest.json",
+            "cpu",
+            "self",
+            string.Empty,
+            [new BatchRankingCaseResult(
+                "Command.Run",
+                string.Empty,
+                "command.etl",
+                10.0,
+                "ms",
+                "MyApp.Hot",
+                8.0,
+                80.0,
+                10,
+                [])
+            {
+                CaseId = "command"
+            }]);
 
     [TestMethod]
     public void ForTimeline_CpuLane_DrillsBusiestWindowWithScopedRanking()

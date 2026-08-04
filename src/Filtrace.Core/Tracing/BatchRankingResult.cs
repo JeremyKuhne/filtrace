@@ -40,6 +40,9 @@ public sealed record BatchRankingCaseResult(
     int? ContributingRecordCount,
     IReadOnlyList<string> Warnings)
 {
+    /// <summary>The run-unique manifest case identifier, or <see langword="null"/> for legacy callers.</summary>
+    public string? CaseId { get; init; }
+
     /// <summary>Operation unit, or <see langword="null"/> when metadata is incomplete.</summary>
     public string? OperationUnit { get; init; }
 

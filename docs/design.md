@@ -190,14 +190,14 @@ These are checked by CI; a change that breaks one is not shippable.
 
 | Measure | Gate | Current | Enforced by |
 |---|---|---|---|
-| MCP `tools/list` size | <= 7,000 estimated tokens | ~6,503 tokens / 25,770 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
-| MCP stdout purity | pure JSON-RPC, real `tools/call` round trip | envelope `schemaVersion` 13 | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
+| MCP `tools/list` size | <= 7,000 estimated tokens | ~6,590 tokens / 26,118 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
+| MCP stdout purity | pure JSON-RPC, real `tools/call` round trip | envelope `schemaVersion` 14 | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | Single analysis response | <= 25,000 tokens (`OutputBudget.DefaultCeilingTokens`) | every producer bounds its rows against `OutputBudget.DefaultRowBudgetTokens` | Core budget plus worst-case tests |
 | Per-verb `--help` | <= 60 lines | 25 verbs | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
 | Verb discoverability | every verb in top-level help, with a README example and a scope-inventory entry | 25 verbs | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
 | Catalog completeness | every verb and every `trace_*` tool documented | 25 verbs / 18 tools | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
 | Knowledge-layer drift | zero drift between `docs/` blocks and their embedded copies | 4 blocks | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
-| Deterministic eval | every task keeps its answer, call count, and output budget | 23 tasks | [eval/Invoke-Eval.ps1](../eval/Invoke-Eval.ps1) |
+| Deterministic eval | every task keeps its answer, call count, and output budget | 24 tasks | [eval/Invoke-Eval.ps1](../eval/Invoke-Eval.ps1) |
 | Numeric parity | rankings match the frozen oracle within tolerance and ordering | committed fixtures | `tests/Filtrace.Parity.Tests` |
 | Capture contract | run artifacts isolated, overlap rejected, every case in the manifest | - | [tools/Test-CaptureBenchmarkTrace.ps1](../tools/Test-CaptureBenchmarkTrace.ps1) |
 | Native symbol resolution | frames resolve with `--symbols` and not without | - | [tools/Test-NativeSymbolResolution.ps1](../tools/Test-NativeSymbolResolution.ps1) |
@@ -238,7 +238,7 @@ Changing one of these is a deliberate, announced decision, not a refactor.
 - **`trace_*` MCP tool names.** Clients bind to them. Tools may be added; renaming
   or removing one requires the breaking-change decision described in
   [AGENTS.md](../AGENTS.md) and a versioned surface in [roadmap.md](roadmap.md).
-- **The result envelope.** `schemaVersion` (currently 13), structured `warnings` and `hints`,
+- **The result envelope.** `schemaVersion` (currently 14), structured `warnings` and `hints`,
   effective query `context`, and the typed result. A shape change bumps the version and updates both renderers,
   the goldens, and the budgets together.
 - **CLI exit codes.** Success, usage error, input error, and the `--strict`

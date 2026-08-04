@@ -36,8 +36,32 @@ internal static class RankingExecutor
             return ExitCodes.UsageError;
         }
 
+        string path = request.Path;
+        string? symbols = request.Symbols;
+        ScopeRequest? scope = request.Scope;
+        if (request.CaseId is string caseId)
+        {
+            try
+            {
+                CaptureManifest manifest = CaptureManifestReader.Read(request.Path);
+                CaptureManifestCase captureCase = manifest.GetCase(caseId);
+                path = captureCase.TracePath;
+                symbols ??= captureCase.SymbolsDirectory;
+                scope = manifest.ResolveCaseScope(captureCase, scope);
+            }
+            catch (Exception exception) when (
+                exception is IOException
+                or UnauthorizedAccessException
+                or InvalidDataException
+                or ArgumentException)
+            {
+                error.WriteLine($"Could not resolve manifest case '{caseId}': {exception.Message}");
+                return ExitCodes.InputError;
+            }
+        }
+
         if (!TraceExecution.TryLoad(
-            request.Path, request.Metric, request.Symbols, error, out LoadedTrace? trace, request.Scope, request.SymbolOptions))
+            path, request.Metric, symbols, error, out LoadedTrace? trace, scope, request.SymbolOptions))
         {
             return ExitCodes.InputError;
         }
@@ -64,7 +88,7 @@ internal static class RankingExecutor
         AnalysisResult<RankingResult> envelope = new(
             ranking,
             warnings,
-            SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, request.Scope),
+            SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, scope),
             AnalysisContext.ForTrace(
                 "rank",
                 trace,
