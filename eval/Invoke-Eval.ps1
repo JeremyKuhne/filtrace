@@ -108,9 +108,36 @@ function Test-Assertion {
         return @($ok, "topFrame expected '$($Assert.topFrame)', got '$actual'")
     }
     if ($null -ne $Assert.field) {
+        $equalsProperty = $Assert.PSObject.Properties['equals']
+        $endsWithProperty = $Assert.PSObject.Properties['endsWith']
+        $equals = if ($null -ne $equalsProperty) { $equalsProperty.Value } else { $null }
+        $endsWith = if ($null -ne $endsWithProperty) { $endsWithProperty.Value } else { $null }
+        $hasEquals = $null -ne $equals
+        $hasEndsWith = $null -ne $endsWith
+        if ($hasEquals -eq $hasEndsWith) {
+            return @($false, "$($Assert.field) assertion must specify exactly one of equals or endsWith")
+        }
+
         $actual = Get-JsonField -Object $Json -Path $Assert.field
-        $ok = "$actual" -eq "$($Assert.equals)"
-        return @($ok, "$($Assert.field) expected '$($Assert.equals)', got '$actual'")
+        if ($null -eq $actual) {
+            $expected = if ($hasEndsWith) {
+                "end with '$endsWith'"
+            }
+            else {
+                "equal '$equals'"
+            }
+
+            return @($false, "$($Assert.field) is missing or null (expected to $expected)")
+        }
+
+        if ($hasEndsWith) {
+            $expected = [string]$endsWith
+            $ok = ([string]$actual).EndsWith($expected, [StringComparison]::Ordinal)
+            return @($ok, "$($Assert.field) expected to end with '$expected', got '$actual'")
+        }
+
+        $ok = "$actual" -eq "$equals"
+        return @($ok, "$($Assert.field) expected '$equals', got '$actual'")
     }
     if ($null -ne $Assert.hintContains) {
         $hintText = @($Json.hints | ForEach-Object {
@@ -124,7 +151,7 @@ function Test-Assertion {
         $ok = $Raw.Contains([string]$Assert.jsonContains)
         return @($ok, "output should contain '$($Assert.jsonContains)'")
     }
-    return @($false, "assertion has no recognized check (topFrame / field+equals / hintContains / jsonContains)")
+    return @($false, "assertion has no recognized check (topFrame / field+equals / field+endsWith / hintContains / jsonContains)")
 }
 
 $taskFiles = Get-ChildItem -Path $tasksDir -Filter '*.json' | Sort-Object Name

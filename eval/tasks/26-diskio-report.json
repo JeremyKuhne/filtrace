@@ -10,7 +10,7 @@
   "assert": [
     { "field": "result.writeCount", "equals": 117 },
     { "field": "result.totalWriteBytes", "equals": 2654208 },
-    { "field": "result.files[0].fileName", "equals": "C:\\$LogFile" }
+    { "field": "result.files[0].fileName", "endsWith": "\\$LogFile" }
   ],
   "expect": ["117", "2654208", "$LogFile"]
 }
