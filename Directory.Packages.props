@@ -22,7 +22,7 @@
     -->
     <PackageVersion Include="KlutzyNinja.Touki" Version="0.3.0-alpha.1" />
 
-    <!-- Fixture generation: captures the EventPipe corpus (filtrace/fixtures). -->
+    <!-- Product benchmarks and fixture generation. -->
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <!-- The ETW (.etl) profiler for the net481 fixture half; Windows-only, capture needs elevation. -->
     <PackageVersion Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.15.8" />

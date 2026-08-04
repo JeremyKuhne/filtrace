@@ -278,6 +278,7 @@ hot frame with callers / lines / tree; diff comparable CPU traces against a base
 | `src/Filtrace.Core/` | Analysis core: trace readers, stack-source providers, the provider-agnostic question-service engine. The only place logic lives. |
 | `src/Filtrace/` | CLI host, packaged as the `filtrace` .NET global tool. |
 | `src/Filtrace.Mcp/` | Stdio MCP host, packaged separately for `dnx KlutzyNinja.Filtrace.Mcp`. |
+| `benchmarks/Filtrace.Benchmarks/` | BenchmarkDotNet performance harness for the analysis core. |
 | `tests/Filtrace.Core.Tests/` | Unit + golden-file contract tests. |
 | `tests/Filtrace.Parity.Tests/` | Numeric parity against the frozen legacy oracles. |
 | `eval/` | Headless-agent eval harness, tasks, baselines. |

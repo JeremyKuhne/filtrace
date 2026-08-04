@@ -20,6 +20,11 @@ and clean exception-to-CLI/MCP error mapping. Place focused regressions in the
 owning test project and run every applicable OS-neutral test locally; ETW-only
 behavior remains covered by the Windows CI leg.
 
+When a parser or codec needs coverage-guided exploration, hand the target design to
+[fuzz-testing](../fuzz-testing/SKILL.md). Its overlay records the missing harness
+as a project prerequisite; do not claim fuzz coverage until that project exists and
+the target has a committed seed corpus.
+
 Validation includes the full Release suite plus
 [Test-McpServer.ps1](../../../tools/Test-McpServer.ps1), which exercises schema and
 response budgets and a real JSON-RPC round trip.
