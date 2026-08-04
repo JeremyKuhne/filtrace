@@ -2,6 +2,7 @@
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/Filtrace.Benchmarks/Filtrace.Benchmarks.csproj" />
     <File Path="benchmarks/README.md" />
+    <Project Path="benchmarks/Filtrace.PerfWorkload/Filtrace.PerfWorkload.csproj" />
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".editorconfig" />

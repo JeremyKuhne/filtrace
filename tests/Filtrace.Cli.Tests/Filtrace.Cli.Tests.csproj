@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\benchmarks\Filtrace.PerfWorkload\Filtrace.PerfWorkload.csproj" />
     <ProjectReference Include="..\..\src\Filtrace\Filtrace.csproj" />
   </ItemGroup>
 

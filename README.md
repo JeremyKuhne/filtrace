@@ -279,6 +279,7 @@ hot frame with callers / lines / tree; diff comparable CPU traces against a base
 | `src/Filtrace/` | CLI host, packaged as the `filtrace` .NET global tool. |
 | `src/Filtrace.Mcp/` | Stdio MCP host, packaged separately for `dnx KlutzyNinja.Filtrace.Mcp`. |
 | `benchmarks/Filtrace.Benchmarks/` | BenchmarkDotNet performance harness for the analysis core. |
+| `benchmarks/Filtrace.PerfWorkload/` | Parameterized CPU/activity workload for reproducible Track D traces. |
 | `tests/Filtrace.Core.Tests/` | Unit + golden-file contract tests. |
 | `tests/Filtrace.Parity.Tests/` | Numeric parity against the frozen legacy oracles. |
 | `eval/` | Headless-agent eval harness, tasks, baselines. |

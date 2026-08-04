@@ -554,6 +554,97 @@ public sealed class CaptureManifestReaderTests
                 && warning.Contains("analyze the trace directly", StringComparison.Ordinal));
     }
 
+    [TestMethod]
+    public void AnalyzeBatch_MaxDegreeOverload_PreservesSequentialCaseOrder()
+    {
+        CaptureManifest manifest = Manifest(
+            Case("first", "Bench.Work", "Size: 1", "First"),
+            Case("second", "Bench.Work", "Size: 2", "Second"));
+        List<string> loaded = [];
+
+        BatchRankingResult result = CaptureManifestBatchAnalyzer.Analyze(
+            manifest,
+            "cpu",
+            inclusive: false,
+            root: "",
+            FrameNames.DefaultFoldPatterns,
+            maxDegreeOfParallelism: CaptureManifestBatchAnalyzer.MaxAnalyzedCases,
+            (_, captureCase) =>
+            {
+                loaded.Add(captureCase.Id);
+                return Loaded(captureCase.Id, 2.0, 1.0);
+            });
+
+        loaded.Should().Equal("first", "second");
+        result.Cases.Select(static captureCase => captureCase.CaseId)
+            .Should().Equal("first", "second");
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(CaptureManifestBatchAnalyzer.MaxAnalyzedCases + 1)]
+    public void AnalyzeBatch_MaxDegreeOverload_DegreeOutsideSupportedRangeThrows(int maxDegreeOfParallelism)
+    {
+        Action analyze = () => CaptureManifestBatchAnalyzer.Analyze(
+            Manifest(),
+            "cpu",
+            inclusive: false,
+            root: "",
+            FrameNames.DefaultFoldPatterns,
+            maxDegreeOfParallelism,
+            (_, _) => Loaded("unused", 1.0, 1.0));
+
+        analyze.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [TestMethod]
+    public void AnalyzeDiff_MaxDegreeOverload_PreservesSequentialPairOrder()
+    {
+        CaptureManifest before = Manifest(
+            Case("before-first", "Bench.Work", "Size: 1", "First"),
+            Case("before-second", "Bench.Work", "Size: 2", "Second"));
+        CaptureManifest after = Manifest(
+            Case("after-first", "Bench.Work", "Size: 1", "First"),
+            Case("after-second", "Bench.Work", "Size: 2", "Second"));
+        List<string> loaded = [];
+
+        CaptureManifestDiffAnalysis result = CaptureManifestDiffAnalyzer.Analyze(
+            before,
+            after,
+            inclusive: false,
+            root: "",
+            FrameNames.DefaultFoldPatterns,
+            top: 5,
+            maxDegreeOfParallelism: CaptureManifestDiffAnalyzer.MaxAnalyzedCases,
+            (_, captureCase) =>
+            {
+                loaded.Add(captureCase.Id);
+                return Loaded(captureCase.Id, 2.0, 1.0);
+            });
+
+        loaded.Should().Equal("before-first", "after-first", "before-second", "after-second");
+        result.Result.Cases.Select(static captureCase => captureCase.Parameters)
+            .Should().Equal("Size: 1", "Size: 2");
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(CaptureManifestDiffAnalyzer.MaxAnalyzedCases + 1)]
+    public void AnalyzeDiff_MaxDegreeOverload_DegreeOutsideSupportedRangeThrows(int maxDegreeOfParallelism)
+    {
+        Action analyze = () => CaptureManifestDiffAnalyzer.Analyze(
+            Manifest(),
+            Manifest(),
+            inclusive: false,
+            root: "",
+            FrameNames.DefaultFoldPatterns,
+            top: 5,
+            maxDegreeOfParallelism,
+            (_, _) => Loaded("unused", 1.0, 1.0));
+
+        analyze.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
     private static CaptureManifest Manifest(params CaptureManifestCase[] cases) =>
         new("manifest.json", null, cases);
 
