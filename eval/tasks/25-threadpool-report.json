@@ -1,0 +1,17 @@
+{
+  "id": "threadpool-report",
+  "title": "Summarize thread-pool adjustment and starvation activity.",
+  "prompt": "Summarize thread-pool behavior in this trace. Report the total worker-thread adjustments, starvation adjustments, and the observed worker-thread range.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/threadpool.nettrace",
+  "os": "any",
+  "steps": [
+    { "args": ["threadpool", "{fixture}"] }
+  ],
+  "assert": [
+    { "field": "result.adjustmentCount", "equals": 3 },
+    { "field": "result.starvationCount", "equals": 1 },
+    { "field": "result.minWorkerThreadCount", "equals": 1 },
+    { "field": "result.maxWorkerThreadCount", "equals": 3 }
+  ],
+  "expect": ["3", "1", "starvation"]
+}

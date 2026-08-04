@@ -168,9 +168,9 @@ typo fails CI instead of silently never matching.
 The corpus is a focused regression suite, not complete proof of investigative
 quality. Its tasks cover orientation, frame-name versus source/PDB quality,
 ranking/measure choice, callers/callees, process inventory, trees, timelines, raw
-events, GC, and JIT. They do not yet cover
-`trace_lines`, `trace_heatmap`, `trace_classify`, `trace_diff`, `trace_export`,
-`trace_threadpool`, or `trace_diskio`, and they do not exercise a full
+events, GC, JIT, thread-pool behavior, physical disk I/O, lifecycle phases, and
+manifest batch/diff workflows. They do not yet cover
+`trace_lines`, `trace_heatmap`, `trace_classify`, or `trace_export`, and they do not exercise a full
 orient -> rank -> drill -> compare run on one realistic capture.
 
 Three comprehension scenarios the roadmap asks for cannot be expressed against

@@ -2,7 +2,7 @@
 
 **Status:** Living plan. This is the only page that holds unshipped work.
 
-**Last verified:** 2026-08-01 against `main`.
+**Last verified:** 2026-08-03 against `main`.
 
 Shipped work is not tracked here. Git history and the release tags record what
 landed; the durable lessons from finished initiatives live in
@@ -19,11 +19,11 @@ Facts that set today's priorities. Re-measure before treating any of them as sti
 true.
 
 - **The surface is 25 CLI verbs and 18 `trace_*` MCP tools.** The tool list measures
-  ~6,388 estimated tokens against a 7,000-token CI gate.
+  ~6,590 estimated tokens against a 7,000-token CI gate.
 - **The permanent schema is dominated by input schemas, not output schemas.**
   Advertising the envelope alone instead of every expanded result type reclaimed
-  roughly 3,000 tokens. Measured across the current 18 tools: input schemas 3,883
-  (61%), output schemas 1,080 (17%), descriptions 799 (13%), names and JSON
+  roughly 3,000 tokens. Measured across the current 18 tools: input schemas 3,966
+  (60%), output schemas 1,116 (17%), descriptions 874 (13%), names and JSON
   structure the rest. Input schemas are the largest lever; prose is the smallest.
   Regenerate the breakdown with `tools/Test-McpServer.ps1`, which writes
   `artifacts/mcp-schema-tokens.json`.
@@ -38,21 +38,21 @@ true.
   a wrapper roughly 4-5x the payload: one measured `trace_query_events` response was
   text 36, structured 36, complete wire result 171. How much of each copy reaches
   model context is client-dependent and still has to be measured per host.
-- **The deterministic eval suite answers all 23 fixture-backed tasks**, most in one
+- **The deterministic eval suite answers all 26 fixture-backed tasks**, most in one
   call. The surface works; the open question is efficiency, not correctness.
 
 ## Priorities
 
 | When | Items | Why now |
 |---|---|---|
-| Done | VN0, VN1, SC8 | The baseline and transport decision exist, and manifest cases replay their recorded process ids exactly. |
-| Now | VN2 | The output-contract decision determines how every later capability is exposed. |
-| Then | VN3, VN4, VC1 | Surface selection, then the first capability that fits it. |
-| Later | VC2-VC8, LP-1..LP-5, VN5 | Demand-, dependency-, or decision-gated. |
+| Done | VN0-VN3, SC8 | The output contract and MCP surface are selected, and manifest cases replay their recorded process ids exactly. |
+| Now | VN4 | Select the CLI surface before adding the next capability. |
+| Then | VC1 | Add the first capability through the selected surfaces. |
+| Later | VC2-VC8, SC9-SC12, LP-1..LP-5, VN5 | Demand-, dependency-, or decision-gated. |
 | Upstream | TE-P1..TE-P5 | Not actionable in this repository alone. |
 
-Ordering rule: no capability adds a standalone MCP tool before VN3 selects the
-final surface, because the tool list is permanent context.
+VN3 retained the current MCP surface. New capabilities extend a compatible existing
+operation unless a measured task demonstrates that a standalone tool is better.
 
 ---
 
@@ -563,47 +563,35 @@ without parsing prose.
 
 ### VN3 - MCP surface experiment
 
-**Priority:** Then. **Gate:** operation-intent grading shows no selection or call
-regression.
+**Status:** Complete. **Decision:** retain the 18 intent-bearing tools.
 
-Candidate 13-tool surface: retain `trace_info`, `trace_rank`, `trace_callers`,
-`trace_tree`, `trace_processes`, `trace_classify`, `trace_timeline`, `trace_diff`,
-`trace_batch`, `trace_query_events`, `trace_export`; combine `trace_lines` +
-`trace_heatmap` into `trace_source(view=...)`; combine the provider reports into
-`trace_report(kind=...)`. `trace_lifecycle` must be evaluated for the same folding.
+ModelContextProtocol 1.3 can generate an honest `anyOf` discriminator for source
+and report requests, but only beneath a required `request` object. A flat
+`trace_source(view, ...)` schema requires a custom `AIFunction`, hand-written schema
+transformation, and parameter binding. The repository also has no committed trace
+with a positive portable-PDB source oracle, so a live source-selection A/B would
+grade only rejection paths. `trace_lines` and `trace_heatmap` therefore stay
+separate.
 
-`trace_classify` stays separate from `trace_report`: it consumes CPU stacks,
-supports root/process/benchmark scope, and can opt into networked native symbols.
+The measurable candidate replaced `trace_gc`, `trace_jit`, `trace_threadpool`,
+`trace_diskio`, and `trace_lifecycle` with
+`trace_report(request: { kind, ... })`. Its generated five-branch union reduced the
+surface from 18 tools / 26,118 characters / ~6,590 tokens to 14 / 24,077 / ~6,065:
+525 tokens, or 8%, below the 20% threshold for a token-motivated breaking change.
+All 26 deterministic tasks passed before the live arm.
 
-Measured cost of the tools involved, post-reduction: `trace_rank` 588 tokens / 14
-params, `trace_tree` 470/10, `trace_callers` 446/10, `trace_lines` 419/8,
-`trace_jit` 206/2, `trace_diskio` 202/2, `trace_gc` 201/2, `trace_threadpool`
-161/1.
+The N=10 live A/B on `gpt-5.6-sol` and `claude-haiku-4.5` was rejected with five
+regressions. On haiku, disk-I/O success fell 100% -> 90%, with median calls 1 -> 2
+and response tokens 433 -> 1,069; lifecycle fell 70% -> 30%, calls 2 -> 6, and
+tokens 660 -> 2,168. GPT lifecycle remained at its noisy 20% baseline and four
+calls. Transcripts showed the nested grammar itself failing: one haiku run encoded
+the `request` object as a JSON string and then used four raw-event queries to
+recover. Lifecycle runs frequently omitted its root selector and measured the
+outer 6.6-second process instead of the 619 ms benchmark job. Separate tool names
+and top-level parameter descriptions preserve those constraints.
 
-| Option | Saves | Argument against |
-|---|---|---|
-| A - fold the four provider reports into `trace_report(kind)` | ~500 tokens | four names leave the contract; a `kind` parameter hides which providers a trace supports, which separate names advertise for free; per-kind results become a union |
-| B - fold `trace_callers`, `trace_lines`, `trace_tree` into a drill family | ~700 tokens | these are the most-used drills; hiding them behind a mode makes the common path less discoverable |
-| C - leave the surface alone | 0 | the list still carries 18 definitions and the 5,000-token stretch target stays out of reach |
-
-The budget no longer forces any of these. At 6,388 the gap to the 5,000 stretch
-target is ~1,390 tokens, which A alone does not close and B roughly does - an
-argument for evaluating B, not for adopting it.
-
-**Consolidation constraint.** `trace_source` must express its two branches
-(`view=lines` with `method`, `view=heatmap` with `file`) as a discriminated schema.
-If the MCP SDK flattens them into a bag of optional strings, keep the two current
-tools: saving one definition is not worth a runtime-only grammar. `trace_report`
-exposes only report-common controls at the top level (`path`, `kind`, detail or
-cardinality); kind-specific controls go in a typed options branch or are omitted.
-Never ship a tool whose unrelated parameters are silently ignored.
-
-**Breaking-name policy.** Ship a consolidated surface only as a deliberate pre-1.0
-v.next contract. Never advertise old and new MCP tools together - that raises schema
-cost and selection ambiguity at exactly the point the redesign is meant to improve.
-
-**Exit:** a selected MCP surface that meets the success and call gates and the
-applicable 7,500 (typed schemas retained) or 5,000 (JSON-text) tool-list target.
+The candidate was reverted. The 7,000-token gate has enough headroom, and lower
+tool count is not worth extra orientation, repair calls, or weaker scope selection.
 
 ### VN4 - CLI surface
 
@@ -692,8 +680,8 @@ throughput-cost and wait samples, and gen-2 backstop tuning.
   copyright notice in the source file, add third-party notice text, and retain
   source provenance.
 
-It belongs in the consolidated report family unless VN3 proves a typed report
-discriminator is worse for agents.
+Extend the existing GC report. VN3 found the typed report discriminator worse for
+agents, so DATAS does not justify reopening report consolidation.
 
 ### VC2 - point-in-time snapshot
 
@@ -745,8 +733,8 @@ is not in that vendored set. Before implementing:
    `dotnet-gcdump`;
 4. keep allocation-rate and retention terminology distinct in every result and hint.
 
-Because this is a distinct data model, VN3 may keep a dedicated tool for it even if
-the rest of the report family consolidates.
+Because this is a distinct data model, it may justify a dedicated tool, but only
+after a measured task shows that extending an existing report would be misleading.
 
 ### VC6 - net surviving heap
 
@@ -786,7 +774,9 @@ process-tree and optional time-window selection.
 
 The remaining gaps from the short-command capture initiative
 ([issue #62](https://github.com/JeremyKuhne/filtrace/issues/62)). Its seven original
-items shipped; these are what they exposed.
+items shipped; SC8 completed the immediate exact-scope follow-up, while SC9-SC12
+track the residual portability, composition, reproducibility, and observer-effect
+work without holding the original initiative open.
 
 ### SC8 - per-case exact scope in batch and diff - complete
 
@@ -816,6 +806,75 @@ it, which is why native symbol resolution is verified by capturing during the CI
 instead. Adding the PerfView-style "merge" step to
 [EtwCollector](../src/Filtrace.Core/Tracing/EtwCollector.cs) would make a portable,
 committable fixture possible.
+
+### SC10 - manifest-addressed lifecycle and agent reliability
+
+**Priority:** Later. **Gate:** one exact-scope manifest call must beat manual PID or
+name selection without a success, call-count, or response-budget regression.
+
+A command manifest records every invocation root, and batch, diff, and rank replay
+those ids exactly. `lifecycle` still accepts only a trace path plus a process name or
+PID list, so a caller starting from the manifest must extract the ids itself or fall
+back to a name selector. That leaves the wall-clock half of the short-command workflow
+less composable than its CPU half, and the live lifecycle task remains noisy even
+though the deterministic provider result is exact.
+
+- Add a manifest case address to CLI `lifecycle` and `trace_lifecycle`, reusing the
+  existing mutually exclusive direct-path versus `manifestPath` + `caseId` grammar.
+- Accept command cases with recorded invocations and use those ids as invocation
+  roots; reject a case that has no lifecycle-capable ETW trace with a specific
+  diagnostic rather than silently broadening scope.
+- Emit a structured lifecycle next step from a command-manifest result where it can
+  carry the case reference without parsing paths or PID prose.
+- Add a deterministic manifest-to-lifecycle task and an N=10 multi-model task that
+  grades the selected operation, exact case scope, phase values, and call count.
+
+Extend the existing lifecycle verb and MCP tool. VN3 showed that hiding lifecycle
+inside a report union weakens selector use, so this does not reopen consolidation.
+
+### SC11 - command-capture reproducibility and contract
+
+**Priority:** Later. **Gate:** a side-effect-free contract test must exercise the
+matrix, elevation handoff, partial-manifest, and multi-executable paths.
+
+`Capture-CommandTrace.ps1` made the successful investigation repeatable, but its
+orchestration contract is not tested as deeply as `Capture-BenchmarkTrace.ps1`, and
+its manifest is intentionally smaller than the issue's full provenance wish list.
+
+- Add a dedicated command-capture contract script using a fake filtrace executable,
+  including one failed scenario, quoted arguments, bounded elevated wait/log
+  propagation, and exact invocation records.
+- Remove the stale multi-executable warning that says per-case invocation ids are not
+  consumed; SC8 now consumes them for batch and diff. Pin a mixed-executable manifest
+  to exact per-case ids.
+- Record structured executable and arguments, working-directory identity, filtrace
+  version, and an explicit allowlisted environment fingerprint. Never serialize the
+  full environment, which can contain credentials.
+- Keep descendants authoritative in the ETW process graph rather than duplicating a
+  child-id snapshot in the manifest; document that boundary and test its lifecycle
+  reconstruction.
+
+### SC12 - kernel-only profile and observer-effect measurement
+
+**Priority:** Later. **Gate:** add a profile only if repeated measurement shows a
+material lifetime reduction over `startup` for a supported short-command scenario.
+
+The shipped `startup` profile removes unused machine-wide kernel traffic and most CLR
+events, but deliberately retains CLR method-naming keywords. It is low perturbation,
+not the literal kernel-only option issue #62 proposed. The skill correctly requires
+an uninstrumented baseline, but no automated check measures whether `startup` still
+changes the target materially.
+
+- Measure uninstrumented, `startup`, and true kernel-only runs over the same
+  AotStartup command matrix, using medians across repeated invocations rather than a
+  one-shot lifetime.
+- If kernel-only is materially better, add a profile containing only Process, Thread,
+  ImageLoad, and sampled Profile events, and state explicitly that managed method
+  naming is unavailable.
+- Record enough baseline and captured-lifetime evidence for the command-capture script
+  to flag a large observer-effect ratio without claiming a universal threshold.
+- Keep the existing elevated keyword-presence tests and add an end-to-end lifetime
+  experiment; keyword absence alone does not prove low perturbation.
 
 ### Output-budget coverage for row-capped producers - complete
 
@@ -1001,7 +1060,7 @@ requires:
 | CLI grouping hurts shell discoverability | compare top-level help and completion; retain intent-bearing commands |
 | Compatibility aliases erase token gains | never advertise old and new MCP tools together; bound CLI aliases to one preview |
 | Eval overfits one model | run multiple model families, repeat each task, reject any per-model success drop |
-| Reclaimed schema headroom is spent on tool sprawl | hold the 7,000-token gate, keep the VN3 targets unchanged, and require VN3 to re-evaluate every tool including `trace_lifecycle` |
+| Reclaimed schema headroom is spent on tool sprawl | hold the 7,000-token gate and require a measured task before adding a standalone tool |
 | Parallelism regresses small traces | gate LP-2 on a sample-count threshold and measure the fast path |
 
 ## Open decisions
@@ -1012,8 +1071,10 @@ Resolve these with VN0 and VN1 evidence rather than opinion:
    output schemas?~~ **Moot.** VN1 showed the client re-materializes structured
    content into the model's view, so removing the server's text copy saves nothing
    there; the remaining ~1,020 tokens are a tool-list question, not a transport one.
-2. Can the MCP SDK express useful discriminated `trace_source` and `trace_report`
-   schemas without a large optional-parameter bag?
+2. ~~Can the MCP SDK express useful discriminated `trace_source` and `trace_report`
+  schemas without a large optional-parameter bag?~~ **Resolved.** It generates an
+  honest union only under a nested request object; the report A/B rejected that
+  grammar, and a flat union requires custom binding.
 3. Should CLI report defaults stay detailed while MCP defaults to summary?
 4. Does a manifest case reference improve follow-up reliability enough to justify a
    new addressing form?
@@ -1021,19 +1082,13 @@ Resolve these with VN0 and VN1 evidence rather than opinion:
    help less clear?
 6. Is one preview release of hidden aliases useful, or is a clean pre-1.0 break less
    confusing?
-7. Where does `lifecycle` belong in a consolidated surface, given that its scope
-   semantics differ from the other report kinds?
+7. ~~Where does `lifecycle` belong in a consolidated surface?~~ **Resolved.** Keep
+  `trace_lifecycle` separate; hiding its root selectors caused wrong-scope calls.
 
 ## Immediate next step
 
-VN2. VN0 and VN1 are both closed. VN0 built the accounting, the intent grading, the
-schema breakdown, the comprehension tasks, and a repeatable multi-model baseline; VN1
-spent that machinery to answer the transport question and retain variant A, because
-the client re-materializes structured content and already bounds a large result.
-
-That leaves the later output-contract revisions. The row-cardinality slice is already resolved:
-shrinking defaults was rejected, while `top: 0` gives report tools an aggregate-only
-level on the existing axis; effective query context, structured diagnostics,
-structured next steps, discriminated results, and null/default omission are complete.
-Detail-profile selection and manifest case references are complete. VN2 is closed;
-next is VN3, the MCP surface experiment.
+VN4, the CLI surface decision. VN0-VN2 established the measurement and output
+contract. VN3 then tested generated discriminated report schemas and retained the
+18-tool MCP surface because an 8% schema saving increased repair calls and weakened
+lifecycle scope selection. CLI grouping can now be evaluated independently without
+assuming the agent surface should mirror it.
