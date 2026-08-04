@@ -41,7 +41,7 @@ public sealed class TraceToolsTests
     // assert on the object directly rather than re-parsing JSON.
     private static void AssertEnvelope<T>(AnalysisResult<T> envelope)
     {
-        envelope.SchemaVersion.Should().Be(13);
+        envelope.SchemaVersion.Should().Be(14);
         envelope.Warnings.Should().NotBeNull();
         envelope.Diagnostics.Should().NotBeNull();
         envelope.Hints.Should().NotBeNull();
@@ -867,17 +867,55 @@ public sealed class TraceToolsTests
             AssertEnvelope(envelope);
             envelope.Result.Cases.Should().ContainSingle();
             BatchRankingCaseResult captureCase = envelope.Result.Cases[0];
+            captureCase.CaseId.Should().Be("one");
             captureCase.Benchmark.Should().Be("Bench.Work");
             captureCase.Parameters.Should().Be("Size: 1");
             captureCase.TopFrame.Should().Be("MyApp.Inner");
             captureCase.ScopeWeightPerOperation.Should().Be(2.5);
             envelope.Hints.Should().ContainSingle(
-                hint => hint.Contains("rank against", StringComparison.Ordinal));
+                hint => hint.Contains("manifest case 'one'", StringComparison.Ordinal));
+            AnalysisNextStep next = envelope.NextSteps.Should().ContainSingle().Subject;
+            next.Operation.Should().Be("rank");
+            next.Arguments.Should().NotBeNull();
+            next.Arguments!.ManifestPath.Should().Be(manifest);
+            next.Arguments.CaseId.Should().Be("one");
+
+            AnalysisResult<RankingResult> ranking = TraceTools.RankToolAsync(
+                store,
+                manifestPath: manifest,
+                caseId: "one").GetAwaiter().GetResult();
+            ranking.Result.Rows[0].Frame.Should().Be("MyApp.Inner");
         }
         finally
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [TestMethod]
+    public async Task RankTool_ConflictingAddressForms_Throws()
+    {
+        TraceStore store = new();
+
+        Func<Task> act = async () => await TraceTools.RankToolAsync(
+            store,
+            path: FixturePath(Speedscope),
+            manifestPath: "manifest.json",
+            caseId: "one");
+
+        await act.Should().ThrowAsync<McpException>().WithMessage("*do not combine*");
+    }
+
+    [TestMethod]
+    public async Task RankTool_IncompleteManifestAddress_Throws()
+    {
+        TraceStore store = new();
+
+        Func<Task> act = async () => await TraceTools.RankToolAsync(
+            store,
+            manifestPath: "manifest.json");
+
+        await act.Should().ThrowAsync<McpException>().WithMessage("*both manifestPath and caseId*");
     }
 
     private static string CommandManifestJson(string trace, string id, int processId) =>
@@ -911,6 +949,15 @@ public sealed class TraceToolsTests
             BatchRankingCaseResult captureCase = envelope.Result.Cases[0];
             captureCase.ScopeWeight.Should().Be(0.0);
             captureCase.Warnings.Should().Contain(warning =>
+                warning.Contains("999999", StringComparison.Ordinal)
+                && warning.Contains("not found in this trace", StringComparison.Ordinal));
+
+            AnalysisResult<RankingResult> ranking = TraceTools.RankToolAsync(
+                store,
+                manifestPath: manifest,
+                caseId: "command").GetAwaiter().GetResult();
+            ranking.Result.ScopeWeight.Should().Be(0.0);
+            ranking.Warnings.Should().Contain(warning =>
                 warning.Contains("999999", StringComparison.Ordinal)
                 && warning.Contains("not found in this trace", StringComparison.Ordinal));
         }

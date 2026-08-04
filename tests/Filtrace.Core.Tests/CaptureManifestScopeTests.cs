@@ -8,6 +8,57 @@ namespace Filtrace.Tracing;
 public sealed class CaptureManifestScopeTests
 {
     [TestMethod]
+    public void GetCase_ExactId_ReturnsCase()
+    {
+        CaptureManifestCase captureCase = CaseWithInvocations(4242);
+        CaptureManifest manifest = Manifest(captureCase, process: null);
+
+        manifest.GetCase("case").Should().BeSameAs(captureCase);
+    }
+
+    [TestMethod]
+    public void GetCase_MissingId_ThrowsInvalidData()
+    {
+        CaptureManifest manifest = Manifest(CaseWithInvocations(), process: null);
+
+        Action act = () => manifest.GetCase("missing");
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*no case with id 'missing'*");
+    }
+
+    [TestMethod]
+    public void GetCase_OverlongId_ThrowsArgument()
+    {
+        CaptureManifest manifest = Manifest(CaseWithInvocations(), process: null);
+        string caseId = new('x', CaptureManifestReader.MaxCaseIdLength + 1);
+
+        Action act = () => manifest.GetCase(caseId);
+
+        act.Should().Throw<ArgumentException>().WithParameterName("caseId");
+    }
+
+    [TestMethod]
+    public void GetCase_ControlCharacterInId_ThrowsArgument()
+    {
+        CaptureManifest manifest = Manifest(CaseWithInvocations(), process: null);
+
+        Action act = () => manifest.GetCase("case\nid");
+
+        act.Should().Throw<ArgumentException>()
+            .WithParameterName("caseId")
+            .WithMessage("*non-control characters*");
+    }
+
+    [TestMethod]
+    public void GetCase_WhitespaceIdAcceptedByReader_ReturnsCase()
+    {
+        CaptureManifestCase captureCase = CaseWithInvocations() with { Id = " " };
+        CaptureManifest manifest = Manifest(captureCase, process: null);
+
+        manifest.GetCase(" ").Should().BeSameAs(captureCase);
+    }
+
+    [TestMethod]
     public void ResolveCaseScope_RecordedInvocations_UsesExactProcessIds()
     {
         CaptureManifestCase captureCase = CaseWithInvocations(4242, 17, 4242);

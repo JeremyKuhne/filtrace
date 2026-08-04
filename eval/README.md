@@ -173,7 +173,7 @@ events, GC, and JIT. They do not yet cover
 `trace_threadpool`, or `trace_diskio`, and they do not exercise a full
 orient -> rank -> drill -> compare run on one realistic capture.
 
-Four comprehension scenarios the roadmap asks for cannot be expressed against
+Three comprehension scenarios the roadmap asks for cannot be expressed against
 today's surface, and are deliberately absent rather than faked:
 
 | Scenario | Why not yet |
@@ -181,7 +181,6 @@ today's surface, and are deliberately absent rather than faked:
 | Reject or repair `root` plus `benchmark` | It is an error path, and the deterministic gate requires every step to exit 0. |
 | Disambiguate several matching frames | There is no ambiguity diagnostic to assert - `callers <prefix>` silently aggregates every match. |
 | Choose `classify` over a generic report for native runtime CPU | The committed ETW fixture resolves 0% of its CPU frames, so `classify` returns one `other` category. |
-| Escalate from a batch case reference to one ranking | Case references are a v.next output-contract feature; batch repeats the trace path today. |
 
 Live success means the final answer contains each task's expected substring; on the
 Copilot arm, every expected MCP tool must also succeed. That is deterministic enough

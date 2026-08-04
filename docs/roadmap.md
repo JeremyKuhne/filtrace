@@ -268,11 +268,11 @@ a lever - the client re-materializes structured content and already spills an
 oversized result to a file - so the only way to reduce what an investigation costs is
 to send fewer rows and to make a result route its own follow-up. That is this item.
 
-The envelope is at `schemaVersion` 13. Effective context is v9; structured
+The envelope is at `schemaVersion` 14. Effective context is v9; structured
 diagnostics is v10; structured next steps is v11; discriminated results is v12;
-null/default omission is v13. Each remaining slice below changes the serialized
-shape and therefore gets its own schema version when it ships; do not mutate an
-earlier version in place.
+null/default omission is v13; manifest case references is v14. Each remaining slice
+below changes the serialized shape and therefore gets its own schema version when it
+ships; do not mutate an earlier version in place.
 
 **Effective query context - complete.** Every result identifies the surface-neutral
 operation that ran. Stack-backed results also carry normalized metric, measure, unit,
@@ -343,10 +343,9 @@ by diagnostics.
 Complete follow-ups carry typed arguments: frame/root, metric/measure, bounded exact
 process ids and descendant mode, activity/time window, event paging/filter values,
 and path where the producer knows it. Explanatory guidance has no `operation` rather
-than being forced into a tool call with missing arguments. In particular, compact
-batch guidance stays reason-only until manifest case references can carry the exact
-per-case scope SC8 now applies; making it an executable rank step today would silently
-drop those ids.
+than being forced into a tool call with missing arguments. Schema v14 completes the
+one deferred branch: compact batch guidance now uses a manifest case reference, so
+the rank follow-up replays SC8's exact per-case scope rather than dropping it.
 
 ```json
 {
@@ -535,11 +534,29 @@ its verdict alongside what the change actually reaches.
 missed the `jit-summary-first` regression entirely. It also read that baseline as 40%
 where ten iterations read 90%.
 
-**Manifest case references.** Expose the `id` that manifest schema v1 already
-requires on each case in `BatchRankingCaseResult`, and let follow-up operations
-accept `manifestPath` plus `caseId`. Keep the resolved path at `full` detail for
-audit and CLI display. Existing manifests need no migration; the envelope changes
-because batch output gains `caseId`.
+**Manifest case references - complete in v14.** `BatchRankingCaseResult` exposes the
+`id` that manifest schema v1 already required. `trace_rank` accepts either a direct
+`path` or the mutually exclusive `manifestPath` plus `caseId`; CLI uses
+`rank <manifest> --case-id <id>`. The resolver selects the recorded trace and symbols
+and then applies the same scope precedence as batch: explicit process/PID/all-processes
+override, otherwise exact recorded invocation ids, otherwise the legacy manifest
+process. Children, root, metric, measure, custom folds, and explicit symbols survive
+in the structured next step when they fit its bounded argument vocabulary. If an
+otherwise valid override is too large to repeat safely, analysis still succeeds and
+the guidance remains reason-only rather than emitting an incomplete or oversized
+operation.
+
+The batch row keeps its resolved `tracePath` for audit and text display, while the
+action uses the stable case address. Existing manifests require no migration. The
+24th deterministic task runs `batch -> rank(case reference)` and pins both the
+structured arguments and the resulting hottest frame. Existing `manifest-batch`
+stays under its 15% response-growth budget at 358 tokens; the two-call drill is 463.
+
+The live MCP workflow also passes at N=10 on both `gpt-5.6-sol` and
+`claude-haiku-4.5`: 20/20 successful investigations, exactly two calls each, with a
+487-token median. This closes the reliability question in the acceptance criteria;
+agents consume the batch reference and use it for the follow-up without parsing the
+resolved path or losing case scope.
 
 **Exit:** results are self-describing, compact by default, and can route a follow-up
 without parsing prose.
@@ -1018,5 +1035,5 @@ That leaves the later output-contract revisions. The row-cardinality slice is al
 shrinking defaults was rejected, while `top: 0` gives report tools an aggregate-only
 level on the existing axis; effective query context, structured diagnostics,
 structured next steps, discriminated results, and null/default omission are complete.
-Detail-profile selection is complete. Next is manifest case references - the final
-VN2 routing gap - followed by VN3, the MCP surface experiment.
+Detail-profile selection and manifest case references are complete. VN2 is closed;
+next is VN3, the MCP surface experiment.

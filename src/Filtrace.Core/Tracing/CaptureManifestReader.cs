@@ -16,7 +16,9 @@ public static class CaptureManifestReader
     /// <summary>Maximum cases accepted from one manifest.</summary>
     public const int MaxCases = 256;
 
-    private const int MaxIdLength = 256;
+    /// <summary>Maximum characters accepted in a manifest case identifier.</summary>
+    public const int MaxCaseIdLength = 256;
+
     private const int MaxBenchmarkLength = 512;
     private const int MaxParametersLength = 512;
     private const int MaxDisplayLength = 1024;
@@ -114,7 +116,7 @@ public static class CaptureManifestReader
                 }
 
                 ValidateUniqueProperties(caseElement, "case");
-                string id = RequiredBoundedString(caseElement, "id", MaxIdLength);
+                string id = RequiredBoundedString(caseElement, "id", MaxCaseIdLength);
                 if (!ids.Add(id))
                 {
                     throw new InvalidDataException($"Capture manifest contains duplicate case id '{id}'.");

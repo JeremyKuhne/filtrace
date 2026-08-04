@@ -30,6 +30,14 @@ public sealed record AnalysisNextStepArguments
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Path { get; init; }
 
+    /// <summary>The capture manifest path for a case-addressed operation.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ManifestPath { get; init; }
+
+    /// <summary>The exact case identifier within <see cref="ManifestPath"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CaseId { get; init; }
+
     /// <summary>The metric selector.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Metric { get; init; }
@@ -37,6 +45,14 @@ public sealed record AnalysisNextStepArguments
     /// <summary>The measure selector.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Measure { get; init; }
+
+    /// <summary>Optional fold patterns overriding the rank defaults.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? Fold { get; init; }
+
+    /// <summary>Optional symbol directory overriding manifest case symbols.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Symbols { get; init; }
 
     /// <summary>The frame selector.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

@@ -56,7 +56,10 @@ public static class CaptureManifestBatchAnalyzer
                     0.0,
                     0.0,
                     null,
-                    warnings));
+                    warnings)
+                {
+                    CaseId = captureCase.Id
+                });
                 continue;
             }
 
@@ -96,6 +99,7 @@ public static class CaptureManifestBatchAnalyzer
                     ranking.ContributingRecordCount,
                     warnings)
                 {
+                    CaseId = captureCase.Id,
                     OperationUnit = operationUnit,
                     ScopeWeightPerOperation = scopePerOperation,
                     TopWeightPerOperation = topPerOperation
@@ -114,7 +118,10 @@ public static class CaptureManifestBatchAnalyzer
                     0.0,
                     0.0,
                     null,
-                    warnings));
+                    warnings)
+                {
+                    CaseId = captureCase.Id
+                });
             }
         }
 

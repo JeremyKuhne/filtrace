@@ -50,6 +50,10 @@ public static class SteeringHints
     /// </summary>
     private const string EmptyScope = "no frames in scope; widen the filter or check symbol resolution";
 
+    private const int MaxNextStepFoldPatterns = 32;
+    private const int MaxNextStepFoldPatternLength = 256;
+    private const int MaxNextStepSymbolsLength = 1024;
+
     private static IReadOnlyList<string> Guidance(string reason) =>
         new SteeringHintSet([reason]);
 
@@ -71,6 +75,14 @@ public static class SteeringHints
         ScopeRequest? scope,
         string root = "",
         string? frame = null,
+        bool? callees = null) =>
+        RankScopeArguments("cpu", scope, root, frame, callees);
+
+    private static AnalysisNextStepArguments RankScopeArguments(
+        string metric,
+        ScopeRequest? scope,
+        string root = "",
+        string? frame = null,
         bool? callees = null)
     {
         IReadOnlyList<int>? processIds = null;
@@ -88,7 +100,7 @@ public static class SteeringHints
         TimeWindow? window = scope?.Window;
         return new AnalysisNextStepArguments
         {
-            Metric = "cpu",
+            Metric = metric,
             Frame = frame,
             Root = string.IsNullOrEmpty(root) ? null : root,
             Process = (scope?.Selector as ProcessNameSelector)?.NameSubstring,
@@ -428,6 +440,19 @@ public static class SteeringHints
 
     /// <summary>Next step after a manifest batch summary.</summary>
     public static IReadOnlyList<string> ForBatch(BatchRankingResult batch)
+        => ForBatch(batch, scope: null, symbols: null, foldPatterns: null);
+
+    /// <summary>Next step after a manifest batch summary, preserving query overrides.</summary>
+    /// <param name="batch">The compact batch result.</param>
+    /// <param name="scope">Explicit process scope used by the batch, or <see langword="null"/>.</param>
+    /// <param name="symbols">Explicit symbol-directory override, or <see langword="null"/>.</param>
+    /// <param name="foldPatterns">Resolved fold patterns used by the batch.</param>
+    /// <returns>The steering hints, including an actionable rank step when a case can be addressed.</returns>
+    public static IReadOnlyList<string> ForBatch(
+        BatchRankingResult batch,
+        ScopeRequest? scope,
+        string? symbols,
+        IReadOnlyList<string>? foldPatterns)
     {
         ArgumentNullException.ThrowIfNull(batch);
         BatchRankingCaseResult? hottest = batch.Cases
@@ -439,11 +464,63 @@ public static class SteeringHints
             return Guidance("no manifest case produced a ranked frame; inspect case warnings and capture availability");
         }
 
-        string reason = $"inspect {hottest.Benchmark} in detail with rank against: {hottest.TracePath}";
-        // A command-manifest case needs its recorded process ids, which this compact
-        // result does not carry yet. Keep the guidance reason-only until manifest case
-        // references can express a complete, scope-preserving follow-up.
-        return Guidance(reason);
+        if (string.IsNullOrEmpty(hottest.CaseId))
+        {
+            return Guidance($"inspect {hottest.Benchmark} in detail against: {hottest.TracePath}");
+        }
+
+        string reason = $"inspect manifest case '{hottest.CaseId}' in detail";
+        if (!CanPreserveBatchNextStepOverrides(symbols, foldPatterns))
+        {
+            return Guidance(reason);
+        }
+
+        AnalysisNextStepArguments arguments = RankScopeArguments(batch.Metric, scope, batch.RootFrame) with
+        {
+            ManifestPath = batch.ManifestPath,
+            CaseId = hottest.CaseId,
+            Measure = batch.Measure,
+            Symbols = symbols,
+            IncludeChildren = scope is { IncludeChildren: false } ? false : null,
+            Fold = foldPatterns is not null
+                && !foldPatterns.SequenceEqual(FrameNames.DefaultFoldPatterns)
+                    ? [.. foldPatterns]
+                    : null
+        };
+        return Guidance(reason, "rank", arguments);
+    }
+
+    private static bool CanPreserveBatchNextStepOverrides(
+        string? symbols,
+        IReadOnlyList<string>? foldPatterns)
+    {
+        if (symbols is { } symbolPath
+            && (symbolPath.Length > MaxNextStepSymbolsLength || symbolPath.Any(char.IsControl)))
+        {
+            return false;
+        }
+
+        if (foldPatterns is null)
+        {
+            return true;
+        }
+
+        if (foldPatterns.Count > MaxNextStepFoldPatterns)
+        {
+            return false;
+        }
+
+        foreach (string pattern in foldPatterns)
+        {
+            if (pattern is null
+                || pattern.Length > MaxNextStepFoldPatternLength
+                || pattern.Any(char.IsControl))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

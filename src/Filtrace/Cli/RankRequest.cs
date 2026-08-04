@@ -41,4 +41,8 @@ internal sealed record RankRequest(
     string? Symbols,
     bool Strict,
     ScopeRequest? Scope = null,
-    SymbolOptions? SymbolOptions = null);
+    SymbolOptions? SymbolOptions = null)
+{
+    /// <summary>The manifest case id when <see cref="Path"/> names a capture manifest.</summary>
+    public string? CaseId { get; init; }
+}

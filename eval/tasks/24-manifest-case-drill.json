@@ -1,0 +1,18 @@
+{
+  "id": "manifest-case-drill",
+  "title": "Drill from a batch row through its manifest case reference.",
+  "prompt": "Run a CPU self-time batch over this capture manifest, then use the returned case reference for Size: 1 to rank that exact case. Report the case id and hottest frame.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/manifests/batch/manifest.json",
+  "os": "any",
+  "steps": [
+    { "args": ["batch", "{fixture}"] },
+    { "args": ["rank", "{fixture}", "--case-id", "size-1", "--top", "1"] }
+  ],
+  "assert": [
+    { "step": 0, "field": "result.cases[0].caseId", "equals": "size-1" },
+    { "step": 0, "field": "hints[0].operation", "equals": "rank" },
+    { "step": 0, "field": "hints[0].arguments.caseId", "equals": "size-1" },
+    { "step": 1, "topFrame": "MyApp.Inner" }
+  ],
+  "expect": ["size-1", "MyApp.Inner"]
+}

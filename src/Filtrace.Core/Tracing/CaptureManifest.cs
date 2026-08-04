@@ -19,6 +19,34 @@ public sealed record CaptureManifest(
     /// </summary>
     public CaptureKind Kind { get; init; } = CaptureKind.Benchmark;
 
+    /// <summary>Finds one case by its run-unique identifier.</summary>
+    /// <param name="caseId">The exact case identifier.</param>
+    /// <returns>The matching case.</returns>
+    /// <exception cref="ArgumentException">
+    ///  <paramref name="caseId"/> is empty, too long, or contains control characters.
+    /// </exception>
+    /// <exception cref="InvalidDataException">The manifest has no case with that identifier.</exception>
+    public CaptureManifestCase GetCase(string caseId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(caseId);
+        if (caseId.Length > CaptureManifestReader.MaxCaseIdLength || caseId.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                $"Case id must contain 1-{CaptureManifestReader.MaxCaseIdLength} non-control characters.",
+                nameof(caseId));
+        }
+
+        foreach (CaptureManifestCase captureCase in Cases)
+        {
+            if (string.Equals(captureCase.Id, caseId, StringComparison.Ordinal))
+            {
+                return captureCase;
+            }
+        }
+
+        throw new InvalidDataException($"Capture manifest has no case with id '{caseId}'.");
+    }
+
     /// <summary>
     ///  Resolves the process scope for <paramref name="captureCase"/>: an explicit
     ///  caller override wins, then the case's recorded invocation ids, then the

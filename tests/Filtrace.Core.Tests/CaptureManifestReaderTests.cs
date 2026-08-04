@@ -510,6 +510,7 @@ public sealed class CaptureManifestReaderTests
 
         result.Cases.Should().HaveCount(3);
         BatchRankingCaseResult complete = result.Cases[0];
+        complete.CaseId.Should().Be("complete");
         complete.TopFrame.Should().Be("Hot");
         complete.TopPercentOfScope.Should().Be(60.0);
         complete.OperationUnit.Should().Be("items");
@@ -519,6 +520,7 @@ public sealed class CaptureManifestReaderTests
             warning => warning.Contains("periodic CPU records", StringComparison.Ordinal)
                 && warning.Contains("at least 200", StringComparison.Ordinal));
         result.Cases[2].Warnings.Should().ContainSingle("missing case trace");
+        result.Cases[2].CaseId.Should().Be("failed");
         result.Cases[2].TopFrame.Should().BeNull();
     }
 
@@ -545,6 +547,7 @@ public sealed class CaptureManifestReaderTests
 
         loadCount.Should().Be(0);
         BatchRankingCaseResult unresolved = result.Cases.Should().ContainSingle().Subject;
+        unresolved.CaseId.Should().Be("unknown");
         unresolved.TopFrame.Should().BeNull();
         unresolved.Warnings.Should().ContainSingle(
             warning => warning.Contains("manifest batch skipped", StringComparison.Ordinal)

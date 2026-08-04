@@ -8,6 +8,7 @@
     { "args": ["batch", "{fixture}"] }
   ],
   "assert": [
+    { "field": "result.cases[0].caseId", "equals": "size-1" },
     { "field": "result.cases[0].parameters", "equals": "Size: 1" },
     { "field": "result.cases[0].topFrame", "equals": "MyApp.Inner" },
     { "field": "result.cases[0].scopeWeightPerOperation", "equals": 2.5 },
