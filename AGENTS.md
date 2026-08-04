@@ -18,6 +18,7 @@ Layout:
 - `src/Filtrace.Core/` - the analysis library and public object model
 - `src/Filtrace.Mcp/` - the MCP stdio server exposing the `trace_*` tools
 - `benchmarks/Filtrace.Benchmarks/` - BenchmarkDotNet performance harness for the analysis core
+- `benchmarks/Filtrace.PerfWorkload/` - parameterized CPU/activity trace workload for Track D
 - `tests/Filtrace.*.Tests/` - unit and parity tests (Microsoft.Testing.Platform runner)
 - `fixtures/` - HotLoopBench and the committed binary captures the tests read
 - `tools/` - CI contract scripts (CLI help lint, MCP server check)

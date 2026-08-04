@@ -919,10 +919,12 @@ nupkg packs only `SKILL.md`.
 
 ## Track D - performance and parallelism
 
-**Status:** all proposed, none shipped. **Date of analysis:** 2026-07-28. The
-long-form version of this analysis, with the per-method thread-safety notes it was
-condensed from, is `docs/parallelism-opportunities.md` on the
-`copilot/improve-filtrace-performance` branch.
+**Status:** Phase 0 in progress; no optimization shipped. The synthetic aggregation
+corpus, sequential degree seams, parameterized CPU/activity workload, and first
+verified corpus archiver are implemented. **Date of analysis:** 2026-07-28. The
+remaining BenchmarkDotNet, CLI self-profiling, artifact, sequencing, and keep/reject
+plan is in
+[parallelism-opportunities.md](parallelism-opportunities.md).
 
 Where the CPU goes on every `.nettrace` or `.etl` analysis:
 
@@ -935,7 +937,7 @@ Where the CPU goes on every `.nettrace` or `.etl` analysis:
 | `EmbeddedPdbExtractor.Extract` | CPU (deflate) plus I/O | yes (LP-4) |
 | `FoldingAggregator` passes | pure CPU | yes, partition then reduce (LP-2) |
 | Batch and diff case loading | CPU plus I/O per independent trace | yes, cases are independent (LP-1) |
-| Native symbol resolution | symbol-server I/O | yes, modules are independent (LP-5) |
+| Native symbol resolution | symbol-server I/O | blocked pending TraceEvent thread-safety contract (LP-5 / TE-P3) |
 
 Aggregation cost is worth a number: with the default 7 fold patterns and a 20-frame
 average depth, one aggregation over 10,000 samples calls `Regex.IsMatch` on the
@@ -946,14 +948,16 @@ order of 200,000-400,000 times.
 **Value:** high. **Effort:** low.
 
 `CaptureManifestBatchAnalyzer.Analyze` and `CaptureManifestDiffAnalyzer.Analyze`
-iterate their case lists sequentially, and each case loads its trace or traces and
-ranks them with no shared mutable state. Replace the inner loop with
-`Parallel.ForEach`, writing results by index into a preallocated array or collecting
-into a `ConcurrentBag` and sorting at the end.
+iterate their case lists sequentially. Their public load delegates may capture state,
+and the CLI strict-symbol gate currently does, so existing overloads must remain
+sequential. Add an explicitly concurrent overload with bounded degree, make each head
+callback thread-safe, and write results by case/pair index into preallocated slots so
+manifest order stays deterministic.
 
 Notes: the per-iteration warning list is already allocated per case; `TraceStore.Get`
 may run its factory twice when two cases share a trace path (the documented LruCache
-race), which is a tolerable transient double-load here, not a correctness bug.
+race), which is a tolerable transient double-load here, not a correctness bug. The
+detailed callback, strict-gate, memory, and degree tests are in the measurement plan.
 
 ### LP-2 - partition-and-reduce in FoldingAggregator
 

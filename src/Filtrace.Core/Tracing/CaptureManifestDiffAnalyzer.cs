@@ -100,6 +100,39 @@ public static class CaptureManifestDiffAnalyzer
         return new CaptureManifestDiffAnalysis(result, warnings);
     }
 
+    /// <summary>
+    ///  Diffs manifest cases through a loader that may be invoked concurrently by a
+    ///  future implementation.
+    /// </summary>
+    /// <param name="before">Baseline manifest.</param>
+    /// <param name="after">Current manifest.</param>
+    /// <param name="inclusive">Whether to rank inclusive rather than self weight.</param>
+    /// <param name="root">Optional root-frame selector.</param>
+    /// <param name="foldPatterns">Leaf-fold patterns.</param>
+    /// <param name="top">Requested changed rows per case.</param>
+    /// <param name="maxDegreeOfParallelism">Maximum concurrent case loads. Must be in [1, <see cref="MaxAnalyzedCases"/>].</param>
+    /// <param name="load">Loads one case with the owning head's cache and scope policy; it must be safe for concurrent calls.</param>
+    /// <returns>The case-keyed diff plus bounded pairing warnings.</returns>
+    /// <remarks>
+    ///  The current implementation preserves sequential execution for every degree.
+    ///  The explicit contract lets benchmarks compare a future bounded implementation
+    ///  without changing the legacy overload's sequential callback behavior.
+    /// </remarks>
+    public static CaptureManifestDiffAnalysis Analyze(
+        CaptureManifest before,
+        CaptureManifest after,
+        bool inclusive,
+        string root,
+        IReadOnlyList<string> foldPatterns,
+        int top,
+        int maxDegreeOfParallelism,
+        Func<CaptureManifest, CaptureManifestCase, LoadedTrace> load)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxDegreeOfParallelism, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(maxDegreeOfParallelism, MaxAnalyzedCases);
+        return Analyze(before, after, inclusive, root, foldPatterns, top, load);
+    }
+
     private static RankingResult Rank(
         LoadedTrace trace,
         bool inclusive,
