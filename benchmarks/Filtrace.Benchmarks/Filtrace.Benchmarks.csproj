@@ -11,6 +11,13 @@
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" />
     <ProjectReference Include="..\..\src\Filtrace.Core\Filtrace.Core.csproj" />
+    <ProjectReference Include="..\..\src\Filtrace\Filtrace.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\tests\Filtrace.Core.Tests\Fixtures\activity.nettrace" Link="Fixtures\activity.nettrace">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

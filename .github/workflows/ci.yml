@@ -23,6 +23,7 @@ jobs:
   agent-files:
     name: agent files
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
         with:
@@ -82,6 +83,10 @@ jobs:
       - name: Capture helper contract
         shell: pwsh
         run: ./tools/Test-CaptureBenchmarkTrace.ps1
+
+      - name: Track D investigation contract
+        shell: pwsh
+        run: ./tools/Test-TrackDInvestigation.ps1
 
   build-windows:
     name: build (Windows)

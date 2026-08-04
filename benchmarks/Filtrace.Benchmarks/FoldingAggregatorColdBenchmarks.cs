@@ -8,6 +8,8 @@ namespace Filtrace.Benchmarks;
 [MemoryDiagnoser]
 public class FoldingAggregatorColdBenchmarks
 {
+    private const string FocusFrame = "Pipeline.Frame1.Run";
+    private const string SourceFile = "Pipeline.cs";
     private StackSampleSource _source = null!;
 
     /// <summary>The sample-count, stack-depth, and frame-cardinality scenario.</summary>
@@ -24,9 +26,18 @@ public class FoldingAggregatorColdBenchmarks
         _source = FoldingBenchmarkCorpus.Create(Scenario);
         FoldingAggregator validation = new(_source);
         if (validation.SelfTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25).Rows.Count == 0
-            || validation.InclusiveTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25).Rows.Count == 0)
+            || validation.InclusiveTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25).Rows.Count == 0
+            || validation.CallersOf(FocusFrame, string.Empty, top: 25).Callers.Count == 0
+            || validation.HotLines("Pipeline.Frame", FrameNames.DefaultFoldPatterns, top: 25).Rows.Count == 0
+            || validation.SourceHeatmap(SourceFile, FrameNames.DefaultFoldPatterns).Lines.Count == 0
+            || validation.CallTree(
+                string.Empty,
+                FrameNames.DefaultFoldPatterns,
+                maxDepth: 20,
+                minPercentOfScope: 0.0).Root.Children.Count == 0
+            || validation.Classify(string.Empty).Categories.Count == 0)
         {
-            throw new InvalidOperationException($"Scenario '{Scenario}' produced no ranking rows.");
+            throw new InvalidOperationException($"Scenario '{Scenario}' produced an empty analysis result.");
         }
     }
 
@@ -39,4 +50,36 @@ public class FoldingAggregatorColdBenchmarks
     [Benchmark]
     public RankingResult InclusiveTime() =>
         new FoldingAggregator(_source).InclusiveTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
+
+    /// <summary>Constructs an aggregator and finds callers of a stable focus frame.</summary>
+    [Benchmark]
+    public CallersResult CallersOf() =>
+        new FoldingAggregator(_source).CallersOf(FocusFrame, string.Empty, top: 25);
+
+    /// <summary>Constructs an aggregator and ranks synthetic source lines.</summary>
+    [Benchmark]
+    public LineRankingResult HotLines() =>
+        new FoldingAggregator(_source).HotLines(
+            "Pipeline.Frame",
+            FrameNames.DefaultFoldPatterns,
+            top: 25);
+
+    /// <summary>Constructs an aggregator and builds a synthetic source heatmap.</summary>
+    [Benchmark]
+    public SourceHeatmapResult SourceHeatmap() =>
+        new FoldingAggregator(_source).SourceHeatmap(SourceFile, FrameNames.DefaultFoldPatterns);
+
+    /// <summary>Constructs an aggregator and builds a bounded call tree.</summary>
+    [Benchmark]
+    public CallTreeResult CallTree() =>
+        new FoldingAggregator(_source).CallTree(
+            string.Empty,
+            FrameNames.DefaultFoldPatterns,
+            maxDepth: 20,
+            minPercentOfScope: 0.0);
+
+    /// <summary>Constructs an aggregator and classifies synthetic self-time.</summary>
+    [Benchmark]
+    public ClassifyResult Classify() =>
+        new FoldingAggregator(_source).Classify(string.Empty);
 }

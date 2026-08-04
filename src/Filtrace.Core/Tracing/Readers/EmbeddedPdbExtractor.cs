@@ -57,6 +57,7 @@ internal static class EmbeddedPdbExtractor
 
         foreach (string dll in Directory.EnumerateFiles(buildOutputDirectory, "*.dll"))
         {
+            string? temporaryPdbPath = null;
             try
             {
                 byte[] image = File.ReadAllBytes(dll);
@@ -85,19 +86,38 @@ internal static class EmbeddedPdbExtractor
                     string pdbPath = Path.Join(
                         tempDirectory,
                         Path.GetFileNameWithoutExtension(dll) + ".pdb");
+                    temporaryPdbPath = $"{pdbPath}.{Guid.NewGuid():N}.tmp";
 
                     // Layout of the embedded blob: 4-byte 'MPDB' magic, 4-byte
                     // uncompressed size, then the portable PDB as a raw deflate stream.
-                    using MemoryStream compressed = new(image, dataOffset + 8, entry.DataSize - 8, writable: false);
-                    using DeflateStream deflate = new(compressed, CompressionMode.Decompress);
-                    using FileStream outPdb = File.Create(pdbPath);
-                    deflate.CopyTo(outPdb);
+                    using (MemoryStream compressed = new(
+                        image,
+                        dataOffset + 8,
+                        entry.DataSize - 8,
+                        writable: false))
+                    using (DeflateStream deflate = new(compressed, CompressionMode.Decompress))
+                    using (FileStream outPdb = File.Create(temporaryPdbPath))
+                    {
+                        deflate.CopyTo(outPdb);
+                    }
+
+                    File.Move(temporaryPdbPath, pdbPath, overwrite: true);
+                    temporaryPdbPath = null;
                 }
             }
             catch (Exception)
             {
                 // Extraction is best-effort: a DLL that cannot be read or whose
                 // embedded PDB cannot be decompressed simply contributes no symbols.
+                if (temporaryPdbPath is not null)
+                {
+                    TryDelete(temporaryPdbPath);
+                }
+
+                if (tempDirectory is not null && TryDeleteEmptyDirectory(tempDirectory))
+                {
+                    tempDirectory = null;
+                }
             }
         }
 
@@ -109,5 +129,36 @@ internal static class EmbeddedPdbExtractor
         string path = Path.Join(Path.GetTempPath(), $"filtrace-pdb-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception)
+        {
+            // Preserve best-effort extraction when cleanup itself loses a race.
+        }
+    }
+
+    private static bool TryDeleteEmptyDirectory(string path)
+    {
+        try
+        {
+            if (Directory.EnumerateFileSystemEntries(path).Any())
+            {
+                return false;
+            }
+
+            Directory.Delete(path);
+            return true;
+        }
+        catch (Exception)
+        {
+            // Preserve best-effort extraction when cleanup itself loses a race.
+            return false;
+        }
     }
 }

@@ -1,0 +1,258 @@
+#!/usr/bin/env pwsh
+#Requires -Version 7.2
+# Copyright (c) 2025 Jeremy W Kuhne
+# SPDX-License-Identifier: MIT
+# See LICENSE file in the project root for full license information
+
+[CmdletBinding()]
+param()
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$script = Join-Path $root 'benchmarks/Invoke-TrackDInvestigation.ps1'
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+
+function Assert-True([bool] $Condition, [string] $Message) {
+    if (-not $Condition) {
+        throw $Message
+    }
+}
+
+function Write-Json([string] $Path, [object] $Value) {
+    [string] $json = $Value | ConvertTo-Json -Depth 20
+    [System.IO.File]::WriteAllText($Path, "$json`n", $utf8)
+}
+
+[string] $temporaryRoot = Join-Path `
+    ([System.IO.Path]::GetTempPath()) `
+    "filtrace-trackd-contract-$([Guid]::NewGuid().ToString('N'))"
+[System.IO.Directory]::CreateDirectory($temporaryRoot) | Out-Null
+try {
+    [string] $corpusSource = Join-Path $temporaryRoot 'corpus-source'
+    [string] $corpusInputs = Join-Path $corpusSource 'inputs'
+    [string] $corpus = Join-Path $temporaryRoot 'corpus'
+    [System.IO.Directory]::CreateDirectory($corpusInputs) | Out-Null
+    [System.IO.Directory]::CreateDirectory($corpus) | Out-Null
+    [string] $fakeTrace = Join-Path $corpusInputs 'cpu-10k-d20.nettrace'
+    [System.IO.File]::WriteAllText(
+        $fakeTrace,
+        'fake trace bytes',
+        $utf8)
+    [string] $archive = Join-Path $corpus 'input-corpus.zip'
+    [System.IO.Compression.ZipFile]::CreateFromDirectory(
+        $corpusSource,
+        $archive,
+        [System.IO.Compression.CompressionLevel]::Fastest,
+        $false)
+    [string] $archiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
+    Write-Json (Join-Path $corpus 'input-corpus.manifest.json') ([ordered]@{
+        schemaVersion = 1
+        traces = @([ordered]@{
+            name = 'cpu-10k-d20'
+            archivePath = 'inputs/cpu-10k-d20.nettrace'
+            bytes = (Get-Item -LiteralPath $fakeTrace).Length
+            sha256 = (Get-FileHash -LiteralPath $fakeTrace -Algorithm SHA256).Hash
+        })
+        archive = [ordered]@{
+            path = 'input-corpus.zip'
+            sha256 = $archiveHash
+            bytes = (Get-Item -LiteralPath $archive).Length
+        }
+    })
+
+    [string] $adapter = Join-Path $root 'tools/fixtures/Fake-TrackDMeasurements.ps1'
+
+    [string] $success = Join-Path $temporaryRoot 'success'
+    & $script `
+        -InputCorpusDirectory $corpus `
+        -BaselineCheckout $root `
+        -CandidateCheckout $root `
+        -AllowDirtyCheckouts `
+        -OutputDirectory $success `
+        -BenchmarkJob dry `
+        -TelemetryIterations 2 `
+        -NoBuild `
+        -TestAdapterPath $adapter
+    [object] $successStatus = Get-Content -LiteralPath (Join-Path $success 'run-status.json') -Raw | ConvertFrom-Json
+    [object] $comparison = Get-Content -LiteralPath (Join-Path $success 'comparison.json') -Raw | ConvertFrom-Json
+    Assert-True ($successStatus.status -eq 'completed') 'Fake no-op run did not complete.'
+    Assert-True (@($comparison.benchmarkRows).Count -eq 2) 'Fake no-op did not compare two BDN rows.'
+    Assert-True (@($comparison.benchmarkRows | Where-Object {
+        $_.meanDeltaPercent -ne 0 -or $_.allocatedDeltaBytes -ne 0
+    }).Count -eq 0) 'Fake no-op benchmark deltas were not neutral.'
+    Assert-True ($comparison.cliTelemetry.averageCpuDeltaPercent -eq 0) 'Fake no-op CLI CPU delta was not neutral.'
+    Assert-True ($comparison.cliTelemetry.peakWorkingSetDeltaBytes -eq 0) 'Fake no-op working-set delta was not neutral.'
+    Assert-True ($comparison.cliTelemetry.privateMemoryDeltaBytes -eq 0) 'Fake no-op private-memory delta was not neutral.'
+
+    [string] $failure = Join-Path $temporaryRoot 'adapter-failure'
+    $previousFailureArm = $env:FILTRACE_TRACKD_FAKE_FAIL_ARM
+    $env:FILTRACE_TRACKD_FAKE_FAIL_ARM = 'candidate'
+    [bool] $failed = $false
+    try {
+        & $script `
+            -InputCorpusDirectory $corpus `
+            -BaselineCheckout $root `
+            -CandidateCheckout $root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $failure `
+            -NoBuild `
+            -TestAdapterPath $adapter
+    }
+    catch {
+        $failed = $true
+    }
+    finally {
+        $env:FILTRACE_TRACKD_FAKE_FAIL_ARM = $previousFailureArm
+    }
+
+    [object] $failureStatus = Get-Content -LiteralPath (Join-Path $failure 'run-status.json') -Raw | ConvertFrom-Json
+    Assert-True $failed 'Injected adapter failure unexpectedly succeeded.'
+    Assert-True ($failureStatus.status -eq 'failed') 'Adapter failure did not record failed status.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $failure 'failure.txt')) 'Adapter failure omitted failure.txt.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $failure 'commands.txt')) 'Adapter failure omitted commands.txt.'
+
+    [string] $invalidGate = Join-Path $temporaryRoot 'invalid-gate'
+    [bool] $gateFailed = $false
+    try {
+        & $script `
+            -InputCorpusDirectory $corpus `
+            -BaselineCheckout $root `
+            -CandidateCheckout $root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $invalidGate `
+            -TestAdapterPath $adapter
+    }
+    catch {
+        $gateFailed = $true
+    }
+
+    [object] $gateStatus = Get-Content -LiteralPath (Join-Path $invalidGate 'run-status.json') -Raw | ConvertFrom-Json
+    Assert-True $gateFailed 'Ungated test adapter unexpectedly ran.'
+    Assert-True ($gateStatus.status -eq 'failed') 'Ungated adapter did not record failed status.'
+
+    [string] $timeout = Join-Path $temporaryRoot 'adapter-timeout'
+    $previousSleepArm = $env:FILTRACE_TRACKD_FAKE_SLEEP_ARM
+    $env:FILTRACE_TRACKD_FAKE_SLEEP_ARM = 'baseline'
+    [bool] $timedOut = $false
+    try {
+        & $script `
+            -InputCorpusDirectory $corpus `
+            -BaselineCheckout $root `
+            -CandidateCheckout $root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $timeout `
+            -NoBuild `
+            -NativeTimeoutSeconds 1 `
+            -TestAdapterPath $adapter
+    }
+    catch {
+        $timedOut = $_.Exception.Message.Contains(
+            'did not finish within 1 seconds',
+            [StringComparison]::Ordinal)
+    }
+    finally {
+        $env:FILTRACE_TRACKD_FAKE_SLEEP_ARM = $previousSleepArm
+    }
+
+    [object] $timeoutStatus = Get-Content -LiteralPath (Join-Path $timeout 'run-status.json') -Raw | ConvertFrom-Json
+    Assert-True $timedOut 'Injected adapter hang did not report the configured timeout.'
+    Assert-True ($timeoutStatus.status -eq 'failed') 'Adapter timeout did not record failed status.'
+
+    [string] $oversized = Join-Path $temporaryRoot 'adapter-output-limit'
+    $previousOutputArm = $env:FILTRACE_TRACKD_FAKE_OUTPUT_ARM
+    $env:FILTRACE_TRACKD_FAKE_OUTPUT_ARM = 'baseline'
+    [bool] $outputFailed = $false
+    try {
+        & $script `
+            -InputCorpusDirectory $corpus `
+            -BaselineCheckout $root `
+            -CandidateCheckout $root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $oversized `
+            -NoBuild `
+            -NativeTimeoutSeconds 30 `
+            -TestAdapterPath $adapter
+    }
+    catch {
+        $outputFailed = $_.Exception.Message.Contains(
+            'output exceeded 10485760 bytes',
+            [StringComparison]::Ordinal)
+    }
+    finally {
+        $env:FILTRACE_TRACKD_FAKE_OUTPUT_ARM = $previousOutputArm
+    }
+
+    [object] $outputStatus = Get-Content -LiteralPath (Join-Path $oversized 'run-status.json') -Raw | ConvertFrom-Json
+    $outputFailed = $outputFailed -or [string]$outputStatus.message -like '*output exceeded 10485760 bytes*'
+    Assert-True `
+        $outputFailed `
+        "Oversized adapter output did not hit the live byte limit. Status: $($outputStatus.message)"
+    Assert-True ($outputStatus.status -eq 'failed') 'Oversized adapter output did not record failed status.'
+
+    [string] $unsafeCorpus = Join-Path $temporaryRoot 'unsafe-corpus'
+    [System.IO.Directory]::CreateDirectory($unsafeCorpus) | Out-Null
+    [string] $unsafeArchive = Join-Path $unsafeCorpus 'input-corpus.zip'
+    [System.IO.FileStream] $unsafeStream = [System.IO.File]::Create($unsafeArchive)
+    [System.IO.Compression.ZipArchive] $unsafeZip = [System.IO.Compression.ZipArchive]::new(
+        $unsafeStream,
+        [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        [System.IO.Compression.ZipArchiveEntry] $unsafeEntry = $unsafeZip.CreateEntry('../escape.txt')
+        [System.IO.StreamWriter] $unsafeWriter = [System.IO.StreamWriter]::new($unsafeEntry.Open())
+        try {
+            $unsafeWriter.Write('escape')
+        }
+        finally {
+            $unsafeWriter.Dispose()
+        }
+    }
+    finally {
+        $unsafeZip.Dispose()
+        $unsafeStream.Dispose()
+    }
+
+    Write-Json (Join-Path $unsafeCorpus 'input-corpus.manifest.json') ([ordered]@{
+        schemaVersion = 1
+        traces = @([ordered]@{
+            name = 'escape'
+            archivePath = '../escape.txt'
+            bytes = 6
+            sha256 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+        })
+        archive = [ordered]@{
+            path = 'input-corpus.zip'
+            sha256 = (Get-FileHash -LiteralPath $unsafeArchive -Algorithm SHA256).Hash
+            bytes = (Get-Item -LiteralPath $unsafeArchive).Length
+        }
+    })
+    [string] $unsafeRun = Join-Path $temporaryRoot 'unsafe-run'
+    [bool] $unsafeFailed = $false
+    try {
+        & $script `
+            -InputCorpusDirectory $unsafeCorpus `
+            -BaselineCheckout $root `
+            -CandidateCheckout $root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $unsafeRun `
+            -NoBuild `
+            -TestAdapterPath $adapter
+    }
+    catch {
+        $unsafeFailed = $_.Exception.Message.Contains(
+            'unsafe or duplicate destination',
+            [StringComparison]::Ordinal)
+    }
+
+    [object] $unsafeStatus = Get-Content -LiteralPath (Join-Path $unsafeRun 'run-status.json') -Raw | ConvertFrom-Json
+    Assert-True $unsafeFailed 'Unsafe corpus path was not rejected.'
+    Assert-True ($unsafeStatus.status -eq 'failed') 'Unsafe corpus did not record failed status.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $unsafeRun 'baseline/escape.txt'))) 'Unsafe corpus wrote outside its extraction root.'
+
+    Write-Host 'Track D investigation contract passed.' -ForegroundColor Green
+}
+finally {
+    if (Test-Path -LiteralPath $temporaryRoot) {
+        Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction Stop
+    }
+}

@@ -1,0 +1,184 @@
+// Copyright (c) 2025 Jeremy W Kuhne
+// SPDX-License-Identifier: MIT
+// See LICENSE file in the project root for full license information
+
+using System.Text;
+using System.Text.Json;
+
+namespace Filtrace.Benchmarks;
+
+internal sealed class CliManifestCorpus : IDisposable
+{
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+    private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
+    private readonly List<string> _tracePaths = [];
+
+    private CliManifestCorpus(string root, string beforeManifest, string? afterManifest)
+    {
+        Root = root;
+        BeforeManifest = beforeManifest;
+        AfterManifest = afterManifest;
+    }
+
+    public string Root { get; }
+
+    public string BeforeManifest { get; }
+
+    public string? AfterManifest { get; }
+
+    public static CliManifestCorpus Create(
+        string sourceTrace,
+        int caseCount,
+        bool paired,
+        bool preconvert)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sourceTrace);
+        sourceTrace = Path.GetFullPath(sourceTrace);
+        if (!File.Exists(sourceTrace))
+        {
+            throw new FileNotFoundException("The manifest source trace was not found.", sourceTrace);
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(caseCount, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            caseCount,
+            CaptureManifestBatchAnalyzer.MaxAnalyzedCases);
+
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"filtrace-cli-manifest-{Guid.NewGuid():N}");
+        string beforeDirectory = Path.Combine(root, paired ? "before" : "batch");
+        string beforeManifest = Path.Combine(beforeDirectory, "manifest.json");
+        string? afterDirectory = paired ? Path.Combine(root, "after") : null;
+        string? afterManifest = afterDirectory is null
+            ? null
+            : Path.Combine(afterDirectory, "manifest.json");
+        CliManifestCorpus corpus = new(root, beforeManifest, afterManifest);
+        try
+        {
+            corpus.CreateArm(sourceTrace, beforeDirectory, "before", caseCount, preconvert);
+            if (afterDirectory is not null)
+            {
+                corpus.CreateArm(sourceTrace, afterDirectory, "after", caseCount, preconvert);
+            }
+
+            corpus.Validate(caseCount, paired, expectConverted: preconvert);
+            return corpus;
+        }
+        catch
+        {
+            corpus.Dispose();
+            throw;
+        }
+    }
+
+    public void Validate(int caseCount, bool paired, bool expectConverted)
+    {
+        int expectedTraceCount = checked(caseCount * (paired ? 2 : 1));
+        if (_tracePaths.Count != expectedTraceCount
+            || _tracePaths.Distinct(PathComparer()).Count() != expectedTraceCount
+            || _tracePaths.Any(static trace => !File.Exists(trace)))
+        {
+            throw new InvalidDataException(
+                $"Corpus has {_tracePaths.Count} trace paths; expected {expectedTraceCount} distinct existing files.");
+        }
+
+        CaptureManifest before = CaptureManifestReader.Read(BeforeManifest);
+        if (before.Cases.Count != caseCount)
+        {
+            throw new InvalidDataException(
+                $"Before manifest has {before.Cases.Count} cases; expected {caseCount}.");
+        }
+
+        if (before.Cases.Select(static captureCase => captureCase.TracePath)
+            .Distinct(PathComparer()).Count() != caseCount)
+        {
+            throw new InvalidDataException("Before manifest trace paths are not distinct.");
+        }
+
+        if (paired)
+        {
+            if (AfterManifest is null)
+            {
+                throw new InvalidDataException("Paired corpus has no after manifest.");
+            }
+
+            CaptureManifest after = CaptureManifestReader.Read(AfterManifest);
+            CaptureManifestPairResult pairs = CaptureManifestPairer.Pair(before, after);
+            if (pairs.Pairs.Count != caseCount || pairs.Warnings.Count != 0)
+            {
+                throw new InvalidDataException(
+                    $"Paired corpus produced {pairs.Pairs.Count} pairs and {pairs.Warnings.Count} warnings.");
+            }
+        }
+
+        foreach (string trace in _tracePaths)
+        {
+            bool converted = File.Exists(TraceConverter.EtlxPathFor(trace));
+            if (converted != expectConverted)
+            {
+                throw new InvalidDataException(
+                    $"Trace '{trace}' ETLX state was {converted}; expected {expectConverted}.");
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(Root))
+        {
+            Directory.Delete(Root, recursive: true);
+        }
+    }
+
+    private void CreateArm(
+        string sourceTrace,
+        string directory,
+        string arm,
+        int caseCount,
+        bool preconvert)
+    {
+        Directory.CreateDirectory(directory);
+        ManifestCase[] cases = new ManifestCase[caseCount];
+        for (int caseIndex = 0; caseIndex < caseCount; caseIndex++)
+        {
+            string traceName = $"case-{caseIndex:D2}.nettrace";
+            string trace = Path.Combine(directory, traceName);
+            File.Copy(sourceTrace, trace);
+            _tracePaths.Add(trace);
+            if (preconvert)
+            {
+                TraceConverter.Convert(trace);
+            }
+
+            string parameters = $"Case: {caseIndex:D2}";
+            cases[caseIndex] = new ManifestCase(
+                $"{arm}-{caseIndex:D2}",
+                "Filtrace.Benchmarks.CliManifest",
+                parameters,
+                $"CliManifest({parameters}): {arm}",
+                traceName);
+        }
+
+        ManifestFile manifest = new(1, cases);
+        string json = JsonSerializer.Serialize(manifest, JsonOptions);
+        File.WriteAllText(Path.Combine(directory, "manifest.json"), json, Utf8);
+    }
+
+    private static StringComparer PathComparer() =>
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+    private sealed record ManifestFile(int SchemaVersion, IReadOnlyList<ManifestCase> Cases);
+
+    private sealed record ManifestCase(
+        string Id,
+        string Benchmark,
+        string Parameters,
+        string BenchmarkDisplay,
+        string Trace);
+}

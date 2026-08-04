@@ -8,6 +8,20 @@ namespace Filtrace.Benchmarks;
 
 public static class Program
 {
-    public static void Main(string[] args) =>
+    public static void Main(string[] args)
+    {
+        if (CliTelemetryCommand.IsHelpRequested(args))
+        {
+            Console.WriteLine(CliTelemetryCommand.Usage);
+            return;
+        }
+
+        if (CliTelemetryCommand.IsRequested(args))
+        {
+            CliTelemetryCommand.RunAsync(args).GetAwaiter().GetResult();
+            return;
+        }
+
         BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
+    }
 }

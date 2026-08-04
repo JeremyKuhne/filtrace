@@ -13,6 +13,9 @@
   nested-activity trace with dotnet-trace, verifies both through filtrace, archives
     the raw trace bytes, and writes a SHA-256 manifest with portable capture arguments.
 
+    With -Scale, captures the retained CPU sample-count/depth matrix and activity
+    tiers, adapting each duration until its observed target count is within tolerance.
+
   The output directory must be empty. Derived ETLX caches are removed before the
   archive is created; they are reproducible caches, not corpus inputs.
 
@@ -35,6 +38,31 @@
 .PARAMETER ActivityRounds
   Maximum nested activity rounds per worker. Defaults to 1000.
 
+.PARAMETER Scale
+    Capture the calibrated retained scale matrix instead of one CPU/activity pair.
+
+.PARAMETER CpuSampleTargets
+    CPU sample-count targets for -Scale. Defaults to 10k, 100k, and 1m.
+
+.PARAMETER CpuDepths
+    CPU workload depths for -Scale. Defaults to 5 and 20.
+
+.PARAMETER ActivitySampleTargets
+    Order-scoped CPU record targets for -Scale. Defaults to 10k and 100k.
+
+.PARAMETER ActivityDepth
+    Activity workload depth for -Scale. Defaults to 20.
+
+.PARAMETER CalibrationTolerancePercent
+    Allowed observed-count deviation from a scale target. Defaults to 10%.
+
+.PARAMETER CalibrationMaximumAttempts
+    Maximum captures used to calibrate one scale scenario. Defaults to 4.
+
+.PARAMETER ScaleMaximumTotalDurationMilliseconds
+    Maximum aggregate requested workload duration across scale calibration attempts.
+    Defaults to 30 minutes.
+
 .PARAMETER DotnetPath
   dotnet host path or command name. Defaults to dotnet from PATH.
 
@@ -46,6 +74,9 @@
 
 .PARAMETER NoBuild
   Reuse existing Release outputs instead of building the workload and CLI.
+
+.PARAMETER NativeTimeoutSeconds
+    Maximum time for one build, capture, or filtrace query. Defaults to 1800 seconds.
 #>
 [CmdletBinding()]
 param(
@@ -55,9 +86,18 @@ param(
     [ValidateRange(100, 600000)][int] $ActivityDurationMilliseconds = 15000,
     [ValidateRange(1, 128)][int] $Depth = 20,
     [ValidateRange(1, 10000000)][int] $ActivityRounds = 1000,
+    [switch] $Scale,
+    [int[]] $CpuSampleTargets = @(10000, 100000, 1000000),
+    [int[]] $CpuDepths = @(5, 20),
+    [int[]] $ActivitySampleTargets = @(10000, 100000),
+    [ValidateRange(1, 128)][int] $ActivityDepth = 20,
+    [ValidateRange(1.0, 50.0)][double] $CalibrationTolerancePercent = 10.0,
+    [ValidateRange(1, 4)][int] $CalibrationMaximumAttempts = 4,
+    [ValidateRange(60000, 7200000)][long] $ScaleMaximumTotalDurationMilliseconds = 1800000,
     [string] $DotnetPath = 'dotnet',
     [string] $DotnetTracePath = 'dotnet-trace',
     [string] $FiltracePath,
+    [ValidateRange(1, 86400)][int] $NativeTimeoutSeconds = 1800,
     [switch] $NoBuild
 )
 
@@ -69,6 +109,12 @@ $workloadDll = Join-Path $root 'benchmarks/Filtrace.PerfWorkload/bin/Release/net
 $filtraceProject = Join-Path $root 'src/Filtrace/Filtrace.csproj'
 $defaultFiltraceDll = Join-Path $root 'src/Filtrace/bin/Release/net10.0/filtrace.dll'
 $utf8 = [System.Text.UTF8Encoding]::new($false)
+$calibrationRates = @{}
+$maximumScaleScenarios = 16
+$maximumScaleTargetRecords = 5000000
+$maximumCapturedBytes = 10 * 1024 * 1024
+$nativeCleanupTimeoutMilliseconds = 10000
+$script:calibrationRequestedDurationMilliseconds = 0L
 
 function Resolve-Executable([string] $Command, [string] $Purpose) {
     if (Test-Path -LiteralPath $Command -PathType Leaf) {
@@ -87,27 +133,34 @@ function Invoke-NativeChecked(
     [string] $Executable,
     [string[]] $Arguments,
     [string] $Purpose) {
-    & $Executable @Arguments
-    [int] $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) {
-        throw "$Purpose exited with code $exitCode."
+    [System.Diagnostics.Process] $process = Start-NativeProcess $Executable $Arguments $false
+    try {
+        Wait-NativeProcess $process $Purpose
+        if ($process.ExitCode -ne 0) {
+            throw "$Purpose exited with code $($process.ExitCode)."
+        }
+    }
+    finally {
+        $process.Dispose()
     }
 }
 
 function Invoke-FiltraceJson([string[]] $Arguments) {
-    [object[]] $output = if ($script:filtraceCommand.EndsWith('.dll', [StringComparison]::OrdinalIgnoreCase)) {
-        @(& $script:dotnet $script:filtraceCommand @Arguments)
+    [string] $executable = ''
+    [string[]] $nativeArguments = @()
+    if ($script:filtraceCommand.EndsWith('.dll', [StringComparison]::OrdinalIgnoreCase)) {
+        $executable = $script:dotnet
+        $nativeArguments = @($script:filtraceCommand) + $Arguments
     }
     else {
-        @(& $script:filtraceCommand @Arguments)
+        $executable = $script:filtraceCommand
+        $nativeArguments = $Arguments
     }
 
-    [int] $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) {
-        throw "filtrace $($Arguments[0]) exited with code $exitCode."
-    }
-
-    [string] $json = ($output -join [Environment]::NewLine).Trim()
+    [string] $json = Invoke-NativeText `
+        $executable `
+        $nativeArguments `
+        "filtrace $($Arguments[0])"
     if ($json.Length -eq 0) {
         throw "filtrace $($Arguments[0]) returned empty output."
     }
@@ -120,6 +173,146 @@ function Invoke-FiltraceJson([string[]] $Arguments) {
     }
 }
 
+function Invoke-NativeText(
+    [string] $Executable,
+    [string[]] $Arguments,
+    [string] $Purpose) {
+    [string] $outputPath = Join-Path `
+        ([System.IO.Path]::GetTempPath()) `
+        "filtrace-corpus-output-$([Guid]::NewGuid().ToString('N')).tmp"
+    [string] $errorPath = Join-Path `
+        ([System.IO.Path]::GetTempPath()) `
+        "filtrace-corpus-error-$([Guid]::NewGuid().ToString('N')).tmp"
+    [System.Diagnostics.Process] $process = Start-NativeProcess $Executable $Arguments $true
+    [System.IO.FileStream] $outputStream = [System.IO.File]::Create($outputPath)
+    [System.IO.FileStream] $errorStream = [System.IO.File]::Create($errorPath)
+    [System.Threading.Tasks.Task] $standardOutput = `
+        $process.StandardOutput.BaseStream.CopyToAsync($outputStream)
+    [System.Threading.Tasks.Task] $standardError = `
+        $process.StandardError.BaseStream.CopyToAsync($errorStream)
+    try {
+        Wait-NativeProcess $process $Purpose @($outputPath, $errorPath)
+        [System.Threading.Tasks.Task]::WhenAll(
+            [System.Threading.Tasks.Task[]]@($standardOutput, $standardError)).GetAwaiter().GetResult()
+        $outputStream.Flush()
+        $errorStream.Flush()
+        $outputStream.Dispose()
+        $errorStream.Dispose()
+        if (
+            (Get-Item -LiteralPath $outputPath).Length -gt $maximumCapturedBytes -or
+            (Get-Item -LiteralPath $errorPath).Length -gt $maximumCapturedBytes
+        ) {
+            throw [System.IO.InvalidDataException]::new(
+                "$Purpose output exceeded $maximumCapturedBytes bytes.")
+        }
+
+        [string] $output = [System.IO.File]::ReadAllText($outputPath)
+        [string] $error = [System.IO.File]::ReadAllText($errorPath)
+
+        if ($process.ExitCode -ne 0) {
+            [string] $detail = if ($error.Length -le 1000) { $error } else { $error.Substring(0, 1000) }
+            throw "$Purpose exited with code $($process.ExitCode): $detail"
+        }
+
+        return $output.Trim()
+    }
+    finally {
+        try {
+            [System.Threading.Tasks.Task]::WhenAll(
+                [System.Threading.Tasks.Task[]]@($standardOutput, $standardError)).Wait(
+                    $nativeCleanupTimeoutMilliseconds) | Out-Null
+        }
+        catch { }
+        $outputStream.Dispose()
+        $errorStream.Dispose()
+        $process.Dispose()
+        Remove-Item -LiteralPath $outputPath,$errorPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Start-NativeProcess(
+    [string] $Executable,
+    [string[]] $Arguments,
+    [bool] $CaptureOutput) {
+    [System.Diagnostics.ProcessStartInfo] $start = [System.Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $Executable
+    $start.WorkingDirectory = $root
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $CaptureOutput
+    $start.RedirectStandardError = $CaptureOutput
+    foreach ($argument in $Arguments) {
+        $start.ArgumentList.Add($argument)
+    }
+
+    [System.Diagnostics.Process] $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $start
+    if (-not $process.Start()) {
+        $process.Dispose()
+        throw "Could not start '$Executable'."
+    }
+
+    return $process
+}
+
+function Wait-NativeProcess(
+    [System.Diagnostics.Process] $Process,
+    [string] $Purpose,
+    [string[]] $BoundedOutputPaths = @()) {
+    [int] $timeoutMilliseconds = [int][Math]::Min(
+        [long]$NativeTimeoutSeconds * 1000,
+        [int]::MaxValue)
+    [System.Diagnostics.Stopwatch] $elapsed = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not $Process.WaitForExit(100)) {
+        foreach ($path in $BoundedOutputPaths) {
+            if (
+                (Test-Path -LiteralPath $path) -and
+                (Get-Item -LiteralPath $path).Length -gt $maximumCapturedBytes
+            ) {
+                [string] $cleanup = Stop-NativeProcess $Process
+                throw [System.IO.InvalidDataException]::new(
+                    "$Purpose output exceeded $maximumCapturedBytes bytes.$cleanup")
+            }
+        }
+
+        if ($elapsed.ElapsedMilliseconds -ge $timeoutMilliseconds) {
+            [string] $cleanup = Stop-NativeProcess $Process
+            throw [TimeoutException]::new(
+                "$Purpose did not finish within $NativeTimeoutSeconds seconds.$cleanup")
+        }
+    }
+
+    foreach ($path in $BoundedOutputPaths) {
+        if (
+            (Test-Path -LiteralPath $path) -and
+            (Get-Item -LiteralPath $path).Length -gt $maximumCapturedBytes
+        ) {
+            throw [System.IO.InvalidDataException]::new(
+                "$Purpose output exceeded $maximumCapturedBytes bytes.")
+        }
+    }
+}
+
+function Stop-NativeProcess([System.Diagnostics.Process] $Process) {
+    [string] $cleanup = ''
+    try {
+        $Process.Kill($true)
+    }
+    catch {
+        $cleanup = " Process-tree termination failed: $($_.Exception.Message)"
+    }
+
+    try {
+        if (-not $Process.WaitForExit($nativeCleanupTimeoutMilliseconds)) {
+            $cleanup += " Process did not exit within $nativeCleanupTimeoutMilliseconds ms after termination."
+        }
+    }
+    catch {
+        $cleanup += " Process cleanup wait failed: $($_.Exception.Message)"
+    }
+
+    return $cleanup
+}
+
 function ConvertTo-PortablePath([string] $Path) {
     [string] $relative = [System.IO.Path]::GetRelativePath($root, $Path)
     return $relative.Replace([System.IO.Path]::DirectorySeparatorChar, '/')
@@ -129,6 +322,8 @@ function Invoke-Capture(
     [string] $Name,
     [string] $Mode,
     [int] $DurationMilliseconds,
+    [int] $CaptureDepth,
+    [int] $ActivityRoundLimit,
     [bool] $IncludeActivityProvider,
     [string] $InputsDirectory) {
     [string] $tracePath = Join-Path $InputsDirectory "$Name.nettrace"
@@ -152,10 +347,10 @@ function Invoke-Capture(
     $arguments.Add('--duration-ms')
     $arguments.Add($DurationMilliseconds.ToString([Globalization.CultureInfo]::InvariantCulture))
     $arguments.Add('--depth')
-    $arguments.Add($Depth.ToString([Globalization.CultureInfo]::InvariantCulture))
+    $arguments.Add($CaptureDepth.ToString([Globalization.CultureInfo]::InvariantCulture))
     if ($IncludeActivityProvider) {
         $arguments.Add('--activity-rounds')
-        $arguments.Add($ActivityRounds.ToString([Globalization.CultureInfo]::InvariantCulture))
+        $arguments.Add($ActivityRoundLimit.ToString([Globalization.CultureInfo]::InvariantCulture))
     }
 
     Write-Host "Capturing $Name -> $tracePath" -ForegroundColor Cyan
@@ -183,6 +378,14 @@ function Invoke-Capture(
     return [pscustomobject]@{
         Name = $Name
         Path = $tracePath
+        Mode = $Mode
+        Depth = $CaptureDepth
+        DurationMilliseconds = $DurationMilliseconds
+        ActivityRoundLimit = $ActivityRoundLimit
+        TargetSampleCount = $null
+        ObservedTargetSampleCount = $null
+        ActivityRows = $null
+        OrderCpuRecords = $null
         ManifestArguments = $manifestArguments
     }
 }
@@ -197,10 +400,181 @@ function Get-TraceRecord([object] $Capture, [object] $Info) {
         bytes = $file.Length
         sampleCount = $Info.result.sampleCount
         totalWeight = $Info.result.totalWeight
+        mode = $Capture.Mode
+        depth = $Capture.Depth
+        durationMilliseconds = $Capture.DurationMilliseconds
+        targetSampleCount = $Capture.TargetSampleCount
+        observedTargetSampleCount = $Capture.ObservedTargetSampleCount
+        activityRows = $Capture.ActivityRows
+        orderCpuRecords = $Capture.OrderCpuRecords
         capture = [ordered]@{
             executable = 'dotnet-trace'
             arguments = $Capture.ManifestArguments
         }
+    }
+}
+
+function Assert-BoundedUniqueValues(
+    [int[]] $Values,
+    [string] $Name,
+    [int] $Minimum,
+    [int] $Maximum,
+    [int] $MaximumCount) {
+    if ($Values.Count -eq 0) {
+        throw "$Name must contain at least one value."
+    }
+
+    if (@($Values | Sort-Object -Unique).Count -ne $Values.Count) {
+        throw "$Name must not contain duplicate values."
+    }
+
+    if ($Values.Count -gt $MaximumCount) {
+        throw "$Name contains $($Values.Count) values; the maximum is $MaximumCount."
+    }
+
+    foreach ($value in $Values) {
+        if ($value -lt $Minimum -or $value -gt $Maximum) {
+            throw "$Name value $value must be in [$Minimum, $Maximum]."
+        }
+    }
+}
+
+function Get-CaptureEvidence([object] $Capture) {
+    [object] $info = Invoke-FiltraceJson @('info', $Capture.Path, '--format', 'json')
+    if ([int]$info.result.sampleCount -le 0) {
+        throw "Capture '$($Capture.Name)' contains no normalized samples."
+    }
+
+    [object] $activityRank = $null
+    [object] $activityCpu = $null
+    if ([string]$Capture.Mode -eq 'activity') {
+        if (
+            [string]$info.result.analyses.activity.captureStatus -ne 'enabled' -or
+            [int]$info.result.analyses.activity.eventCount -le 0
+        ) {
+            throw "Activity capture '$($Capture.Name)' does not contain enabled activity events."
+        }
+
+        $activityRank = Invoke-FiltraceJson @(
+            'rank', $Capture.Path, '--metric', 'activity', '--format', 'json')
+        $activityCpu = Invoke-FiltraceJson @(
+            'rank', $Capture.Path, '--metric', 'cpu', '--activity', 'Order', '--format', 'json')
+        $Capture.ActivityRows = @($activityRank.result.rows).Count
+        $Capture.OrderCpuRecords = [int]$activityCpu.result.contributingRecordCount
+        $Capture.ObservedTargetSampleCount = $Capture.OrderCpuRecords
+        if ($Capture.ActivityRows -le 0 -or $Capture.OrderCpuRecords -le 0) {
+            throw "Activity capture '$($Capture.Name)' produced no completed activities or Order-scoped CPU records."
+        }
+    }
+    else {
+        $Capture.ObservedTargetSampleCount = [int]$info.result.sampleCount
+    }
+
+    return [pscustomobject]@{
+        Capture = $Capture
+        Info = $info
+        ActivityRank = $activityRank
+        ActivityCpu = $activityCpu
+    }
+}
+
+function Remove-CaptureArtifacts([string] $TracePath) {
+    foreach ($path in @($TracePath, "$TracePath.etlx")) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+        }
+    }
+}
+
+function Format-SampleTarget([int] $Target) {
+    if ($Target % 1000000 -eq 0) {
+        return "$($Target / 1000000)m"
+    }
+
+    if ($Target % 1000 -eq 0) {
+        return "$($Target / 1000)k"
+    }
+
+    return $Target.ToString([Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Limit-Duration([long] $DurationMilliseconds) {
+    return [int][Math]::Min(600000, [Math]::Max(100, $DurationMilliseconds))
+}
+
+function Invoke-CalibratedCapture(
+    [string] $Name,
+    [string] $Mode,
+    [int] $TargetSampleCount,
+    [int] $CaptureDepth,
+    [bool] $IncludeActivityProvider,
+    [int] $ActivityRoundLimit,
+    [string] $InputsDirectory) {
+    [string] $calibrationKey = "$Mode|$CaptureDepth|$Workers"
+    [double] $samplesPerMillisecond = if ($calibrationRates.ContainsKey($calibrationKey)) {
+        [double]$calibrationRates[$calibrationKey]
+    }
+    elseif ($IncludeActivityProvider) {
+        [Math]::Max(0.1, $Workers * 0.5)
+    }
+    else {
+        [Math]::Max(0.1, $Workers)
+    }
+    [int] $duration = Limit-Duration ([long][Math]::Round(
+        $TargetSampleCount / $samplesPerMillisecond))
+    [double] $tolerance = $CalibrationTolerancePercent / 100.0
+
+    for ([int] $attempt = 1; $attempt -le $CalibrationMaximumAttempts; $attempt++) {
+        if ($duration -gt $ScaleMaximumTotalDurationMilliseconds `
+            - $script:calibrationRequestedDurationMilliseconds) {
+            throw "Scale calibration would exceed the $ScaleMaximumTotalDurationMilliseconds ms aggregate workload budget."
+        }
+
+        $script:calibrationRequestedDurationMilliseconds += $duration
+        Remove-CaptureArtifacts (Join-Path $InputsDirectory "$Name.nettrace")
+        [object] $capture = Invoke-Capture `
+            $Name `
+            $Mode `
+            $duration `
+            $CaptureDepth `
+            $ActivityRoundLimit `
+            $IncludeActivityProvider `
+            $InputsDirectory
+        $capture.TargetSampleCount = $TargetSampleCount
+        [object] $evidence = Get-CaptureEvidence $capture
+        [int] $observed = $capture.ObservedTargetSampleCount
+        if ($observed -gt 0) {
+            $calibrationRates[$calibrationKey] = $observed / [double]$duration
+        }
+
+        [double] $minimum = $TargetSampleCount * (1.0 - $tolerance)
+        [double] $maximum = $TargetSampleCount * (1.0 + $tolerance)
+        Write-Host (
+            "Calibration $Name attempt $attempt`: target=$TargetSampleCount " +
+            "observed=$observed duration=$duration ms") -ForegroundColor Cyan
+        if ($observed -ge $minimum -and $observed -le $maximum) {
+            return $evidence
+        }
+
+        if ($attempt -eq $CalibrationMaximumAttempts) {
+            throw "Capture '$Name' observed $observed records; target $TargetSampleCount +/- $CalibrationTolerancePercent% was not reached."
+        }
+
+        if ($observed -le 0) {
+            $nextDuration = [long]$duration * 2
+        }
+        else {
+            $nextDuration = [long][Math]::Round(
+                $duration * ([double]$TargetSampleCount / $observed))
+        }
+
+        [int] $limited = Limit-Duration $nextDuration
+        if ($limited -eq $duration) {
+            [int] $adjustment = if ($observed -lt $TargetSampleCount) { 100 } else { -100 }
+            $limited = Limit-Duration ($duration + $adjustment)
+        }
+
+        $duration = $limited
     }
 }
 
@@ -256,7 +630,8 @@ function Test-CorpusArchive(
 function Test-CorpusManifest(
     [string] $ManifestPath,
     [string] $ExpectedArchiveHash,
-    [long] $ExpectedArchiveBytes) {
+    [long] $ExpectedArchiveBytes,
+    [string[]] $ExpectedTraceNames) {
     [object] $readBack = try {
         Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
     }
@@ -266,7 +641,7 @@ function Test-CorpusManifest(
 
     if (
         [int]$readBack.schemaVersion -ne 1 -or
-        @($readBack.traces).Count -ne 2 -or
+        @($readBack.traces).Count -ne $ExpectedTraceNames.Count -or
         [string]$readBack.archive.path -cne 'input-corpus.zip' -or
         [string]$readBack.archive.sha256 -cne $ExpectedArchiveHash -or
         [long]$readBack.archive.bytes -ne $ExpectedArchiveBytes
@@ -290,8 +665,14 @@ function Test-CorpusManifest(
     }
 
     [string[]] $traceNames = @($readBack.traces | ForEach-Object { [string]$_.name })
-    if ($traceNames -cnotcontains 'cpu' -or $traceNames -cnotcontains 'activity') {
+    if (@($traceNames | Sort-Object -Unique).Count -ne $ExpectedTraceNames.Count) {
         throw "Corpus manifest contains unexpected trace names: $($traceNames -join ', ')."
+    }
+
+    foreach ($expectedTraceName in $ExpectedTraceNames) {
+        if ($traceNames -cnotcontains $expectedTraceName) {
+            throw "Corpus manifest is missing trace '$expectedTraceName'."
+        }
     }
 
     foreach ($trace in $readBack.traces) {
@@ -305,6 +686,21 @@ function Test-CorpusManifest(
             [string]$trace.capture.executable -cne 'dotnet-trace'
         ) {
             throw "Corpus trace '$($trace.name)' contains incomplete artifact or capture metadata."
+        }
+
+        if (
+            $null -ne $trace.targetSampleCount -and
+            ([int]$trace.targetSampleCount -le 0 -or
+                [int]$trace.observedTargetSampleCount -le 0)
+        ) {
+            throw "Corpus trace '$($trace.name)' contains incomplete calibration metadata."
+        }
+
+        if (
+            [string]$trace.mode -eq 'activity' -and
+            ([int]$trace.activityRows -le 0 -or [int]$trace.orderCpuRecords -le 0)
+        ) {
+            throw "Corpus activity trace '$($trace.name)' contains incomplete activity evidence."
         }
 
         [string[]] $captureArguments = @($trace.capture.arguments)
@@ -386,33 +782,76 @@ if ([string]::IsNullOrEmpty($outputParent) -or [string]::IsNullOrEmpty($outputNa
 try {
     [string] $inputsPath = Join-Path $stagingPath 'inputs'
     [System.IO.Directory]::CreateDirectory($inputsPath) | Out-Null
-    [object] $cpuCapture = Invoke-Capture 'cpu' 'cpu' $CpuDurationMilliseconds $false $inputsPath
-    [object] $activityCapture = Invoke-Capture 'activity' 'activity' $ActivityDurationMilliseconds $true $inputsPath
+    [System.Collections.Generic.List[object]] $evidenceRecords = [System.Collections.Generic.List[object]]::new()
+    [int] $effectiveActivityRounds = if ($Scale) { 10000000 } else { $ActivityRounds }
+    if ($Scale) {
+        Assert-BoundedUniqueValues $CpuSampleTargets 'CpuSampleTargets' 100 10000000 8
+        Assert-BoundedUniqueValues $CpuDepths 'CpuDepths' 1 128 4
+        Assert-BoundedUniqueValues $ActivitySampleTargets 'ActivitySampleTargets' 100 10000000 4
+        [long] $scenarioCount = [long]$CpuSampleTargets.Count * $CpuDepths.Count `
+            + $ActivitySampleTargets.Count
+        [long] $targetRecordCount = `
+            [long](($CpuSampleTargets | Measure-Object -Sum).Sum) * $CpuDepths.Count `
+            + [long](($ActivitySampleTargets | Measure-Object -Sum).Sum)
+        if (
+            $scenarioCount -gt $maximumScaleScenarios -or
+            $targetRecordCount -gt $maximumScaleTargetRecords
+        ) {
+            throw "Scale matrix requests $scenarioCount scenarios and $targetRecordCount target records; limits are $maximumScaleScenarios and $maximumScaleTargetRecords."
+        }
 
-    [object] $cpuInfo = Invoke-FiltraceJson @('info', $cpuCapture.Path, '--format', 'json')
-    [object] $activityInfo = Invoke-FiltraceJson @('info', $activityCapture.Path, '--format', 'json')
-    [object] $activityRank = Invoke-FiltraceJson @('rank', $activityCapture.Path, '--metric', 'activity', '--format', 'json')
-    [object] $activityCpu = Invoke-FiltraceJson @(
-        'rank', $activityCapture.Path, '--metric', 'cpu', '--activity', 'Order', '--format', 'json')
+        foreach ($captureDepth in $CpuDepths) {
+            foreach ($target in $CpuSampleTargets) {
+                [string] $name = "cpu-$(Format-SampleTarget $target)-d$captureDepth"
+                $evidenceRecords.Add((Invoke-CalibratedCapture `
+                    $name `
+                    'cpu' `
+                    $target `
+                    $captureDepth `
+                    $false `
+                    $effectiveActivityRounds `
+                    $inputsPath))
+            }
+        }
 
-    if ([int]$cpuInfo.result.sampleCount -le 0) {
-        throw 'CPU capture contains no normalized samples.'
+        foreach ($target in $ActivitySampleTargets) {
+            [string] $name = "activity-$(Format-SampleTarget $target)-d$ActivityDepth"
+            $evidenceRecords.Add((Invoke-CalibratedCapture `
+                $name `
+                'activity' `
+                $target `
+                $ActivityDepth `
+                $true `
+                $effectiveActivityRounds `
+                $inputsPath))
+        }
+    }
+    else {
+        [object] $cpuCapture = Invoke-Capture `
+            'cpu' `
+            'cpu' `
+            $CpuDurationMilliseconds `
+            $Depth `
+            $effectiveActivityRounds `
+            $false `
+            $inputsPath
+        $evidenceRecords.Add((Get-CaptureEvidence $cpuCapture))
+
+        [object] $activityCapture = Invoke-Capture `
+            'activity' `
+            'activity' `
+            $ActivityDurationMilliseconds `
+            $Depth `
+            $effectiveActivityRounds `
+            $true `
+            $inputsPath
+        $evidenceRecords.Add((Get-CaptureEvidence $activityCapture))
     }
 
-    if (
-        [int]$activityInfo.result.sampleCount -le 0 -or
-        [string]$activityInfo.result.analyses.activity.captureStatus -ne 'enabled' -or
-        [int]$activityInfo.result.analyses.activity.eventCount -le 0
-    ) {
-        throw 'Activity capture does not contain enabled activity events and CPU samples.'
-    }
-
-    if (@($activityRank.result.rows).Count -eq 0) {
-        throw 'Activity capture produced no completed activity ranking rows.'
-    }
-
-    if ([int]$activityCpu.result.contributingRecordCount -le 0) {
-        throw "Activity capture produced no CPU records inside the 'Order' activity."
+    [object[]] $activityEvidence = @(
+        $evidenceRecords | Where-Object { [string]$_.Capture.Mode -eq 'activity' })
+    if ($activityEvidence.Count -eq 0) {
+        throw 'Corpus contains no activity capture evidence.'
     }
 
     [System.IO.FileInfo[]] $etlxFiles = @(
@@ -436,25 +875,45 @@ try {
 
     [System.IO.FileInfo] $archiveFile = Get-Item -LiteralPath $archivePath
     [string] $archiveHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash
+    [System.Collections.Specialized.OrderedDictionary] $workloadRecord = [ordered]@{
+        assembly = ConvertTo-PortablePath $script:workloadDll
+        workers = $Workers
+        scale = $Scale.IsPresent
+        activityRounds = $effectiveActivityRounds
+    }
+    if ($Scale) {
+        $workloadRecord.cpuSampleTargets = $CpuSampleTargets
+        $workloadRecord.cpuDepths = $CpuDepths
+        $workloadRecord.activitySampleTargets = $ActivitySampleTargets
+        $workloadRecord.activityDepth = $ActivityDepth
+        $workloadRecord.calibrationTolerancePercent = $CalibrationTolerancePercent
+        $workloadRecord.calibrationMaximumAttempts = $CalibrationMaximumAttempts
+        $workloadRecord.scaleMaximumTotalDurationMilliseconds = $ScaleMaximumTotalDurationMilliseconds
+        $workloadRecord.requestedCalibrationDurationMilliseconds = `
+            $script:calibrationRequestedDurationMilliseconds
+    }
+    else {
+        $workloadRecord.depth = $Depth
+        $workloadRecord.cpuDurationMilliseconds = $CpuDurationMilliseconds
+        $workloadRecord.activityDurationMilliseconds = $ActivityDurationMilliseconds
+    }
+
+    [object[]] $traceRecords = @(
+        $evidenceRecords | ForEach-Object { Get-TraceRecord $_.Capture $_.Info })
+    [string[]] $traceNames = @(
+        $evidenceRecords | ForEach-Object { [string]$_.Capture.Name })
     [System.Collections.Specialized.OrderedDictionary] $manifest = [ordered]@{
         schemaVersion = 1
         createdUtc = [DateTimeOffset]::UtcNow.ToString('O')
-        workload = [ordered]@{
-            assembly = ConvertTo-PortablePath $script:workloadDll
-            workers = $Workers
-            depth = $Depth
-            cpuDurationMilliseconds = $CpuDurationMilliseconds
-            activityDurationMilliseconds = $ActivityDurationMilliseconds
-            activityRounds = $ActivityRounds
-        }
-        traces = @(
-            Get-TraceRecord $cpuCapture $cpuInfo
-            Get-TraceRecord $activityCapture $activityInfo
-        )
+        workload = $workloadRecord
+        traces = $traceRecords
         evidence = [ordered]@{
-            activityRows = @($activityRank.result.rows).Count
-            activityScopeWeight = $activityRank.result.scopeWeight
-            orderCpuRecords = $activityCpu.result.contributingRecordCount
+            activityRows = [int](
+                $activityEvidence.Capture.ActivityRows | Measure-Object -Sum).Sum
+            activityScopeWeight = [double](
+                $activityEvidence.ActivityRank.result.scopeWeight | Measure-Object -Sum).Sum
+            orderCpuRecords = [int](
+                $activityEvidence.Capture.OrderCpuRecords | Measure-Object -Sum).Sum
         }
         archive = [ordered]@{
             path = [System.IO.Path]::GetFileName($archivePath)
@@ -468,7 +927,7 @@ try {
     [string] $manifestPath = Join-Path $stagingPath 'input-corpus.manifest.json'
     [string] $manifestJson = $manifest | ConvertTo-Json -Depth 10
     [System.IO.File]::WriteAllText($manifestPath, "$manifestJson`n", $utf8)
-    Test-CorpusManifest $manifestPath $archiveHash $archiveFile.Length
+    Test-CorpusManifest $manifestPath $archiveHash $archiveFile.Length $traceNames
 
     if (Test-Path -LiteralPath $outputPath) {
         if (

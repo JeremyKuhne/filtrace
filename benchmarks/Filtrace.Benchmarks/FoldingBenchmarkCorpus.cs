@@ -36,6 +36,12 @@ internal static class FoldingBenchmarkCorpus
         s_scenarios.Select(static scenario => scenario.Name);
 
     public static StackSampleSource Create(string scenarioName)
+        => Create(scenarioName, MetricInfo.Cpu, StackRecordSemantics.PeriodicCpuSamples);
+
+    public static StackSampleSource Create(
+        string scenarioName,
+        MetricInfo metric,
+        StackRecordSemantics recordSemantics)
     {
         FoldingScenario scenario = s_scenarios.Single(
             scenario => string.Equals(scenario.Name, scenarioName, StringComparison.Ordinal));
@@ -88,9 +94,9 @@ internal static class FoldingBenchmarkCorpus
         }
 
         return new StackSampleSource(
-            MetricInfo.Cpu,
+            metric,
             samples,
-            StackRecordSemantics.PeriodicCpuSamples);
+            recordSemantics);
     }
 
     private readonly record struct FoldingScenario(

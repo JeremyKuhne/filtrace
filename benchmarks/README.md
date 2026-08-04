@@ -1,9 +1,10 @@
 # Filtrace benchmarks
 
-`Filtrace.Benchmarks` is the BenchmarkDotNet harness for product performance. It
-uses synthetic in-memory inputs so trace conversion and file I/O do not hide the
-analysis code being measured. Binary fixture generation remains under `fixtures/`.
-The phased microbenchmark and filtrace-self-profiling program is in
+`Filtrace.Benchmarks` is the BenchmarkDotNet harness for product performance. Pure
+analysis benchmarks use synthetic in-memory inputs; trace-read and CLI benchmarks
+use prepared committed fixtures so their cache state is explicit. Binary fixture
+generation remains under `fixtures/`. The phased microbenchmark and
+filtrace-self-profiling program is in
 [the Track D plan](../docs/parallelism-opportunities.md).
 
 Run all benchmarks in Release:
@@ -21,6 +22,38 @@ dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*Fol
 Every benchmark class uses `[MemoryDiagnoser]`, performs setup outside the measured
 method, and returns a value derived from the work. Generated
 `BenchmarkDotNet.Artifacts/` output is ignored by Git.
+
+Run the Phase 0 trace-read, symbol-scan, and process-launch smokes:
+
+```pwsh
+dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*ActivityReadBenchmarks*' --job dry
+dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*EmbeddedPdbBenchmarks*' --job dry
+dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*FoldingAggregatorMetricBenchmarks*' --job dry
+dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*Cli*Benchmarks*' --job dry
+```
+
+The CLI benchmark `Allocated` column belongs to the BenchmarkDotNet host and process
+wrapper, not the child filtrace process. Capture three telemetry launches while
+iterating (the default is 25) with:
+
+```pwsh
+$telemetry = 'artifacts/perf-smoke'
+New-Item -ItemType Directory -Force $telemetry | Out-Null
+Copy-Item tests/Filtrace.Core.Tests/Fixtures/activity.nettrace "$telemetry/activity.nettrace"
+dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- `
+  --cli-telemetry `
+  --scenario info-warm `
+  --trace "$telemetry/activity.nettrace" `
+  --output "$telemetry/cli-process.json" `
+  --iterations 3
+```
+
+Telemetry accepts the implemented single-trace and manifest scenario names,
+including `batch-8`, `info-cold`, and `diff-cold-8`. Warm launches reuse one
+prepared input tree; every cold launch records its own exact temporary paths. Cold
+paths are provenance and no longer exist after each launch is validated and cleaned.
+The shared runner caps each captured child stream at 10,485,760 characters; larger
+output fails the run instead of exhausting the benchmark host.
 
 To profile a benchmark with filtrace:
 
@@ -42,3 +75,26 @@ verification:
 ```pwsh
 ./benchmarks/Capture-TrackDCorpus.ps1 -Workers 8 -CpuDurationMilliseconds 15000 -ActivityDurationMilliseconds 15000 -Depth 20
 ```
+
+Capture the adaptive retained matrix (CPU 10k/100k/1m at depths 5/20 and
+activity-scoped CPU 10k/100k at depth 20):
+
+```pwsh
+./benchmarks/Capture-TrackDCorpus.ps1 -Scale -Workers 8
+```
+
+Run a dry no-op reconstruction while iterating on the harness:
+
+```pwsh
+./benchmarks/Invoke-TrackDInvestigation.ps1 `
+  -InputCorpusDirectory artifacts/perf-inputs/<corpus-id> `
+  -BaselineCheckout . `
+  -CandidateCheckout . `
+  -AllowDirtyCheckouts `
+  -NoBuild
+```
+
+Retained runs omit the explicit checkouts and dirty override, use exact commit
+arguments, the default BenchmarkDotNet job, and 25 telemetry launches. A completed
+run carries `run-status.json` with `status: completed`; failed partial runs remain
+available with `failure.txt` and `status: failed`.
