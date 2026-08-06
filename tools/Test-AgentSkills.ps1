@@ -8,7 +8,7 @@
   Validate filtrace's local and vendored agent skills.
 
 .DESCRIPTION
-    Runs the v0.13.0 bundled validator over every skill, applies strict portfolio
+    Runs the v0.14.0 bundled validator over every skill, applies strict portfolio
     policy to the provenance-bearing commons cores and locally authored portable
     cores, checks their pins and overlays, validates the local tool-shipped filtrace
     metadata, and resolves every relative Markdown link under .agents.
@@ -21,7 +21,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$ExpectedPin = 'v0.13.0',
+    [string]$ExpectedPin = 'v0.14.0',
     [switch]$VerifyUpstream,
     [switch]$ReferenceValidation
 )

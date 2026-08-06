@@ -6,8 +6,8 @@ metadata:
     applicability: git-github
     binding: optional-overlay
     github-path: skills/address-pr-feedback
-    github-pinned: v0.13.0
-    github-ref: refs/tags/v0.13.0
+    github-pinned: v0.14.0
+    github-ref: refs/tags/v0.14.0
     github-repo: https://github.com/JeremyKuhne/agent-skills
     github-tree-sha: 7db8903886f6ce4509f97eae6f72fca6c883abe0
     maturity: canary

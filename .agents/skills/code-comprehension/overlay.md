@@ -1,6 +1,6 @@
 ---
 core: code-comprehension
-core-pin: v0.13.0
+core-pin: v0.14.0
 ---
 
 # Code comprehension overlay

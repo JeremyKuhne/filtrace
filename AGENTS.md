@@ -47,7 +47,7 @@ CI also runs seven contract and evaluation checks that must stay green:
 - `eval/Invoke-Eval.ps1 -Configuration Release` - canonical trace tasks keep
   their answers, call counts, and output budgets.
 - `tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation` - commons
-  cores match the v0.13.0 artifacts, and their overlays, metadata, readability,
+  cores match the v0.14.0 artifacts, and their overlays, metadata, readability,
   and links are valid.
 
 ## Frozen contracts - do not rename
