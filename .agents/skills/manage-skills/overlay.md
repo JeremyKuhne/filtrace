@@ -1,6 +1,6 @@
 ---
 core: manage-skills
-core-pin: v0.13.0
+core-pin: v0.14.0
 ---
 
 # Manage skills overlay
@@ -11,8 +11,7 @@ Repository-specific bindings for filtrace.
 
 - Provenance-bearing portable cores under `.agents/skills/` come from
   `JeremyKuhne/agent-skills` and must remain identical to their pinned upstream
-  artifact unless explicitly listed as a pending-upstream divergence below. Put
-  filtrace-specific paths and policy in `overlay.md`.
+  artifact. Put filtrace-specific paths and policy in `overlay.md`.
 - The [filtrace skill](../filtrace/SKILL.md) is different: it is a repo-specific,
   tool-shipped core whose canonical source is this repository. Edit the marked
   blocks in [docs/workflow.md](../../../docs/workflow.md) or

@@ -1,6 +1,6 @@
 ---
 core: fuzz-testing
-core-pin: v0.13.0
+core-pin: v0.14.0
 ---
 
 # Fuzz testing overlay

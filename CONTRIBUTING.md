@@ -47,7 +47,7 @@ The capture helper check verifies run-artifact isolation, overlap rejection, and
 manifest completeness.
 The deterministic eval runs the canonical trace-analysis tasks and enforces answer,
 call-count, and output-token baselines without invoking an LLM.
-The agent-skill check validates the v0.13.0 commons pins and overlays, compares
+The agent-skill check validates the v0.14.0 commons pins and overlays, compares
 vendored cores with fresh upstream installs, runs the reference validator, and
 checks readability and repository-relative links.
 
