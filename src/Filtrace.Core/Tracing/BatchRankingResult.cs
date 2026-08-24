@@ -51,4 +51,7 @@ public sealed record BatchRankingCaseResult(
 
     /// <summary>Top-frame weight per operation, or <see langword="null"/>.</summary>
     public double? TopWeightPerOperation { get; init; }
+
+    /// <summary>Pre-root and retained coverage, or <see langword="null"/> without a root.</summary>
+    public RootScopeCoverage? RootCoverage { get; init; }
 }

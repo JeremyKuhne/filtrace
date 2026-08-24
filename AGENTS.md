@@ -30,7 +30,7 @@ Layout:
 - `dotnet test filtrace.slnx -c Release`
 - `dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter *FoldingAggregatorBenchmarks*`
 
-CI also runs seven contract and evaluation checks that must stay green:
+CI also runs nine contract and evaluation checks that must stay green:
 
 - `tools/Test-CliHelp.ps1 -Configuration Release` - every verb appears in the
   top-level help, each verb's `--help` stays within the line budget, and the
@@ -42,6 +42,11 @@ CI also runs seven contract and evaluation checks that must stay green:
   packaged filtrace skill stay synchronized.
 - `tools/Test-CaptureBenchmarkTrace.ps1` - run artifacts stay isolated, overlap
   is rejected, every case enters the manifest, and exact child symbols are used.
+- `tools/Test-CaptureProjectTrace.ps1` - EventPipe recorder profiles are
+  negotiated before build/launch and the effective recorder contract is retained.
+- `tools/Test-FiltraceAnalysis.ps1 -Configuration Release` - decisive read-only
+  queries retain exact arguments, input/output hashes, quality rejections, and
+  replay refuses changed trace bytes before running.
 - `tools/Test-TrackDInvestigation.ps1` - the Track D A/B wrapper reconstructs a
   neutral fake no-op, retains failed-run diagnostics, and gates its test adapter.
 - `eval/Invoke-Eval.ps1 -Configuration Release` - canonical trace tasks keep

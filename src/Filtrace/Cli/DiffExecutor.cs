@@ -81,7 +81,15 @@ internal static class DiffExecutor
         RankingResult beforeRanking = Rank(before, request.Measure, request.Root, request.Fold);
         RankingResult afterRanking = Rank(after, request.Measure, request.Root, request.Fold);
         RankingDiffResult fullDiff = RankingDiff.Diff(beforeRanking, afterRanking, request.Top);
-        RankingDiffResult diff = RankingDiff.LimitRows(fullDiff, out string? budgetWarning);
+        RankingDiffResult diff = RankingDiff.LimitRows(fullDiff, out string? budgetWarning) with
+        {
+            BeforeRootCoverage = string.IsNullOrEmpty(request.Root)
+                ? null
+                : before.Aggregator.GetRootScopeCoverage(request.Root),
+            AfterRootCoverage = string.IsNullOrEmpty(request.Root)
+                ? null
+                : after.Aggregator.GetRootScopeCoverage(request.Root)
+        };
         List<string> warnings = [.. Warnings(before, after, beforeRanking, afterRanking)];
         if (budgetWarning is not null)
         {
@@ -112,7 +120,7 @@ internal static class DiffExecutor
             SymbolGate.IsBelowThreshold(before.Info.SymbolResolutionRate, before.Info.SampleCount)
             || SymbolGate.IsBelowThreshold(after.Info.SymbolResolutionRate, after.Info.SampleCount);
 
-        return request.Strict && belowThreshold ? ExitCodes.StrictGate : ExitCodes.Success;
+        return request.Strict && belowThreshold ? ExitCodes.QualityGate : ExitCodes.Success;
     }
 
     private static int RunManifest(DiffRequest request, TextWriter output, TextWriter error)
@@ -165,7 +173,7 @@ internal static class DiffExecutor
                     output);
             }
 
-            return request.Strict && belowThreshold ? ExitCodes.StrictGate : ExitCodes.Success;
+            return request.Strict && belowThreshold ? ExitCodes.QualityGate : ExitCodes.Success;
         }
         catch (Exception exception) when (
             exception is IOException

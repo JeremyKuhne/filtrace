@@ -54,7 +54,10 @@ public sealed record AnalysisContext(string Operation)
                 root,
                 trace.Info.AppliedProcessScope,
                 trace.Info.AppliedActivityName,
-                trace.Info.AppliedTimeWindow)
+                trace.Info.AppliedTimeWindow,
+                string.IsNullOrEmpty(root)
+                    ? null
+                    : trace.Aggregator.GetRootScopeCoverage(root))
         };
     }
 
@@ -78,7 +81,7 @@ public sealed record AnalysisContext(string Operation)
             Metric = MetricSelector(metric),
             Measure = measure,
             Unit = metric.Unit,
-            Scope = AnalysisScopeContext.Create(root, null, null, null)
+            Scope = AnalysisScopeContext.Create(root, null, null, null, null)
         };
     }
 
@@ -98,12 +101,23 @@ public sealed record AnalysisContext(string Operation)
 /// <summary>The effective frame, process, activity, and time scope of one query.</summary>
 public sealed record AnalysisScopeContext
 {
+    /// <summary>The serialized root-filter semantic.</summary>
+    public const string StackAncestryRootKind = "stackAncestry";
+
     /// <summary>The maximum ids serialized for each process-id category.</summary>
     public const int MaxReportedProcessIds = 32;
 
     /// <summary>The root-frame selector, or <see langword="null"/> when none.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Root { get; init; }
+
+    /// <summary>The root-filter semantic, or <see langword="null"/> when no root was applied.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RootKind { get; init; }
+
+    /// <summary>Pre-root and retained coverage, or <see langword="null"/> when unavailable.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public RootScopeCoverage? RootCoverage { get; init; }
 
     /// <summary>The process selector mode: all, automatic, name, or ids.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -161,7 +175,8 @@ public sealed record AnalysisScopeContext
         string root,
         AppliedProcessScope? processScope,
         string? activityName,
-        TimeWindow? window)
+        TimeWindow? window,
+        RootScopeCoverage? rootCoverage)
     {
         bool hasRoot = !string.IsNullOrEmpty(root);
         bool hasProcessSelector = processScope is { Mode: not "all" };
@@ -177,6 +192,8 @@ public sealed record AnalysisScopeContext
         return new AnalysisScopeContext
         {
             Root = hasRoot ? root : null,
+            RootKind = hasRoot ? StackAncestryRootKind : null,
+            RootCoverage = hasRoot ? rootCoverage : null,
             ProcessMode = hasProcessSelector ? processScope?.Mode : null,
             Process = processScope?.Process,
             RequestedProcessIds = hasRequestedIds ? Bounded(processScope!.RequestedProcessIds) : null,

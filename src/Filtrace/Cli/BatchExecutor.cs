@@ -59,7 +59,7 @@ internal static class BatchExecutor
                 BatchTextRenderer.Render(envelope, output);
             }
 
-            return request.Strict && belowThreshold ? ExitCodes.StrictGate : ExitCodes.Success;
+            return request.Strict && belowThreshold ? ExitCodes.QualityGate : ExitCodes.Success;
         }
         catch (Exception exception) when (
             exception is IOException

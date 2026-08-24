@@ -160,6 +160,53 @@ public sealed class FoldingAggregatorTests
     }
 
     [TestMethod]
+    public void RootCoverage_ParallelSiblingWithoutAncestor_IsExcluded()
+    {
+        StackSampleSource source = new(
+            MetricInfo.Cpu,
+            [
+                new SampleStack(["Process", "SelectedRoot", "Worker.One"], 4.0, "worker-1"),
+                new SampleStack(["Process", "Worker.Sibling"], 6.0, "worker-2")
+            ],
+            StackRecordSemantics.PeriodicCpuSamples);
+        FoldingAggregator aggregator = new(source);
+
+        RootScopeCoverage coverage = aggregator.GetRootScopeCoverage("SelectedRoot");
+
+        coverage.AvailableWeight.Should().Be(10.0);
+        coverage.RetainedWeight.Should().Be(4.0);
+        coverage.RetainedPercent.Should().Be(40.0);
+        coverage.AvailableRecordCount.Should().Be(2);
+        coverage.RetainedRecordCount.Should().Be(1);
+    }
+
+    [TestMethod]
+    public void RootCoverage_EmptyStack_RemainsOnlyInPreRootDenominator()
+    {
+        FoldingAggregator aggregator = Engine(
+        [
+            new SampleStack([], 6.0),
+            new SampleStack(["SelectedRoot", "Worker"], 4.0)
+        ]);
+
+        RootScopeCoverage coverage = aggregator.GetRootScopeCoverage("SelectedRoot");
+
+        coverage.AvailableWeight.Should().Be(10.0);
+        coverage.RetainedWeight.Should().Be(4.0);
+        coverage.RetainedPercent.Should().Be(40.0);
+    }
+
+    [TestMethod]
+    public void RootCoverage_EmptySelector_ThrowsArgumentException()
+    {
+        FoldingAggregator aggregator = Engine([]);
+
+        Action action = () => aggregator.GetRootScopeCoverage(string.Empty);
+
+        action.Should().Throw<ArgumentException>().WithParameterName("rootFrame");
+    }
+
+    [TestMethod]
     public void SelfTime_FoldsHelperLeavesIntoNearestRealLeaf()
     {
         RankingResult result = LoadFolding().Aggregator.SelfTime("", FrameNames.DefaultFoldPatterns, 25);

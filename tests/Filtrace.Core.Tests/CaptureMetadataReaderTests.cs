@@ -15,7 +15,7 @@ public sealed class CaptureMetadataReaderTests
         {
             File.WriteAllText(
                 CaptureMetadataReader.PathFor(trace),
-                """{"schemaVersion":1,"analyses":{"cpu":"enabled","alloc":"disabled","future":"enabled"}}""");
+                """{"schemaVersion":1,"analyses":{"cpu":"enabled","alloc":"disabled","future":"enabled"},"recorder":{"name":"dotnet-trace","version":"9.0.661903","profiles":["dotnet-common","dotnet-sampled-thread-time"]}}""");
             List<string> warnings = [];
 
             IReadOnlyDictionary<string, CaptureStatus>? result =

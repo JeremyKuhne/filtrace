@@ -109,6 +109,54 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_InfoQualityPolicy_AcceptsObservedCpu()
+    {
+        (int exit, string output, _) = Run(
+            "info",
+            Speedscope,
+            "--strict",
+            "--require-enabled",
+            "cpu",
+            "--require-events",
+            "cpu",
+            "--format",
+            "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().NotContain("required_analysis_");
+    }
+
+    [TestMethod]
+    public void Run_InfoQualityPolicy_UnsupportedAnalysis_RendersThenExitsThree()
+    {
+        (int exit, string output, _) = Run(
+            "info",
+            Speedscope,
+            "--require-enabled",
+            "alloc",
+            "--format",
+            "json");
+
+        exit.Should().Be(ExitCodes.QualityGate);
+        output.Should().Contain("\"code\":\"required_analysis_unsupported\"");
+        output.Should().Contain("\"result\"");
+    }
+
+    [TestMethod]
+    public void Run_InfoQualityPolicy_UnknownAnalysis_IsUsageErrorBeforeLoad()
+    {
+        (int exit, string output, string error) = Run(
+            "info",
+            "does-not-exist.nettrace",
+            "--require-events",
+            "future");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("--require-events").And.Contain("future");
+    }
+
+    [TestMethod]
     public void Run_Info_MissingTrace_ReturnsInputError()
     {
         (int exit, _, string error) = Run("info", "does-not-exist.nettrace");

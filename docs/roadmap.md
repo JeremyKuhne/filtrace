@@ -45,9 +45,9 @@ true.
 
 | When | Items | Why now |
 |---|---|---|
-| Done | VN0-VN3, SC8 | The output contract and MCP surface are selected, and manifest cases replay their recorded process ids exactly. |
-| Now | VN4 | Select the CLI surface before adding the next capability. |
-| Then | VC1 | Add the first capability through the selected surfaces. |
+| Done | VN0-VN3, SC8, SC13 | The output contract and MCP surface are selected; capture acceptance, ancestry coverage, and decisive-query replay are implemented. |
+| Now | VN4 | Select the CLI surface before adding another verb. |
+| Then | VC1 | Add the first new analysis capability through the selected surfaces. |
 | Later | VC2-VC8, SC9-SC12, LP-1..LP-5, VN5 | Demand-, dependency-, or decision-gated. |
 | Upstream | TE-P1..TE-P5 | Not actionable in this repository alone. |
 
@@ -268,9 +268,10 @@ a lever - the client re-materializes structured content and already spills an
 oversized result to a file - so the only way to reduce what an investigation costs is
 to send fewer rows and to make a result route its own follow-up. That is this item.
 
-The envelope is at `schemaVersion` 14. Effective context is v9; structured
+The envelope is at `schemaVersion` 15. Effective context is v9; structured
 diagnostics is v10; structured next steps is v11; discriminated results is v12;
-null/default omission is v13; manifest case references is v14. Each remaining slice
+null/default omission is v13; manifest case references is v14; root-scope ancestry
+and coverage is v15. Each remaining slice
 below changes the serialized shape and therefore gets its own schema version when it
 ships; do not mutate an earlier version in place.
 
@@ -774,7 +775,7 @@ process-tree and optional time-window selection.
 
 The remaining gaps from the short-command capture initiative
 ([issue #62](https://github.com/JeremyKuhne/filtrace/issues/62)). Its seven original
-items shipped; SC8 completed the immediate exact-scope follow-up, while SC9-SC12
+items shipped; SC8 completed the immediate exact-scope follow-up, while SC9-SC13
 track the residual portability, composition, reproducibility, and observer-effect
 work without holding the original initiative open.
 
@@ -875,6 +876,174 @@ changes the target materially.
   to flag a large observer-effect ratio without claiming a universal threshold.
 - Keep the existing elevated keyword-presence tests and add an end-to-end lifetime
   experiment; keyword absence alone does not prove low perturbation.
+
+### SC13 - accepted-trace and analysis-record workflow
+
+**Status:** Complete. No CLI verb or MCP tool was added. The four phases share
+fixture-backed contracts: incompatible recorder profiles fail before project build,
+`info` can reject unusable evidence while retaining its envelope, root-aware results
+identify stack-ancestry coverage, and a bundled script records and replays decisive
+read-only queries against hashed input bytes.
+
+This proposal comes from the Orchard Core evaluation-globbing investigation, which
+used filtrace at commit `0d121156fd9eb66506c81601ed458716587542ca`. The supplied
+post-mortem separates its observed session record from recommendations; the product
+assessment below applies the same distinction. Claims about what the investigation
+ran remain claims of that record. Claims about the current product were checked
+against this repository on 2026-08-23.
+
+#### What the assertions establish
+
+| Post-mortem assertion | Baseline evidence at `0d12115` | Implemented disposition |
+|---|---|---|
+| `info` should enforce a machine-checkable quality policy | `info` reported the 0.8 frame-name threshold, capture status, and event counts, but always exited 0 after a successful load. | `--strict`, `--require-enabled`, and `--require-events` retain distinct diagnostics and return quality-gate exit 3 after rendering the full result. |
+| Root scoping may omit parallel sibling work | [RootScope](../src/Filtrace.Core/Tracing/RootScope.cs) and [FoldingAggregator](../src/Filtrace.Core/Tracing/FoldingAggregator.cs) kept only samples whose stack contained the selected frame. | Schema v15 identifies `stackAncestry` and reports exact pre-root/retained coverage without calling omitted stacks causal. |
+| The accepted analysis should be replayable | Capture manifests retained generated suggestions and capture identity, but not the commands actually run, outputs, exits, or trace hashes. | `Invoke-FiltraceAnalysis.ps1` writes a separate bounded analysis record with exact argv and input/output hashes; replay checks plan and trace bytes first. |
+| Recorder/profile compatibility should fail before a long workload | [Capture-ProjectTrace.ps1](../.agents/skills/filtrace/scripts/Capture-ProjectTrace.ps1) hard-coded `cpu-sampling`, which `dotnet-trace` 9.0.661903 rejects for `collect`. | The helper preflights advertised profiles before build/launch, selects the proven current pair or an advertised legacy mapping, and records the effective recorder contract. |
+| Activity/time boundaries, ETW wall clock, and matched comparison are needed | Activity and time scopes, ETW `threadtime`, capture manifests, manifest pairing, and `diff` already exist. The Orchard evidence did not retain or use all of them. | Improve routing and preservation; do not propose duplicate analysis capabilities. |
+
+The post-mortem also reports a failed `dotnet-trace` profile name, a nested process
+that inherited startup diagnostics, and missing retained ETW/source-line evidence.
+Only the profile failure is currently actionable as a filtrace defect. A preflight
+can validate recorder syntax and known profiles; it cannot prove that an arbitrary
+application EventSource will emit events, nor can filtrace repair a workload's child
+process environment before that workload is described to the helper.
+
+#### Phase 0 - recorder compatibility before launch - complete
+
+Recorder selection is capability-based and runs before the project build or
+benchmark workload starts:
+
+1. Resolve `dotnet-trace`, record its version, and query `list-profiles` once. Select
+   only a profile set whose exact names are advertised for `collect`.
+2. Prefer the repository-proven `dotnet-common,dotnet-sampled-thread-time` pair for
+   CPU capture. Permit a legacy mapping only when that installed recorder advertises
+   it; do not guess a profile from version numbers.
+3. Keep `gc-verbose` for allocation only when advertised. If no known semantic
+   mapping exists, fail with the discovered recorder version and available profiles
+   before launching the target.
+4. Record the effective profile names, explicit providers, and recorder version in
+  the capture sidecar or manifest. The separate analysis record pins the Filtrace
+  version that interpreted those bytes. Recorder defaults must not be reconstructed
+  later from whichever version happens to be installed.
+5. Synchronize the EventPipe recipes in [workflow.md](workflow.md), the shipped
+   skill, fixture scripts, and product comments from the same tested mapping.
+
+`Capture-BenchmarkTrace.ps1` uses BenchmarkDotNet's profiler rather than
+`dotnet-trace` profile aliases, so this preflight must not be applied to it by name
+alone. Its existing Filtrace version/schema probe remains useful and separate.
+
+**Acceptance:** a fake-recorder contract covers a current profile set, a supported
+legacy set, missing `list-profiles`, and no compatible CPU profile. Every rejected
+case proves that the target command was never launched. One real smoke test records
+a short CPU trace with the selected current profile and requires `info` to report
+CPU enabled with at least one record.
+
+#### Phase 1 - explicit trace acceptance - complete
+
+Extend `info` rather than teaching each capture script to parse an evolving JSON
+shape. Implemented CLI surface:
+
+```pwsh
+filtrace info app.nettrace --strict --require-enabled cpu --require-events cpu --format json
+```
+
+- `--strict` keeps its existing meaning: exit 3 when frame-name resolution is below
+  `SymbolGate.MinimumResolutionRate` and the trace has CPU samples.
+- `--require-enabled <names>` requires each comma-separated analysis to be
+  format-supported with `captureStatus: enabled`; enabled with zero events passes.
+- `--require-events <names>` additionally requires a known positive `eventCount`;
+  disabled, unknown, unsupported, and enabled-zero each fail with distinct stable
+  diagnostics. It implies `--require-enabled` for those names.
+- Unknown analysis names are usage errors. A policy failure still renders the full
+  normal `info` result, then returns exit 3. Rename the internal exit-code meaning
+  from a symbol-only strict gate to a quality gate without changing its numeric
+  value.
+
+This remains opt-in. The aggregate frame-name rate includes unresolved native ETW
+frames, so an unconditional 0.8 rejection would discard usable managed evidence.
+Capture helpers may apply a profile-specific policy after recording, but must write
+the rejected artifact and its reasons rather than deleting it. In particular,
+enabled-zero remains valid when the policy asks only whether a provider was enabled.
+
+**Acceptance:** CLI tests pin success, usage error, and exit 3 independently; an
+enabled-zero fixture passes `--require-enabled` and fails `--require-events`; unknown
+and disabled states retain their distinct diagnostic codes; and JSON output is still
+the same bounded `info` envelope when no policy options are supplied.
+
+#### Phase 2 - quantify ancestry-only root scope - complete
+
+Make the effective scope say `rootKind: stackAncestry` whenever `--root` or
+`--benchmark` is applied. Report coverage against the already-applied process,
+activity, and time scope, before the root filter:
+
+- available and retained metric weight;
+- available and retained record count when the source has meaningful records;
+- retained percentage, with zero handled explicitly.
+
+Attach an informational `root_scope_ancestry` diagnostic and a reason-only next step:
+the root retained stacks containing the frame and may omit sibling workers; use an
+instrumented activity or a validated time window to cover a parallel phase, and use
+ETW `threadtime` when elapsed time remains unexplained. This is scope semantics, not
+a warning that the result is wrong. Filtrace must not infer that omitted samples are
+causally related to the selected root.
+
+Build the coverage calculation once in Core and reuse it across root-aware results;
+do not let ranking, callers, tree, classify, diff, batch, and export define different
+denominators. The output-contract change gets the next schema version and remains
+absent when no root is applied.
+
+**Acceptance:** a synthetic parallel source has one worker stack below the selected
+root and one simultaneous sibling stack without it. The result retains only the
+first, reports the exact pre-root/post-root counts and weights, and names ancestry
+semantics. A mutation that counts the sibling as rooted must fail. Text and JSON
+must not say that the sibling is part of the operation.
+
+#### Phase 3 - retain decisive analyses as an analysis record - complete
+
+A bundled `Invoke-FiltraceAnalysis.ps1` script proves the script-first contract. Its
+input is a versioned plan containing structured argument arrays, not shell command
+strings. Its output directory contains:
+
+- the unchanged plan;
+- an inventory of each input path, byte length, SHA-256, capture-manifest/case
+  identity when present, and verified symbols directory;
+- Filtrace version and an allowlisted runtime/OS fingerprint, never the full
+  environment;
+- one bounded JSON stdout file and stderr file per query;
+- a record of the exact argument array, start/end time, exit code, and output hashes
+  for each query.
+
+Version 1 accepts read-only, JSON-producing analyses only and validates every query
+before running any of them. It does not capture an interactive shell transcript,
+copy large traces, run `collect`/cache mutation/export, or invent a canonical query
+set. The analyst retains the small decisive set - for example accepted `info`, scoped
+CPU, the caller query that established attribution, and scoped allocation - rather
+than all exploratory dead ends. Replay verifies every input hash before execution
+and writes a new result directory; it preserves both runs but makes no automatic
+equivalence claim across Filtrace schema versions.
+
+Keep this separate from `manifest.json`: a capture manifest says what was recorded
+and is input to multiple investigations, while an analysis record says what questions
+one investigation asked. Existing generated `commands` remain suggestions, not
+evidence that those commands ran.
+
+**Acceptance:** a fixture-backed plan runs `info`, a root-scoped CPU ranking,
+`callers`, and allocation analysis; paths with spaces remain single arguments; a
+quality-gate exit is retained as a rejected result; trace-byte mutation prevents
+replay before any query runs; and a second run records its own Filtrace version and
+outputs without overwriting the first. Promote this to a CLI operation only after at
+least two real investigations use the script and show that a verb would remove
+material orchestration or quoting risk. Do not add an MCP tool: recording files is an
+explicit local side effect.
+
+#### Exit
+
+The accepted trace can be distinguished from a merely readable trace, every root
+result states the boundary it actually applied, and the portable handoff contains
+enough identity and exact query evidence to rerun the conclusions. This does not
+retroactively make the Orchard captures manifest-backed, recover missing ETW or
+source data, or turn a serial diagnostic control into production-throughput evidence.
 
 ### Output-budget coverage for row-capped producers - complete
 

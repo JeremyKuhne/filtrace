@@ -28,6 +28,12 @@ namespace Filtrace.Output;
 /// <typeparam name="T">The payload type the service produces.</typeparam>
 public sealed class AnalysisResult<T>
 {
+    private const string RootScopeDiagnosticMessage =
+        "Root scope uses stack ancestry; stacks without the selected frame are excluded, including sibling worker stacks.";
+
+    private const string RootScopeHint =
+        "root scope follows stack ancestry and may omit sibling workers; use an instrumented activity or a validated time window for a parallel phase, and ETW threadtime when elapsed time remains unexplained";
+
     /// <summary>
     ///  The current output-contract schema version. Bumped when the serialized
     ///  shape changes in a way a consumer must notice.
@@ -85,8 +91,12 @@ public sealed class AnalysisResult<T>
     ///   Version 14 added manifest case identifiers and actionable case-addressed rank
     ///   next steps that preserve the batch query's scope and overrides.
     ///  </para>
+    ///  <para>
+    ///   Version 15 added root-scope ancestry semantics and pre-root/post-root
+    ///   coverage to effective query context.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 14;
+    public const int CurrentSchemaVersion = 15;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.
@@ -124,13 +134,29 @@ public sealed class AnalysisResult<T>
     {
         Result = result;
         Warnings = warnings is null ? [] : [.. warnings];
-        Diagnostics = [.. Warnings.Select(AnalysisDiagnostic.FromWarning)];
-        Hints = hints is null ? [] : [.. hints];
-        NextSteps = nextSteps is not null
+        List<AnalysisDiagnostic> diagnostics = [.. Warnings.Select(AnalysisDiagnostic.FromWarning)];
+        List<string> resolvedHints = hints is null ? [] : [.. hints];
+        List<AnalysisNextStep> resolvedNextSteps = nextSteps is not null
             ? [.. nextSteps]
             : hints is SteeringHintSet steering
                 ? [.. steering.NextSteps]
-                : [.. Hints.Select(static hint => new AnalysisNextStep(hint))];
+                : [.. resolvedHints.Select(static hint => new AnalysisNextStep(hint))];
+        if (context?.Scope?.RootKind == AnalysisScopeContext.StackAncestryRootKind)
+        {
+            diagnostics.Add(new AnalysisDiagnostic(
+                AnalysisDiagnosticCodes.RootScopeAncestry,
+                "info",
+                RootScopeDiagnosticMessage));
+            if (!resolvedHints.Contains(RootScopeHint, StringComparer.Ordinal))
+            {
+                resolvedHints.Add(RootScopeHint);
+                resolvedNextSteps.Add(new AnalysisNextStep(RootScopeHint));
+            }
+        }
+
+        Diagnostics = diagnostics;
+        Hints = resolvedHints;
+        NextSteps = resolvedNextSteps;
         Context = context;
     }
 

@@ -80,7 +80,16 @@ public static class CaptureManifestDiffAnalyzer
                     pair.After,
                     caseWarnings);
 
-                cases.Add(ToCaseResult(pair, diff, caseWarnings));
+                cases.Add(ToCaseResult(
+                    pair,
+                    diff,
+                    caseWarnings,
+                    string.IsNullOrEmpty(root)
+                        ? null
+                        : beforeTrace.Aggregator.GetRootScopeCoverage(root),
+                    string.IsNullOrEmpty(root)
+                        ? null
+                        : afterTrace.Aggregator.GetRootScopeCoverage(root)));
             }
             catch (Exception exception) when (IsCaseFailure(exception))
             {
@@ -183,7 +192,9 @@ public static class CaptureManifestDiffAnalyzer
     private static RankingDiffCaseResult ToCaseResult(
         CaptureManifestCasePair pair,
         RankingDiffResult diff,
-        IReadOnlyList<string> warnings) =>
+        IReadOnlyList<string> warnings,
+        RootScopeCoverage? beforeRootCoverage,
+        RootScopeCoverage? afterRootCoverage) =>
         new(
             pair.Before.Benchmark!,
             pair.Before.Parameters,
@@ -198,6 +209,8 @@ public static class CaptureManifestDiffAnalyzer
         {
             BeforeContributingRecordCount = diff.BeforeContributingRecordCount,
             AfterContributingRecordCount = diff.AfterContributingRecordCount,
+            BeforeRootCoverage = beforeRootCoverage,
+            AfterRootCoverage = afterRootCoverage,
             OperationUnit = diff.OperationUnit,
             BeforeScopeWeightPerOperation = diff.BeforeScopeWeightPerOperation,
             AfterScopeWeightPerOperation = diff.AfterScopeWeightPerOperation,

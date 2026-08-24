@@ -36,6 +36,8 @@ public sealed class AnalysisDiagnosticTests
     [DataRow("PDB identity mismatch for module MyApp", AnalysisDiagnosticCodes.PdbIdentityMismatch)]
     [DataRow("Capture metadata 'trace.capture.json' could not be read: malformed. Provider enablement remains unknown where no events were observed.", AnalysisDiagnosticCodes.CaptureStatusUnknown)]
     [DataRow("The requested capture provider is disabled.", AnalysisDiagnosticCodes.CaptureStatusDisabled)]
+    [DataRow("Required analysis 'alloc' is not supported by the Speedscope trace format.", AnalysisDiagnosticCodes.RequiredAnalysisUnsupported)]
+    [DataRow("Required analysis 'cpu' recorded 0 events; at least 1 is required.", AnalysisDiagnosticCodes.RequiredAnalysisEmpty)]
     [DataRow("Selector matched multiple frame definitions.", AnalysisDiagnosticCodes.AmbiguousSelector)]
     [DataRow("Showing 25 rows; more would exceed the token budget.", AnalysisDiagnosticCodes.TruncatedOutput)]
     [DataRow("take 5000 exceeds the maximum; clamped to 1000.", AnalysisDiagnosticCodes.ClampedInput)]

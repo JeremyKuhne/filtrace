@@ -84,6 +84,18 @@ public sealed partial record AnalysisDiagnostic(string Code, string Severity, st
             return AnalysisDiagnosticCodes.PdbIdentityMismatch;
         }
 
+        if (message.StartsWith("Required analysis '", StringComparison.Ordinal)
+            && message.Contains("is not supported", StringComparison.Ordinal))
+        {
+            return AnalysisDiagnosticCodes.RequiredAnalysisUnsupported;
+        }
+
+        if (message.StartsWith("Required analysis '", StringComparison.Ordinal)
+            && message.Contains("recorded 0 events", StringComparison.Ordinal))
+        {
+            return AnalysisDiagnosticCodes.RequiredAnalysisEmpty;
+        }
+
         if (message.Contains("capture metadata", StringComparison.OrdinalIgnoreCase)
             || message.Contains("enablement remains unknown", StringComparison.OrdinalIgnoreCase))
         {
@@ -163,6 +175,15 @@ public static class AnalysisDiagnosticCodes
 
     /// <summary>A required capture provider was known to be disabled.</summary>
     public const string CaptureStatusDisabled = "capture_status_disabled";
+
+    /// <summary>A required analysis is unavailable for the trace format.</summary>
+    public const string RequiredAnalysisUnsupported = "required_analysis_unsupported";
+
+    /// <summary>A required analysis was enabled but recorded no events.</summary>
+    public const string RequiredAnalysisEmpty = "required_analysis_empty";
+
+    /// <summary>A root filter keeps only stacks containing the selected frame.</summary>
+    public const string RootScopeAncestry = "root_scope_ancestry";
 
     /// <summary>Too few contributing records support a directional conclusion.</summary>
     public const string ThinScope = "thin_scope";
