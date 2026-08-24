@@ -51,8 +51,10 @@ public sealed class FileOpsExecutorTests
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
-        startInfo.ArgumentList.Add("convert");
+        startInfo.ArgumentList.Add("cache");
         startInfo.ArgumentList.Add(path);
+        startInfo.ArgumentList.Add("--action");
+        startInfo.ArgumentList.Add("convert");
         return Process.Start(startInfo)!;
     }
 

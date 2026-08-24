@@ -5,7 +5,7 @@
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
   "os": "windows",
   "steps": [
-    { "args": ["threadtime", "{fixture}"] }
+    { "args": ["rank", "{fixture}", "--metric", "threadtime"] }
   ],
   "assert": [
     { "topFrame": "BLOCKED_TIME" }

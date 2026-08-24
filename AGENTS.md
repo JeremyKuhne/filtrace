@@ -32,9 +32,9 @@ Layout:
 
 CI also runs nine contract and evaluation checks that must stay green:
 
-- `tools/Test-CliHelp.ps1 -Configuration Release` - every verb appears in the
-  top-level help, each verb's `--help` stays within the line budget, and the
-  README documents every verb.
+- `tools/Test-CliHelp.ps1 -Configuration Release` - every canonical command appears
+  in top-level help, hidden preview aliases remain callable but absent, each help
+  stays within budget, and README examples use only canonical commands.
 - `tools/Test-McpServer.ps1 -Configuration Release` - stdout is pure JSON-RPC,
   the tool-list schema stays within the token budget, and a real `tools/call`
   round-trips.

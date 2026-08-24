@@ -5,7 +5,7 @@
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
   "os": "windows",
   "steps": [
-    { "args": ["cpu", "{fixture}", "--process", "HotLoopBench", "--top", "3"] }
+    { "args": ["rank", "{fixture}", "--metric", "cpu", "--process", "HotLoopBench", "--top", "3"] }
   ],
   "assert": [
     { "hintContains": "--process 'HotLoopBench'" },

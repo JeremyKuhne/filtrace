@@ -407,20 +407,20 @@ Write-Host "`nNext-step filtrace commands:" -ForegroundColor Green
 if ($Profiler -eq 'ETW') {
     # An .etl is machine-wide: scope every query to the captured process.
     Write-Host "  filtrace processes `"$Output`""
-    Write-Host "  filtrace cpu `"$Output`" --process $processName --top $Top"
-    Write-Host "  filtrace threadtime `"$Output`" --process $processName --top $Top"
-    Write-Host "  filtrace lines `"$Output`" --process $processName --symbols `"$symbols`""
+    Write-Host "  filtrace rank `"$Output`" --metric cpu --process $processName --top $Top"
+    Write-Host "  filtrace rank `"$Output`" --metric threadtime --process $processName --top $Top"
+    Write-Host "  filtrace source `"$Output`" --view lines --process $processName --symbols `"$symbols`""
     Write-Host "  filtrace classify `"$Output`" --process $processName --native-symbols"
 }
 else {
     # A single-process EventPipe trace ranks the whole app; there is no harness.
     if ($Metric -eq 'alloc') {
-        Write-Host "  filtrace alloc `"$Output`" --top $Top"
-        Write-Host "  filtrace gcstats `"$Output`""
+        Write-Host "  filtrace rank `"$Output`" --metric alloc --top $Top"
+        Write-Host "  filtrace report `"$Output`" --kind gc"
     }
     else {
-        Write-Host "  filtrace cpu `"$Output`" --top $Top"
-        Write-Host "  filtrace lines `"$Output`" --symbols `"$symbols`""
+        Write-Host "  filtrace rank `"$Output`" --metric cpu --top $Top"
+        Write-Host "  filtrace source `"$Output`" --view lines --symbols `"$symbols`""
         Write-Host "  # scope past runtime startup with --root <Type>.<Method> once you see the ranking"
     }
 }

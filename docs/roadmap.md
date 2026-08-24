@@ -2,7 +2,7 @@
 
 **Status:** Living plan. This is the only page that holds unshipped work.
 
-**Last verified:** 2026-08-03 against `main`.
+**Last verified:** 2026-08-23 against the VN4 prototype.
 
 Shipped work is not tracked here. Git history and the release tags record what
 landed; the durable lessons from finished initiatives live in
@@ -18,8 +18,10 @@ ready when its gate is answered.
 Facts that set today's priorities. Re-measure before treating any of them as still
 true.
 
-- **The surface is 25 CLI verbs and 18 `trace_*` MCP tools.** The tool list measures
-  ~6,590 estimated tokens against a 7,000-token CI gate.
+- **The surface is 16 canonical CLI commands, 12 hidden preview aliases, and 18
+  `trace_*` MCP tools.** Top-level CLI help is 27 lines / 2,171 characters, down
+  from 37 / 3,170. The MCP tool list remains ~6,590 estimated tokens against a
+  7,000-token CI gate.
 - **The permanent schema is dominated by input schemas, not output schemas.**
   Advertising the envelope alone instead of every expanded result type reclaimed
   roughly 3,000 tokens. Measured across the current 18 tools: input schemas 3,966
@@ -45,10 +47,9 @@ true.
 
 | When | Items | Why now |
 |---|---|---|
-| Done | VN0-VN3, SC8, SC13 | The output contract and MCP surface are selected; capture acceptance, ancestry coverage, and decisive-query replay are implemented. |
-| Now | VN4 | Select the CLI surface before adding another verb. |
-| Then | VC1 | Add the first new analysis capability through the selected surfaces. |
-| Later | VC2-VC8, SC9-SC12, LP-1..LP-5, VN5 | Demand-, dependency-, or decision-gated. |
+| Done | VN0-VN4, SC8, SC13 | The output contract and CLI/MCP surfaces are selected; capture acceptance, ancestry coverage, and decisive-query replay are implemented. |
+| Now | VC1 | Add the first new analysis capability through the selected surfaces. |
+| Later | VC2-VC8, SC9-SC12, LP-1..LP-5, VN5 | Demand-, dependency-, or stabilization-gated. |
 | Upstream | TE-P1..TE-P5 | Not actionable in this repository alone. |
 
 VN3 retained the current MCP surface. New capabilities extend a compatible existing
@@ -596,26 +597,38 @@ tool count is not worth extra orientation, repair calls, or weaker scope selecti
 
 ### VN4 - CLI surface
 
-**Priority:** Then. **Gate:** top-level help and completion do not get worse.
+**Status:** Complete. **Decision:** retain 16 canonical commands and 12 hidden
+preview aliases for one release.
 
-Candidate 15-command surface: `info`, `rank` (absorbing `cpu`, `alloc`,
-`exceptions`, `threadtime`), `callers`, `tree`, `source` (combining `lines` and
-`heatmap`), `processes`, `classify`, `report` (combining `gcstats`, `jitstats`,
-`threadpool`, `diskio`), `timeline`, `diff`, `batch`, `events`, `export`, `collect`,
-`cache` (combining `convert` and `clean`). `lifecycle` is the open placement
-question - it is a structured report, but its scope semantics differ from the other
-report kinds.
+The selected surface is `info`, `rank`, `callers`, `tree`, `source`, `processes`,
+`classify`, `report`, `lifecycle`, `timeline`, `diff`, `batch`, `events`, `export`,
+`collect`, and `cache`. `rank` absorbs the four metric shortcuts; `source --view`
+selects lines or heatmap; `report --kind` selects GC, JIT, thread-pool, or disk I/O;
+and `cache --action` selects convert or clean.
+
+`lifecycle` stays standalone. Its invocation roots always follow descendants, and
+its optional image milestones and per-invocation rows do not share the other report
+kinds' contract. Putting it behind `report` would recreate the conditional option
+bag that weakened lifecycle scope selection in VN3.
 
 `callers`, `tree`, `timeline`, `diff`, `events`, and `export` stay as named
 commands: they communicate a human intent better than modes on `rank`, and keeping
 them avoids a large `rank --view` option matrix.
 
-Compatibility, for one preview only: hidden aliases for the metric shortcuts, the
-four report verbs, and `convert`/`clean`, each printing the canonical equivalent to
-stderr. Aliases must not appear in top-level help, generated docs, or agent
-examples, and must be removed before the surface is declared stable. If
-ConsoleAppFramework cannot hide an alias without polluting help or completion,
-prefer a clean pre-1.0 break over two advertised surfaces.
+**Prototype evidence, 2026-08-23:** ConsoleAppFramework 5.7.13's `[Hidden]`
+attribute keeps a command callable, including its own `--help`, while omitting it
+from top-level help. The 12 prior names use that mechanism and print the canonical
+equivalent to stderr. Top-level help fell from 25 listed commands / 37 lines / 3,170
+characters to 16 / 27 / 2,171. The framework exposes no completion command or
+generator: completion-like probes route to ordinary help, so there was no completion
+contract to regress. Nested paths were rejected because they still advertise every
+leaf; required `--view`, `--kind`, and `--action` enums preserve one visible intent
+per command instead.
+
+The help contract now requires canonical commands to be listed and documented,
+hidden aliases to remain callable but absent from the list, and top-level help not
+to exceed the pre-VN4 line or character baseline. Aliases are migration-only text,
+not runnable examples in README or the packaged skill.
 
 **Exit:** one canonical path per intent in top-level help; no alias leaks into agent
 guidance.
@@ -652,7 +665,7 @@ selected surface.
 
 | ID | Capability | Proposed surface | Priority | Main gate |
 |---|---|---|:---:|---|
-| VC1 | DATAS server-GC tuning | `report --kind datas` / `trace_report(kind=datas)` | High | capture fixture and parser parity |
+| VC1 | DATAS server-GC tuning | extend `report --kind gc` / `trace_gc` | High | capture fixture and parser parity |
 | VC2 | Point-in-time snapshot | `timeline --mode snapshot` | Medium | prove it beats timeline + rank |
 | VC3 | Per-frame temporal buckets | `rank --temporal` or `detail=full` | Medium | response and aggregation cost |
 | VC4 | PMC / CPU-counter ranking | new `rank` metric | Medium | ETW capture support and a fixture |
@@ -1254,15 +1267,14 @@ Resolve these with VN0 and VN1 evidence rather than opinion:
    new addressing form?
 5. Can global CLI format and detail options be implemented without making per-command
    help less clear?
-6. Is one preview release of hidden aliases useful, or is a clean pre-1.0 break less
-   confusing?
+6. ~~Is one preview release of hidden aliases useful, or is a clean pre-1.0 break
+  less confusing?~~ **Resolved.** ConsoleAppFramework hides aliases without breaking
+  direct routing or help; retain them for one preview and remove them in VN5.
 7. ~~Where does `lifecycle` belong in a consolidated surface?~~ **Resolved.** Keep
   `trace_lifecycle` separate; hiding its root selectors caused wrong-scope calls.
 
 ## Immediate next step
 
-VN4, the CLI surface decision. VN0-VN2 established the measurement and output
-contract. VN3 then tested generated discriminated report schemas and retained the
-18-tool MCP surface because an 8% schema saving increased repair calls and weakened
-lifecycle scope selection. CLI grouping can now be evaluated independently without
-assuming the agent surface should mirror it.
+VC1, DATAS server-GC tuning. VN4 selected `report --kind gc` for the human CLI
+while VN3 retained the intent-bearing `trace_gc` MCP tool, so DATAS can extend both
+without adding another command or reopening the rejected polymorphic report tool.

@@ -16,6 +16,19 @@ namespace Filtrace.Cli;
 [DoNotParallelize]
 public sealed class CliAppTests
 {
+    private static readonly string[] s_canonicalCommands =
+    [
+        "batch", "cache", "callers", "classify", "collect", "diff", "events",
+        "export", "info", "lifecycle", "processes", "rank", "report", "source",
+        "timeline", "tree"
+    ];
+
+    private static readonly string[] s_hiddenAliases =
+    [
+        "alloc", "clean", "convert", "cpu", "diskio", "exceptions", "gcstats",
+        "heatmap", "jitstats", "lines", "threadpool", "threadtime"
+    ];
+
     private static string FixturePath(string name) =>
         Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
@@ -27,7 +40,11 @@ public sealed class CliAppTests
 
     private static string Etw => FixturePath("etw.etl");
 
+    private static string DiskIo => FixturePath("diskio.etl");
+
     private static string Jit => FixturePath("jit.nettrace");
+
+    private static string ThreadPoolTrace => FixturePath("threadpool.nettrace");
 
     private static (int Exit, string Out, string Error) Run(params string[] args)
     {
@@ -51,6 +68,21 @@ public sealed class CliAppTests
         }
     }
 
+    private static void AssertCanonicalCommandList(string output)
+    {
+        foreach (string command in s_canonicalCommands)
+        {
+            Regex.IsMatch(output, $"(?m)^  {Regex.Escape(command)}\\s")
+                .Should().BeTrue($"'{command}' is a canonical command");
+        }
+
+        foreach (string alias in s_hiddenAliases)
+        {
+            Regex.IsMatch(output, $"(?m)^  {Regex.Escape(alias)}\\s")
+                .Should().BeFalse($"'{alias}' is a hidden preview alias");
+        }
+    }
+
     [TestMethod]
     public void Run_NoArgs_ShowsVerbList()
     {
@@ -58,23 +90,7 @@ public sealed class CliAppTests
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("Commands:");
-        output.Should().Contain("rank");
-        output.Should().Contain("info");
-        output.Should().Contain("cpu");
-        output.Should().Contain("alloc");
-        output.Should().Contain("exceptions");
-        output.Should().Contain("threadtime");
-        output.Should().Contain("callers");
-        output.Should().Contain("lines");
-        output.Should().Contain("heatmap");
-        output.Should().Contain("diff");
-        output.Should().Contain("export");
-        output.Should().Contain("tree");
-        output.Should().Contain("gcstats");
-        output.Should().Contain("jitstats");
-        output.Should().Contain("events");
-        output.Should().Contain("convert");
-        output.Should().Contain("clean");
+        AssertCanonicalCommandList(output);
     }
 
     [TestMethod]
@@ -171,9 +187,21 @@ public sealed class CliAppTests
         (int exit, string output, _) = Run("--help");
 
         exit.Should().Be(ExitCodes.Success);
-        output.Should().Contain("rank");
-        output.Should().Contain("cpu");
+        AssertCanonicalCommandList(output);
     }
+
+    [TestMethod]
+    [DynamicData(nameof(HiddenAliases))]
+    public void Run_HiddenAliasHelp_RemainsAvailable(string alias)
+    {
+        (int exit, string output, _) = Run(alias, "--help");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("Usage:");
+    }
+
+    public static IEnumerable<object[]> HiddenAliases() =>
+        s_hiddenAliases.Select(static alias => new object[] { alias });
 
     [TestMethod]
     public void Run_RankHelp_ShowsOptionsAndAliases()
@@ -261,10 +289,11 @@ public sealed class CliAppTests
     public void Run_CpuShortcut_MatchesRankDefault()
     {
         (int rankExit, string rankOut, _) = Run("rank", Speedscope);
-        (int cpuExit, string cpuOut, _) = Run("cpu", Speedscope);
+        (int cpuExit, string cpuOut, string error) = Run("cpu", Speedscope);
 
         cpuExit.Should().Be(rankExit);
         cpuOut.Should().Be(rankOut);
+        error.Should().Contain("filtrace rank <trace> --metric cpu");
     }
 
     [TestMethod]
@@ -881,21 +910,65 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
-    public void Run_Lines_RunsAndRendersJson()
+    public void Run_SourceLines_RunsAndRendersJson()
     {
-        (int exit, string output, _) = Run("lines", Speedscope, "--format", "json");
+        (int exit, string output, _) = Run(
+            "source", Speedscope, "--view", "lines", "--format", "json");
 
         exit.Should().Be(ExitCodes.Success);
         output.Trim().Should().Contain("\"schemaVersion\"");
     }
 
     [TestMethod]
-    public void Run_Heatmap_RunsForKnownFile()
+    public void Run_SourceHeatmap_RunsForKnownFile()
     {
-        (int exit, string output, _) = Run("heatmap", Speedscope, "Program.cs");
+        (int exit, string output, _) = Run(
+            "source", Speedscope, "--view", "heatmap", "--file", "Program.cs");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("source heatmap 'Program.cs'");
+    }
+
+    [TestMethod]
+    public void Run_LinesAlias_MatchesSourceLinesAndWarns()
+    {
+        (int sourceExit, string sourceOutput, _) = Run(
+            "source", Speedscope, "--view", "lines", "--format", "json");
+        (int aliasExit, string aliasOutput, string aliasError) = Run(
+            "lines", Speedscope, "--format", "json");
+
+        aliasExit.Should().Be(sourceExit);
+        aliasOutput.Should().Be(sourceOutput);
+        aliasError.Should().Contain("filtrace source <trace> --view lines");
+    }
+
+    [TestMethod]
+    public void Run_SourceHeatmapWithoutFile_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run("source", Speedscope, "--view", "heatmap");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--file option is required");
+    }
+
+    [TestMethod]
+    public void Run_SourceHeatmapWithTop_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(
+            "source", Speedscope, "--view", "heatmap", "--file", "Program.cs",
+            "--top", "25");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--method and --top options apply");
+    }
+
+    [TestMethod]
+    public void Run_SourceMissingView_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run("source", Speedscope);
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("view");
     }
 
     [TestMethod]
@@ -1025,9 +1098,9 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
-    public void Run_GcStats_ReportsCollections()
+    public void Run_ReportGc_ReportsCollections()
     {
-        (int exit, string output, _) = Run("gcstats", Alloc);
+        (int exit, string output, _) = Run("report", Alloc, "--kind", "gc");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("GC report");
@@ -1035,22 +1108,108 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
-    public void Run_GcStatsWrongFormat_ReturnsInputError()
+    public void Run_ReportGcWrongFormat_ReturnsInputError()
     {
-        (int exit, _, string error) = Run("gcstats", Speedscope);
+        (int exit, _, string error) = Run("report", Speedscope, "--kind", "gc");
 
         exit.Should().Be(ExitCodes.InputError);
         error.Should().Contain("GC report requires");
     }
 
     [TestMethod]
-    public void Run_JitStats_ReportsMethods()
+    public void Run_ReportJit_ReportsMethods()
     {
-        (int exit, string output, _) = Run("jitstats", Jit);
+        (int exit, string output, _) = Run("report", Jit, "--kind", "jit");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("JIT report");
         output.Should().Contain("methods");
+    }
+
+    [TestMethod]
+    public void Run_ReportThreadPool_ReportsAdjustments()
+    {
+        (int exit, string output, _) = Run(
+            "report", ThreadPoolTrace, "--kind", "threadpool");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("ThreadPool report");
+    }
+
+    [TestMethod]
+    public void Run_ReportThreadPoolWithTop_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(
+            "report", ThreadPoolTrace, "--kind", "threadpool", "--top", "1");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("does not apply");
+    }
+
+    [TestMethod]
+    public void Run_ReportMissingKind_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run("report", Alloc);
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("kind");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_ReportDiskIo_ReportsFiles()
+    {
+        (int exit, string output, _) = Run("report", DiskIo, "--kind", "diskio");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("DiskIO report");
+    }
+
+    [TestMethod]
+    public void Run_GcStatsAlias_MatchesReportAndWarns()
+    {
+        (int reportExit, string reportOutput, _) = Run(
+            "report", Alloc, "--kind", "gc", "--format", "json");
+        (int aliasExit, string aliasOutput, string aliasError) = Run(
+            "gcstats", Alloc, "--format", "json");
+
+        aliasExit.Should().Be(reportExit);
+        aliasOutput.Should().Be(reportOutput);
+        aliasError.Should().Contain("filtrace report <trace> --kind gc");
+    }
+
+    [TestMethod]
+    public void Run_CacheConvertAndClean_RoundTrips()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-cache-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string trace = Path.Combine(directory, "alloc.nettrace");
+        File.Copy(Alloc, trace);
+        try
+        {
+            (int convertExit, string convertOutput, _) = Run(
+                "cache", trace, "--action", "convert");
+            (int cleanExit, string cleanOutput, _) = Run(
+                "cache", trace, "--action", "clean");
+
+            convertExit.Should().Be(ExitCodes.Success);
+            convertOutput.Should().Contain("ETLX cache converted");
+            cleanExit.Should().Be(ExitCodes.Success);
+            cleanOutput.Should().Contain("Removed");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Run_CacheMissingAction_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run("cache", Alloc);
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("action");
     }
 
     [TestMethod]

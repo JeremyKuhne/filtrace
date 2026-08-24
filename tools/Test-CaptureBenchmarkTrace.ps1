@@ -150,17 +150,17 @@ try {
     }
     $eventPipeCommands = @(Get-CaseCommands $eventPipeCase 'EP' 'Fake.Process' 'Fake.Method' 25)
     $expectedEventPipeCommands = @(
-        "filtrace cpu 'C:\capture.nettrace' --benchmark --top 25"
-        "filtrace lines 'C:\capture.nettrace' --method 'Fake.Method' --symbols 'C:\symbols'"
+        "filtrace rank 'C:\capture.nettrace' --metric cpu --benchmark --top 25"
+        "filtrace source 'C:\capture.nettrace' --view lines --method 'Fake.Method' --symbols 'C:\symbols'"
         "filtrace export 'C:\capture.nettrace' --benchmark --symbols 'C:\symbols' -o flame.speedscope.json"
-        "filtrace alloc 'C:\capture.nettrace' --benchmark --top 25"
-        "filtrace exceptions 'C:\capture.nettrace' --benchmark --top 25"
+        "filtrace rank 'C:\capture.nettrace' --metric alloc --benchmark --top 25"
+        "filtrace rank 'C:\capture.nettrace' --metric exceptions --benchmark --top 25"
         "filtrace rank 'C:\capture.nettrace' --metric contention --benchmark --top 25"
         "filtrace rank 'C:\capture.nettrace' --metric wait --benchmark --top 25"
         "filtrace rank 'C:\capture.nettrace' --metric activity --benchmark --top 25"
-        "filtrace gcstats 'C:\capture.nettrace'"
-        "filtrace jitstats 'C:\capture.nettrace'"
-        "filtrace threadpool 'C:\capture.nettrace'"
+        "filtrace report 'C:\capture.nettrace' --kind gc"
+        "filtrace report 'C:\capture.nettrace' --kind jit"
+        "filtrace report 'C:\capture.nettrace' --kind threadpool"
     )
     Assert-True (($eventPipeCommands -join "`n") -ceq ($expectedEventPipeCommands -join "`n")) "EventPipe command syntax drifted.`nActual:`n$($eventPipeCommands -join "`n")"
 
@@ -176,12 +176,12 @@ try {
     $etwCommands = @(Get-CaseCommands $etwCase 'ETW' 'Fake.Process' 'Fake.Method' 25)
     $expectedEtwCommands = @(
         "filtrace processes 'C:\capture.etl'"
-        "filtrace cpu 'C:\capture.etl' --process 'Fake.Process' --benchmark --top 25"
-        "filtrace lines 'C:\capture.etl' --process 'Fake.Process' --method 'Fake.Method' --symbols 'C:\symbols'"
+        "filtrace rank 'C:\capture.etl' --metric cpu --process 'Fake.Process' --benchmark --top 25"
+        "filtrace source 'C:\capture.etl' --view lines --process 'Fake.Process' --method 'Fake.Method' --symbols 'C:\symbols'"
         "filtrace export 'C:\capture.etl' --process 'Fake.Process' --benchmark --native-symbols --symbols 'C:\symbols' -o flame.speedscope.json"
-        "filtrace threadtime 'C:\capture.etl' --process 'Fake.Process' --benchmark --top 25"
+        "filtrace rank 'C:\capture.etl' --metric threadtime --process 'Fake.Process' --benchmark --top 25"
         "filtrace classify 'C:\capture.etl' --process 'Fake.Process' --benchmark --native-symbols"
-        "filtrace diskio 'C:\capture.etl' --top 25"
+        "filtrace report 'C:\capture.etl' --kind diskio --top 25"
     )
     Assert-True (($etwCommands -join "`n") -ceq ($expectedEtwCommands -join "`n")) "ETW command syntax drifted.`nActual:`n$($etwCommands -join "`n")"
 
@@ -702,9 +702,9 @@ $global:LASTEXITCODE = 0
     Assert-True ($manifest.cases[2].symbolsDirectory -eq $childSymbols) 'Exact child symbols were not paired with the other trace.'
     Assert-True ($manifest.cases[0].analyses.cpu.captureStatus -eq 'enabled') 'CPU capture status was not recorded.'
     Assert-True ($manifest.cases[0].analyses.cpu.eventCount -eq 0) 'Enabled-zero CPU count was not recorded.'
-    Assert-True ($manifest.cases[0].commands -contains "filtrace cpu '$currentTrace' --benchmark --top 25") 'Enabled-zero CPU command was not recorded.'
-    Assert-True (-not ($manifest.cases[0].commands -match '^filtrace alloc ')) 'Disabled allocation command entered the manifest.'
-    Assert-True (-not ($manifest.cases[0].commands -match '^filtrace exceptions ')) 'Unknown exceptions command entered the manifest.'
+    Assert-True ($manifest.cases[0].commands -contains "filtrace rank '$currentTrace' --metric cpu --benchmark --top 25") 'Enabled-zero CPU command was not recorded.'
+    Assert-True (-not ($manifest.cases[0].commands -match '^filtrace rank .*--metric alloc\b')) 'Disabled allocation command entered the manifest.'
+    Assert-True (-not ($manifest.cases[0].commands -match '^filtrace rank .*--metric exceptions\b')) 'Unknown exceptions command entered the manifest.'
     Assert-True ($manifest.cases[0].warnings -contains 'alloc capture disabled; recapture with a profile that enables it') 'Disabled allocation warning was not recorded.'
     Assert-True ($manifest.cases[0].warnings -contains 'exceptions capture status unknown; no command emitted') 'Unknown exceptions warning was not recorded.'
     Assert-True ($manifest.cases[0].analyses.wait.captureStatus -eq 'unknown') 'Empty capture status was not normalized to unknown.'
@@ -716,25 +716,25 @@ $global:LASTEXITCODE = 0
     Assert-True ($manifest.cases[0].symbolCandidates -contains $childSymbols) 'Logged child output was not recorded as a symbol candidate.'
     Assert-True (-not (($manifest.cases[0].symbolCandidates -join ';') -match 'evil\.example')) 'Remote logged OutDir entered symbol candidates.'
     Assert-True (Test-StringContains $output $childSymbols) 'Printed source command did not use exact child symbols.'
-    Assert-True (([regex]::Matches($output, 'filtrace lines ')).Count -eq 3) 'Expected one filtrace lines command per raw trace and none for the speedscope-only case.'
-    Assert-True (([regex]::Matches($output, 'filtrace cpu ')).Count -eq 4) 'Enabled-zero CPU did not emit one command per case.'
+    Assert-True (([regex]::Matches($output, 'filtrace source .*--view lines')).Count -eq 3) 'Expected one canonical source command per raw trace and none for the speedscope-only case.'
+    Assert-True (([regex]::Matches($output, 'filtrace rank .*--metric cpu')).Count -eq 4) 'Enabled-zero CPU did not emit one command per case.'
     Assert-True (([regex]::Matches($output, 'filtrace rank .*--metric contention')).Count -eq 3) 'Enabled contention did not emit one command per raw trace.'
-    Assert-True (([regex]::Matches($output, 'filtrace gcstats ')).Count -eq 3) 'Enabled-zero GC did not emit one command per raw trace.'
-    Assert-True (([regex]::Matches($output, 'filtrace threadpool ')).Count -eq 3) 'Enabled threadpool did not emit one command per raw trace.'
+    Assert-True (([regex]::Matches($output, 'filtrace report .*--kind gc')).Count -eq 3) 'Enabled-zero GC did not emit one command per raw trace.'
+    Assert-True (([regex]::Matches($output, 'filtrace report .*--kind threadpool')).Count -eq 3) 'Enabled threadpool did not emit one command per raw trace.'
     $generatedCommands = @(
         $manifest.cases.commands |
             Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
     )
     foreach ($command in $generatedCommands) {
-        if ($command -match '^filtrace (?:gcstats|jitstats|threadpool|processes)\b') {
+        if ($command -match '^filtrace (?:report|processes)\b') {
             Assert-True ($command -notmatch '(?:^|\s)--(?:benchmark|process)(?:\s|$)') "Structured/orientation command used an unsupported stack scope: $command"
         }
-        if ($command -match '^filtrace lines\b') {
+        if ($command -match '^filtrace source\b') {
             Assert-True ($command -notmatch '(?:^|\s)--benchmark(?:\s|$)') "Source-line command used unsupported benchmark scope: $command"
         }
     }
-    Assert-True (-not (Test-StringContains $output 'filtrace alloc ')) 'Disabled allocation emitted a command.'
-    Assert-True (-not (Test-StringContains $output 'filtrace exceptions ')) 'Unknown exceptions emitted a command.'
+    Assert-True (-not (Test-StringContains $output '--metric alloc')) 'Disabled allocation emitted a command.'
+    Assert-True (-not (Test-StringContains $output '--metric exceptions')) 'Unknown exceptions emitted a command.'
     Assert-True (Test-StringContains $output 'alloc capture disabled') 'Disabled allocation was not explained.'
     Assert-True (Test-StringContains $output 'exceptions capture status unknown') 'Unknown exceptions were not explained.'
     Assert-True (-not (Test-StringContains $output 'fake BenchmarkDotNet capture completed')) 'BenchmarkDotNet chatter leaked to stdout.'
@@ -873,7 +873,7 @@ $global:LASTEXITCODE = 0
     Assert-True ($jsonResult.runId -eq 'json-run') 'JSON output did not report the run ID.'
     Assert-True ($jsonResult.cases.Count -eq 4) 'JSON output did not include every case.'
     Assert-True ($jsonResult.warnings.Count -gt 0) 'JSON output omitted provider warnings.'
-    Assert-True ($jsonResult.cases[0].commands -contains "filtrace gcstats '$($jsonResult.cases[0].trace)'") 'JSON output omitted an enabled-zero command.'
+    Assert-True ($jsonResult.cases[0].commands -contains "filtrace report '$($jsonResult.cases[0].trace)' --kind gc") 'JSON output omitted an enabled-zero command.'
     Assert-True (-not (Test-StringContains $jsonOutput 'fake BenchmarkDotNet capture completed')) 'BenchmarkDotNet chatter polluted JSON output.'
     Assert-True ([Text.Encoding]::UTF8.GetByteCount($jsonOutput.Trim()) -lt 20KB) 'JSON handoff exceeded 20 KiB.'
 
@@ -1013,7 +1013,7 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     Assert-True (Test-StringContains $quietOutput 'capture disabled') 'Quiet mode suppressed warnings.'
     Assert-True (-not (Test-StringContains $quietOutput 'Captured ')) 'Quiet mode emitted capture summary.'
     Assert-True (-not (Test-StringContains $quietOutput 'Manifest:')) 'Quiet mode emitted the manifest summary.'
-    Assert-True (-not (Test-StringContains $quietOutput 'filtrace cpu ')) 'Quiet mode emitted commands.'
+    Assert-True (-not (Test-StringContains $quietOutput 'filtrace rank ')) 'Quiet mode emitted commands.'
     Assert-True (-not (Test-StringContains $quietOutput 'fake BenchmarkDotNet capture completed')) 'BenchmarkDotNet chatter polluted quiet output.'
 
     $env:FILTRACE_CAPTURE_ARGS = $argsPath
@@ -1034,10 +1034,10 @@ if ($Quiet) { $captureParameters.Quiet = $true }
     $fallbackManifestPath = Join-Path $globalArtifacts 'filtrace-runs/fallback-run/manifest.json'
     $fallbackManifest = Get-Content -LiteralPath $fallbackManifestPath -Raw | ConvertFrom-Json
     $fallbackCommands = @($fallbackResult.cases[0].commands)
-    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace cpu ' }).Count -eq 1) 'Recorder-established CPU did not emit a fallback command.'
-    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace exceptions ' }).Count -eq 1) 'Recorder-established exceptions did not emit a fallback command.'
-    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace alloc ' }).Count -eq 0) 'Recorder-disabled allocation emitted a fallback command.'
-    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace lines ' }).Count -eq 0) 'Unverified symbols emitted a source-line command.'
+    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace rank .*--metric cpu\b' }).Count -eq 1) 'Recorder-established CPU did not emit a fallback command.'
+    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace rank .*--metric exceptions\b' }).Count -eq 1) 'Recorder-established exceptions did not emit a fallback command.'
+    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace rank .*--metric alloc\b' }).Count -eq 0) 'Recorder-disabled allocation emitted a fallback command.'
+    Assert-True (@($fallbackCommands | Where-Object { $_ -match '^filtrace source .*--view lines\b' }).Count -eq 0) 'Unverified symbols emitted a source-line command.'
     Assert-True (@($fallbackResult.warnings.message) -contains 'source lines unavailable; no logged child output had an exact matching PDB') 'Missing filtrace did not explain unavailable source lines.'
     Assert-True ($fallbackManifest.cases[0].analyses.cpu.captureStatus -eq 'enabled') 'Recorder-established CPU status was not preserved.'
     Assert-True ($null -eq $fallbackManifest.cases[0].analyses.cpu.eventCount) 'Recorder-established CPU fabricated an observed event count.'

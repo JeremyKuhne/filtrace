@@ -210,6 +210,7 @@ internal sealed class TraceCommands
     /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
     /// <param name="noFold">Fold only the synthetic sample markers, not the JIT-helper thunks, so native runtime leaves rank on their own. Mutually exclusive with --fold.</param>
     /// <returns>A process exit code.</returns>
+    [Hidden]
     [Command("cpu")]
     public int Cpu(
         [Argument] string trace,
@@ -229,6 +230,7 @@ internal sealed class TraceCommands
         string symbolCache = "",
         bool noFold = false)
     {
+        WriteAliasNotice("cpu", "filtrace rank <trace> --metric cpu");
         if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
@@ -276,6 +278,7 @@ internal sealed class TraceCommands
     ///  <c>--process</c> / <c>--all-processes</c> option: an EventPipe <c>.nettrace</c>
     ///  is single-process, so there is nothing to scope across.
     /// </remarks>
+    [Hidden]
     [Command("alloc")]
     public int Alloc(
         [Argument] string trace,
@@ -286,6 +289,7 @@ internal sealed class TraceCommands
         OutputFormat format = OutputFormat.Text,
         bool benchmark = false)
     {
+        WriteAliasNotice("alloc", "filtrace rank <trace> --metric alloc");
         if (!RankRequestFactory.TryResolveRoot(root, benchmark, out string resolvedRoot, out string? rootError))
         {
             Console.Error.WriteLine(rootError);
@@ -315,6 +319,7 @@ internal sealed class TraceCommands
     ///  <c>--process</c> / <c>--all-processes</c> option: an EventPipe <c>.nettrace</c>
     ///  is single-process, so there is nothing to scope across.
     /// </remarks>
+    [Hidden]
     [Command("exceptions")]
     public int Exceptions(
         [Argument] string trace,
@@ -325,6 +330,7 @@ internal sealed class TraceCommands
         OutputFormat format = OutputFormat.Text,
         bool benchmark = false)
     {
+        WriteAliasNotice("exceptions", "filtrace rank <trace> --metric exceptions");
         if (!RankRequestFactory.TryResolveRoot(root, benchmark, out string resolvedRoot, out string? rootError))
         {
             Console.Error.WriteLine(rootError);
@@ -359,6 +365,7 @@ internal sealed class TraceCommands
     ///  resolve from the capture itself, so this verb has no <c>--symbols</c> or
     ///  <c>--strict</c> option.
     /// </remarks>
+    [Hidden]
     [Command("threadtime")]
     public int ThreadTime(
         [Argument] string trace,
@@ -373,6 +380,7 @@ internal sealed class TraceCommands
         Children children = Children.Include,
         bool benchmark = false)
     {
+        WriteAliasNotice("threadtime", "filtrace rank <trace> --metric threadtime");
         if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
@@ -439,26 +447,28 @@ internal sealed class TraceCommands
         return CallersExecutor.Run(request, Console.Out, Console.Error);
     }
 
-    /// <summary>
-    ///  Rank the hottest CPU source lines of the scoped methods.
-    /// </summary>
-    /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
-    /// <param name="method">Substring scoping the ranking to matching methods; omit for every method.</param>
-    /// <param name="top">-n, Maximum number of rows to return.</param>
-    /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
+    /// <summary>Inspect CPU source attribution as ranked lines or a per-file heat map.</summary>
+    /// <param name="trace">Path to a .nettrace or .etl trace.</param>
+    /// <param name="view">Source view: lines or heatmap.</param>
+    /// <param name="method">For lines, keep methods whose name contains this; omit for every method.</param>
+    /// <param name="file">For heatmap, required source file name or path.</param>
+    /// <param name="top">-n, For lines, maximum rows to return. Heatmap uses every attributed line.</param>
+    /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use defaults.</param>
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
-    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
-    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
-    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
+    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope.</param>
+    /// <param name="allProcesses">Read every process instead of auto-scoping.</param>
+    /// <param name="pid">Scope to exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether process scope follows descendants: include (default) or exclude.</param>
     /// <returns>A process exit code.</returns>
-    [Command("lines")]
-    public int Lines(
+    [Command("source")]
+    public int Source(
         [Argument] string trace,
+        SourceView view,
         string method = "",
-        [Range(1, int.MaxValue)] int top = RankRequestFactory.DefaultTop,
+        string file = "",
+        int? top = null,
         string[]? fold = null,
         string? symbols = null,
         OutputFormat format = OutputFormat.Text,
@@ -475,8 +485,83 @@ internal sealed class TraceCommands
         }
 
         IReadOnlyList<string> foldPatterns = fold is { Length: > 0 } ? fold : FrameNames.DefaultFoldPatterns;
-        LinesRequest request = new(trace, method, foldPatterns, top, symbols, format, strict, scope);
-        return LinesExecutor.Run(request, Console.Out, Console.Error);
+        if (view == SourceView.Lines)
+        {
+            if (top is <= 0)
+            {
+                Console.Error.WriteLine("The --top option must be greater than zero.");
+                return ExitCodes.UsageError;
+            }
+
+            if (!string.IsNullOrEmpty(file))
+            {
+                Console.Error.WriteLine("The --file option applies to --view heatmap only.");
+                return ExitCodes.UsageError;
+            }
+
+            LinesRequest request = new(
+                trace,
+                method,
+                foldPatterns,
+                top ?? RankRequestFactory.DefaultTop,
+                symbols,
+                format,
+                strict,
+                scope);
+            return LinesExecutor.Run(request, Console.Out, Console.Error);
+        }
+
+        if (string.IsNullOrWhiteSpace(file))
+        {
+            Console.Error.WriteLine("The --file option is required for --view heatmap.");
+            return ExitCodes.UsageError;
+        }
+
+        if (!string.IsNullOrEmpty(method) || top is not null)
+        {
+            Console.Error.WriteLine("The --method and --top options apply to --view lines only.");
+            return ExitCodes.UsageError;
+        }
+
+        HeatmapRequest heatmapRequest = new(trace, file, foldPatterns, symbols, format, strict, scope);
+        return HeatmapExecutor.Run(heatmapRequest, Console.Out, Console.Error);
+    }
+
+    /// <summary>
+    ///  Rank the hottest CPU source lines of the scoped methods.
+    /// </summary>
+    /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
+    /// <param name="method">Substring scoping the ranking to matching methods; omit for every method.</param>
+    /// <param name="top">-n, Maximum number of rows to return.</param>
+    /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
+    /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
+    /// <param name="format">Render format: text or json.</param>
+    /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
+    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
+    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
+    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
+    /// <returns>A process exit code.</returns>
+    [Hidden]
+    [Command("lines")]
+    public int Lines(
+        [Argument] string trace,
+        string method = "",
+        [Range(1, int.MaxValue)] int top = RankRequestFactory.DefaultTop,
+        string[]? fold = null,
+        string? symbols = null,
+        OutputFormat format = OutputFormat.Text,
+        bool strict = false,
+        string process = "",
+        bool allProcesses = false,
+        int[]? pid = null,
+        Children children = Children.Include)
+    {
+        WriteAliasNotice("lines", "filtrace source <trace> --view lines");
+        return Source(
+            trace, SourceView.Lines, method, top: top, fold: fold, symbols: symbols,
+            format: format, strict: strict, process: process, allProcesses: allProcesses,
+            pid: pid, children: children);
     }
 
     /// <summary>
@@ -493,6 +578,7 @@ internal sealed class TraceCommands
     /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <returns>A process exit code.</returns>
+    [Hidden]
     [Command("heatmap")]
     public int Heatmap(
         [Argument] string trace,
@@ -506,15 +592,11 @@ internal sealed class TraceCommands
         int[]? pid = null,
         Children children = Children.Include)
     {
-        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
-        {
-            Console.Error.WriteLine(scopeError);
-            return ExitCodes.UsageError;
-        }
-
-        IReadOnlyList<string> foldPatterns = fold is { Length: > 0 } ? fold : FrameNames.DefaultFoldPatterns;
-        HeatmapRequest request = new(trace, file, foldPatterns, symbols, format, strict, scope);
-        return HeatmapExecutor.Run(request, Console.Out, Console.Error);
+        WriteAliasNotice("heatmap", "filtrace source <trace> --view heatmap --file <file>");
+        return Source(
+            trace, SourceView.Heatmap, file: file, fold: fold, symbols: symbols,
+            format: format, strict: strict, process: process, allProcesses: allProcesses,
+            pid: pid, children: children);
     }
 
     /// <summary>
@@ -627,6 +709,58 @@ internal sealed class TraceCommands
         return ClassifyExecutor.Run(request, Console.Out, Console.Error);
     }
 
+    /// <summary>Run a bounded structured runtime or operating-system report.</summary>
+    /// <param name="trace">Path to a .nettrace EventPipe or Windows ETW .etl file.</param>
+    /// <param name="kind">Report kind: gc, jit, threadpool, or diskio.</param>
+    /// <param name="top">-n, Maximum detail rows; omit for the selected report's default. Threadpool has no detail rows.</param>
+    /// <param name="format">Render format: text or json.</param>
+    /// <returns>A process exit code.</returns>
+    [Command("report")]
+    public int Report(
+        [Argument] string trace,
+        ReportKind kind,
+        int? top = null,
+        OutputFormat format = OutputFormat.Text)
+    {
+        if (top is < 0)
+        {
+            Console.Error.WriteLine("The --top option must be zero or greater.");
+            return ExitCodes.UsageError;
+        }
+
+        switch (kind)
+        {
+            case ReportKind.Gc:
+                return GcStatsExecutor.Run(
+                    new GcStatsRequest(trace, top ?? 50, format),
+                    Console.Out,
+                    Console.Error);
+            case ReportKind.Jit:
+                return JitStatsExecutor.Run(
+                    new JitStatsRequest(trace, top ?? 25, format),
+                    Console.Out,
+                    Console.Error);
+            case ReportKind.Threadpool:
+                if (top is not null)
+                {
+                    Console.Error.WriteLine("The --top option does not apply to --kind threadpool.");
+                    return ExitCodes.UsageError;
+                }
+
+                return ThreadPoolExecutor.Run(
+                    new ThreadPoolRequest(trace, format),
+                    Console.Out,
+                    Console.Error);
+            case ReportKind.Diskio:
+                return DiskIoExecutor.Run(
+                    new DiskIoRequest(trace, top ?? 25, format),
+                    Console.Out,
+                    Console.Error);
+            default:
+                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+        }
+    }
+
     /// <summary>
     ///  Report physical disk I/O by file: bytes read and written to each file, and disk service time.
     /// </summary>
@@ -639,14 +773,15 @@ internal sealed class TraceCommands
     ///  the file-system cache, so they show the real disk pressure the logical file APIs
     ///  hide. Windows ETW only; .nettrace and speedscope inputs are rejected.
     /// </remarks>
+    [Hidden]
     [Command("diskio")]
     public int DiskIo(
         [Argument] string trace,
         [Range(0, int.MaxValue)] int top = 25,
         OutputFormat format = OutputFormat.Text)
     {
-        DiskIoRequest request = new(trace, top, format);
-        return DiskIoExecutor.Run(request, Console.Out, Console.Error);
+        WriteAliasNotice("diskio", "filtrace report <trace> --kind diskio");
+        return Report(trace, ReportKind.Diskio, top, format);
     }
 
     /// <summary>
@@ -897,14 +1032,15 @@ internal sealed class TraceCommands
     ///  This is a structured report, not a stack ranking: the summary always reflects
     ///  every collection, while the detail rows are capped and ranked by pause time.
     /// </remarks>
+    [Hidden]
     [Command("gcstats")]
     public int GcStats(
         [Argument] string trace,
         [Range(0, int.MaxValue)] int top = 50,
         OutputFormat format = OutputFormat.Text)
     {
-        GcStatsRequest request = new(trace, top, format);
-        return GcStatsExecutor.Run(request, Console.Out, Console.Error);
+        WriteAliasNotice("gcstats", "filtrace report <trace> --kind gc");
+        return Report(trace, ReportKind.Gc, top, format);
     }
 
     /// <summary>
@@ -953,14 +1089,15 @@ internal sealed class TraceCommands
     ///  This is a structured report, not a stack ranking: the summary always reflects
     ///  every method, while the detail rows are capped and ranked by compile time.
     /// </remarks>
+    [Hidden]
     [Command("jitstats")]
     public int JitStats(
         [Argument] string trace,
         [Range(0, int.MaxValue)] int top = 25,
         OutputFormat format = OutputFormat.Text)
     {
-        JitStatsRequest request = new(trace, top, format);
-        return JitStatsExecutor.Run(request, Console.Out, Console.Error);
+        WriteAliasNotice("jitstats", "filtrace report <trace> --kind jit");
+        return Report(trace, ReportKind.Jit, top, format);
     }
 
     /// <summary>
@@ -974,13 +1111,14 @@ internal sealed class TraceCommands
     ///  This is a structured report, not a stack ranking: a run of Starvation adjustments
     ///  means the pool kept injecting threads because queued work was not completing.
     /// </remarks>
+    [Hidden]
     [Command("threadpool")]
     public int ThreadPool(
         [Argument] string trace,
         OutputFormat format = OutputFormat.Text)
     {
-        ThreadPoolRequest request = new(trace, format);
-        return ThreadPoolExecutor.Run(request, Console.Out, Console.Error);
+        WriteAliasNotice("threadpool", "filtrace report <trace> --kind threadpool");
+        return Report(trace, ReportKind.Threadpool, top: null, format);
     }
 
     /// <summary>
@@ -1018,6 +1156,18 @@ internal sealed class TraceCommands
         return EventsExecutor.Run(request, Console.Out, Console.Error);
     }
 
+    /// <summary>Build, reuse, or remove the ETLX conversion cache beside a trace.</summary>
+    /// <param name="trace">Path to a .nettrace or .etl file.</param>
+    /// <param name="action">Cache action: convert or clean.</param>
+    /// <returns>A process exit code.</returns>
+    [Command("cache")]
+    public int Cache([Argument] string trace, CacheAction action) => action switch
+    {
+        CacheAction.Convert => FileOpsExecutor.Convert(trace, Console.Out, Console.Error),
+        CacheAction.Clean => FileOpsExecutor.Clean(trace, Console.Out, Console.Error),
+        _ => throw new ArgumentOutOfRangeException(nameof(action), action, null)
+    };
+
     /// <summary>
     ///  Build the ETLX conversion cache up front so the first analysis query is fast.
     /// </summary>
@@ -1028,9 +1178,13 @@ internal sealed class TraceCommands
     ///  beside the source; TraceEvent reuses that cache on later reads. Converting ahead
     ///  of time moves that one-time cost out of the first real query.
     /// </remarks>
+    [Hidden]
     [Command("convert")]
-    public int Convert([Argument] string trace) =>
-        FileOpsExecutor.Convert(trace, Console.Out, Console.Error);
+    public int Convert([Argument] string trace)
+    {
+        WriteAliasNotice("convert", "filtrace cache <trace> --action convert");
+        return Cache(trace, CacheAction.Convert);
+    }
 
     /// <summary>
     ///  Remove the ETLX conversion cache beside a trace to force a rebuild on next read.
@@ -1041,9 +1195,13 @@ internal sealed class TraceCommands
     ///  Use this when a cache is suspected stale (for example after the source trace was
     ///  replaced); the next analysis rebuilds it. A missing cache is reported, not an error.
     /// </remarks>
+    [Hidden]
     [Command("clean")]
-    public int Clean([Argument] string trace) =>
-        FileOpsExecutor.Clean(trace, Console.Out, Console.Error);
+    public int Clean([Argument] string trace)
+    {
+        WriteAliasNotice("clean", "filtrace cache <trace> --action clean");
+        return Cache(trace, CacheAction.Clean);
+    }
 
     /// <summary>
     ///  Record a Windows ETW (.etl) trace of a launched executable, then print the analysis
@@ -1119,4 +1277,7 @@ internal sealed class TraceCommands
                 return false;
         }
     }
+
+    private static void WriteAliasNotice(string alias, string canonical) =>
+        Console.Error.WriteLine($"The '{alias}' command is a preview alias; use '{canonical}'.");
 }

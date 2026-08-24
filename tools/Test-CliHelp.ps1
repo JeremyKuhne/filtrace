@@ -10,10 +10,13 @@
 .DESCRIPTION
   Enforces the CLI help contract (docs/design.md, "Measures of success"):
 
-    1. Every [Command] verb in the CLI is listed in the top-level help.
-    2. Each verb's `--help` succeeds, shows a Usage line, and stays within the
+     1. Every canonical [Command] verb is listed in top-level help; [Hidden]
+         preview aliases remain callable but do not appear there.
+     2. Top-level help does not exceed the pre-VN4 line or character baseline.
+     3. Each verb's `--help` succeeds, shows a Usage line, and stays within the
        per-verb line budget (so help never grows into an unscannable wall).
-    3. The README documents every verb with a runnable example and carries the
+     4. The README documents every canonical verb with a runnable example, teaches
+         no runnable preview-alias command, and carries the
        canonical workflow - examples live in the README because ConsoleAppFramework
        generates the per-verb `--help` from XML docs and has no examples section.
 
@@ -44,15 +47,25 @@ if (-not (Test-Path $cliDll)) {
     throw "CLI binary not found at '$cliDll'. Build the solution first (dotnet build filtrace.slnx -c $Configuration)."
 }
 
-# The verb set is the source of truth: every [Command("name")] in TraceCommands.
+# The command attributes are the source of truth. [Hidden] immediately before a
+# [Command] marks a callable preview alias that must not enter canonical discovery.
 # @(...) forces an array so a single-verb surface does not collapse to a string
 # (which would make foreach iterate characters).
-$verbs = @(Select-String -Path $commandsFile -Pattern '\[Command\("([^"]+)"\)\]' -AllMatches |
-    ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$commandsSource = Get-Content -LiteralPath $commandsFile -Raw
+$allVerbs = @([regex]::Matches($commandsSource, '\[Command\("([^"]+)"\)\]') |
+    ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$hiddenVerbs = @([regex]::Matches(
+        $commandsSource,
+        '\[Hidden\]\s*\r?\n\s*\[Command\("([^"]+)"\)\]') |
+    ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$hiddenSet = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+foreach ($hiddenVerb in $hiddenVerbs) { [void]$hiddenSet.Add($hiddenVerb) }
+$verbs = @($allVerbs | Where-Object { -not $hiddenSet.Contains($_) })
 if ($verbs.Count -eq 0) { throw "No [Command(...)] verbs found in $commandsFile." }
-Write-Host "Linting help for $($verbs.Count) verbs: $($verbs -join ', ')"
+Write-Host "Linting help for $($verbs.Count) canonical verbs: $($verbs -join ', ')"
+Write-Host "Hidden preview aliases: $($hiddenVerbs -join ', ')"
 
-# 1. Top-level help lists every verb. If the CLI itself fails to run, fail with a
+# 1. Top-level help lists every canonical command. If the CLI itself fails to run, fail with a
 # focused message rather than letting every verb check cascade into noise.
 $topHelp = (& dotnet $cliDll 2>&1 | Out-String)
 if ($LASTEXITCODE -ne 0) {
@@ -63,6 +76,24 @@ foreach ($verb in $verbs) {
         Add-Failure "Top-level help does not list the '$verb' verb."
     }
 }
+foreach ($alias in $hiddenVerbs) {
+    if ($topHelp -match "(?m)^\s+$([regex]::Escape($alias))\s") {
+        Add-Failure "Hidden preview alias '$alias' appears in top-level help."
+    }
+
+    $aliasHelp = (& dotnet $cliDll $alias --help 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $aliasHelp -notmatch '(?m)^Usage:') {
+        Add-Failure "Hidden preview alias '$alias --help' is not callable."
+    }
+}
+
+$topHelpLines = ($topHelp.TrimEnd("`r", "`n") -split "`n").Count
+if ($topHelpLines -gt 27) {
+    Add-Failure "Top-level help is $topHelpLines lines; the VN4 baseline is 27."
+}
+if ($topHelp.Length -gt 2171) {
+    Add-Failure "Top-level help is $($topHelp.Length) characters; the VN4 baseline is 2171."
+}
 
 $scopeVerbs = [ordered]@{
     process = [System.Collections.Generic.List[string]]::new()
@@ -70,7 +101,7 @@ $scopeVerbs = [ordered]@{
     benchmark = [System.Collections.Generic.List[string]]::new()
 }
 
-# 2. Per-verb help: succeeds, has a Usage line, stays within the line budget, and
+# 3. Per-verb help: succeeds, has a Usage line, stays within the line budget, and
 # records the implemented scope surface for the documentation inventory check.
 foreach ($verb in $verbs) {
     $verbHelp = (& dotnet $cliDll $verb --help 2>&1 | Out-String)
@@ -93,7 +124,7 @@ foreach ($verb in $verbs) {
     }
 }
 
-# 3. README documents every verb with a runnable example and carries the workflow.
+# 4. README documents every canonical verb with a runnable example and carries the workflow.
 $readme = Get-Content $readmeFile -Raw
 if ($readme -notmatch '(?im)workflow') {
     Add-Failure "README has no 'Workflow' section."
@@ -102,6 +133,11 @@ foreach ($verb in $verbs) {
     # A documented example is a `filtrace <verb> ...` invocation somewhere in the README.
     if ($readme -notmatch "filtrace $([regex]::Escape($verb))(\s|``)") {
         Add-Failure "README has no 'filtrace $verb' example."
+    }
+}
+foreach ($alias in $hiddenVerbs) {
+    if ($readme -match "filtrace $([regex]::Escape($alias))(\s|``)") {
+        Add-Failure "README teaches hidden preview alias 'filtrace $alias' as a runnable command."
     }
 }
 

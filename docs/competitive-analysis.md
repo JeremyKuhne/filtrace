@@ -1,9 +1,10 @@
 # filtrace competitive analysis
 
-**Status:** Current. Reviewed 2026-08-01.
+**Status:** Current. Reviewed 2026-08-23.
 
-**Basis:** filtrace at `main` on 2026-08-01 - 25 CLI verbs, 18 `trace_*` MCP tools,
-three projects. pvanalyze at commit `208d2b8` (12 commands, single project). Other
+**Basis:** filtrace after the VN4 prototype - 16 canonical CLI commands, 12 hidden
+preview aliases, 18 `trace_*` MCP tools, three projects. pvanalyze at commit
+`208d2b8` (12 commands, single project). Other
 tools are described at the level of documented, stable capability rather than a
 pinned version; verify any single row before acting on it.
 

@@ -124,9 +124,9 @@ try {
             }
             [ordered] @{
                 id = 'root-cpu'
-                operation = 'cpu'
+                operation = 'rank'
                 inputIds = @('cpu')
-                arguments = @('--root', 'MyApp.Work', '--top', '5')
+                arguments = @('--metric', 'cpu', '--root', 'MyApp.Work', '--top', '5')
             }
             [ordered] @{
                 id = 'callers'
@@ -136,9 +136,9 @@ try {
             }
             [ordered] @{
                 id = 'allocation'
-                operation = 'alloc'
+                operation = 'rank'
                 inputIds = @('alloc')
-                arguments = @('--top', '5')
+                arguments = @('--metric', 'alloc', '--top', '5')
             }
         )
     }

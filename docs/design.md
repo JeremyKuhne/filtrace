@@ -193,9 +193,9 @@ These are checked by CI; a change that breaks one is not shippable.
 | MCP `tools/list` size | <= 7,000 estimated tokens | ~6,590 tokens / 26,118 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | MCP stdout purity | pure JSON-RPC, real `tools/call` round trip | envelope `schemaVersion` 15 | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | Single analysis response | <= 25,000 tokens (`OutputBudget.DefaultCeilingTokens`) | every producer bounds its rows against `OutputBudget.DefaultRowBudgetTokens` | Core budget plus worst-case tests |
-| Per-verb `--help` | <= 60 lines | 25 verbs | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
-| Verb discoverability | every verb in top-level help, with a README example and a scope-inventory entry | 25 verbs | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
-| Catalog completeness | every verb and every `trace_*` tool documented | 25 verbs / 18 tools | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
+| Per-command `--help` | <= 60 lines | 16 canonical commands; 12 hidden preview aliases remain help-addressable | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
+| Command discoverability | every canonical command in top-level help, README examples, and scope inventory; hidden aliases absent | 16 canonical commands; top-level help 27 lines / 2,171 chars | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
+| Catalog completeness | every canonical command and every `trace_*` tool documented | 16 commands / 18 tools | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
 | Knowledge-layer drift | zero drift between `docs/` blocks and their embedded copies | 4 blocks | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
 | Deterministic eval | every task keeps its answer, call count, and output budget | 26 tasks | [eval/Invoke-Eval.ps1](../eval/Invoke-Eval.ps1) |
 | Numeric parity | rankings match the frozen oracle within tolerance and ordering | committed fixtures | `tests/Filtrace.Parity.Tests` |
@@ -227,7 +227,7 @@ simplification may not.
 
 ### What the gates deliberately do not measure
 
-Tool count, verb count, and description length are not goals. Descriptions are a
+Tool count, command count, and description length are not goals. Descriptions are a
 small share of the permanent schema cost, so tightening prose cannot buy headroom;
 and a lower tool count that costs an extra call is a loss under
 [total investigation cost](#optimize-total-investigation-cost).
@@ -242,8 +242,7 @@ Changing one of these is a deliberate, announced decision, not a refactor.
 - **The result envelope.** `schemaVersion` (currently 15), structured `warnings` and `hints`,
   effective query `context`, and the typed result. A shape change bumps the version and updates both renderers,
   the goldens, and the budgets together.
-- **CLI exit codes.** Success, usage error, input error, and the `--strict`
-  symbol-gate code.
+- **CLI exit codes.** Success, usage error, input error, and the quality-gate code.
 - **`TraceQ.Fixtures.HotLoopBench`.** Baked into committed binary captures that
   cannot be regenerated without elevated ETW.
 - **Deterministic JSON.** Field names, ordering, and rounding are part of the

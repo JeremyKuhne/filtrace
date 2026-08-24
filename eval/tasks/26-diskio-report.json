@@ -5,7 +5,7 @@
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/diskio.etl",
   "os": "windows",
   "steps": [
-    { "args": ["diskio", "{fixture}"] }
+    { "args": ["report", "{fixture}", "--kind", "diskio"] }
   ],
   "assert": [
     { "field": "result.writeCount", "equals": 117 },

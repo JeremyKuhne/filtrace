@@ -114,10 +114,10 @@ internal static class CollectExecutor
             output.WriteLine();
             output.WriteLine("Next-step filtrace commands:");
             output.WriteLine($"  filtrace processes \"{trace}\"");
-            output.WriteLine($"  filtrace cpu \"{trace}\" --process \"{result.ProcessName}\"");
+            output.WriteLine($"  filtrace rank \"{trace}\" --metric cpu --process \"{result.ProcessName}\"");
             if (request.Profile == CollectProfile.ThreadTime)
             {
-                output.WriteLine($"  filtrace threadtime \"{trace}\" --process \"{result.ProcessName}\"");
+                output.WriteLine($"  filtrace rank \"{trace}\" --metric threadtime --process \"{result.ProcessName}\"");
             }
 
             output.WriteLine($"  filtrace classify \"{trace}\" --process \"{result.ProcessName}\" --native-symbols");
