@@ -23,6 +23,9 @@ internal sealed class TraceCommands
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
+    /// <param name="strict">Exit 3 when frame-name resolution is below the trusted threshold.</param>
+    /// <param name="requireEnabled">Comma-separated analyses that must be supported with capture status enabled; enabled-zero passes.</param>
+    /// <param name="requireEvents">Comma-separated analyses that must be enabled with at least one observed event.</param>
     /// <param name="process">Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="pid">Scope to these exact process ids (comma-separated); mutually exclusive with --process.</param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
@@ -42,10 +45,24 @@ internal sealed class TraceCommands
         [Argument] string trace,
         string? symbols = null,
         OutputFormat format = OutputFormat.Text,
+        bool strict = false,
+        string[]? requireEnabled = null,
+        string[]? requireEvents = null,
         string process = "",
         int[]? pid = null,
         Children children = Children.Include)
     {
+        if (!InfoQualityPolicy.TryCreate(
+            strict,
+            requireEnabled,
+            requireEvents,
+            out InfoQualityPolicy policy,
+            out string? policyError))
+        {
+            Console.Error.WriteLine(policyError);
+            return ExitCodes.UsageError;
+        }
+
         // Mirror the trace_info tool's scope resolution: an explicit selector scopes to
         // those process trees, and no selector auto-scopes a multi-process capture to the
         // busiest. There is no all-processes opt-out here (run `processes` to list them).
@@ -55,7 +72,7 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        InfoRequest request = new(trace, symbols, format, scope);
+        InfoRequest request = new(trace, symbols, format, scope) { Policy = policy };
         return InfoExecutor.Run(request, Console.Out, Console.Error);
     }
 

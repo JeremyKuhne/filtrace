@@ -11,8 +11,8 @@ namespace Filtrace.Cli;
 ///  <para>
 ///   <see cref="Success"/> for a completed query, <see cref="UsageError"/> for a
 ///   bad command line, <see cref="InputError"/> when the trace could not be
-///   loaded, and <see cref="StrictGate"/> when an otherwise successful run tripped
-///   the <c>--strict</c> symbol-resolution gate.
+///   loaded, and <see cref="QualityGate"/> when an otherwise successful run tripped
+///   an opt-in quality or capture-acceptance gate.
 ///  </para>
 /// </remarks>
 internal static class ExitCodes
@@ -33,8 +33,8 @@ internal static class ExitCodes
     public const int InputError = 2;
 
     /// <summary>
-    ///  The run succeeded but <c>--strict</c> was set and symbol resolution was
-    ///  below the trusted threshold.
+    ///  The run succeeded but an opt-in quality or capture-acceptance policy rejected
+    ///  its evidence.
     /// </summary>
-    public const int StrictGate = 3;
+    public const int QualityGate = 3;
 }

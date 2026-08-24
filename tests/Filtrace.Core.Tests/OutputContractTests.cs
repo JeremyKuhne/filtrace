@@ -124,6 +124,60 @@ public sealed class OutputContractTests
     }
 
     [TestMethod]
+    public void ForTrace_RootScope_CarriesAncestryCoverageAndGuidance()
+    {
+        TraceInfo info = new(
+            "parallel.nettrace",
+            TraceFormat.NetTrace,
+            10.0,
+            2,
+            1.0,
+            [],
+            [],
+            TraceCapabilities.AnalysesFor(TraceFormat.NetTrace));
+        LoadedTrace trace = new(
+            info,
+            new StackSampleSource(
+                MetricInfo.Cpu,
+                [
+                    new SampleStack(["Process", "SelectedRoot", "Worker.One"], 4.0, "worker-1"),
+                    new SampleStack(["Process", "Worker.Sibling"], 6.0, "worker-2")
+                ],
+                StackRecordSemantics.PeriodicCpuSamples));
+        AnalysisContext context = AnalysisContext.ForTrace("rank", trace, "self", "SelectedRoot");
+        AnalysisResult<RankingResult> envelope = new(
+            trace.Aggregator.SelfTime("SelectedRoot", [], 25),
+            context: context);
+
+        AnalysisScopeContext scope = context.Scope!;
+        scope.RootKind.Should().Be(AnalysisScopeContext.StackAncestryRootKind);
+        scope.RootCoverage.Should().NotBeNull();
+        scope.RootCoverage!.AvailableWeight.Should().Be(10.0);
+        scope.RootCoverage.RetainedWeight.Should().Be(4.0);
+        scope.RootCoverage.AvailableRecordCount.Should().Be(2);
+        scope.RootCoverage.RetainedRecordCount.Should().Be(1);
+        envelope.Diagnostics.Should().ContainSingle(
+            diagnostic => diagnostic.Code == AnalysisDiagnosticCodes.RootScopeAncestry
+                && diagnostic.Severity == "info");
+        envelope.Hints.Should().ContainSingle(
+            hint => hint.Contains("may omit sibling workers", StringComparison.Ordinal));
+        envelope.NextSteps.Should().ContainSingle();
+        AnalysisNextStep nextStep = envelope.NextSteps.Single();
+        nextStep.Operation.Should().BeNull();
+        nextStep.Reason.Should().Contain("validated time window");
+
+        using JsonDocument document = JsonDocument.Parse(OutputJson.Serialize(envelope));
+        JsonElement serializedScope = document.RootElement.GetProperty("context").GetProperty("scope");
+        serializedScope.GetProperty("rootKind").GetString().Should().Be("stackAncestry");
+        JsonElement coverage = serializedScope.GetProperty("rootCoverage");
+        coverage.GetProperty("availableWeight").GetDouble().Should().Be(10.0);
+        coverage.GetProperty("retainedWeight").GetDouble().Should().Be(4.0);
+        coverage.GetProperty("retainedPercent").GetDouble().Should().Be(40.0);
+        coverage.GetProperty("availableRecordCount").GetInt32().Should().Be(2);
+        coverage.GetProperty("retainedRecordCount").GetInt32().Should().Be(1);
+    }
+
+    [TestMethod]
     public void ForTrace_ManyProcessIds_BoundsListsAndKeepsCounts()
     {
         int[] processIds = [.. Enumerable.Range(1, 100)];

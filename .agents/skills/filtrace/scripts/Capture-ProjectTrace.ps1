@@ -57,6 +57,10 @@
 .PARAMETER Output
     Trace output path. Defaults to ./perf-traces/<AssemblyName>.<nettrace|etl>.
 
+.PARAMETER DotnetTracePath
+    dotnet-trace path or command name. Defaults to dotnet-trace from PATH. EventPipe
+    capture only; an explicit missing value fails instead of installing another tool.
+
 .PARAMETER ElevatedTimeoutSeconds
     How long the non-elevated parent waits for the self-elevated ETW capture to finish
     before it stops blocking. Default 1200 (20 minutes). Only the ETW self-elevation path
@@ -81,22 +85,102 @@ param(
     [string[]]$AppArgs = @(),
     [int]$Top = 25,
     [string]$Output,
+    [string]$DotnetTracePath = 'dotnet-trace',
     [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1200
 )
 
 $ErrorActionPreference = 'Stop'
 
-function Write-CaptureMetadata([string]$TracePath, [System.Collections.IDictionary]$Analyses) {
-    $metadata = [ordered]@{
+function Write-CaptureMetadata(
+    [string]$TracePath,
+    [System.Collections.IDictionary]$Analyses,
+    [System.Collections.IDictionary]$Recorder = $null) {
+    $sidecar = [ordered]@{
         schemaVersion = 1
         analyses = $Analyses
-    } | ConvertTo-Json -Depth 3 -Compress
+    }
+    if ($null -ne $Recorder) {
+        $sidecar['recorder'] = $Recorder
+    }
+
+    $metadata = $sidecar | ConvertTo-Json -Depth 4 -Compress
     $encoding = New-Object System.Text.UTF8Encoding($false)
     try {
         [System.IO.File]::WriteAllText("$TracePath.filtrace.json", $metadata, $encoding)
     }
     catch {
         Write-Warning "Capture succeeded, but metadata could not be written: $($_.Exception.Message). Provider enablement will be unknown during analysis."
+    }
+}
+
+function Get-DotnetTraceRecorder(
+    [string]$CommandPath,
+    [ValidateSet('cpu', 'alloc')]
+    [string]$MetricName) {
+    $versionOutput = (& $CommandPath --version 2>&1 | Out-String).Trim()
+    $versionExitCode = $LASTEXITCODE
+    $versionMatch = [regex]::Match(
+        $versionOutput,
+        '(?<!\d)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?')
+    if ($versionExitCode -ne 0 -or -not $versionMatch.Success) {
+        throw "dotnet-trace --version failed or returned no semantic version (exit $versionExitCode)."
+    }
+
+    $profileOutput = & $CommandPath list-profiles 2>&1 | Out-String
+    $profileExitCode = $LASTEXITCODE
+    if ($profileExitCode -ne 0) {
+        throw "dotnet-trace list-profiles failed (exit $profileExitCode)."
+    }
+
+    $profiles = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($line in ($profileOutput -split "`r?`n")) {
+        $match = [regex]::Match(
+            $line,
+            '^\s*([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s+\(([^)]+)\))?\s+-\s')
+        if (-not $match.Success) { continue }
+
+        $appliesTo = $match.Groups[2].Value
+        if ($appliesTo -and -not [string]::Equals($appliesTo, 'collect', [StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+
+        [void]$profiles.Add($match.Groups[1].Value)
+        if ($profiles.Count -gt 128) {
+            throw 'dotnet-trace list-profiles returned more than 128 collect profiles.'
+        }
+    }
+
+    $availableProfiles = @($profiles | Sort-Object)
+    if ($availableProfiles.Count -eq 0) {
+        throw 'dotnet-trace list-profiles returned no profiles that apply to collect.'
+    }
+
+    $effectiveProfiles = if ($MetricName -eq 'alloc') {
+        if (-not $profiles.Contains('gc-verbose')) {
+            throw "dotnet-trace does not advertise the required gc-verbose collect profile. Available: $($availableProfiles -join ', ')."
+        }
+
+        @('gc-verbose')
+    }
+    elseif ($profiles.Contains('dotnet-common') -and $profiles.Contains('dotnet-sampled-thread-time')) {
+        @('dotnet-common', 'dotnet-sampled-thread-time')
+    }
+    elseif ($profiles.Contains('cpu-sampling')) {
+        @('cpu-sampling')
+    }
+    else {
+        throw "dotnet-trace does not advertise a supported CPU collect profile. Available: $($availableProfiles -join ', ')."
+    }
+
+    return [pscustomobject]@{
+        Command = $CommandPath
+        Version = $versionMatch.Value
+        ProfileArgument = $effectiveProfiles -join ','
+        Metadata = [ordered]@{
+            name = 'dotnet-trace'
+            version = $versionMatch.Value
+            profiles = @($effectiveProfiles)
+        }
     }
 }
 
@@ -135,6 +219,38 @@ if ((Test-Path $toolsDir) -and ($env:PATH -notlike "*$toolsDir*")) {
 if ($Profiler -eq 'ETW' -and -not (Get-Command filtrace -ErrorAction SilentlyContinue)) {
     Write-Error 'filtrace not found. Install it (dotnet tool install -g KlutzyNinja.Filtrace), then re-run.' -ErrorAction Continue
     exit 1
+}
+
+$dotnetTraceRecorder = $null
+if ($Profiler -eq 'EP') {
+    $dotnetTraceCommand = Get-Command $DotnetTracePath -ErrorAction SilentlyContinue
+    if ($null -eq $dotnetTraceCommand) {
+        if (-not [string]::Equals($DotnetTracePath, 'dotnet-trace', [StringComparison]::OrdinalIgnoreCase)) {
+            Write-Error "dotnet-trace override could not be resolved: '$DotnetTracePath'." -ErrorAction Continue
+            exit 1
+        }
+
+        Write-Host 'dotnet-trace not found; installing the global tool...' -ForegroundColor Yellow
+        dotnet tool install --global dotnet-trace | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error 'Failed to install dotnet-trace. Install it manually: dotnet tool install -g dotnet-trace.' -ErrorAction Continue
+            exit 1
+        }
+
+        $dotnetTraceCommand = Get-Command dotnet-trace -ErrorAction SilentlyContinue
+        if ($null -eq $dotnetTraceCommand) {
+            Write-Error 'dotnet-trace installed but could not be resolved on PATH.' -ErrorAction Continue
+            exit 1
+        }
+    }
+
+    try {
+        $dotnetTraceRecorder = Get-DotnetTraceRecorder $dotnetTraceCommand.Source $Metric
+    }
+    catch {
+        Write-Error "dotnet-trace capture preflight failed: $($_.Exception.Message)" -ErrorAction Continue
+        exit 1
+    }
 }
 
 # ETW kernel sessions require Administrator. When not elevated, relaunch this script
@@ -239,20 +355,7 @@ if (-not $Output) {
 }
 
 if ($Profiler -eq 'EP') {
-    # dotnet-trace is a separate global tool; make sure it is installed and on PATH.
-    $toolsDir = Join-Path $HOME '.dotnet/tools'
-    if ((Test-Path $toolsDir) -and ($env:PATH -notlike "*$toolsDir*")) {
-        $env:PATH = "$toolsDir$([System.IO.Path]::PathSeparator)$env:PATH"
-    }
-    if (-not (Get-Command dotnet-trace -ErrorAction SilentlyContinue)) {
-        Write-Host 'dotnet-trace not found; installing the global tool...' -ForegroundColor Yellow
-        dotnet tool install --global dotnet-trace | Out-Host
-        if ($LASTEXITCODE -ne 0) { Write-Error 'Failed to install dotnet-trace. Install it manually: dotnet tool install -g dotnet-trace.' -ErrorAction Continue ; exit 1 }
-        if ($env:PATH -notlike "*$toolsDir*") { $env:PATH = "$toolsDir$([System.IO.Path]::PathSeparator)$env:PATH" }
-    }
-
-    $traceProfile = 'cpu-sampling'
-    if ($Metric -eq 'alloc') { $traceProfile = 'gc-verbose' }
+    $traceProfile = $dotnetTraceRecorder.ProfileArgument
 
     Write-Host "Capturing EventPipe ($Metric) trace of $processName..." -ForegroundColor Cyan
     # Launch the built app directly (never `dotnet run`) so this single-process
@@ -260,20 +363,22 @@ if ($Profiler -eq 'EP') {
     $collectArgs = @('collect', '--output', $Output, '--profile', $traceProfile, '--', $runExe)
     $collectArgs += $runPrefixArgs
     $collectArgs += $AppArgs
-    dotnet-trace @collectArgs | Out-Host
+    & $dotnetTraceRecorder.Command @collectArgs | Out-Host
     if ($LASTEXITCODE -ne 0) { Write-Error "dotnet-trace failed (exit $LASTEXITCODE)." -ErrorAction Continue ; exit $LASTEXITCODE }
 
     if ($Metric -eq 'alloc') {
         # gc-verbose establishes allocation and GC events, but dotnet-trace profile
         # composition varies across tool versions; leave other families unknown.
-        Write-CaptureMetadata $Output ([ordered]@{
+        $captureAnalyses = [ordered]@{
             alloc = 'enabled'; gcstats = 'enabled'; events = 'enabled'
-        })
+        }
+        Write-CaptureMetadata $Output $captureAnalyses $dotnetTraceRecorder.Metadata
     }
     else {
-        # cpu-sampling establishes CPU, but dotnet-trace profile composition varies
-        # across tool versions; leave other runtime families unknown.
-        Write-CaptureMetadata $Output ([ordered]@{ cpu = 'enabled'; events = 'enabled' })
+        # The selected profile establishes CPU, but profile composition varies across
+        # tool versions; leave other runtime families unknown.
+        $captureAnalyses = [ordered]@{ cpu = 'enabled'; events = 'enabled' }
+        Write-CaptureMetadata $Output $captureAnalyses $dotnetTraceRecorder.Metadata
     }
 }
 else {

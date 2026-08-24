@@ -147,13 +147,15 @@ public sealed class ExportExecutorTests
         // MyApp.Other tree: scoping to MyApp.Work must drop the Program.Main root
         // and the sibling MyApp.Other subtree, keeping only MyApp.Work/MyApp.Inner -
         // the same subtree `cpu --root MyApp.Work` would rank.
-        (int exit, string output, _) = Run(Request(Speedscope, root: "MyApp.Work"));
+        (int exit, string output, string error) = Run(Request(Speedscope, root: "MyApp.Work"));
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("MyApp.Work");
         output.Should().Contain("MyApp.Inner");
         output.Should().NotContain("Program.Main");
         output.Should().NotContain("MyApp.Other");
+        error.Should().Contain("Root scope uses stack ancestry");
+        error.Should().Contain("sibling worker stacks");
     }
 
     [TestMethod]

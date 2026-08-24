@@ -62,6 +62,7 @@ public sealed partial class FoldingAggregator
     // concurrently through the singleton TraceStore, so the short-name cache must
     // be safe for parallel readers and writers.
     private readonly ConcurrentDictionary<string, string> _shortCache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, RootScopeCoverage> _rootCoverageCache = new(StringComparer.Ordinal);
 
     /// <summary>
     ///  Initializes a new <see cref="FoldingAggregator"/> over the given source.
@@ -77,6 +78,49 @@ public sealed partial class FoldingAggregator
     ///  The metric the ranked sample weights are measured in.
     /// </summary>
     public MetricInfo Metric => _source.Metric;
+
+    /// <summary>
+    ///  Measures a root frame's stack-ancestry coverage against this aggregator's
+    ///  complete, already externally scoped source.
+    /// </summary>
+    /// <param name="rootFrame">Substring identifying the root frame.</param>
+    /// <returns>The pre-root and retained metric weight and record counts.</returns>
+    /// <exception cref="ArgumentException"><paramref name="rootFrame"/> is empty.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="rootFrame"/> is <see langword="null"/>.</exception>
+    public RootScopeCoverage GetRootScopeCoverage(string rootFrame)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(rootFrame);
+        return _rootCoverageCache.GetOrAdd(rootFrame, CalculateRootScopeCoverage);
+    }
+
+    private RootScopeCoverage CalculateRootScopeCoverage(string rootFrame)
+    {
+        double availableWeight = 0.0;
+        double retainedWeight = 0.0;
+        int retainedRecords = 0;
+
+        foreach (SampleStack sample in _samples)
+        {
+            availableWeight += sample.Weight;
+            if (FrameNames.TryFindRootStart(sample.Frames, rootFrame, out _)
+                && sample.Frames.Count > 0)
+            {
+                retainedWeight += sample.Weight;
+                retainedRecords++;
+            }
+        }
+
+        double retainedPercent = availableWeight > 0.0
+            ? retainedWeight / availableWeight * 100.0
+            : 0.0;
+        bool recordsAvailable = _source.RecordSemantics != StackRecordSemantics.Unavailable;
+        return new RootScopeCoverage(
+            availableWeight,
+            retainedWeight,
+            retainedPercent,
+            recordsAvailable ? _samples.Count : null,
+            recordsAvailable ? retainedRecords : null);
+    }
 
     /// <summary>
     ///  Lists every process that owns samples, ranked by summed sample weight, so a

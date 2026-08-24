@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using System.Text.Json;
+using Filtrace.Output;
 using Filtrace.Tracing;
 
 namespace Filtrace.Cli;
@@ -213,6 +214,29 @@ public sealed class DiffExecutorTests
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("baseline: Only 180 periodic CPU records");
         output.Should().Contain("current: Only 180 periodic CPU records");
+    }
+
+    [TestMethod]
+    public void Run_RootScopedJson_CarriesBothCoverageDenominators()
+    {
+        string path = FixturePath("activity.nettrace");
+
+        (int exit, string output, _) = Run(Request(
+            path,
+            path,
+            root: "ActivityLoop",
+            format: OutputFormat.Json));
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement envelope = document.RootElement;
+        envelope.GetProperty("warnings").EnumerateArray().Should().Contain(
+            warning => warning.GetProperty("code").GetString() == AnalysisDiagnosticCodes.RootScopeAncestry);
+        JsonElement result = envelope.GetProperty("result");
+        result.GetProperty("beforeRootCoverage").GetProperty("availableWeight").GetDouble()
+            .Should().BeGreaterThan(result.GetProperty("beforeRootCoverage").GetProperty("retainedWeight").GetDouble());
+        result.GetProperty("afterRootCoverage").GetProperty("availableRecordCount").GetInt32()
+            .Should().BeGreaterThan(result.GetProperty("afterRootCoverage").GetProperty("retainedRecordCount").GetInt32());
     }
 
     [TestMethod]

@@ -51,31 +51,18 @@ Record or produce one, point a verb - or `trace_info` - at it, then pick by the 
   `--process`). For a command that finishes in tens of milliseconds, see trap 13.
 
 So "where's the time / what allocates" on one process -> EventPipe; "CPU-bound or
-blocked?", "GC versus my code?", or a machine-wide capture -> ETW. Bundled scripts wrap
-the capture-then-analyze loop, each writing a manifest and printing only the commands its
-capture actually unlocks, scoped as each verb supports:
-[scripts/Capture-BenchmarkTrace.ps1](scripts/Capture-BenchmarkTrace.ps1) for a
-BenchmarkDotNet micro-benchmark - isolated run directory, all-case manifest with explicit
-benchmark/parameter identity, exact generated-child PDB verification; pass both
-`-OperationCount` and `-OperationUnit` for per-operation metadata, or omit both, and
-expect same-project/same-TFM overlap to be rejected rather than shared.
-[scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) traces an executable
-project's built output - never `dotnet run`, whose build/run host is a different process
-(see the trap catalog). [scripts/Capture-CommandTrace.ps1](scripts/Capture-CommandTrace.ps1)
-captures a matrix of short commands, each repeated inside one session, writing a
-`kind: command` manifest that `batch` and `diff` read (see trap 13).
-Analysis state comes only from `filtrace info` and is never fabricated: a case it cannot
-read is unknown with no command emitted, and the recorder fallback applies only without
-filtrace. Disabled/unknown states become warnings and full tool output stays in the run
-log. `-Format Json` gives a compact handoff - stdout bounded to 20 KiB, falling back to a
-minimal result pointing at `manifest.json`, and returning `status: "timeout"` with `runId`
-and `log` on a non-fatal elevated wait timeout; `-Quiet` gives warnings only.
-Two more scripts open a filtrace `export` in a hosted viewer with the profile already
-loaded, no manual upload: [scripts/Open-SpeedscopeTrace.ps1](scripts/Open-SpeedscopeTrace.ps1)
-serves a `--format speedscope` profile to speedscope.app (defaulting to the Left Heavy
-hotspot view), and [scripts/Open-PerfettoTrace.ps1](scripts/Open-PerfettoTrace.ps1) serves a
-`--format chromium` synthetic flame-graph trace to the Perfetto UI. Each hosts the
-file on a one-shot loopback listener, so nothing is uploaded.
+blocked?", "GC versus my code?", or a machine-wide capture -> ETW. Bundled helpers:
+
+- [scripts/Capture-BenchmarkTrace.ps1](scripts/Capture-BenchmarkTrace.ps1) captures isolated BenchmarkDotNet cases with exact identity and symbol verification.
+- [scripts/Capture-ProjectTrace.ps1](scripts/Capture-ProjectTrace.ps1) builds and traces an executable directly - never through `dotnet run`.
+- [scripts/Capture-CommandTrace.ps1](scripts/Capture-CommandTrace.ps1) repeats short commands inside one ETW session and writes a manifest for `batch` / `diff`.
+- [scripts/Open-SpeedscopeTrace.ps1](scripts/Open-SpeedscopeTrace.ps1) and
+   [scripts/Open-PerfettoTrace.ps1](scripts/Open-PerfettoTrace.ps1) open exports through a one-shot loopback host without uploading them.
+- [scripts/Invoke-FiltraceAnalysis.ps1](scripts/Invoke-FiltraceAnalysis.ps1) records decisive read-only queries with exact argv and input/output hashes; `-ReplayFrom` rejects changed plan or trace bytes before executing a query.
+
+Capture helpers derive analysis availability from `filtrace info`, retain logs and
+manifests, and never fabricate an enabled provider. Keep analysis plans to accepted
+orientation, attribution, allocation, and comparison evidence - not every dead end.
 
 A plain `dotnet-trace collect` captures CPU, runtime contention, and the structured
 runtime reports its profile selects, but two metrics need an explicit provider on the
@@ -88,12 +75,14 @@ Level `5` is Verbose; an all-ones mask enables every keyword:
 
 ```pwsh
 # for rank --metric wait
-dotnet-trace collect --profile cpu-sampling `
+dotnet-trace collect --profile dotnet-common,dotnet-sampled-thread-time `
    --providers Microsoft-Windows-DotNETRuntime:0x414C14FCCBD:5 -- <app> <args>
 # for metric activity / --activity scope
-dotnet-trace collect --profile cpu-sampling `
+dotnet-trace collect --profile dotnet-common,dotnet-sampled-thread-time `
    --providers MyCompany-RequestSource:0xFFFFFFFFFFFFFFFF:5 -- <app> <args>
 ```
+
+`Capture-ProjectTrace.ps1` queries `list-profiles` before build/launch, prefers the current CPU pair, records the effective recorder contract, and fails before the workload when no known profile mapping exists.
 
 ## The workflow: orient -> rank -> drill -> compare
 
@@ -111,6 +100,10 @@ Almost every investigation is the same four moves:
    Check `availableAnalyses` before selecting a metric, then read
    `analyses.<name>`: `captureStatus` and `eventCount` distinguish enabled-zero,
    disabled, observed, and unknown provider state.
+   In shell automation, `filtrace info --strict` exits 3 below the 0.8 CPU
+   frame-name threshold. Add `--require-enabled <names>` when provider enablement
+   is required (enabled-zero passes), or `--require-events <names>` when a positive
+   event count is required. The full info envelope is still emitted on rejection.
 2. **Rank.** Find the hottest frames by the metric that matches the question -
    `cpu`, `alloc`, `exceptions`, or `threadtime` (or `rank --metric <m>`).
    Self-time finds the leaf that burns the resource; inclusive-time finds the
@@ -156,7 +149,7 @@ workload:
 
 | Verb | Shows |
 |---|---|
-| `info` | format, samples, frame-name and source/PDB quality, per-thread counts, per-analysis format/capture/event state, and quality warnings - the CLI counterpart of `trace_info` |
+| `info` | format, samples, frame-name and source/PDB quality, per-thread counts, per-analysis format/capture/event state, quality warnings, and optional shell acceptance gates - the CLI counterpart of `trace_info` |
 
 **Rank** - find the hottest frames by a metric:
 
@@ -264,6 +257,12 @@ Run `filtrace <verb> --help` for the full option set of any verb.
   `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
   `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and
   `trace_export`. Set `--root <frame>` / `root` to keep the subtree under a frame.
+  Root filtering is stack ancestry, not causal correlation: stacks without the
+  selected frame are excluded, including sibling workers. Root-aware structured
+  results identify `rootKind: stackAncestry` and report available versus retained
+  weight and record counts; direct diffs report both sides, and manifest batch/diff
+  report each case. Use an instrumented activity or validated time window for a
+  parallel phase, and ETW `threadtime` when sampled CPU does not explain elapsed time.
 - **BenchmarkDotNet workload:** CLI `rank`, `cpu`, `alloc`, `exceptions`,
   `threadtime`, `callers`, `tree`, `classify`, `diff`, `batch`, and `export` accept
   `--benchmark`; MCP `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`,

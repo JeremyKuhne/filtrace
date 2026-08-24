@@ -635,7 +635,15 @@ public sealed class TraceTools
             : after.Aggregator.SelfTime(resolvedRoot, foldPatterns, int.MaxValue);
 
         RankingDiffResult fullDiff = RankingDiff.Diff(beforeRanking, afterRanking, top);
-        RankingDiffResult diff = RankingDiff.LimitRows(fullDiff, out string? budgetWarning);
+        RankingDiffResult diff = RankingDiff.LimitRows(fullDiff, out string? budgetWarning) with
+        {
+            BeforeRootCoverage = string.IsNullOrEmpty(resolvedRoot)
+                ? null
+                : before.Aggregator.GetRootScopeCoverage(resolvedRoot),
+            AfterRootCoverage = string.IsNullOrEmpty(resolvedRoot)
+                ? null
+                : after.Aggregator.GetRootScopeCoverage(resolvedRoot)
+        };
         List<string> warnings = [.. DiffWarnings(before.Info, after.Info)];
         if (budgetWarning is not null)
         {
@@ -1126,7 +1134,7 @@ public sealed class TraceTools
             result,
             warnings,
             [hint],
-            new AnalysisContext("export") { Metric = "cpu", Unit = "ms" });
+            AnalysisContext.ForTrace("export", trace, root: resolvedRoot));
     }
 
     /// <summary>

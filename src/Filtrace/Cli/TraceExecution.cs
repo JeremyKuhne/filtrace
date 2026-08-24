@@ -337,11 +337,11 @@ internal static class TraceExecution
     /// <param name="info">The loaded trace's metadata.</param>
     /// <param name="strict">Whether the strict gate is enabled.</param>
     /// <returns>
-    ///  <see cref="ExitCodes.StrictGate"/> when strict and resolution is below the
+    ///  <see cref="ExitCodes.QualityGate"/> when strict and resolution is below the
     ///  threshold; otherwise <see cref="ExitCodes.Success"/>.
     /// </returns>
     public static int StrictExit(TraceInfo info, bool strict) =>
         strict && SymbolGate.IsBelowThreshold(info.SymbolResolutionRate, info.SampleCount)
-            ? ExitCodes.StrictGate
+            ? ExitCodes.QualityGate
             : ExitCodes.Success;
 }

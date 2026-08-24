@@ -27,6 +27,12 @@ public sealed record RankingDiffCaseResult(
     /// <summary>Current contributing records, or <see langword="null"/>.</summary>
     public int? AfterContributingRecordCount { get; init; }
 
+    /// <summary>Baseline pre-root and retained coverage, or <see langword="null"/> without a root.</summary>
+    public RootScopeCoverage? BeforeRootCoverage { get; init; }
+
+    /// <summary>Current pre-root and retained coverage, or <see langword="null"/> without a root.</summary>
+    public RootScopeCoverage? AfterRootCoverage { get; init; }
+
     /// <summary>Shared operation unit, or <see langword="null"/>.</summary>
     public string? OperationUnit { get; init; }
 

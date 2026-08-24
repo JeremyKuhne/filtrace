@@ -82,6 +82,14 @@ public sealed record RankingDiffResult(
     [JsonIgnore]
     public int? AfterContributingRecordCount { get; init; }
 
+    /// <summary>Baseline pre-root and retained coverage, or <see langword="null"/> without a root.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public RootScopeCoverage? BeforeRootCoverage { get; init; }
+
+    /// <summary>Current pre-root and retained coverage, or <see langword="null"/> without a root.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public RootScopeCoverage? AfterRootCoverage { get; init; }
+
     /// <summary>Unit named by complete per-operation metadata, or <see langword="null"/>.</summary>
     /// <remarks>Direct trace pairs have no operation metadata and leave this <see langword="null"/>.</remarks>
     [JsonIgnore]

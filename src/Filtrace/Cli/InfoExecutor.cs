@@ -48,10 +48,14 @@ internal static class InfoExecutor
 
         TraceInfo info = trace.Info;
         TraceInfoView view = TraceInfoView.FromTraceInfo(info, info.EtlxCacheState);
+        InfoQualityPolicyResult policy = request.Policy.Evaluate(info);
+        IReadOnlyList<string> warnings = policy.Warnings.Count == 0
+            ? info.Warnings
+            : [.. info.Warnings, .. policy.Warnings];
 
         AnalysisResult<TraceInfoView> envelope = new(
             view,
-            info.Warnings,
+            warnings,
             SteeringHints.ForTraceInfo(info),
             new AnalysisContext("info"));
 
@@ -64,6 +68,6 @@ internal static class InfoExecutor
             InfoTextRenderer.Render(envelope, output);
         }
 
-        return ExitCodes.Success;
+        return policy.Failed ? ExitCodes.QualityGate : ExitCodes.Success;
     }
 }

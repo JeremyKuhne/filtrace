@@ -67,13 +67,22 @@ the analysis to your code with `--process` (lossless, so managed stacks survive)
 than physically shrinking the file (see
 [filtrace-etl-trimming.md](filtrace-etl-trimming.md)).
 
+For CPU EventPipe capture, current `dotnet-trace` uses the
+`dotnet-common,dotnet-sampled-thread-time` profile pair. Profile names have changed
+between recorder versions: `cpu-sampling` is not accepted by current
+`dotnet-trace collect`. The bundled `Capture-ProjectTrace.ps1` queries
+`list-profiles` before it builds or launches the target, prefers the current pair,
+and uses a legacy name only when that installed recorder explicitly advertises it.
+It fails before the workload starts when no known semantic mapping exists and writes
+the recorder version and effective profiles into the trace sidecar.
+
 One EventPipe caveat: the `wait` family is .NET 9+ and needs the non-default
 `WaitHandle` keyword (`0x40000000000`) enabled at capture. Preserve the default
 runtime keywords and add it; for the runtime used here the combined mask is
 `0x414C14FCCBD`:
 
 ```pwsh
-dotnet-trace collect --profile cpu-sampling `
+dotnet-trace collect --profile dotnet-common,dotnet-sampled-thread-time `
   --providers Microsoft-Windows-DotNETRuntime:0x414C14FCCBD:5 -- <app> <args>
 ```
 
@@ -99,7 +108,7 @@ pairs **and that application provider enabled during capture**. Use matching
 the provider alongside CPU sampling, for example:
 
 ```pwsh
-dotnet-trace collect --profile cpu-sampling `
+dotnet-trace collect --profile dotnet-common,dotnet-sampled-thread-time `
   --providers MyCompany-RequestSource:0xFFFFFFFFFFFFFFFF:5 -- <app> <args>
 ```
 
@@ -161,6 +170,47 @@ Each case carries explicit benchmark and parameter identity for later pairing.
 Optional `-OperationCount` plus `-OperationUnit` records complete per-operation
 metadata on every case; specify both or neither.
 
+For the portable analysis handoff, store the small set of queries that established
+the conclusion in a version 1 JSON plan, then run the bundled
+[scripts/Invoke-FiltraceAnalysis.ps1](../.agents/skills/filtrace/scripts/Invoke-FiltraceAnalysis.ps1).
+The helper accepts read-only JSON-producing analyses only. It validates every input
+and query before query 1, then writes an immutable plan copy, SHA-256 and byte length
+for every trace/manifest dependency, the Filtrace version, exact argument arrays,
+separate bounded UTF-8 stdout/stderr files, exit codes, and output hashes. A quality
+gate exit is retained as `rejected`; other nonzero queries stop the run. Replay with
+`-ReplayFrom <prior-run.json>` verifies the plan and input bytes before creating a
+new output directory or running a query. It does not capture, mutate caches, export,
+copy large traces, or claim that outputs from different Filtrace versions are
+equivalent.
+
+```json
+{
+  "schemaVersion": 1,
+  "inputs": [
+    { "id": "cpu", "kind": "trace", "path": "app.nettrace" }
+  ],
+  "queries": [
+    {
+      "id": "accepted-info",
+      "operation": "info",
+      "inputIds": ["cpu"],
+      "arguments": ["--strict", "--require-enabled", "cpu", "--require-events", "cpu"]
+    },
+    {
+      "id": "evaluator-cpu",
+      "operation": "cpu",
+      "inputIds": ["cpu"],
+      "arguments": ["--root", "MyApp.Evaluate", "--top", "25"]
+    }
+  ]
+}
+```
+
+```pwsh
+./.agents/skills/filtrace/scripts/Invoke-FiltraceAnalysis.ps1 `
+  -Plan analysis-plan.json -OutputDirectory artifacts/analysis/run-1
+```
+
 To profile a whole executable project instead of a micro-benchmark, capture its
 running output with `dotnet-trace` (EventPipe) or `filtrace collect` (ETW). Build first
 and launch the built app directly - `dotnet run` forks your program into a separate
@@ -206,6 +256,12 @@ are named for them:
   `trace_info.analyses` reports capture enablement and observed event counts. Follow
   known-enabled symptom routes; an unknown status means inspect capture settings or
   recapture, not that the provider was disabled.
+  For automation, `filtrace info --strict` returns exit 3 when CPU frame-name
+  resolution is below 0.8. Add `--require-enabled cpu,alloc` when those analyses
+  must be known enabled (enabled-zero passes), or `--require-events cpu,alloc` when
+  each must have a positive observed event count. Unsupported, disabled, unknown,
+  and enabled-zero failures retain distinct structured diagnostics; the complete
+  ordinary `info` result is still rendered before exit 3.
 2. **Rank.** Find the hottest frames by a metric (`filtrace cpu|alloc|exceptions|threadtime`,
    or `rank --metric`). Self-time finds the leaf that burns the resource;
    inclusive time finds the subtree that drives it.
@@ -244,7 +300,7 @@ meaningful zero:
 
 | Verb | Shows |
 |---|---|
-| `info` | format, samples, frame-name and source/PDB quality, per-thread counts, per-analysis format/capture/event state, and quality warnings - the CLI counterpart of `trace_info` |
+| `info` | format, samples, frame-name and source/PDB quality, per-thread counts, per-analysis format/capture/event state, quality warnings, and optional shell acceptance gates - the CLI counterpart of `trace_info` |
 
 **Rank** - find the hottest frames by a metric:
 
@@ -402,6 +458,12 @@ defaults to scenario scope and lets you tighten further:
   `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
   `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and
   `trace_export`. Set `--root <frame>` / `root` to keep the subtree under a frame.
+  Root filtering is stack ancestry, not causal correlation: stacks without the
+  selected frame are excluded, including sibling workers. Root-aware structured
+  results identify `rootKind: stackAncestry` and report available versus retained
+  weight and record counts; direct diffs report both sides, and manifest batch/diff
+  report each case. Use an instrumented activity or validated time window for a
+  parallel phase, and ETW `threadtime` when sampled CPU does not explain elapsed time.
 - **BenchmarkDotNet workload:** CLI `rank`, `cpu`, `alloc`, `exceptions`,
   `threadtime`, `callers`, `tree`, `classify`, `diff`, `batch`, and `export` accept
   `--benchmark`; MCP `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`,

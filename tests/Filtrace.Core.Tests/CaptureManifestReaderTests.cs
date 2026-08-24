@@ -525,6 +525,51 @@ public sealed class CaptureManifestReaderTests
     }
 
     [TestMethod]
+    public void AnalyzeBatch_RootScope_CarriesPerCaseCoverage()
+    {
+        CaptureManifest manifest = Manifest(Case("rooted", "Bench.Work", "", "Rooted"));
+
+        BatchRankingResult result = CaptureManifestBatchAnalyzer.Analyze(
+            manifest,
+            "cpu",
+            inclusive: false,
+            root: "Hot",
+            FrameNames.DefaultFoldPatterns,
+            (_, _) => Loaded("rooted", 40.0, 60.0));
+
+        RootScopeCoverage coverage = result.Cases.Single().RootCoverage!;
+        coverage.AvailableWeight.Should().Be(100.0);
+        coverage.RetainedWeight.Should().Be(40.0);
+        coverage.RetainedPercent.Should().Be(40.0);
+        coverage.AvailableRecordCount.Should().Be(2);
+        coverage.RetainedRecordCount.Should().Be(1);
+    }
+
+    [TestMethod]
+    public void AnalyzeManifestDiff_RootScope_CarriesPerSideCoverage()
+    {
+        CaptureManifest before = Manifest(Case("before", "Bench.Work", "", "Before"));
+        CaptureManifest after = Manifest(Case("after", "Bench.Work", "", "After"));
+
+        CaptureManifestDiffAnalysis analysis = CaptureManifestDiffAnalyzer.Analyze(
+            before,
+            after,
+            inclusive: false,
+            root: "Hot",
+            FrameNames.DefaultFoldPatterns,
+            top: 5,
+            (manifest, _) => manifest == before
+                ? Loaded("before", 25.0, 75.0)
+                : Loaded("after", 50.0, 50.0));
+
+        RankingDiffCaseResult result = analysis.Result.Cases.Single();
+        result.BeforeRootCoverage!.AvailableWeight.Should().Be(100.0);
+        result.BeforeRootCoverage.RetainedWeight.Should().Be(25.0);
+        result.AfterRootCoverage!.AvailableWeight.Should().Be(100.0);
+        result.AfterRootCoverage.RetainedWeight.Should().Be(50.0);
+    }
+
+    [TestMethod]
     public void AnalyzeBatch_UnresolvedIdentity_SkipsCaseAndRequiresDirectTraceAnalysis()
     {
         CaptureManifest manifest = new(

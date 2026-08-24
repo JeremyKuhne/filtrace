@@ -123,6 +123,12 @@ config and tool workflow.
   `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
   `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and
   `trace_export`. Set `--root <frame>` / `root` to keep the subtree under a frame.
+  Root filtering is stack ancestry, not causal correlation: stacks without the
+  selected frame are excluded, including sibling workers. Root-aware structured
+  results identify `rootKind: stackAncestry` and report available versus retained
+  weight and record counts; direct diffs report both sides, and manifest batch/diff
+  report each case. Use an instrumented activity or validated time window for a
+  parallel phase, and ETW `threadtime` when sampled CPU does not explain elapsed time.
 - **BenchmarkDotNet workload:** CLI `rank`, `cpu`, `alloc`, `exceptions`,
   `threadtime`, `callers`, `tree`, `classify`, `diff`, `batch`, and `export` accept
   `--benchmark`; MCP `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`,

@@ -84,6 +84,14 @@ jobs:
         shell: pwsh
         run: ./tools/Test-CaptureBenchmarkTrace.ps1
 
+      - name: Project capture contract
+        shell: pwsh
+        run: ./tools/Test-CaptureProjectTrace.ps1
+
+      - name: Analysis record contract
+        shell: pwsh
+        run: ./tools/Test-FiltraceAnalysis.ps1 -Configuration Release
+
       - name: Track D investigation contract
         shell: pwsh
         run: ./tools/Test-TrackDInvestigation.ps1

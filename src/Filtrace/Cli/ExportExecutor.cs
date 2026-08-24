@@ -51,6 +51,15 @@ internal static class ExportExecutor
             error.WriteLine($"! {warning}");
         }
 
+        if (!string.IsNullOrEmpty(request.Root))
+        {
+            RootScopeCoverage coverage = trace.Aggregator.GetRootScopeCoverage(request.Root);
+            error.WriteLine(
+                $"! Root scope uses stack ancestry and retained {coverage.RetainedWeight:0.###} of "
+                + $"{coverage.AvailableWeight:0.###} {trace.Aggregator.Metric.Unit}; stacks without the selected "
+                + "frame are excluded, including sibling worker stacks.");
+        }
+
         StackSampleSource scoped = RootScope.Apply(trace.Source, request.Root);
 
         string exported = request.Format == ExportFormat.Chromium

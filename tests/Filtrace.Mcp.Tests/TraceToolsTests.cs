@@ -41,7 +41,7 @@ public sealed class TraceToolsTests
     // assert on the object directly rather than re-parsing JSON.
     private static void AssertEnvelope<T>(AnalysisResult<T> envelope)
     {
-        envelope.SchemaVersion.Should().Be(14);
+        envelope.SchemaVersion.Should().Be(AnalysisResult<T>.CurrentSchemaVersion);
         envelope.Warnings.Should().NotBeNull();
         envelope.Diagnostics.Should().NotBeNull();
         envelope.Hints.Should().NotBeNull();
@@ -1511,6 +1511,13 @@ public sealed class TraceToolsTests
             written.Should().Contain("MyApp.Inner");
             written.Should().NotContain("Program.Main");
             written.Should().NotContain("MyApp.Other");
+            envelope.Context.Should().NotBeNull();
+            AnalysisScopeContext scope = envelope.Context!.Scope!;
+            scope.RootKind.Should().Be(AnalysisScopeContext.StackAncestryRootKind);
+            scope.RootCoverage.Should().NotBeNull();
+            scope.RootCoverage!.AvailableWeight.Should().BeGreaterThan(scope.RootCoverage.RetainedWeight);
+            envelope.Diagnostics.Should().ContainSingle(
+                diagnostic => diagnostic.Code == AnalysisDiagnosticCodes.RootScopeAncestry);
         }
         finally
         {

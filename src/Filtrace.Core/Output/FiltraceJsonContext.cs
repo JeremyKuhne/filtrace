@@ -39,6 +39,7 @@ namespace Filtrace.Output;
 [JsonSerializable(typeof(StructuredAnalysisEnvelopeSchema))]
 [JsonSerializable(typeof(AnalysisContext))]
 [JsonSerializable(typeof(AnalysisScopeContext))]
+[JsonSerializable(typeof(RootScopeCoverage))]
 [JsonSerializable(typeof(AnalysisDiagnostic))]
 [JsonSerializable(typeof(AnalysisDiagnosticData))]
 [JsonSerializable(typeof(AnalysisNextStep))]

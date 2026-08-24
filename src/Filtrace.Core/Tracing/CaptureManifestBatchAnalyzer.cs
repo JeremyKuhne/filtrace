@@ -102,7 +102,10 @@ public static class CaptureManifestBatchAnalyzer
                     CaseId = captureCase.Id,
                     OperationUnit = operationUnit,
                     ScopeWeightPerOperation = scopePerOperation,
-                    TopWeightPerOperation = topPerOperation
+                    TopWeightPerOperation = topPerOperation,
+                    RootCoverage = string.IsNullOrEmpty(root)
+                        ? null
+                        : trace.Aggregator.GetRootScopeCoverage(root)
                 });
             }
             catch (Exception exception) when (IsCaseFailure(exception))

@@ -24,4 +24,8 @@ internal sealed record InfoRequest(
     string Path,
     string? Symbols,
     OutputFormat Format,
-    ScopeRequest? Scope = null);
+    ScopeRequest? Scope = null)
+{
+    /// <summary>The optional shell acceptance policy applied after analysis.</summary>
+    public InfoQualityPolicy Policy { get; init; } = InfoQualityPolicy.None;
+}
