@@ -70,14 +70,14 @@ $fileInventoryCache = [System.Collections.Generic.Dictionary[string, object]]::n
     [StringComparer]::Ordinal)
 $allowedOperations = [System.Collections.Generic.HashSet[string]]::new(
     [string[]] @(
-        'info', 'rank', 'cpu', 'alloc', 'exceptions', 'threadtime', 'callers',
-        'lines', 'heatmap', 'processes', 'lifecycle', 'tree', 'classify',
-        'timeline', 'diff', 'batch', 'gcstats', 'jitstats', 'threadpool',
-        'diskio', 'events'
+        'info', 'rank', 'source', 'report', 'callers', 'processes', 'lifecycle',
+        'tree', 'classify', 'timeline', 'diff', 'batch', 'events',
+        'cpu', 'alloc', 'exceptions', 'threadtime', 'lines', 'heatmap',
+        'gcstats', 'jitstats', 'threadpool', 'diskio'
     ),
     [StringComparer]::Ordinal)
 $symbolOperations = [System.Collections.Generic.HashSet[string]]::new(
-    [string[]] @('info', 'rank', 'cpu', 'callers', 'lines', 'heatmap', 'tree', 'classify', 'diff', 'batch'),
+    [string[]] @('info', 'rank', 'source', 'cpu', 'callers', 'lines', 'heatmap', 'tree', 'classify', 'diff', 'batch'),
     [StringComparer]::Ordinal)
 
 function Get-RequiredProperty([object] $Object, [string] $Name, [string] $Owner) {

@@ -9,7 +9,7 @@ decision records.
 | [roadmap.md](roadmap.md) | The only page holding unshipped work: priorities, gates, and open decisions. |
 | [competitive-analysis.md](competitive-analysis.md) | How filtrace differs from other .NET performance tools, and what to learn from each. |
 | [parallelism-opportunities.md](parallelism-opportunities.md) | Executable BenchmarkDotNet and CLI self-profiling plan for Track D. |
-| [workflow.md](workflow.md) | How to drive filtrace: capture, orient, rank, drill, compare, plus the verb and tool catalogs. |
+| [workflow.md](workflow.md) | How to drive filtrace: capture, orient, rank, drill, compare, plus the command and tool catalogs. |
 | [traps.md](traps.md) | The reasoning errors a trace invites, and how to avoid them. |
 | [traceevent-surface-assessment.md](traceevent-surface-assessment.md) | What the pinned TraceEvent 3.2.3 package does and does not provide, and which roadmap items that gates. |
 | [filtrace-etl-trimming.md](filtrace-etl-trimming.md) | Why the ETW process-tree relog is a fixture tool rather than a shipped verb. |

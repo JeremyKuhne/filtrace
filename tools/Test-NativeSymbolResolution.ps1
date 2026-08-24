@@ -163,8 +163,8 @@ try {
 
     # The capture is machine-wide, so scope the analysis rather than physically trimming:
     # process scoping is lossless and this trace is discarded at the end anyway.
-    $withSymbols = (& $filtrace cpu $trace --symbols $fixture --process NativeLoop | Out-String)
-    $withoutSymbols = (& $filtrace cpu $trace --process NativeLoop | Out-String)
+    $withSymbols = (& $filtrace rank $trace --metric cpu --symbols $fixture --process NativeLoop | Out-String)
+    $withoutSymbols = (& $filtrace rank $trace --metric cpu --process NativeLoop | Out-String)
 
     if ($withSymbols -notmatch 'ComputeChecksum') {
         Write-Host $withSymbols

@@ -13,7 +13,7 @@ embeds the marked block below verbatim and
    EventPipe ranking actively *misleads* for `net481`: weaker Framework inlining
    relocates the hot frame, so a method that is 1.5% self-time on the EventPipe
    trace can be 56% on the ETW (`.etl`) capture of the same workload. Capture
-   net481 under ETW (`threadtime` / `cpu` over an `.etl`) and rank that.
+   net481 under ETW (`rank --metric threadtime|cpu` over an `.etl`) and rank that.
 
 2. **Treat low symbol resolution as a quality gate, not an automatic rejection.**
    A rate below **0.8** (surfaced by `trace_info` / the load warning) means unresolved
@@ -24,7 +24,7 @@ embeds the marked block below verbatim and
    correctly; in that case managed-method rankings remain usable, and
    `--native-symbols` is the relevant opt-in when the native runtime split matters.
    Conversely, 100% method-name resolution does not prove that any source line is
-   available. Before `lines` or `heatmap`, inspect `trace_info.sourceResolution`:
+   available. Before `source`, inspect `trace_info.sourceResolution`:
    require the relevant module in `matchingPdbModules`, then report mapped versus
    sampled managed frames and `highestUnmappedModules`. When
    `pdbIdentityMismatchModules` names the module, the expected PDB filename exists
@@ -46,8 +46,8 @@ embeds the marked block below verbatim and
 4. **BenchmarkDotNet captures include the harness - scope with `--benchmark` by
    default, not as an afterthought.** A raw ranking (or export) of a BDN trace is
    mixed with orchestrator and overhead scaffolding outside your `[Benchmark]`.
-   In the CLI, pass `--benchmark` to `rank`, `cpu`, `alloc`, `exceptions`,
-   `threadtime`, `callers`, `tree`, `classify`, `diff`, `batch`, and `export`; in
+   In the CLI, pass `--benchmark` to `rank`, `callers`, `tree`, `classify`,
+   `diff`, `batch`, and `export`; in
    MCP, pass `benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`,
    `trace_classify`, `trace_diff`, `trace_batch`, and `trace_export`. The wrapper
    includes warmup and actual workload iterations; it excludes harness/overhead
@@ -55,8 +55,8 @@ embeds the marked block below verbatim and
    the harness left in is not just noisy, its proportions are wrong. Do not
    substitute a benchmark method substring:
    if root/frame warnings report multiple definitions or depths, narrow the selector
-   before trusting the result. `lines` / `heatmap` cannot preserve root scope; narrow
-   them with their method/file filter and treat percentages as whole-trace.
+   before trusting the result. The two `source` views cannot preserve root scope;
+   narrow them with their method/file filter and treat percentages as whole-trace.
 
 5. **A healthy whole trace can still produce a statistically thin scoped result.**
    `trace_info.sampleCount` describes the loaded trace, while a root, focus method,

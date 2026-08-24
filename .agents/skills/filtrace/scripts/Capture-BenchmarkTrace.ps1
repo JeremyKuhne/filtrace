@@ -710,31 +710,31 @@ function Get-CaseCommands(
             $commands.Add("filtrace processes $trace")
         }
         if (Test-AnalysisEnabled $CaptureCase.analyses 'cpu') {
-            $commands.Add("filtrace cpu $trace --process $process --benchmark --top $TopRows")
+            $commands.Add("filtrace rank $trace --metric cpu --process $process --benchmark --top $TopRows")
             if ($symbols) {
                 $method = ConvertTo-PowerShellArgument $MethodFilter
-                $commands.Add("filtrace lines $trace --process $process --method $method --symbols $symbols")
+                $commands.Add("filtrace source $trace --view lines --process $process --method $method --symbols $symbols")
             }
             $exportSymbols = if ($symbols) { " --symbols $symbols" } else { '' }
             $commands.Add("filtrace export $trace --process $process --benchmark --native-symbols$exportSymbols -o flame.speedscope.json")
         }
         if (Test-AnalysisEnabled $CaptureCase.analyses 'threadtime') {
-            $commands.Add("filtrace threadtime $trace --process $process --benchmark --top $TopRows")
+            $commands.Add("filtrace rank $trace --metric threadtime --process $process --benchmark --top $TopRows")
         }
         if (Test-AnalysisEnabled $CaptureCase.analyses 'classify') {
             $commands.Add("filtrace classify $trace --process $process --benchmark --native-symbols")
         }
         if (Test-AnalysisEnabled $CaptureCase.analyses 'diskio') {
-            $commands.Add("filtrace diskio $trace --top $TopRows")
+            $commands.Add("filtrace report $trace --kind diskio --top $TopRows")
         }
         return @($commands)
     }
 
     if (Test-AnalysisEnabled $CaptureCase.analyses 'cpu') {
-        $commands.Add("filtrace cpu $trace --benchmark --top $TopRows")
+        $commands.Add("filtrace rank $trace --metric cpu --benchmark --top $TopRows")
         if ($symbols) {
             $method = ConvertTo-PowerShellArgument $MethodFilter
-            $commands.Add("filtrace lines $trace --method $method --symbols $symbols")
+            $commands.Add("filtrace source $trace --view lines --method $method --symbols $symbols")
             $commands.Add("filtrace export $trace --benchmark --symbols $symbols -o flame.speedscope.json")
         }
         else {
@@ -742,19 +742,22 @@ function Get-CaseCommands(
         }
     }
     if (Test-AnalysisEnabled $CaptureCase.analyses 'alloc') {
-        $commands.Add("filtrace alloc $trace --benchmark --top $TopRows")
+        $commands.Add("filtrace rank $trace --metric alloc --benchmark --top $TopRows")
     }
     if (Test-AnalysisEnabled $CaptureCase.analyses 'exceptions') {
-        $commands.Add("filtrace exceptions $trace --benchmark --top $TopRows")
+        $commands.Add("filtrace rank $trace --metric exceptions --benchmark --top $TopRows")
     }
     foreach ($metric in @('contention', 'wait', 'activity')) {
         if (Test-AnalysisEnabled $CaptureCase.analyses $metric) {
             $commands.Add("filtrace rank $trace --metric $metric --benchmark --top $TopRows")
         }
     }
-    foreach ($report in @('gcstats', 'jitstats', 'threadpool')) {
-        if (Test-AnalysisEnabled $CaptureCase.analyses $report) {
-            $commands.Add("filtrace $report $trace")
+    foreach ($report in @(
+        @{ Analysis = 'gcstats'; Kind = 'gc' }
+        @{ Analysis = 'jitstats'; Kind = 'jit' }
+        @{ Analysis = 'threadpool'; Kind = 'threadpool' })) {
+        if (Test-AnalysisEnabled $CaptureCase.analyses $report.Analysis) {
+            $commands.Add("filtrace report $trace --kind $($report.Kind)")
         }
     }
     return @($commands)

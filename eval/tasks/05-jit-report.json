@@ -5,7 +5,7 @@
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/jit.nettrace",
   "os": "any",
   "steps": [
-    { "args": ["jitstats", "{fixture}"] }
+    { "args": ["report", "{fixture}", "--kind", "jit"] }
   ],
   "assert": [
     { "field": "result.methodCount", "equals": 840 }

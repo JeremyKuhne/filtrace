@@ -5,7 +5,7 @@
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/alloc.nettrace",
   "os": "any",
   "steps": [
-    { "args": ["gcstats", "{fixture}"] }
+    { "args": ["report", "{fixture}", "--kind", "gc"] }
   ],
   "assert": [
     { "field": "result.gcCount", "equals": 7 }

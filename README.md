@@ -26,7 +26,7 @@ ships with it):
 
 ```pwsh
 dotnet tool install --global KlutzyNinja.Filtrace
-filtrace cpu app.nettrace
+filtrace rank app.nettrace --metric cpu
 ```
 
 Update or remove it later with `dotnet tool update --global KlutzyNinja.Filtrace`
@@ -49,7 +49,7 @@ dotnet tool install --global --add-source ./artifacts/packages KlutzyNinja.Filtr
 
 ## Using filtrace
 
-Every analysis verb takes a trace path and prints a dense text report (or compact
+Every analysis command takes a trace path and prints a dense text report (or compact
 JSON with `--format json`); `collect` instead launches the executable it records.
 The canonical investigation is **orient -> rank -> drill ->
 compare**: inspect the capture, rank the matching metric, drill an unwindowed CPU
@@ -58,60 +58,56 @@ ranking when needed, then diff comparable traces or capture manifests against a 
 ```pwsh
 # Workflow: orient, rank the hottest frames, drill into one, then diff two runs.
 filtrace info app.nettrace                     # 0. orient: format, providers, event counts, symbol rate
-filtrace cpu app.nettrace                      # 1. what's hot (self-time)
+filtrace rank app.nettrace --metric cpu        # 1. what's hot (self-time)
 filtrace callers app.nettrace MyApp.Parse      # 2. who calls the hot frame
-filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source lines
+filtrace source app.nettrace --view lines --symbols bin/Release/net10.0   # 3. hot source lines
 filtrace diff before.nettrace after.nettrace   # 4. what changed between runs
 filtrace batch BenchmarkDotNet.Artifacts/filtrace-runs/run/manifest.json
 ```
 
-The same analysis core is exposed as a stdio MCP server: every analysis verb has a
-matching `trace_*` tool (seventeen in all - `info` -> `trace_info`, `rank` ->
+The same analysis core is exposed as a stdio MCP server: every analysis command has a
+matching `trace_*` tool (eighteen in all - `info` -> `trace_info`, `rank` ->
 `trace_rank`, `callers` -> `trace_callers`, and so on), returning the same envelope
-shape and results. The capture and housekeeping verbs (`collect`, `convert`,
-`clean`) are CLI-only, as is widening an ETW analysis with `--all-processes`; MCP
+shape and results. The capture and housekeeping commands (`collect`, `cache`) are
+CLI-only, as is widening an ETW analysis with `--all-processes`; MCP
 supports automatic or named-process scope. See
 [Using filtrace from an AI agent](#using-filtrace-from-an-ai-agent) for the client
 config and tool workflow.
 
-### Verbs
+### Commands
 
 **Orient** - see what a capture holds before ranking (the CLI counterpart of the
 `trace_info` tool):
 
-| Verb | Purpose | Example |
+| Command | Purpose | Example |
 |---|---|---|
 | `info` | Format, sample count, symbol-resolution rate, supported analyses, and per-analysis capture/event state | `filtrace info app.nettrace` |
 
-**Ranking** - rank stacks by a metric (`--metric` on `rank`, or a shortcut verb):
+**Ranking** - rank stacks by a metric:
 
-| Verb | What it ranks | Example |
+| Command | What it ranks | Example |
 |---|---|---|
 | `rank` | Any metric (`cpu`, `alloc`, `exceptions`, `threadtime`, `contention`, `wait`, `activity`) | `filtrace rank app.nettrace --metric contention` |
-| `cpu` | CPU self-/inclusive-time | `filtrace cpu app.nettrace --measure inclusive` |
-| `alloc` | Bytes allocated, by site | `filtrace alloc app.nettrace --top 10` |
-| `exceptions` | Exception types by count; inclusive view reveals throw paths | `filtrace exceptions app.nettrace` |
-| `threadtime` | Wall-clock (running + blocked), Windows `.etl` | `filtrace threadtime app.etl` |
 
 <!-- filtrace:begin scopes -->
 **Implemented scope inventory:**
 
-- **Named process:** CLI `info`, `rank`, `cpu`, `threadtime`, `callers`, `lines`,
-  `heatmap`, `tree`, `classify`, `timeline`, `diff`, `batch`, and `export`; MCP
+- **Named process:** CLI `info`, `rank`, `source`, `callers`, `tree`, `classify`,
+  `timeline`, `diff`, `batch`, and `export`; MCP
   `trace_info`, `trace_rank`, `trace_callers`, `trace_lines`, `trace_heatmap`,
   `trace_tree`, `trace_classify`, `trace_timeline`, `trace_diff`, `trace_batch`, and
   `trace_export`. These auto-scope a multi-process `.etl` to the busiest process tree.
   Run `processes` / `trace_processes` first to inspect the capture, then set
-  `--process <name>` / `process` to override. CLI verbs expose `--all-processes`
+  `--process <name>` / `process` to override. CLI commands expose `--all-processes`
   where an aggregate is supported; MCP has no all-process aggregate.
-- **Exact process ids:** the same verbs and tools accept `--pid <id>[,<id>]`
+- **Exact process ids:** the same commands and tools accept `--pid <id>[,<id>]`
   (comma-separated, not repeated) / `pid` instead of a name. A name substring is right
   for discovery, but a common host name such as `dotnet` matches every unrelated
   instance in a machine-wide capture and ranks them together; an exact id set cannot.
   Prefer it for manifests and automation. The three selectors are mutually exclusive,
   an id reused by two processes in one trace is refused rather than merged, and an id
   that is not in the trace is reported.
-- **Descendants:** the same verbs and tools accept `--children include|exclude` /
+- **Descendants:** the same commands and tools accept `--children include|exclude` /
   `children`. Both selectors follow descendants by default, because the common capture
   shapes put the measured work in a child the host launched. Pass `exclude` to separate
   a parent's own CPU from a child runtime's; without it a native host's own cost is
@@ -119,7 +115,7 @@ config and tool workflow.
 - **Invocation roots:** CLI `lifecycle` and MCP `trace_lifecycle` take the same
   `--process` / `--pid` selectors, but each matched process instance is one invocation
   and descendants always follow, so neither takes `--children` or `--all-processes`.
-- **Root subtree:** CLI `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`,
+- **Root subtree:** CLI `rank`, `callers`,
   `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
   `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and
   `trace_export`. Set `--root <frame>` / `root` to keep the subtree under a frame.
@@ -129,68 +125,67 @@ config and tool workflow.
   weight and record counts; direct diffs report both sides, and manifest batch/diff
   report each case. Use an instrumented activity or validated time window for a
   parallel phase, and ETW `threadtime` when sampled CPU does not explain elapsed time.
-- **BenchmarkDotNet workload:** CLI `rank`, `cpu`, `alloc`, `exceptions`,
-  `threadtime`, `callers`, `tree`, `classify`, `diff`, `batch`, and `export` accept
+- **BenchmarkDotNet workload:** CLI `rank`, `callers`, `tree`, `classify`, `diff`,
+  `batch`, and `export` accept
   `--benchmark`; MCP `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`,
   `trace_diff`, `trace_batch`, and `trace_export` accept `benchmark: true`. The
   preset isolates the `WorkloadAction` subtree from harness and overhead scaffolding;
-  it is mutually exclusive with an explicit root. `lines` / `heatmap` are not
+  it is mutually exclusive with an explicit root. `source` views are not
   root-aware, so narrow them by method/file and treat percentages as process-scoped
   whole-trace values.
 <!-- filtrace:end scopes -->
 
-The `rank` verb adds two more scopes: `--activity <name>` (the CPU samples taken inside one
+The `rank` command adds two more scopes: `--activity <name>` (the CPU samples taken inside one
 start-stop request/job) and `--time <start>,<end>` (milliseconds from the trace
 start, either bound optional; any metric on `.nettrace` / `.etl`), to zoom in on one
 request or the slice around a latency spike. Speedscope input is aggregate-only for
 `--time` and warns that the window was ignored.
 
 ```pwsh
-filtrace cpu bdn.nettrace --benchmark          # just the [Benchmark] code
-filtrace alloc bdn.nettrace --benchmark        # allocations under the workload
+filtrace rank bdn.nettrace --metric cpu --benchmark    # just the [Benchmark] code
+filtrace rank bdn.nettrace --metric alloc --benchmark  # allocations under the workload
 filtrace processes machinewide.etl             # list every process by weight
-filtrace cpu machinewide.etl --process MyApp   # one process tree
-filtrace cpu machinewide.etl --pid 9144,40356 --children exclude  # exactly those, parent-only
+filtrace rank machinewide.etl --metric cpu --process MyApp   # one process tree
+filtrace rank machinewide.etl --metric cpu --pid 9144,40356 --children exclude  # exactly those, parent-only
 filtrace rank app.nettrace --time 1000,5000    # just the spike window
 ```
 
 **Native runtime symbols.** Managed frames (including NGEN and ReadyToRun
 framework methods) resolve for free from the trace's CLR rundown. The *unmanaged*
 runtime frames - the GC, the JIT, `memset` / `memcpy`, write barriers - need PDBs
-from the Microsoft public symbol server, which `cpu` / `rank` fetch only when you
+from the Microsoft public symbol server, which `rank` fetches only when you
 opt in with `--native-symbols` (cached under `--symbol-cache`, default in the temp
 path). It is off by default so analysis stays offline and deterministic; the first
 run downloads, later runs hit the cache.
 
 ```pwsh
-filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy frames
+filtrace rank app.etl --metric cpu --process MyApp --native-symbols   # name the GC/JIT/memcpy frames
 ```
 
 **CPU drill-down** - follow an unwindowed CPU ranking into detail:
 
-| Verb | Purpose | Example |
+| Command | Purpose | Example |
 |---|---|---|
 | `callers` | Immediate CPU callers of a frame, or a caller/callee view with `--callees` | `filtrace callers app.nettrace MyApp.Parse --callees` |
-| `lines` | Hottest CPU source lines of scoped methods | `filtrace lines app.nettrace --symbols bin/Release/net10.0` |
-| `heatmap` | Per-line CPU heat for one source file | `filtrace heatmap app.nettrace Parser.cs` |
+| `source` | Ranked source lines or per-file heat | `filtrace source app.nettrace --view heatmap --file Parser.cs` |
 | `tree` | Top-down CPU call tree from the root | `filtrace tree app.nettrace --max-depth 5` |
 
 **Inventory** - see what a (possibly machine-wide) capture contains:
 
-| Verb | Purpose | Example |
+| Command | Purpose | Example |
 |---|---|---|
 | `processes` | List processes by CPU-sample weight, to pick a `--process` target | `filtrace processes machinewide.etl` |
 | `classify` | Summarize CPU time by runtime work category (zeroing / copying / GC / ...) | `filtrace classify app.etl --native-symbols` |
 
 **Temporal** - see what happened when, then scope a ranking to the busy window:
 
-| Verb | Purpose | Example |
+| Command | Purpose | Example |
 |---|---|---|
 | `timeline` | Per-bucket GC / CPU / exception / allocation / JIT activity over time | `filtrace timeline app.nettrace --lanes gc,cpu` |
 
 **Compare and export:**
 
-| Verb | Purpose | Example |
+| Command | Purpose | Example |
 |---|---|---|
 | `diff` | Absolute/normalized CPU changes for traces or paired manifests | `filtrace diff before.nettrace after.nettrace` |
 | `batch` | One compact ranking across every capture-manifest case | `filtrace batch run/manifest.json` |
@@ -198,18 +193,15 @@ filtrace cpu app.etl --process MyApp --native-symbols   # name the GC/JIT/memcpy
 
 **Structured reports:**
 
-| Verb | Purpose | Example |
+| Command | Purpose | Example |
 |---|---|---|
-| `gcstats` | GC counts, pauses, % time in GC, induced, heap | `filtrace gcstats app.nettrace` |
-| `jitstats` | JIT method count, compile time, sizes | `filtrace jitstats app.nettrace` |
-| `threadpool` | Worker-thread adjustments and starvation (slow under load, CPU idle) | `filtrace threadpool app.nettrace` |
-| `diskio` | Physical disk I/O by file: bytes and disk service time (ETW) | `filtrace diskio app.etl` |
+| `report` | GC, JIT, thread-pool, or physical disk-I/O report | `filtrace report app.nettrace --kind gc` |
 | `lifecycle` | Per-invocation wall-clock phases: root lifetime, first child, child span, teardown (ETW) | `filtrace lifecycle run.etl --process myapp --image hostfxr` |
 | `events` | Query raw events, filtered by name / payload / pid / tid, paged | `filtrace events app.etl --payload ConnectionReset` |
 
 **Capture** (Windows, elevated) - record an ETW `.etl` yourself, no external recorder:
 
-| Verb | Purpose | Example |
+| Command | Purpose | Example |
 |---|---|---|
 | `collect` | Launch an executable and record a CPU / thread-time `.etl` | `filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl --profile threadtime` |
 
@@ -226,17 +218,28 @@ first-party `dotnet-trace` (`dotnet tool install -g dotnet-trace`, then
 
 **File ops** - manage the ETLX conversion cache TraceEvent keeps beside a trace:
 
-| Verb | Purpose | Example |
+| Command | Purpose | Example |
 |---|---|---|
-| `convert` | Build the ETLX cache up front | `filtrace convert app.nettrace` |
-| `clean` | Remove the ETLX cache to force a rebuild | `filtrace clean app.nettrace` |
+| `cache` | Build/reuse or remove the ETLX cache | `filtrace cache app.nettrace --action convert` |
 
 ETLX conversion is coordinated per canonical trace path across threads and
 processes, with unique temporary files and atomic publication. Same-trace MCP
-queries may run in parallel; `trace_info.etlxCacheState` and `convert` report
+queries may run in parallel; `trace_info.etlxCacheState` and `cache --action convert` report
 `hit`, `waited`, `converted`, or `recovered`.
 
-Run `filtrace <verb> --help` for the full option set of any verb.
+### Preview alias migration
+
+Previous command names remain callable for one preview and print their replacement
+to stderr, but they are hidden from top-level help and are not used in examples:
+
+| Previous names | Canonical command |
+|---|---|
+| `cpu`, `alloc`, `exceptions`, `threadtime` | `rank --metric <name>` |
+| `lines`, `heatmap` | `source --view <name>` |
+| `gcstats`, `jitstats`, `threadpool`, `diskio` | `report --kind gc|jit|threadpool|diskio` |
+| `convert`, `clean` | `cache --action convert|clean` |
+
+Run `filtrace <command> --help` for the full option set of any command.
 
 <!-- filtrace:begin agents-snippet -->
 ## Using filtrace from an AI agent

@@ -18,8 +18,8 @@
        the map (e.g. `tools`) are reference-only and need no consumer copy.
     2. The shipped skill's YAML frontmatter is valid: `name` matches the skill
        directory, and `description` is present.
-    3. Every CLI verb appears in the verb catalog, and every MCP tool appears in
-       the tool catalog - so a newly added verb/tool cannot ship undocumented.
+    3. Every canonical CLI command appears in the command catalog, and every MCP
+       tool appears in the tool catalog - so new surface cannot ship undocumented.
     4. Every relative link in a shipped skill file (.agents/skills/filtrace/)
        resolves to a path inside the skill directory - so no link dangles once
        the skill is packed into the NuGet package or vendored via
@@ -129,15 +129,23 @@ else {
     }
 }
 
-# 3. Verb / tool completeness: every CLI verb is in the verb catalog, every MCP
-# tool is in the tool catalog.
+# 3. Command / tool completeness: every canonical CLI command is in the command
+# catalog, every MCP tool is in the tool catalog.
 $verbsBlock = Get-DocBlock -Path (Join-Path $root 'docs/workflow.md') -Id 'verbs'
-$verbs = @(Select-String -Path (Join-Path $root 'src/Filtrace/Cli/TraceCommands.cs') -Pattern '\[Command\("([^"]+)"\)\]' -AllMatches |
-        ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
-if ($verbs.Count -eq 0) { Add-Failure 'No [Command(...)] verbs found in TraceCommands.cs.' }
+$commandsSource = Get-Content -LiteralPath (Join-Path $root 'src/Filtrace/Cli/TraceCommands.cs') -Raw
+$allVerbs = @([regex]::Matches($commandsSource, '\[Command\("([^"]+)"\)\]') |
+    ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$hiddenVerbs = @([regex]::Matches(
+        $commandsSource,
+        '\[Hidden\]\s*\r?\n\s*\[Command\("([^"]+)"\)\]') |
+    ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$hiddenSet = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+foreach ($hiddenVerb in $hiddenVerbs) { [void]$hiddenSet.Add($hiddenVerb) }
+$verbs = @($allVerbs | Where-Object { -not $hiddenSet.Contains($_) })
+if ($verbs.Count -eq 0) { Add-Failure 'No canonical [Command(...)] entries found in TraceCommands.cs.' }
 foreach ($verb in $verbs) {
     if ($null -eq $verbsBlock -or $verbsBlock -notmatch "(?m)\b$([regex]::Escape($verb))\b") {
-        Add-Failure "Verb '$verb' is not documented in the 'verbs' block of docs/workflow.md."
+        Add-Failure "Command '$verb' is not documented in the 'verbs' block of docs/workflow.md."
     }
 }
 
@@ -371,7 +379,7 @@ else {
     }
 }
 
-Write-Host "Checked $($blocks.Count) shared block(s), $($verbs.Count) verb(s), $($tools.Count) tool(s), $linkCount skill link(s), $packedCount packed skill file(s), $packageCount package archive(s)."
+Write-Host "Checked $($blocks.Count) shared block(s), $($verbs.Count) command(s), $($tools.Count) tool(s), $linkCount skill link(s), $packedCount packed skill file(s), $packageCount package archive(s)."
 
 if ($failures.Count -gt 0) {
     Write-Host ''

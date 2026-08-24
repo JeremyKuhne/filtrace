@@ -5,7 +5,7 @@
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/threadpool.nettrace",
   "os": "any",
   "steps": [
-    { "args": ["threadpool", "{fixture}"] }
+    { "args": ["report", "{fixture}", "--kind", "threadpool"] }
   ],
   "assert": [
     { "field": "result.adjustmentCount", "equals": 3 },

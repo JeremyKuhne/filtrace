@@ -104,12 +104,11 @@ Almost every investigation is the same four moves:
    frame-name threshold. Add `--require-enabled <names>` when provider enablement
    is required (enabled-zero passes), or `--require-events <names>` when a positive
    event count is required. The full info envelope is still emitted on rejection.
-2. **Rank.** Find the hottest frames by the metric that matches the question -
-   `cpu`, `alloc`, `exceptions`, or `threadtime` (or `rank --metric <m>`).
+2. **Rank.** Find the hottest frames with `rank --metric <m>`.
    Self-time finds the leaf that burns the resource; inclusive-time finds the
    subtree that drives it.
 3. **Drill CPU.** For an unwindowed CPU ranking, follow the hot frame with
-   `callers <frame>` (who calls it), `lines` / `heatmap <file>` (which source
+   `callers <frame>` (who calls it), `source --view lines|heatmap` (which source
    lines), or `tree` (what it calls). These tools read CPU stacks only. For alloc,
    exceptions, contention, wait, activity, or threadtime, compare self/inclusive
    rankings or refine `root` / `time` instead of crossing into a CPU drill.
@@ -120,9 +119,9 @@ Almost every investigation is the same four moves:
 
 ```pwsh
 filtrace info app.nettrace                   # 1. orient: format, symbol rate, analyses
-filtrace cpu app.nettrace                    # 2. rank self-time
+filtrace rank app.nettrace --metric cpu      # 2. rank self-time
 filtrace callers app.nettrace MyApp.Parse    # 3. who drives the hot frame
-filtrace lines app.nettrace --symbols bin/Release/net10.0   # 3. hot source lines
+filtrace source app.nettrace --view lines --symbols bin/Release/net10.0   # 3. hot source lines
 filtrace diff before.nettrace after.nettrace # 4. what changed
 ```
 
@@ -132,18 +131,18 @@ workload:
 
 | Symptom / question | Start with | What it establishes |
 |---|---|---|
-| CPU saturated or a hot loop | `cpu` self, then inclusive / callers | executing leaf, then the subtree or caller driving it |
-| Slow with low CPU | `threadtime` (`.etl`), or `contention` / `wait` / `threadpool` (`.nettrace`) | broad on/off-CPU split, lock/handle waits, or pool starvation |
-| High allocation rate or GC pauses | `alloc`, then `gcstats` | sampled allocation volume by site, then collection/pause cost |
-| Startup or first-call delay | `jitstats` | JIT count and compile cost |
-| Repeated exceptions | `exceptions` self, then inclusive | thrown types, then the paths that throw them |
+| CPU saturated or a hot loop | `rank --metric cpu` self, then inclusive / callers | executing leaf, then the subtree or caller driving it |
+| Slow with low CPU | `rank --metric threadtime`, `rank --metric contention|wait`, or `report --kind threadpool` | broad on/off-CPU split, lock/handle waits, or pool starvation |
+| High allocation rate or GC pauses | `rank --metric alloc`, then `report --kind gc` | sampled allocation volume by site, then collection/pause cost |
+| Startup or first-call delay | `report --kind jit` | JIT count and compile cost |
+| Repeated exceptions | `rank --metric exceptions` self, then inclusive | thrown types, then the paths that throw them |
 | One captured request or job is slow | metric `activity`, then CPU scoped with `activity` | completed activity paths, then CPU inside the named operation |
 | A spike occurs at an unknown time | `timeline`, then `rank --time` | the busy window, then its stacks |
-| A command finishes in tens of milliseconds | `lifecycle`, then `cpu` (trap 13) | wall-clock phases first; sampled CPU alone cannot explain a blocked command |
-| Physical disk pressure | `diskio` (`.etl` with disk keywords) | files ranked by physical disk service time |
+| A command finishes in tens of milliseconds | `lifecycle`, then `rank --metric cpu` (trap 13) | wall-clock phases first; sampled CPU alone cannot explain a blocked command |
+| Physical disk pressure | `report --kind diskio` (`.etl` with disk keywords) | files ranked by physical disk service time |
 
 <!-- filtrace:begin verbs -->
-### CLI verbs
+### CLI commands
 
 **Orient** - see what a capture holds before ranking:
 
@@ -156,18 +155,13 @@ workload:
 | Verb | Ranks | Reads |
 |---|---|---|
 | `rank --metric <m>` | any metric (`cpu`, `alloc`, `exceptions`, `threadtime`, `contention`, `wait`, `activity`) | per metric |
-| `cpu` | CPU self/inclusive time | `.nettrace`, `.etl`, `.speedscope.json` |
-| `alloc` | bytes allocated, by site | `.nettrace` |
-| `exceptions` | exception types, by count | `.nettrace` |
-| `threadtime` | wall-clock (running + blocked) | `.etl` (Windows) |
 
 **CPU drill** - follow a CPU ranking into detail:
 
 | Verb | Shows |
 |---|---|
 | `callers <frame>` | immediate CPU callers of a frame, or a caller/callee view with `--callees` |
-| `lines` | hottest CPU source lines of the scoped methods |
-| `heatmap <file>` | per-line CPU heat for one source file |
+| `source --view lines|heatmap` | hottest CPU source lines, or per-line heat for one source file |
 | `tree` | top-down CPU call tree from the root |
 
 **Inventory** - see what a (possibly machine-wide) capture holds:
@@ -195,10 +189,7 @@ workload:
 
 | Verb | Reports |
 |---|---|
-| `gcstats` | GC counts, pauses, heap summary (`.nettrace`) |
-| `jitstats` | JIT method count, compile time, sizes (`.nettrace`) |
-| `threadpool` | worker-thread adjustments and starvation - slow under load, CPU idle (`.nettrace`) |
-| `diskio` | physical disk I/O by file: bytes and disk service time (`.etl`, Windows) |
+| `report --kind gc|jit|threadpool|diskio` | bounded GC, JIT, thread-pool, or physical disk-I/O report |
 | `lifecycle` | per-invocation wall-clock phases: root lifetime, time to first child, child span, teardown (`.etl`, Windows) |
 | `events --name <n>` | raw events, filtered by name / payload / pid / tid, paged (`.nettrace`, or `.etl` on Windows) |
 
@@ -212,15 +203,15 @@ workload:
 
 | Verb | Does |
 |---|---|
-| `convert` | build the ETLX cache up front |
-| `clean` | remove the ETLX cache to force a rebuild |
+| `cache --action convert|clean` | build/reuse or remove the ETLX cache |
 
 Same-trace conversions are coordinated by canonical path across threads and
 processes. filtrace converts to a unique sibling temporary file and atomically
 publishes the completed cache, so MCP calls against one trace may run in parallel;
-different traces remain independent. `trace_info.etlxCacheState` and the `convert`
-verb report `hit`, `waited`, `converted`, or `recovered` (`null` for speedscope).
-`clean` waits for an active conversion before removing its cache.
+different traces remain independent. `trace_info.etlxCacheState` and
+`cache --action convert` report `hit`, `waited`, `converted`, or `recovered`
+(`null` for speedscope). `cache --action clean` waits for an active conversion
+before removing its cache.
 <!-- filtrace:end verbs -->
 
 Run `filtrace <verb> --help` for the full option set of any verb.
@@ -230,22 +221,22 @@ Run `filtrace <verb> --help` for the full option set of any verb.
 <!-- filtrace:begin scopes -->
 **Implemented scope inventory:**
 
-- **Named process:** CLI `info`, `rank`, `cpu`, `threadtime`, `callers`, `lines`,
-  `heatmap`, `tree`, `classify`, `timeline`, `diff`, `batch`, and `export`; MCP
+- **Named process:** CLI `info`, `rank`, `source`, `callers`, `tree`, `classify`,
+  `timeline`, `diff`, `batch`, and `export`; MCP
   `trace_info`, `trace_rank`, `trace_callers`, `trace_lines`, `trace_heatmap`,
   `trace_tree`, `trace_classify`, `trace_timeline`, `trace_diff`, `trace_batch`, and
   `trace_export`. These auto-scope a multi-process `.etl` to the busiest process tree.
   Run `processes` / `trace_processes` first to inspect the capture, then set
-  `--process <name>` / `process` to override. CLI verbs expose `--all-processes`
+  `--process <name>` / `process` to override. CLI commands expose `--all-processes`
   where an aggregate is supported; MCP has no all-process aggregate.
-- **Exact process ids:** the same verbs and tools accept `--pid <id>[,<id>]`
+- **Exact process ids:** the same commands and tools accept `--pid <id>[,<id>]`
   (comma-separated, not repeated) / `pid` instead of a name. A name substring is right
   for discovery, but a common host name such as `dotnet` matches every unrelated
   instance in a machine-wide capture and ranks them together; an exact id set cannot.
   Prefer it for manifests and automation. The three selectors are mutually exclusive,
   an id reused by two processes in one trace is refused rather than merged, and an id
   that is not in the trace is reported.
-- **Descendants:** the same verbs and tools accept `--children include|exclude` /
+- **Descendants:** the same commands and tools accept `--children include|exclude` /
   `children`. Both selectors follow descendants by default, because the common capture
   shapes put the measured work in a child the host launched. Pass `exclude` to separate
   a parent's own CPU from a child runtime's; without it a native host's own cost is
@@ -253,7 +244,7 @@ Run `filtrace <verb> --help` for the full option set of any verb.
 - **Invocation roots:** CLI `lifecycle` and MCP `trace_lifecycle` take the same
   `--process` / `--pid` selectors, but each matched process instance is one invocation
   and descendants always follow, so neither takes `--children` or `--all-processes`.
-- **Root subtree:** CLI `rank`, `cpu`, `alloc`, `exceptions`, `threadtime`, `callers`,
+- **Root subtree:** CLI `rank`, `callers`,
   `tree`, `classify`, `diff`, `batch`, and `export`; MCP `trace_rank`,
   `trace_callers`, `trace_tree`, `trace_classify`, `trace_diff`, `trace_batch`, and
   `trace_export`. Set `--root <frame>` / `root` to keep the subtree under a frame.
@@ -263,12 +254,12 @@ Run `filtrace <verb> --help` for the full option set of any verb.
   weight and record counts; direct diffs report both sides, and manifest batch/diff
   report each case. Use an instrumented activity or validated time window for a
   parallel phase, and ETW `threadtime` when sampled CPU does not explain elapsed time.
-- **BenchmarkDotNet workload:** CLI `rank`, `cpu`, `alloc`, `exceptions`,
-  `threadtime`, `callers`, `tree`, `classify`, `diff`, `batch`, and `export` accept
+- **BenchmarkDotNet workload:** CLI `rank`, `callers`, `tree`, `classify`, `diff`,
+  `batch`, and `export` accept
   `--benchmark`; MCP `trace_rank`, `trace_callers`, `trace_tree`, `trace_classify`,
   `trace_diff`, `trace_batch`, and `trace_export` accept `benchmark: true`. The
   preset isolates the `WorkloadAction` subtree from harness and overhead scaffolding;
-  it is mutually exclusive with an explicit root. `lines` / `heatmap` are not
+  it is mutually exclusive with an explicit root. `source` views are not
   root-aware, so narrow them by method/file and treat percentages as process-scoped
   whole-trace values.
 <!-- filtrace:end scopes -->
@@ -339,7 +330,7 @@ The recurring ways a .NET trace investigation goes wrong:
    EventPipe ranking actively *misleads* for `net481`: weaker Framework inlining
    relocates the hot frame, so a method that is 1.5% self-time on the EventPipe
    trace can be 56% on the ETW (`.etl`) capture of the same workload. Capture
-   net481 under ETW (`threadtime` / `cpu` over an `.etl`) and rank that.
+   net481 under ETW (`rank --metric threadtime|cpu` over an `.etl`) and rank that.
 
 2. **Treat low symbol resolution as a quality gate, not an automatic rejection.**
    A rate below **0.8** (surfaced by `trace_info` / the load warning) means unresolved
@@ -350,7 +341,7 @@ The recurring ways a .NET trace investigation goes wrong:
    correctly; in that case managed-method rankings remain usable, and
    `--native-symbols` is the relevant opt-in when the native runtime split matters.
    Conversely, 100% method-name resolution does not prove that any source line is
-   available. Before `lines` or `heatmap`, inspect `trace_info.sourceResolution`:
+   available. Before `source`, inspect `trace_info.sourceResolution`:
    require the relevant module in `matchingPdbModules`, then report mapped versus
    sampled managed frames and `highestUnmappedModules`. When
    `pdbIdentityMismatchModules` names the module, the expected PDB filename exists
@@ -372,8 +363,8 @@ The recurring ways a .NET trace investigation goes wrong:
 4. **BenchmarkDotNet captures include the harness - scope with `--benchmark` by
    default, not as an afterthought.** A raw ranking (or export) of a BDN trace is
    mixed with orchestrator and overhead scaffolding outside your `[Benchmark]`.
-   In the CLI, pass `--benchmark` to `rank`, `cpu`, `alloc`, `exceptions`,
-   `threadtime`, `callers`, `tree`, `classify`, `diff`, `batch`, and `export`; in
+   In the CLI, pass `--benchmark` to `rank`, `callers`, `tree`, `classify`,
+   `diff`, `batch`, and `export`; in
    MCP, pass `benchmark: true` to `trace_rank`, `trace_callers`, `trace_tree`,
    `trace_classify`, `trace_diff`, `trace_batch`, and `trace_export`. The wrapper
    includes warmup and actual workload iterations; it excludes harness/overhead
@@ -381,8 +372,8 @@ The recurring ways a .NET trace investigation goes wrong:
    the harness left in is not just noisy, its proportions are wrong. Do not
    substitute a benchmark method substring:
    if root/frame warnings report multiple definitions or depths, narrow the selector
-   before trusting the result. `lines` / `heatmap` cannot preserve root scope; narrow
-   them with their method/file filter and treat percentages as whole-trace.
+   before trusting the result. The two `source` views cannot preserve root scope;
+   narrow them with their method/file filter and treat percentages as whole-trace.
 
 5. **A healthy whole trace can still produce a statistically thin scoped result.**
    `trace_info.sampleCount` describes the loaded trace, while a root, focus method,
