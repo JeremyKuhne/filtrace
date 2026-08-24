@@ -717,7 +717,7 @@ internal sealed class TraceCommands
     }
 
     /// <summary>Run a bounded structured runtime or operating-system report.</summary>
-    /// <param name="trace">Path to a .nettrace EventPipe or Windows ETW .etl file.</param>
+    /// <param name="trace">Path to a .nettrace EventPipe file for gc, jit, or threadpool; Windows ETW .etl for diskio.</param>
     /// <param name="kind">Report kind: gc, jit, threadpool, or diskio.</param>
     /// <param name="top">-n, Maximum detail rows; omit for the selected report's default. Threadpool has no detail rows.</param>
     /// <param name="format">Render format: text or json.</param>

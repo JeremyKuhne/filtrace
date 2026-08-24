@@ -1130,6 +1130,16 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_ReportHelp_MapsKindsToInputFormats()
+    {
+        (int exit, string output, _) = Run("report", "--help");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain(".nettrace EventPipe file for gc, jit, or threadpool")
+            .And.Contain("Windows ETW .etl for diskio");
+    }
+
+    [TestMethod]
     public void Run_ReportGcWrongFormat_ReturnsInputError()
     {
         (int exit, _, string error) = Run("report", Speedscope, "--kind", "gc");
