@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using ConsoleAppFramework;
 using Filtrace.Tracing;
 using Filtrace.Tracing.Providers;
@@ -448,7 +449,7 @@ internal sealed class TraceCommands
     }
 
     /// <summary>Inspect CPU source attribution as ranked lines or a per-file heat map.</summary>
-    /// <param name="trace">Path to a .nettrace or .etl trace.</param>
+    /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl trace.</param>
     /// <param name="view">Source view: lines or heatmap.</param>
     /// <param name="method">For lines, keep methods whose name contains this; omit for every method.</param>
     /// <param name="file">For heatmap, required source file name or path.</param>
@@ -478,6 +479,12 @@ internal sealed class TraceCommands
         int[]? pid = null,
         Children children = Children.Include)
     {
+        if (!Enum.IsDefined(view))
+        {
+            Console.Error.WriteLine($"Unknown source view '{view}'. Supported views: lines, heatmap.");
+            return ExitCodes.UsageError;
+        }
+
         if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
@@ -722,6 +729,12 @@ internal sealed class TraceCommands
         int? top = null,
         OutputFormat format = OutputFormat.Text)
     {
+        if (!Enum.IsDefined(kind))
+        {
+            Console.Error.WriteLine($"Unknown report kind '{kind}'. Supported report kinds: gc, jit, threadpool, diskio.");
+            return ExitCodes.UsageError;
+        }
+
         if (top is < 0)
         {
             Console.Error.WriteLine("The --top option must be zero or greater.");
@@ -757,7 +770,7 @@ internal sealed class TraceCommands
                     Console.Out,
                     Console.Error);
             default:
-                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+                throw new UnreachableException();
         }
     }
 
@@ -1161,12 +1174,21 @@ internal sealed class TraceCommands
     /// <param name="action">Cache action: convert or clean.</param>
     /// <returns>A process exit code.</returns>
     [Command("cache")]
-    public int Cache([Argument] string trace, CacheAction action) => action switch
+    public int Cache([Argument] string trace, CacheAction action)
     {
-        CacheAction.Convert => FileOpsExecutor.Convert(trace, Console.Out, Console.Error),
-        CacheAction.Clean => FileOpsExecutor.Clean(trace, Console.Out, Console.Error),
-        _ => throw new ArgumentOutOfRangeException(nameof(action), action, null)
-    };
+        if (!Enum.IsDefined(action))
+        {
+            Console.Error.WriteLine($"Unknown cache action '{action}'. Supported actions: convert, clean.");
+            return ExitCodes.UsageError;
+        }
+
+        return action switch
+        {
+            CacheAction.Convert => FileOpsExecutor.Convert(trace, Console.Out, Console.Error),
+            CacheAction.Clean => FileOpsExecutor.Clean(trace, Console.Out, Console.Error),
+            _ => throw new UnreachableException()
+        };
+    }
 
     /// <summary>
     ///  Build the ETLX conversion cache up front so the first analysis query is fast.

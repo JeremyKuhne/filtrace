@@ -372,8 +372,8 @@ The recurring ways a .NET trace investigation goes wrong:
    the harness left in is not just noisy, its proportions are wrong. Do not
    substitute a benchmark method substring:
    if root/frame warnings report multiple definitions or depths, narrow the selector
-   before trusting the result. `source` cannot preserve root scope; narrow
-   them with their method/file filter and treat percentages as whole-trace.
+   before trusting the result. The two `source` views cannot preserve root scope;
+   narrow them with their method/file filter and treat percentages as whole-trace.
 
 5. **A healthy whole trace can still produce a statistically thin scoped result.**
    `trace_info.sampleCount` describes the loaded trace, while a root, focus method,

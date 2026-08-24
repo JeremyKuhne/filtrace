@@ -920,6 +920,15 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_SourceHelp_ListsEverySupportedFormat()
+    {
+        (int exit, string output, _) = Run("source", "--help");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain(".speedscope.json, .nettrace, or .etl");
+    }
+
+    [TestMethod]
     public void Run_SourceHeatmap_RunsForKnownFile()
     {
         (int exit, string output, _) = Run(
@@ -969,6 +978,19 @@ public sealed class CliAppTests
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("view");
+    }
+
+    [TestMethod]
+    [DataRow("999")]
+    [DataRow("-1")]
+    public void Run_SourceUndefinedNumericView_ReturnsUsageError(string view)
+    {
+        (int exit, string output, string error) = Run(
+            "source", Speedscope, "--view", view, "--file", "Program.cs");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("Unknown source view").And.NotContain("Exception");
     }
 
     [TestMethod]
@@ -1156,6 +1178,19 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    [DataRow("999")]
+    [DataRow("-1")]
+    public void Run_ReportUndefinedNumericKind_ReturnsUsageError(string kind)
+    {
+        (int exit, string output, string error) = Run(
+            "report", Speedscope, "--kind", kind);
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("Unknown report kind").And.NotContain("Exception");
+    }
+
+    [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
     public void Run_ReportDiskIo_ReportsFiles()
     {
@@ -1210,6 +1245,19 @@ public sealed class CliAppTests
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("action");
+    }
+
+    [TestMethod]
+    [DataRow("999")]
+    [DataRow("-1")]
+    public void Run_CacheUndefinedNumericAction_ReturnsUsageError(string action)
+    {
+        (int exit, string output, string error) = Run(
+            "cache", Speedscope, "--action", action);
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("Unknown cache action").And.NotContain("Exception");
     }
 
     [TestMethod]
