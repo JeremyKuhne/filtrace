@@ -240,6 +240,7 @@ switch ($env:FILTRACE_FAKE_RECORDER_MODE) {
         $bytes.Length -lt 3 -or -not ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) `
         'Sidecar must be UTF-8 without a BOM.'
 
+    $global:LASTEXITCODE = 0
     Write-Host 'Project capture contract passed.' -ForegroundColor Green
 }
 finally {

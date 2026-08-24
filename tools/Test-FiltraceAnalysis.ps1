@@ -246,6 +246,7 @@ try {
     Assert-True ($replayExit -ne 0) 'Replay unexpectedly accepted mutated trace bytes.'
     Assert-True (-not (Test-Path -LiteralPath $replayDirectory)) 'Replay created an output directory before input hashes were verified.'
 
+    $global:LASTEXITCODE = 0
     Write-Host 'Filtrace analysis-record contract passed.' -ForegroundColor Green
 }
 finally {
