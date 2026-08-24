@@ -1,8 +1,9 @@
 # filtrace roadmap
 
-**Status:** Living plan. This is the only page that holds unshipped work.
+**Status:** Living plan. This page prioritizes unshipped work; explicitly deferred
+work may retain its detail in a linked GitHub issue.
 
-**Last verified:** 2026-08-23 against the VN4 prototype.
+**Last verified:** 2026-08-24 after VN4 merged.
 
 Shipped work is not tracked here. Git history and the release tags record what
 landed; the durable lessons from finished initiatives live in
@@ -40,17 +41,18 @@ true.
   a wrapper roughly 4-5x the payload: one measured `trace_query_events` response was
   text 36, structured 36, complete wire result 171. How much of each copy reaches
   model context is client-dependent and still has to be measured per host.
-- **The deterministic eval suite answers all 26 fixture-backed tasks**, most in one
+- **The deterministic eval suite answers all 27 fixture-backed tasks**, most in one
   call. The surface works; the open question is efficiency, not correctness.
 
 ## Priorities
 
 | When | Items | Why now |
 |---|---|---|
-| Done | VN0-VN4, SC8, SC13 | The output contract and CLI/MCP surfaces are selected; capture acceptance, ancestry coverage, and decisive-query replay are implemented. |
-| Now | VC1 | Add the first new analysis capability through the selected surfaces. |
-| Later | VC2-VC8, SC9-SC12, LP-1..LP-5, VN5 | Demand-, dependency-, or stabilization-gated. |
+| Done | VN0-VN4, VC2, SC8, SC13 | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, and decisive-query replay are implemented. |
+| Now | VC3 | Add temporal shape to CPU rankings only if it saves a follow-up without inflating ordinary results. |
+| Later | VC4-VC8, SC9-SC12, LP-1..LP-5, VN5 | Complete broadly applicable, demand-, dependency-, or stabilization-gated work before the specialized backlog. |
 | Upstream | TE-P1..TE-P5 | Not actionable in this repository alone. |
+| Backlog | VC1 ([issue #92](https://github.com/JeremyKuhne/filtrace/issues/92)) | DATAS applies only to modern server-GC workloads; retain the design without scheduling it ahead of broader capabilities. |
 
 VN3 retained the current MCP surface. New capabilities extend a compatible existing
 operation unless a measured task demonstrates that a standalone tool is better.
@@ -269,10 +271,10 @@ a lever - the client re-materializes structured content and already spills an
 oversized result to a file - so the only way to reduce what an investigation costs is
 to send fewer rows and to make a result route its own follow-up. That is this item.
 
-The envelope is at `schemaVersion` 15. Effective context is v9; structured
+The envelope is at `schemaVersion` 16. Effective context is v9; structured
 diagnostics is v10; structured next steps is v11; discriminated results is v12;
 null/default omission is v13; manifest case references is v14; root-scope ancestry
-and coverage is v15. Each remaining slice
+and coverage is v15; point-in-time timeline snapshots are v16. Each remaining slice
 below changes the serialized shape and therefore gets its own schema version when it
 ships; do not mutate an earlier version in place.
 
@@ -580,7 +582,7 @@ The measurable candidate replaced `trace_gc`, `trace_jit`, `trace_threadpool`,
 `trace_report(request: { kind, ... })`. Its generated five-branch union reduced the
 surface from 18 tools / 26,118 characters / ~6,590 tokens to 14 / 24,077 / ~6,065:
 525 tokens, or 8%, below the 20% threshold for a token-motivated breaking change.
-All 26 deterministic tasks passed before the live arm.
+All 27 deterministic tasks passed before the live arm.
 
 The N=10 live A/B on `gpt-5.6-sol` and `claude-haiku-4.5` was rejected with five
 regressions. On haiku, disk-I/O success fell 100% -> 90%, with median calls 1 -> 2
@@ -665,39 +667,27 @@ selected surface.
 
 | ID | Capability | Proposed surface | Priority | Main gate |
 |---|---|---|:---:|---|
-| VC1 | DATAS server-GC tuning | extend `report --kind gc` / `trace_gc` | High | capture fixture and parser parity |
-| VC2 | Point-in-time snapshot | `timeline --mode snapshot` | Medium | prove it beats timeline + rank |
+| VC2 | Point-in-time snapshot | `timeline --mode snapshot` | Complete | one-call eval and bounded output |
 | VC3 | Per-frame temporal buckets | `rank --temporal` or `detail=full` | Medium | response and aggregation cost |
 | VC4 | PMC / CPU-counter ranking | new `rank` metric | Medium | ETW capture support and a fixture |
 | VC5 | Retention / leak analysis | dedicated retention result | Medium | PerfView graph dependency |
 | VC6 | Net surviving heap | new stack metric | Low | `GCHeapSimulator` extraction |
 | VC7 | Physical ETL trim | `trim` or `cache --action trim` | Low | preserving JITted managed frames |
 | VC8 | Activity and file-I/O follow-ups | extend existing scopes and reports | Low | demand and capture volume |
-
-### VC1 - DATAS server-GC tuning
-
-The highest-value remaining analytical gap, and the one capability a comparable
-tool has that filtrace does not. DATAS explains Dynamic Adaptation To Application
-Sizes decisions in modern server GC: heap-count transitions, per-collection budget,
-throughput-cost and wait samples, and gen-2 backstop tuning.
-
-- Read `TraceGC.DynamicEvents` and parse the packed little-endian payloads into
-  immutable result records.
-- Return aggregate heap-count min/max/transitions plus bounded tuning and sample
-  rows; support a changes-only detail mode for long traces.
-- Capture and commit a small DATAS-enabled `.nettrace`; unit-test the binary offsets
-  independently of the trace fixture.
-- Verify whether an appropriately configured `.etl` exposes the same dynamic events
-  before declaring the report EventPipe-only.
-- Route heap-count churn to the existing GC report through a structured next step.
-- If any implementation is ported from another MIT project, carry its exact
-  copyright notice in the source file, add third-party notice text, and retain
-  source provenance.
-
-Extend the existing GC report. VN3 found the typed report discriminator worse for
-agents, so DATAS does not justify reopening report consolidation.
+| VC1 | DATAS server-GC tuning | extend `report --kind gc` / `trace_gc` | Backlog | [issue #92](https://github.com/JeremyKuhne/filtrace/issues/92) |
 
 ### VC2 - point-in-time snapshot
+
+**Status:** Complete. `timeline --mode snapshot --at <ms>` and
+`trace_timeline` with `mode=snapshot` return one exact, process-scoped window with
+bounded GC, top CPU leaf methods, exceptions, allocations, JIT methods, and raw
+event types. Each evidence family retains at most five rows, trace-derived names are
+capped at 256 characters, and the half-window is capped at 60 seconds.
+
+The `point-in-time-snapshot` deterministic task answers the cross-lane question in
+one call and 507 tokens. Its live contract allows exactly one `trace_timeline` call
+and forbids `rank` and `events`; this is materially better than the prior
+timeline-then-rank/query flow while leaving ordinary bucket output unchanged.
 
 "What was happening around this millisecond?" - a bounded window containing GC
 activity, top CPU work, exceptions, allocations, JIT activity, and event counts.
@@ -781,6 +771,14 @@ process-tree and optional time-window selection.
   - the exception message alongside the type, and the remaining `TraceGC`
   discriminators; see
   [traceevent-surface-assessment.md](traceevent-surface-assessment.md).
+
+### VC1 - DATAS server-GC tuning - backlog
+
+Tracked in [issue #92](https://github.com/JeremyKuhne/filtrace/issues/92). DATAS
+explains heap-count and budget decisions only for modern server-GC workloads, so it
+follows every more broadly applicable capability. Extend the existing GC report if
+concrete demand later justifies scheduling it; do not add another command or MCP
+tool.
 
 ---
 
@@ -1275,6 +1273,7 @@ Resolve these with VN0 and VN1 evidence rather than opinion:
 
 ## Immediate next step
 
-VC1, DATAS server-GC tuning. VN4 selected `report --kind gc` for the human CLI
-while VN3 retained the intent-bearing `trace_gc` MCP tool, so DATAS can extend both
-without adding another command or reopening the rejected polymorphic report tool.
+VC3, per-frame temporal buckets. Prototype CPU periodic samples behind an explicit
+option, cap both rows and bucket count, and retain it only if the bounded histogram
+saves a follow-up `timeline` plus `rank --time` call without slowing or inflating an
+ordinary ranking.

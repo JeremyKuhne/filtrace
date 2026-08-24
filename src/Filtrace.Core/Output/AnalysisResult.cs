@@ -95,8 +95,12 @@ public sealed class AnalysisResult<T>
     ///   Version 15 added root-scope ancestry semantics and pre-root/post-root
     ///   coverage to effective query context.
     ///  </para>
+    ///  <para>
+    ///   Version 16 added the bounded point-in-time snapshot representation to the
+    ///   timeline result.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 15;
+    public const int CurrentSchemaVersion = 16;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.

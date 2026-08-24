@@ -19,6 +19,9 @@ public sealed class TimelineExecutorTests
 
     private static TimelineRequest Request(
         string path,
+        TimelineMode mode = TimelineMode.Buckets,
+        double? at = null,
+        double window = TimelineProvider.DefaultSnapshotHalfWindowMs,
         string lanes = "",
         string time = "",
         int buckets = TimelineProvider.DefaultBucketCount,
@@ -27,7 +30,7 @@ public sealed class TimelineExecutorTests
         int[]? pid = null,
         Children children = Children.Include,
         OutputFormat format = OutputFormat.Text) =>
-        new(path, time, lanes, buckets, process, allProcesses, pid, children, format);
+        new(path, mode, at, window, time, lanes, buckets, process, allProcesses, pid, children, format);
 
     private static (int Exit, string Out, string Error) Run(TimelineRequest request)
     {
@@ -74,6 +77,51 @@ public sealed class TimelineExecutorTests
         result.TryGetProperty("exceptions", out _).Should().BeFalse();
         result.TryGetProperty("alloc", out _).Should().BeFalse();
         result.TryGetProperty("jit", out _).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void Run_SnapshotJson_ReturnsExactWindowAndBoundedEvidence()
+    {
+        (int exit, string output, string error) = Run(Request(
+            Alloc,
+            mode: TimelineMode.Snapshot,
+            at: 10.0,
+            window: 2.0,
+            format: OutputFormat.Json));
+
+        exit.Should().Be(ExitCodes.Success);
+        error.Should().BeEmpty();
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement result = document.RootElement.GetProperty("result");
+        result.GetProperty("mode").GetString().Should().Be("snapshot");
+        result.GetProperty("fromMs").GetDouble().Should().Be(8.0);
+        result.GetProperty("toMs").GetDouble().Should().Be(12.0);
+        JsonElement snapshot = result.GetProperty("snapshot");
+        snapshot.GetProperty("events").GetProperty("eventCount").GetInt64().Should().BeGreaterThan(0);
+        snapshot.GetProperty("events").GetProperty("types").GetArrayLength()
+            .Should().BeLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
+    }
+
+    [TestMethod]
+    public void Run_SnapshotWithoutAt_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(Request(Alloc, mode: TimelineMode.Snapshot));
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--at is required");
+    }
+
+    [TestMethod]
+    public void Run_SnapshotWithBucketSelector_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(Request(
+            Alloc,
+            mode: TimelineMode.Snapshot,
+            at: 10.0,
+            lanes: "cpu"));
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("apply only to --mode buckets");
     }
 
     [TestMethod]

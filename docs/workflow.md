@@ -290,6 +290,7 @@ meaningful zero:
 | Repeated exceptions | `rank --metric exceptions` self, then inclusive | thrown types, then the paths that throw them |
 | One captured request or job is slow | metric `activity`, then CPU scoped with `activity` | completed activity paths, then CPU inside the named operation |
 | A spike occurs at an unknown time | `timeline`, then `rank --time` | the busy window, then its stacks |
+| What happened around one known millisecond? | `timeline --mode snapshot --at <ms>` | one bounded window with top CPU, GC, exceptions, allocations, JIT, and raw event counts |
 | A command finishes in tens of milliseconds | `lifecycle`, then `rank --metric cpu` (see trap 13) | wall-clock phases first, since sampled CPU alone cannot explain a blocked command |
 | Physical disk pressure | `report --kind diskio` (`.etl` with disk keywords) | files ranked by physical disk service time |
 
@@ -327,7 +328,7 @@ meaningful zero:
 
 | Verb | Shows |
 |---|---|
-| `timeline` | per-bucket GC / CPU / exception / allocation / JIT activity across the trace |
+| `timeline` | aligned GC / CPU / exception / allocation / JIT buckets, or one bounded cross-lane snapshot around `--at <ms>` |
 
 **Compare and export:**
 
@@ -535,7 +536,7 @@ Every tool returns one envelope - a `schemaVersion`, a `warnings` list, next-ste
 | `trace_diff` | `diff` | normalized/scoped trace diff or benchmark+parameter manifest pairing |
 | `trace_batch` | `batch` | one compact ranking query across every manifest case |
 | `trace_export` | `export` | write a speedscope / chromium flame graph (write tool) |
-| `trace_timeline` | `timeline` | per-bucket GC / CPU / exception / allocation / JIT activity over time |
+| `trace_timeline` | `timeline` | aligned activity buckets, or one bounded cross-lane snapshot with `mode=snapshot` and `at=<ms>` |
 | `trace_gc` | `report --kind gc` | GC counts, pauses, % time in GC, induced, heap |
 | `trace_jit` | `report --kind jit` | JIT compile time and sizes |
 | `trace_threadpool` | `report --kind threadpool` | worker-thread adjustments and starvation |

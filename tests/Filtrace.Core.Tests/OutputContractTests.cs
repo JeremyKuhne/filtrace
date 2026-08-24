@@ -373,6 +373,8 @@ public sealed class OutputContractTests
         timeline.TryGetProperty("exceptions", out _).Should().BeFalse();
         timeline.TryGetProperty("alloc", out _).Should().BeFalse();
         timeline.TryGetProperty("jit", out _).Should().BeFalse();
+        timeline.TryGetProperty("mode", out _).Should().BeFalse();
+        timeline.TryGetProperty("snapshot", out _).Should().BeFalse();
         timeline.GetProperty("cpu").GetArrayLength().Should().Be(0);
         timeline.GetProperty("fromMs").GetDouble().Should().Be(0.0);
     }

@@ -768,56 +768,104 @@ public sealed class TraceTools
     }
 
     /// <summary>
-    ///  Returns a time-bucketed correlation of what a <c>.nettrace</c> or <c>.etl</c>
-    ///  trace was doing over its duration: per-bucket GC, CPU, exception, allocation,
-    ///  and JIT activity, aligned on one time axis.
+    ///  Returns aligned time buckets or a bounded cross-lane snapshot from a
+    ///  <c>.nettrace</c> or <c>.etl</c> trace.
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
+    /// <param name="mode">The timeline representation: <c>buckets</c> or <c>snapshot</c>.</param>
+    /// <param name="at">Snapshot center in milliseconds from trace start.</param>
+    /// <param name="window">Snapshot half-window in milliseconds.</param>
     /// <param name="lanes">Comma-separated lanes to include; empty means every lane.</param>
     /// <param name="buckets">Number of equal time buckets to divide the window into.</param>
     /// <param name="time">Optional time window (<c>start,end</c> ms) scoping the timeline.</param>
     /// <returns>The timeline envelope.</returns>
     [McpServerTool(Name = "trace_timeline", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
-        "Time buckets for selected GC/CPU/exception/allocation/JIT lanes in .nettrace/.etl; use the hint to rank "
-        + "the busy window. Speedscope is rejected.")]
+        "Aligned activity buckets or one bounded GC/CPU/exception/allocation/JIT/event snapshot in .nettrace/.etl. "
+        + "Use mode=snapshot with at=<ms> to inspect one window. Speedscope is rejected.")]
     public static AnalysisResult<TimelineResult> Timeline(
         [Description("Path to a .nettrace or .etl trace file.")] string path,
-        [Description("Lanes to include: gc, cpu, exceptions, alloc, jit; omit for all.")] string lanes = "",
-        [Description("Number of time buckets (clamped to 5-200).")] int buckets = TimelineProvider.DefaultBucketCount,
-        [Description("Optional time window 'start,end' in ms; either bound may be omitted.")] string time = "",
+        [Description("Mode: buckets (default) or snapshot.")] string mode = "buckets",
+        [Description("Snapshot center in ms; required when mode=snapshot.")] double? at = null,
+        [Description("Snapshot half-window in ms on either side of at.")] double window = TimelineProvider.DefaultSnapshotHalfWindowMs,
+        [Description("Bucket-mode lanes: gc, cpu, exceptions, alloc, jit; omit for all.")] string lanes = "",
+        [Description("Bucket-mode slice count (clamped to 5-200).")] int buckets = TimelineProvider.DefaultBucketCount,
+        [Description("Bucket-mode time window 'start,end' in ms; either bound may be omitted.")] string time = "",
         [Description("Process-name substring scoping a multi-process .etl to one tree; omit to auto-scope to the busiest.")] string process = "",
         [Description("Exact process ids; excludes process.")] int[]? pid = null,
         [Description("Follow descendants of the matched processes.")] bool children = true)
     {
-        if (!TimeWindow.TryParse(NullIfEmpty(time), out double? startMSec, out double? endMSec, out string? timeError))
+        TimelineMode resolvedMode = mode?.Trim().ToLowerInvariant() switch
         {
-            throw new McpException(timeError ?? "Invalid time window.");
-        }
-
-        if (!TimelineProvider.TryResolveLanes(lanes, out IReadOnlyList<string> resolvedLanes, out string? laneError))
-        {
-            throw new McpException(laneError!);
-        }
+            "buckets" => TimelineMode.Buckets,
+            "snapshot" => TimelineMode.Snapshot,
+            _ => throw new McpException($"Unknown timeline mode '{mode}'. Valid modes: buckets, snapshot.")
+        };
 
         List<string> warnings = [];
-        int resolvedBuckets = TimelineProvider.ClampBucketCount(buckets, out string? bucketWarning);
-        if (bucketWarning is not null)
+        TimelineResult result;
+        if (resolvedMode == TimelineMode.Snapshot)
         {
-            warnings.Add(bucketWarning);
+            if (at is not double center || !double.IsFinite(center) || center < 0.0)
+            {
+                throw new McpException("at is required for snapshot mode and must be a finite, non-negative timestamp in milliseconds.");
+            }
+
+            if (!double.IsFinite(window) || window <= 0.0 || window > TimelineProvider.MaxSnapshotHalfWindowMs)
+            {
+                throw new McpException(
+                    $"window must be finite, greater than zero, and at most {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(time)
+                || !string.IsNullOrWhiteSpace(lanes)
+                || buckets != TimelineProvider.DefaultBucketCount)
+            {
+                throw new McpException("time, lanes, and buckets apply only to buckets mode.");
+            }
+
+            result = ReadTimelineSnapshot(path, center, window, ResolveScope(process, pid, children));
         }
+        else
+        {
+            if (at is not null || window != TimelineProvider.DefaultSnapshotHalfWindowMs)
+            {
+                throw new McpException("at and window require mode=snapshot.");
+            }
 
-        TimeWindow? window = startMSec is null && endMSec is null
-            ? null
-            : new TimeWindow(startMSec, endMSec);
+            if (!TimeWindow.TryParse(NullIfEmpty(time), out double? startMSec, out double? endMSec, out string? timeError))
+            {
+                throw new McpException(timeError ?? "Invalid time window.");
+            }
 
-        TimelineResult result = ReadTimeline(path, window, resolvedLanes, resolvedBuckets, ResolveScope(process, pid, children));
+            if (!TimelineProvider.TryResolveLanes(lanes, out IReadOnlyList<string> resolvedLanes, out string? laneError))
+            {
+                throw new McpException(laneError!);
+            }
+
+            int resolvedBuckets = TimelineProvider.ClampBucketCount(buckets, out string? bucketWarning);
+            if (bucketWarning is not null)
+            {
+                warnings.Add(bucketWarning);
+            }
+
+            TimeWindow? resolvedWindow = startMSec is null && endMSec is null
+                ? null
+                : new TimeWindow(startMSec, endMSec);
+
+            result = ReadTimeline(path, resolvedWindow, resolvedLanes, resolvedBuckets, ResolveScope(process, pid, children));
+        }
 
         // Surface the process the scope resolved to (an explicit name or the automatic
         // busiest) so a narrowed machine-wide capture is not silently one process's view.
         if (result.Process is not null)
         {
             warnings.Add($"Scoped to process '{result.Process}'.");
+        }
+
+        if (result.Snapshot?.NamesTruncated == true)
+        {
+            warnings.Add($"Snapshot names longer than {TimelineProvider.MaxSnapshotNameChars} characters were truncated.");
         }
 
         return new AnalysisResult<TimelineResult>(
@@ -1498,6 +1546,26 @@ public sealed class TraceTools
             // A missing, unreadable, or malformed trace - or an .etl read attempted off
             // Windows (PlatformNotSupportedException derives from NotSupportedException) -
             // surfaces as a clean tool error rather than an unhandled exception.
+            throw new McpException(ex.Message);
+        }
+    }
+
+    private static TimelineResult ReadTimelineSnapshot(string path, double atMs, double halfWindowMs, ScopeRequest? scope)
+    {
+        RequireNetTraceOrEtl(path, "timeline snapshot");
+
+        try
+        {
+            return new TimelineProvider().ReadSnapshot(path, atMs, halfWindowMs, scope);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or FormatException
+            or ArgumentException)
+        {
             throw new McpException(ex.Message);
         }
     }

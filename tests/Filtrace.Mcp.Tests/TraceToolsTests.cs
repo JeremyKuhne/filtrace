@@ -1038,6 +1038,31 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Timeline_Snapshot_ReturnsBoundedCrossLaneEvidence()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: "snapshot",
+            at: 10.0,
+            window: 2.0);
+
+        AssertEnvelope(envelope);
+        envelope.Result.Mode.Should().Be("snapshot");
+        envelope.Result.FromMs.Should().Be(8.0);
+        envelope.Result.ToMs.Should().Be(12.0);
+        envelope.Result.Snapshot.Should().NotBeNull();
+        envelope.Result.Snapshot!.Events.Types.Should().HaveCountLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
+    }
+
+    [TestMethod]
+    public void Timeline_SnapshotWithoutAt_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(FixturePath(Alloc), mode: "snapshot");
+
+        act.Should().Throw<McpException>().WithMessage("*at is required*");
+    }
+
+    [TestMethod]
     public void Timeline_UnknownLane_ThrowsMcpException()
     {
         Action act = () => TraceTools.Timeline(FixturePath(Alloc), lanes: "bogus");

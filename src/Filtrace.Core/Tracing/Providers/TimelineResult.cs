@@ -32,4 +32,17 @@ public sealed record TimelineResult(
     IReadOnlyList<CpuBucket>? Cpu,
     IReadOnlyList<ExceptionBucket>? Exceptions,
     IReadOnlyList<AllocBucket>? Alloc,
-    IReadOnlyList<JitBucket>? Jit);
+    IReadOnlyList<JitBucket>? Jit)
+{
+    /// <summary>
+    ///  The non-default timeline representation, or <see langword="null"/> for the
+    ///  ordinary aligned-bucket result.
+    /// </summary>
+    public string? Mode { get; init; }
+
+    /// <summary>
+    ///  Bounded cross-lane evidence when <see cref="Mode"/> is <c>snapshot</c>;
+    ///  otherwise <see langword="null"/>.
+    /// </summary>
+    public TimelineSnapshot? Snapshot { get; init; }
+}

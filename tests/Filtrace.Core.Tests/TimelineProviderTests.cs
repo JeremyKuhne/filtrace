@@ -120,6 +120,83 @@ public sealed class TimelineProviderTests
     }
 
     [TestMethod]
+    public void ReadSnapshot_ExceptionsFixture_ReturnsBoundedCrossLaneEvidence()
+    {
+        TimelineResult result = new TimelineProvider().ReadSnapshot(
+            FixturePath("exceptions.nettrace"),
+            atMs: 0.0,
+            halfWindowMs: TimelineProvider.MaxSnapshotHalfWindowMs);
+
+        result.Mode.Should().Be("snapshot");
+        result.BucketCount.Should().Be(1);
+        result.FromMs.Should().Be(0.0);
+        result.ToMs.Should().BeGreaterThan(0.0);
+        result.Snapshot.Should().NotBeNull();
+        result.Snapshot!.Events.EventCount.Should().BeGreaterThan(0);
+        result.Snapshot.Events.TypeCount.Should().BeGreaterThan(TimelineProvider.SnapshotDetailLimit);
+        result.Snapshot.Events.Types.Should().HaveCount(TimelineProvider.SnapshotDetailLimit);
+        result.Snapshot.Cpu.SampleCount.Should().BeGreaterThan(0);
+        result.Snapshot.Cpu.Methods.Should().NotBeEmpty()
+            .And.HaveCountLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
+        result.Snapshot.Exceptions.ExceptionCount.Should().BeGreaterThan(0);
+        result.Snapshot.Exceptions.Types.Should().NotBeEmpty()
+            .And.HaveCountLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
+    }
+
+    [TestMethod]
+    public void ReadSnapshot_AllocationFixture_ReturnsGcAndAllocationEvidence()
+    {
+        TimelineResult result = new TimelineProvider().ReadSnapshot(
+            Alloc,
+            atMs: 0.0,
+            halfWindowMs: TimelineProvider.MaxSnapshotHalfWindowMs);
+
+        result.Snapshot!.Gc.CollectionCount.Should().BeGreaterThan(0);
+        result.Snapshot.Gc.Collections.Should().NotBeEmpty()
+            .And.HaveCountLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
+        result.Snapshot.Alloc.TickCount.Should().BeGreaterThan(0);
+        result.Snapshot.Alloc.Bytes.Should().BeGreaterThan(0);
+        result.Snapshot.Alloc.Types.Should().NotBeEmpty()
+            .And.HaveCountLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
+    }
+
+    [TestMethod]
+    public void ReadSnapshot_JitFixture_ReturnsJittedMethods()
+    {
+        TimelineResult result = new TimelineProvider().ReadSnapshot(
+            FixturePath("jit.nettrace"),
+            atMs: 0.0,
+            halfWindowMs: TimelineProvider.MaxSnapshotHalfWindowMs);
+
+        result.Snapshot!.Jit.CompilationCount.Should().BeGreaterThan(0);
+        result.Snapshot.Jit.MethodCount.Should().BeGreaterThan(0);
+        result.Snapshot.Jit.Methods.Should().NotBeEmpty()
+            .And.HaveCountLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
+    }
+
+    [TestMethod]
+    public void ReadSnapshot_AtAndHalfWindow_ReportExactResolvedWindow()
+    {
+        TimelineResult result = new TimelineProvider().ReadSnapshot(Alloc, atMs: 10.0, halfWindowMs: 2.0);
+
+        result.FromMs.Should().Be(8.0);
+        result.ToMs.Should().Be(12.0);
+        result.Snapshot!.AtMs.Should().Be(10.0);
+    }
+
+    [TestMethod]
+    [DataRow(double.NaN, 100.0)]
+    [DataRow(-1.0, 100.0)]
+    [DataRow(0.0, 0.0)]
+    [DataRow(0.0, double.PositiveInfinity)]
+    public void ReadSnapshot_InvalidGeometry_Throws(double atMs, double halfWindowMs)
+    {
+        Action act = () => new TimelineProvider().ReadSnapshot(Alloc, atMs, halfWindowMs);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
     public void Read_EtlFixture_CountsCpuSamples()
     {
@@ -154,6 +231,29 @@ public sealed class TimelineProviderTests
         long scopedSamples = scoped.Cpu!.Sum(static b => (long)b.SampleCount);
         scopedSamples.Should().BeGreaterThan(0);
         scopedSamples.Should().BeLessThan(allSamples, "scoping to one tree drops the other processes' samples");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void ReadSnapshot_EtlFixture_ProcessSelectorScopesTheSnapshot()
+    {
+        string etl = FixturePath("etw.etl");
+        TimelineResult all = new TimelineProvider().ReadSnapshot(
+            etl,
+            atMs: 0.0,
+            halfWindowMs: TimelineProvider.MaxSnapshotHalfWindowMs,
+            scope: ScopeRequest.AllProcesses);
+        TimelineResult scoped = new TimelineProvider().ReadSnapshot(
+            etl,
+            atMs: 0.0,
+            halfWindowMs: TimelineProvider.MaxSnapshotHalfWindowMs,
+            scope: ScopeRequest.ForProcess("HotLoopBench"));
+
+        all.Process.Should().BeNull();
+        scoped.Process.Should().Contain("HotLoopBench");
+        scoped.Snapshot!.Cpu.SampleCount.Should().BeGreaterThan(0);
+        scoped.Snapshot.Cpu.SampleCount.Should().BeLessThan(all.Snapshot!.Cpu.SampleCount);
+        scoped.Snapshot.Events.EventCount.Should().BeLessThan(all.Snapshot.Events.EventCount);
     }
 
     [TestMethod]

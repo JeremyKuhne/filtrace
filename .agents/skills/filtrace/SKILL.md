@@ -175,7 +175,7 @@ workload:
 
 | Verb | Shows |
 |---|---|
-| `timeline` | per-bucket GC / CPU / exception / allocation / JIT activity across the trace |
+| `timeline` | aligned GC / CPU / exception / allocation / JIT buckets, or one bounded cross-lane snapshot around `--at <ms>` |
 
 **Compare and export:**
 

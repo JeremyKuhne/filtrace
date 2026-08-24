@@ -1057,12 +1057,15 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Correlate what a trace was doing over time: per-bucket GC, CPU, exception, allocation, and JIT activity.
+    ///  Correlate trace activity as aligned time buckets or a bounded snapshot around one millisecond.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe or .etl ETW file (a speedscope export is rejected).</param>
-    /// <param name="lanes">Comma-separated lanes to include: gc, cpu, exceptions, alloc, jit; omit for every lane.</param>
-    /// <param name="buckets">-n, Number of equal time buckets to divide the window into (clamped to 5-200).</param>
-    /// <param name="time">Scope to a time window 'start,end' in ms relative to the trace start; either bound may be omitted (e.g. 1000,5000 or 1000, or ,5000).</param>
+    /// <param name="mode">View to return: buckets (default) or snapshot.</param>
+    /// <param name="at">Snapshot center in ms relative to trace start; required for snapshot.</param>
+    /// <param name="window">Half-window in ms on either side of --at (snapshot only).</param>
+    /// <param name="lanes">Bucket-mode lanes: gc, cpu, exceptions, alloc, jit; omit for every lane.</param>
+    /// <param name="buckets">-n, Bucket-mode slice count (clamped to 5-200).</param>
+    /// <param name="time">Bucket-mode time window 'start,end' in ms; either bound may be omitted.</param>
     /// <param name="process">Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
     /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
@@ -1078,6 +1081,9 @@ internal sealed class TraceCommands
     [Command("timeline")]
     public int Timeline(
         [Argument] string trace,
+        TimelineMode mode = TimelineMode.Buckets,
+        double? at = null,
+        double window = TimelineProvider.DefaultSnapshotHalfWindowMs,
         string lanes = "",
         int buckets = TimelineProvider.DefaultBucketCount,
         string time = "",
@@ -1087,7 +1093,7 @@ internal sealed class TraceCommands
         Children children = Children.Include,
         OutputFormat format = OutputFormat.Text)
     {
-        TimelineRequest request = new(trace, time, lanes, buckets, process, allProcesses, pid, children, format);
+        TimelineRequest request = new(trace, mode, at, window, time, lanes, buckets, process, allProcesses, pid, children, format);
         return TimelineExecutor.Run(request, Console.Out, Console.Error);
     }
 

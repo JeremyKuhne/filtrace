@@ -1,8 +1,8 @@
 # filtrace competitive analysis
 
-**Status:** Current. Reviewed 2026-08-23.
+**Status:** Current. Reviewed 2026-08-24.
 
-**Basis:** filtrace after the VN4 prototype - 16 canonical CLI commands, 12 hidden
+**Basis:** filtrace after the VC2 prototype - 16 canonical CLI commands, 12 hidden
 preview aliases, 18 `trace_*` MCP tools, three projects. pvanalyze at commit
 `208d2b8` (12 commands, single project). Other
 tools are described at the level of documented, stable capability rather than a
@@ -68,10 +68,9 @@ one project, `System.CommandLine`, one static analysis engine, per-command
 source-generated JSON. It deliberately ships no agent scaffolding, betting that
 `--help` plus a README and `--format json` are enough for a frontier model.
 
-**Strongest at:** breadth per line of code and cross-platform reach, plus three
+**Strongest at:** breadth per line of code and cross-platform reach, plus two
 capabilities filtrace does not have - **DATAS** server-GC heap-count tuning
-analysis, a **point-in-time snapshot** around a chosen millisecond, and **per-method
-temporal sample buckets**. It also groups CPU stacks by module or namespace,
+analysis and **per-method temporal sample buckets**. It also groups CPU stacks by module or namespace,
 auto-follows a hot path when a child holds >= 80% of its parent, and breaks out
 large-object-heap allocation.
 
@@ -80,8 +79,9 @@ multi-process scoping, no native or kernel evidence; no source-line drill; no
 trust signal, so an agent cannot tell a well-symbolized ranking from a
 symbol-starved one; no two-trace comparison; no output bound.
 
-**Take from it:** DATAS (VC1), snapshot (VC2), per-frame buckets (VC3), and the
-open questions of group-by and hot-path auto-follow. Both projects are MIT and share
+**Take from it:** DATAS (VC1), per-frame buckets (VC3), and the open questions of
+group-by and hot-path auto-follow. The point-in-time snapshot was adopted in VC2.
+Both projects are MIT and share
 a runtime substrate, so these are realistic ports rather than rewrites - with the
 provenance obligation stated in [design.md](design.md#keep-dependencies-published-and-carry-provenance).
 
@@ -194,7 +194,7 @@ discriminate, not to be exhaustive.
 | Physical disk I/O by file | Y | - | Y | - | ~ |
 | Process lifecycle / wall-clock phases | Y | - | ~ | - | ~ |
 | Multi-lane timeline | Y | Y | ~ | - | Y |
-| Point-in-time snapshot | - | Y | ~ | - | Y |
+| Point-in-time snapshot | Y | Y | ~ | - | Y |
 | Per-method temporal buckets | ~ | Y | ~ | - | Y |
 | Raw event query with payload/PID/TID filters | Y | Y | Y | - | - |
 | Multi-process scoping (auto, name, exact pid, descendants) | Y | ~ | Y | - | ~ |
@@ -235,7 +235,7 @@ discriminate, not to be exhaustive.
 | Learning | From | Roadmap item |
 |---|---|---|
 | DATAS server-GC tuning analysis | pvanalyze | VC1 |
-| Point-in-time snapshot around a spike | pvanalyze, IDE profilers | VC2 |
+| Point-in-time snapshot around a spike | pvanalyze, IDE profilers | shipped in VC2 |
 | Per-method temporal buckets | pvanalyze | VC3 |
 | Retention / path-to-root | PerfView, dotMemory, `dotnet-gcdump` | VC5 |
 | Symbol merge so a trace resolves off-machine | PerfView | SC9 |
@@ -263,9 +263,10 @@ discriminate, not to be exhaustive.
 - **A common JSON envelope.** If two analyzers converged on a minimal
   `{ schemaVersion, warnings, hints, context, result }` shape, an agent could route by
   capability rather than by output format.
-- **Complementary routing rather than duplication.** A DATAS or snapshot question
-  to pvanalyze; a wall-clock, multi-process, source-line, capture, or diff question
-  to filtrace. Aligning JSON and hint conventions would make that routing seamless.
+- **Complementary routing rather than duplication.** A DATAS question routes to
+  pvanalyze; snapshot questions can route to either analyzer, while wall-clock,
+  multi-process, source-line, capture, or diff questions route to filtrace. Aligning
+  JSON and hint conventions would make that routing seamless.
 - **Cross-pollinated fixtures.** Our oracle and parity fixtures and a DATAS-enabled
   capture are exactly the traces each project needs to test what it borrows.
 

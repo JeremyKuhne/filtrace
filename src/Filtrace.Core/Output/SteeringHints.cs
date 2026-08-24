@@ -534,6 +534,22 @@ public static class SteeringHints
     {
         ArgumentNullException.ThrowIfNull(timeline);
 
+        if (timeline.Snapshot is TimelineSnapshot snapshot)
+        {
+            string window = $"{FormatMs(timeline.FromMs)}-{FormatMs(timeline.ToMs)} ms";
+            if (snapshot.Cpu.Methods.Count > 0)
+            {
+                return SnapshotDrillGuidance("CPU work", "cpu", timeline, window);
+            }
+
+            if (snapshot.Alloc.Types.Count > 0)
+            {
+                return SnapshotDrillGuidance("allocation sites", "alloc", timeline, window);
+            }
+
+            return Guidance($"snapshot covers {window}; widen --window if the bounded evidence is too thin");
+        }
+
         // Prefer the CPU lane - the canonical "find the window, then rank it" loop - then
         // the other rankable lanes, and finally GC activity. A null or all-zero lane has
         // nothing to point at, so it is skipped.
@@ -681,6 +697,26 @@ public static class SteeringHints
                 Process = timeline.Process,
                 FromMs = start,
                 ToMs = end
+            });
+    }
+
+    private static IReadOnlyList<string> SnapshotDrillGuidance(
+        string subject,
+        string metric,
+        TimelineResult timeline,
+        string window)
+    {
+        string reason = $"snapshot covers {window}; drill the top {subject} with: "
+            + $"rank --metric {metric} --time {FormatMs(timeline.FromMs)},{FormatMs(timeline.ToMs)}{ProcessScope(timeline)}";
+        return Guidance(
+            reason,
+            "rank",
+            new AnalysisNextStepArguments
+            {
+                Metric = metric,
+                Process = timeline.Process,
+                FromMs = timeline.FromMs,
+                ToMs = timeline.ToMs
             });
     }
 

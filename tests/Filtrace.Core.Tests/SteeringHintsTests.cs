@@ -726,6 +726,37 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForTimeline_Snapshot_PreservesWindowAndProcessInCpuDrill()
+    {
+        TimelineSnapshot snapshot = new(
+            50.0,
+            new SnapshotGcSummary(0, 0.0, 0.0, []),
+            new SnapshotCpuSummary(10, 1, [new SnapshotCpuMethod("App.Hot", 10, 100.0)]),
+            new SnapshotExceptionSummary(0, 0, []),
+            new SnapshotAllocationSummary(0, 0, 0, []),
+            new SnapshotJitSummary(0, 0, []),
+            new SnapshotEventSummary(10, 1, [new SnapshotEventType("SampleProfiler", "ThreadSample", 10)]),
+            false);
+        TimelineResult timeline = new(
+            40.0, 60.0, 20.0, 1, "My App", null, null, null, null, null)
+        {
+            Mode = "snapshot",
+            Snapshot = snapshot
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should()
+            .EndWith("--time 40,60 --process \"My App\"");
+        AnalysisNextStep next = envelope.NextSteps.Should().ContainSingle().Subject;
+        next.Operation.Should().Be("rank");
+        next.Arguments!.Metric.Should().Be("cpu");
+        next.Arguments.Process.Should().Be("My App");
+        next.Arguments.FromMs.Should().Be(40.0);
+        next.Arguments.ToMs.Should().Be(60.0);
+    }
+
+    [TestMethod]
     public void ForRanking_Null_ThrowsArgumentNull()
     {
         Action act = () => SteeringHints.ForRanking(null!);

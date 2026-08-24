@@ -181,7 +181,7 @@ filtrace rank app.etl --metric cpu --process MyApp --native-symbols   # name the
 
 | Command | Purpose | Example |
 |---|---|---|
-| `timeline` | Per-bucket GC / CPU / exception / allocation / JIT activity over time | `filtrace timeline app.nettrace --lanes gc,cpu` |
+| `timeline` | Aligned activity buckets or one bounded cross-lane snapshot | `filtrace timeline app.nettrace --mode snapshot --at 1500` |
 
 **Compare and export:**
 
