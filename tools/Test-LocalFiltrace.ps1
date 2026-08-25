@@ -52,6 +52,69 @@ function Test-CaseInsensitivePathPlatform {
             [System.Runtime.InteropServices.OSPlatform]::OSX)
 }
 
+function Test-WindowsPlatform {
+    return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows)
+}
+
+function Set-TestRestrictiveFileSecurity([string] $Path) {
+    if (Test-WindowsPlatform) {
+        [System.Security.Principal.SecurityIdentifier] $identity =
+            [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+        [System.Security.AccessControl.FileSecurity] $security =
+            [System.Security.AccessControl.FileSecurity]::new()
+        $security.SetOwner($identity)
+        $security.SetAccessRuleProtection($true, $false)
+        [System.Security.AccessControl.FileSystemAccessRule] $rule =
+            [System.Security.AccessControl.FileSystemAccessRule]::new(
+                $identity,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.Security.AccessControl.AccessControlType]::Allow)
+        $security.AddAccessRule($rule)
+        Set-Acl -LiteralPath $Path -AclObject $security
+        return
+    }
+
+    [System.IO.File]::SetUnixFileMode(
+        $Path,
+        [System.IO.UnixFileMode]::UserRead -bor
+            [System.IO.UnixFileMode]::UserWrite)
+}
+
+function Get-FileSecurityFingerprint([string] $Path) {
+    if (Test-WindowsPlatform) {
+        return [string] (Get-Acl -LiteralPath $Path).Sddl
+    }
+
+    return [int] [System.IO.File]::GetUnixFileMode($Path)
+}
+
+function Assert-RestrictedFile([string] $Path, [string] $Description) {
+    Assert-True (Test-Path -LiteralPath $Path -PathType Leaf) `
+        "$Description does not exist: '$Path'."
+    if (Test-WindowsPlatform) {
+        [System.Security.AccessControl.FileSecurity] $security = Get-Acl -LiteralPath $Path
+        [string] $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        [System.Security.AccessControl.AuthorizationRule[]] $rules = @($security.Access)
+        Assert-True $security.AreAccessRulesProtected `
+            "$Description inherits a broader Windows ACL."
+        Assert-True ($rules.Count -eq 1 -and
+            $rules[0].IdentityReference.Translate(
+                [System.Security.Principal.SecurityIdentifier]).Value -ceq $currentUser -and
+            $rules[0].AccessControlType -eq
+                [System.Security.AccessControl.AccessControlType]::Allow) `
+            "$Description is not restricted to the current Windows user."
+        return
+    }
+
+    [int] $expectedMode = [int] (
+        [System.IO.UnixFileMode]::UserRead -bor
+        [System.IO.UnixFileMode]::UserWrite)
+    Assert-True (
+        [int] [System.IO.File]::GetUnixFileMode($Path) -eq $expectedMode) `
+        "$Description does not have Unix mode 0600."
+}
+
 function Get-PathIdentity([string] $Path) {
     [string] $identity = [System.IO.Path]::TrimEndingDirectorySeparator(
         [System.IO.Path]::GetFullPath($Path))
@@ -395,6 +458,8 @@ try {
         'Default install did not record the manifest-owned CLI path.'
     Assert-True (Test-Path -LiteralPath $consumerCli -PathType Leaf) `
         'Default install did not create the manifest-owned CLI executable.'
+    Assert-RestrictedFile $consumerMcp 'New project MCP configuration'
+    Assert-RestrictedFile $consumerState 'New rollback manifest'
 
     Invoke-DefaultWorkflow 'restore' $consumerRoot -ManageCli
     Assert-True (-not (Test-Path -LiteralPath $consumerMcp)) `
@@ -751,6 +816,8 @@ try {
             }
             inputs = @()
         })
+    Set-TestRestrictiveFileSecurity $existingConfig
+    [object] $existingConfigSecurity = Get-FileSecurityFingerprint $existingConfig
 
     Invoke-Workflow 'Install' $existingConfig $existingSkill $existingState
     Assert-True (Test-Path -LiteralPath $existingState -PathType Leaf) 'Install did not write reversible state.'
@@ -760,6 +827,9 @@ try {
     Assert-True (@($localConfig.servers.filtrace.args).Count -eq 1) 'Local MCP entry did not have exactly one DLL argument.'
     Assert-True (Test-Path -LiteralPath $localConfig.servers.filtrace.args[0] -PathType Leaf) 'Local MCP entry points to a missing DLL.'
     Assert-LocalSkill $existingSkill 'original overlay'
+    Assert-True (
+        (Get-FileSecurityFingerprint $existingConfig) -ceq $existingConfigSecurity) `
+        'Install changed the existing MCP configuration security metadata.'
 
     [byte[]] $activeStateBytes = [System.IO.File]::ReadAllBytes($existingState)
     Invoke-Workflow 'Install' $existingConfig $existingSkill $existingState
@@ -812,6 +882,9 @@ try {
     Assert-True ([System.IO.File]::ReadAllText((Join-Path $existingSkill 'SKILL.md'), $utf8) -ceq 'shipped skill core') 'Restore did not restore the prior skill core.'
     Assert-True ([System.IO.File]::ReadAllText((Join-Path $existingSkill 'overlay.md'), $utf8) -ceq 'updated overlay') 'Restore did not retain the updated consumer overlay.'
     Assert-True (-not (Test-Path -LiteralPath $existingState)) 'Restore did not remove consumed state.'
+    Assert-True (
+        (Get-FileSecurityFingerprint $existingConfig) -ceq $existingConfigSecurity) `
+        'Restore changed the existing MCP configuration security metadata.'
     foreach ($sibling in $unrelatedStateSiblings) {
         Assert-True (
             [System.IO.File]::ReadAllText($sibling, $utf8) -ceq 'unrelated sibling') `
@@ -832,12 +905,60 @@ try {
 
     Invoke-Workflow 'install' $absentConfig $absentSkill $absentState
     Assert-True (Test-Path -LiteralPath (Join-Path $absentSkill 'SKILL.md') -PathType Leaf) 'Install did not vendor the skill into an absent destination.'
+    [System.IO.File]::WriteAllText((Join-Path $absentSkill 'overlay.md'), 'late overlay', $utf8)
+    [string] $overlayCollision = "$absentState.restored-overlay.md"
+    [System.IO.File]::WriteAllText($overlayCollision, 'unrelated retained file', $utf8)
     Invoke-Workflow 'restore' $absentConfig $absentSkill $absentState
     [object] $absentRestoredConfig = Read-Json $absentConfig
     Assert-True ($null -eq (Get-Property $absentRestoredConfig.servers 'filtrace')) 'Restore left a local MCP entry when none existed before.'
     Assert-True ($absentRestoredConfig.servers.docs.url -ceq 'https://example.invalid/mcp') 'Restore changed an unrelated MCP entry for the absent baseline.'
     Assert-True (-not (Test-Path -LiteralPath $absentSkill)) 'Restore left the locally vendored skill when none existed before.'
     Assert-True (-not (Test-Path -LiteralPath $absentState)) 'Restore left state for the absent baseline.'
+    Assert-True ([System.IO.File]::ReadAllText($overlayCollision, $utf8) -ceq 'unrelated retained file') `
+        'Restore overwrote an unrelated retained-overlay sibling.'
+    [System.IO.FileInfo[]] $retainedOverlays = @(
+        Get-ChildItem -LiteralPath (Split-Path -Parent $absentState) -File `
+            -Filter 'local-state.json.restored-overlay.*.md')
+    Assert-True ($retainedOverlays.Count -eq 1) `
+        "Expected one collision-free retained overlay; found $($retainedOverlays.Count)."
+    Assert-True ([System.IO.File]::ReadAllText($retainedOverlays[0].FullName, $utf8) -ceq 'late overlay') `
+        'Collision-free retained overlay content changed.'
+    Assert-RestrictedFile $retainedOverlays[0].FullName 'Retained overlay'
+
+    # Cleanup retry: a committed cleanup state can resume with either the owned
+    # workspace still present or already removed.
+    foreach ($workspacePresent in @($true, $false)) {
+        [string] $cleanupRoot = Join-Path $temporaryRoot "cleanup retry $workspacePresent"
+        [string] $cleanupState = Join-Path $cleanupRoot 'state.json'
+        [string] $cleanupWorkspace = "$cleanupState.workspace"
+        if ($workspacePresent) {
+            $null = New-Item -ItemType Directory -Path $cleanupWorkspace -Force
+            Write-Json (Join-Path $cleanupWorkspace '.filtrace-local-testing.json') ([ordered] @{
+                    schemaVersion = 1
+                    statePath = $cleanupState
+                })
+            [System.IO.File]::WriteAllText(
+                (Join-Path $cleanupWorkspace 'leftover.txt'),
+                'leftover',
+                $utf8)
+        }
+        Write-Json $cleanupState ([ordered] @{
+                schemaVersion = 4
+                createdUtc = [System.DateTimeOffset]::UtcNow.ToString('O')
+                status = 'cleanup-in-progress'
+                targetRepository = $cleanupRoot
+                workspace = $cleanupWorkspace
+            })
+
+        Invoke-Workflow -Action Restore `
+            -McpConfigPath (Join-Path $cleanupRoot 'unused-mcp.json') `
+            -SkillDestination (Join-Path $cleanupRoot 'unused-skill/filtrace') `
+            -StatePath $cleanupState
+        Assert-True (-not (Test-Path -LiteralPath $cleanupState)) `
+            "Cleanup retry left state when workspacePresent=$workspacePresent."
+        Assert-True (-not (Test-Path -LiteralPath $cleanupWorkspace)) `
+            "Cleanup retry left the workspace when workspacePresent=$workspacePresent."
+    }
 
     # CLI package installation and restoration use exact feed bytes when the
     # baseline and local package share one package ID and version.

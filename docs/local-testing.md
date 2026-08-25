@@ -40,6 +40,9 @@ The command performs these operations in order:
 7. Vendors the complete local skill into `.agents/skills/filtrace` in the consumer
   repository, preserving an existing consumer-owned `overlay.md`.
 
+Atomic JSON updates preserve an existing file's Unix mode or Windows ACL. New MCP,
+state, and marker files are restricted to the current user (`0600` on Unix).
+
 The helper prints the exact isolated `filtrace` executable path. Use that path for
 CLI-only checks and pass it to helpers that expose `-FiltracePath`. Agent analysis
 inside the consumer repository can use the project-local `trace_*` MCP tools.
@@ -130,7 +133,8 @@ only the `filtrace` MCP property and restores the prior skill directory. Other M
 entries added during local testing are retained. A changed `overlay.md` is carried
 back onto a restored prior skill. When no skill existed before local mode, a newly
 added overlay is retained beside the state path as `state.json.restored-overlay.md`
-before the local skill is removed.
+before the local skill is removed. If that name already exists, Restore selects a
+collision-free sibling and leaves the existing file unchanged.
 
 When the project MCP file or skill parent directories did not exist before local
 mode, Restore removes only the empty paths it created. Files or entries added later
@@ -139,7 +143,9 @@ prevent that cleanup and are retained.
 Restore validates retained CLI bytes and the complete prior skill-directory
 fingerprint before changing anything. If a later restore step fails, the manifest
 remains marked `restore-in-progress`; fix the reported cause and run Restore again.
-A successful restore consumes the manifest and its owned workspace.
+Final cleanup is committed as `cleanup-in-progress`, so a retry can remove the
+owned workspace and manifest even if interruption occurs between those operations.
+A successful restore consumes both resources.
 
 ## Restore a legacy global setup
 

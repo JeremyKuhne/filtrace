@@ -297,6 +297,100 @@ function Read-JsonFile([string] $Path, [string] $Description) {
     }
 }
 
+function Test-WindowsPlatform {
+    return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows)
+}
+
+function Set-RestrictiveFileSecurity([string] $Path) {
+    if (Test-WindowsPlatform) {
+        [System.Security.Principal.SecurityIdentifier] $identity =
+            [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+        [System.Security.AccessControl.FileSecurity] $security =
+            [System.Security.AccessControl.FileSecurity]::new()
+        $security.SetOwner($identity)
+        $security.SetAccessRuleProtection($true, $false)
+        [System.Security.AccessControl.FileSystemAccessRule] $rule =
+            [System.Security.AccessControl.FileSystemAccessRule]::new(
+                $identity,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.Security.AccessControl.AccessControlType]::Allow)
+        $security.AddAccessRule($rule)
+        Set-Acl -LiteralPath $Path -AclObject $security
+        return
+    }
+
+    [System.IO.UnixFileMode] $mode =
+        [System.IO.UnixFileMode]::UserRead -bor
+        [System.IO.UnixFileMode]::UserWrite
+    [System.IO.File]::SetUnixFileMode($Path, $mode)
+}
+
+function Copy-FileSecurity([string] $Source, [string] $Destination) {
+    if (Test-WindowsPlatform) {
+        [System.Security.AccessControl.FileSecurity] $security = Get-Acl -LiteralPath $Source
+        Set-Acl -LiteralPath $Destination -AclObject $security
+        return
+    }
+
+    [System.IO.UnixFileMode] $mode = [System.IO.File]::GetUnixFileMode($Source)
+    [System.IO.File]::SetUnixFileMode($Destination, $mode)
+}
+
+function New-SecureEmptyFile([string] $Path, [string] $SecuritySource = '') {
+    [System.IO.FileStreamOptions] $options = [System.IO.FileStreamOptions]::new()
+    $options.Mode = [System.IO.FileMode]::CreateNew
+    $options.Access = [System.IO.FileAccess]::Write
+    $options.Share = [System.IO.FileShare]::None
+    if (-not (Test-WindowsPlatform)) {
+        $options.UnixCreateMode =
+            [System.IO.UnixFileMode]::UserRead -bor
+            [System.IO.UnixFileMode]::UserWrite
+    }
+
+    [System.IO.FileStream] $stream = [System.IO.FileStream]::new($Path, $options)
+    $stream.Dispose()
+    if (-not [string]::IsNullOrWhiteSpace($SecuritySource)) {
+        Copy-FileSecurity $SecuritySource $Path
+    }
+    elseif (Test-WindowsPlatform) {
+        Set-RestrictiveFileSecurity $Path
+    }
+}
+
+function Write-NewSecureBytes([string] $Path, [byte[]] $Bytes) {
+    [bool] $created = $false
+    try {
+        New-SecureEmptyFile $Path
+        $created = $true
+        [System.IO.File]::WriteAllBytes($Path, $Bytes)
+    }
+    catch {
+        if ($created) {
+            Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        }
+        throw
+    }
+}
+
+function Write-RetainedOverlay([string] $ManifestPath, [byte[]] $Bytes) {
+    [string] $basePath = "$ManifestPath.restored-overlay.md"
+    [string[]] $candidates = @(
+        $basePath,
+        "$ManifestPath.restored-overlay.$([guid]::NewGuid().ToString('N')).md")
+    foreach ($candidate in $candidates) {
+        try {
+            Write-NewSecureBytes $candidate $Bytes
+            return $candidate
+        }
+        catch {
+            if (-not (Test-Path -LiteralPath $candidate)) { throw }
+        }
+    }
+
+    throw "Could not select a collision-free retained overlay path beside '$ManifestPath'."
+}
+
 function Write-JsonFile([string] $Path, [object] $Value) {
     [string] $directory = Split-Path -Parent $Path
     if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
@@ -306,6 +400,13 @@ function Write-JsonFile([string] $Path, [object] $Value) {
     [string] $temporaryPath = Join-Path $directory ".$([System.IO.Path]::GetFileName($Path)).$([guid]::NewGuid().ToString('N')).tmp"
     try {
         [string] $json = ConvertTo-Json -InputObject $Value -Depth 32
+        [string] $securitySource = if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            $Path
+        }
+        else {
+            ''
+        }
+        New-SecureEmptyFile $temporaryPath $securitySource
         [System.IO.File]::WriteAllText($temporaryPath, "$json`n", $utf8)
         [System.IO.File]::Move($temporaryPath, $Path, $true)
     }
@@ -845,6 +946,14 @@ try {
                 $pathComparison)) {
             throw "Recorded local-testing workspace does not match '$StatePath'."
         }
+        if ($state.status -ceq 'cleanup-in-progress') {
+            if (Test-Path -LiteralPath $stateWorkspace -PathType Container) {
+                Remove-StateWorkspace $stateWorkspace $StatePath
+            }
+            Remove-Item -LiteralPath $StatePath -Force
+            Write-Host "Filtrace local-mode cleanup completed for '$TargetRepository'."
+            return
+        }
         Assert-StateWorkspace $stateWorkspace $StatePath
     }
 
@@ -1193,8 +1302,7 @@ try {
     }
     elseif (Test-Path -LiteralPath $SkillDestination) {
         if ($null -ne $currentOverlay) {
-            [string] $retainedOverlay = "$StatePath.restored-overlay.md"
-            [System.IO.File]::WriteAllBytes($retainedOverlay, $currentOverlay)
+            [string] $retainedOverlay = Write-RetainedOverlay $StatePath $currentOverlay
             Write-Warning "The pre-local setup had no skill. The current overlay was retained at '$retainedOverlay'."
         }
         Remove-Item -LiteralPath $SkillDestination -Recurse -Force
@@ -1206,8 +1314,8 @@ try {
             $pathComparison
     }
 
-    Remove-Item -LiteralPath $StatePath -Force
     if ($legacyState) {
+        Remove-Item -LiteralPath $StatePath -Force
         if ($StatePath.Equals($legacyStatePath, $pathComparison)) {
             Remove-Item -LiteralPath $skillBackup -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $cliBackup -Recurse -Force -ErrorAction SilentlyContinue
@@ -1225,7 +1333,10 @@ try {
         }
     }
     else {
+        $state.status = 'cleanup-in-progress'
+        Write-JsonFile $StatePath $state
         Remove-StateWorkspace $stateWorkspace $StatePath
+        Remove-Item -LiteralPath $StatePath -Force
     }
 
     Write-Host "Filtrace local mode was removed from '$TargetRepository' and the recorded setup was restored."
