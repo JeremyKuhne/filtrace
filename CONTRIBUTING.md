@@ -43,10 +43,11 @@ opening a PR:
 The full agent-skill check requires GitHub CLI with `gh skill` support and
 Node.js with `npx`.
 
-The local-setup check uses isolated tool paths to prove exact local CLI package
-installation and offline rollback, plus preservation of prior MCP and skill
-state, unrelated MCP entries, and consumer overlays without touching real user
-configuration. The remaining scripts guard CLI/MCP contracts, shared
+The local-setup check proves repository-scoped MCP and skill defaults, legacy
+schema migration, isolated CLI package bytes and offline rollback, owned state
+cleanup, overlap and concurrency rejection, plus preservation of unrelated MCP
+entries and consumer overlays without touching real user configuration. The
+remaining scripts guard CLI/MCP contracts, shared
 documentation, capture helpers, replayable analysis, the Track D wrapper,
 deterministic evals, and vendored skills.
 The deterministic eval runs the canonical trace-analysis tasks and enforces answer,

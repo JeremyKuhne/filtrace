@@ -10,13 +10,14 @@
   Switch the Filtrace CLI, MCP server, and agent skill to this checkout.
 
 .DESCRIPTION
-  Install builds and packs the checkout, validates the local MCP server, installs
-  the CLI from an isolated local NuGet source, points VS Code's Filtrace MCP entry
-  directly at the built DLL, and vendors the repository's Filtrace skill.
+    Install builds and packs the checkout, validates the local MCP server, installs
+    the CLI into target-specific storage, points the target repository's VS Code
+    Filtrace MCP entry directly at the built DLL, and vendors the Filtrace skill into
+    that repository.
 
-  Before changing anything, Install records the existing CLI version, Filtrace MCP
-  entry, and skill directory under artifacts/local-testing. Repeated installs keep
-  that original baseline while refreshing the local build and skill.
+    Before changing anything, Install records the existing CLI, Filtrace MCP entry,
+    and skill directory in target-keyed state under artifacts/local-testing. Repeated
+    installs keep that original baseline while refreshing the local build and skill.
 
   Restore removes the local setup and restores the recorded baseline. It changes
   only the Filtrace MCP entry, so unrelated MCP configuration added while testing
@@ -28,20 +29,23 @@
 .PARAMETER Configuration
   Build configuration used for the local CLI and MCP server. Defaults to Release.
 
+.PARAMETER TargetRepository
+    Repository to configure. Defaults to the current working directory.
+
 .PARAMETER McpConfigPath
-  VS Code mcp.json to update. Defaults to the stable VS Code user configuration.
+    VS Code mcp.json to update. Defaults to .vscode/mcp.json in TargetRepository.
 
 .PARAMETER SkillDestination
-  Directory that receives the local Filtrace skill. Defaults to the GitHub Copilot
-  user skill directory. To vendor into a repository, pass its
-  .agents/skills/filtrace directory.
+    Directory that receives the local Filtrace skill. Defaults to
+    .agents/skills/filtrace in TargetRepository.
 
 .PARAMETER StatePath
-  Reversible-state manifest. Defaults to artifacts/local-testing/state.json.
+    Reversible-state manifest. Defaults to target-keyed ignored storage under this
+    checkout's artifacts/local-testing directory.
 
 .PARAMETER CliToolPath
-    Optional dotnet tool directory. By default the global tool is changed. This
-    override supports isolated tests and callers that intentionally use --tool-path.
+    Optional dotnet tool directory. Defaults to isolated storage owned by StatePath.
+    The global tool is never changed by a new repository-scoped setup.
 
 .PARAMETER SkipBuild
   Reuse packages and binaries from a prior successful local install.
@@ -54,10 +58,10 @@
   validated build, not routine use.
 
 .EXAMPLE
-  ./tools/Use-LocalFiltrace.ps1
+    D:\repos\filtrace\tools\Use-LocalFiltrace.ps1
 
 .EXAMPLE
-  ./tools/Use-LocalFiltrace.ps1 -SkillDestination ../consumer/.agents/skills/filtrace
+    ./tools/Use-LocalFiltrace.ps1 -TargetRepository ../consumer
 
 .EXAMPLE
   ./tools/Use-LocalFiltrace.ps1 -Action Restore
@@ -70,6 +74,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Release',
 
+    [string] $TargetRepository,
     [string] $McpConfigPath,
     [string] $SkillDestination,
     [string] $StatePath,
@@ -85,36 +90,93 @@ $solution = Join-Path $root 'filtrace.slnx'
 $skillSource = Join-Path $root '.agents/skills/filtrace'
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 
-function Get-DefaultMcpConfigPath {
-    if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
-            [System.Runtime.InteropServices.OSPlatform]::Windows)) {
-        if ([string]::IsNullOrWhiteSpace($env:APPDATA)) {
-            throw 'APPDATA is not set; pass -McpConfigPath explicitly.'
-        }
-
-        return Join-Path $env:APPDATA 'Code/User/mcp.json'
-    }
-
-    if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
-            [System.Runtime.InteropServices.OSPlatform]::OSX)) {
-        return Join-Path $HOME 'Library/Application Support/Code/User/mcp.json'
-    }
-
-    [string] $configRoot = if ([string]::IsNullOrWhiteSpace($env:XDG_CONFIG_HOME)) {
-        Join-Path $HOME '.config'
-    }
-    else {
-        $env:XDG_CONFIG_HOME
-    }
-    return Join-Path $configRoot 'Code/User/mcp.json'
-}
-
 function Get-FullPath([string] $Path, [string] $Description) {
     if ([string]::IsNullOrWhiteSpace($Path)) {
         throw "$Description must be a nonempty path."
     }
 
     return [System.IO.Path]::GetFullPath($Path)
+}
+
+function Test-CaseInsensitivePathPlatform {
+    return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows) -or
+        [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+            [System.Runtime.InteropServices.OSPlatform]::OSX)
+}
+
+function Get-PathIdentity([string] $Path) {
+    [string] $identity = [System.IO.Path]::TrimEndingDirectorySeparator(
+        [System.IO.Path]::GetFullPath($Path))
+    if (Test-CaseInsensitivePathPlatform) {
+        return $identity.ToUpperInvariant()
+    }
+
+    return $identity
+}
+
+function Get-StableHash([string] $Value) {
+    [System.Security.Cryptography.SHA256] $algorithm =
+        [System.Security.Cryptography.SHA256]::Create()
+    try {
+        [byte[]] $hash = $algorithm.ComputeHash($utf8.GetBytes($Value))
+        return ([System.BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
+
+function Get-DefaultStatePath([string] $Repository) {
+    [string] $identityHash = Get-StableHash (Get-PathIdentity $Repository)
+    return Join-Path $root "artifacts/local-testing/repositories/$identityHash/state.json"
+}
+
+function Get-StateWorkspacePath([string] $ManifestPath) {
+    return "$ManifestPath.workspace"
+}
+
+function Test-PathWithin(
+    [string] $Candidate,
+    [string] $Container,
+    [System.StringComparison] $Comparison) {
+    if ($Candidate.Equals($Container, $Comparison)) { return $true }
+
+    [string] $prefix = $Container
+    if (-not $prefix.EndsWith([System.IO.Path]::DirectorySeparatorChar) -and
+        -not $prefix.EndsWith([System.IO.Path]::AltDirectorySeparatorChar)) {
+        $prefix += [System.IO.Path]::DirectorySeparatorChar
+    }
+    return $Candidate.StartsWith($prefix, $Comparison)
+}
+
+function Assert-PathsDoNotOverlap(
+    [string] $First,
+    [string] $FirstDescription,
+    [string] $Second,
+    [string] $SecondDescription,
+    [System.StringComparison] $Comparison) {
+    if ((Test-PathWithin $First $Second $Comparison) -or
+        (Test-PathWithin $Second $First $Comparison)) {
+        throw "$FirstDescription and $SecondDescription must not overlap: '$First' and '$Second'."
+    }
+}
+
+function Enter-StateLock([string] $ManifestPath) {
+    [string] $lockRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'filtrace-local-testing-locks'
+    $null = [System.IO.Directory]::CreateDirectory($lockRoot)
+    [string] $lockName = "$(Get-StableHash (Get-PathIdentity $ManifestPath)).lock"
+    [string] $lockPath = Join-Path $lockRoot $lockName
+    try {
+        return [System.IO.File]::Open(
+            $lockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None)
+    }
+    catch [System.IO.IOException] {
+        throw "Another local Filtrace action is already using state '$ManifestPath'."
+    }
 }
 
 function Read-JsonFile([string] $Path, [string] $Description) {
@@ -153,9 +215,101 @@ function Write-JsonFile([string] $Path, [object] $Value) {
     }
 }
 
+function Get-StateWorkspaceMarkerPath([string] $Workspace) {
+    return Join-Path $Workspace '.filtrace-local-testing.json'
+}
+
+function Assert-StateWorkspace([string] $Workspace, [string] $ManifestPath) {
+    if (-not (Test-Path -LiteralPath $Workspace -PathType Container)) {
+        throw "The local-testing workspace is missing: '$Workspace'."
+    }
+
+    [string] $markerPath = Get-StateWorkspaceMarkerPath $Workspace
+    [object] $marker = Read-JsonFile $markerPath 'Local-testing workspace marker'
+    [System.StringComparison] $comparison = if (Test-CaseInsensitivePathPlatform) {
+        [System.StringComparison]::OrdinalIgnoreCase
+    }
+    else {
+        [System.StringComparison]::Ordinal
+    }
+    if ($marker.schemaVersion -ne 1 -or
+        -not [string]::Equals(
+            [string] $marker.statePath,
+            $ManifestPath,
+            $comparison)) {
+        throw "The local-testing workspace marker does not own '$Workspace'."
+    }
+}
+
+function Initialize-StateWorkspace([string] $Workspace, [string] $ManifestPath) {
+    if (Test-Path -LiteralPath $Workspace -PathType Leaf) {
+        throw "The local-testing workspace is a file: '$Workspace'."
+    }
+
+    [string] $markerPath = Get-StateWorkspaceMarkerPath $Workspace
+    if (Test-Path -LiteralPath $Workspace -PathType Container) {
+        if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
+            Assert-StateWorkspace $Workspace $ManifestPath
+            return
+        }
+
+        if (@(Get-ChildItem -LiteralPath $Workspace -Force).Count -ne 0) {
+            throw "Refusing to claim nonempty local-testing workspace without an ownership marker: '$Workspace'."
+        }
+    }
+    else {
+        $null = New-Item -ItemType Directory -Path $Workspace -Force
+    }
+
+    Write-JsonFile $markerPath ([ordered] @{
+            schemaVersion = 1
+            statePath = $ManifestPath
+        })
+}
+
+function Remove-StateWorkspace([string] $Workspace, [string] $ManifestPath) {
+    Assert-StateWorkspace $Workspace $ManifestPath
+    Remove-Item -LiteralPath $Workspace -Recurse -Force
+}
+
 function Get-Property([object] $Object, [string] $Name) {
     if ($null -eq $Object) { return $null }
     return $Object.PSObject.Properties[$Name]
+}
+
+function Get-NearestExistingAncestor([string] $Path) {
+    [string] $current = Split-Path -Parent $Path
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        if (Test-Path -LiteralPath $current -PathType Container) {
+            return $current
+        }
+        if (Test-Path -LiteralPath $current) {
+            throw "A required parent path is not a directory: '$current'."
+        }
+
+        [string] $parent = Split-Path -Parent $current
+        if ($parent -ceq $current) { break }
+        $current = $parent
+    }
+
+    throw "No existing parent directory was found for '$Path'."
+}
+
+function Remove-EmptyCreatedAncestors(
+    [string] $Path,
+    [string] $ExistingAncestor,
+    [System.StringComparison] $Comparison) {
+    [string] $current = Split-Path -Parent $Path
+    while (-not [string]::IsNullOrWhiteSpace($current) -and
+        -not $current.Equals($ExistingAncestor, $Comparison)) {
+        if (-not (Test-Path -LiteralPath $current -PathType Container) -or
+            @(Get-ChildItem -LiteralPath $current -Force).Count -ne 0) {
+            return
+        }
+
+        Remove-Item -LiteralPath $current -Force
+        $current = Split-Path -Parent $current
+    }
 }
 
 function Set-Property([object] $Object, [string] $Name, [object] $Value) {
@@ -207,21 +361,54 @@ function Set-McpServer([string] $Path, [bool] $Exists, [object] $Value) {
     Write-JsonFile $Path $config
 }
 
+function Remove-EmptyMcpConfig([string] $Path) {
+    [object] $config = Read-JsonFile $Path 'VS Code MCP configuration'
+    [System.Management.Automation.PSPropertyInfo] $serversProperty = Get-Property $config 'servers'
+    [System.Management.Automation.PSPropertyInfo] $inputsProperty = Get-Property $config 'inputs'
+    [object[]] $otherProperties = @($config.PSObject.Properties | Where-Object {
+            $_.Name -cne 'servers' -and $_.Name -cne 'inputs'
+        })
+    [int] $serverCount = if ($null -eq $serversProperty -or $null -eq $serversProperty.Value) {
+        0
+    }
+    else {
+        @($serversProperty.Value.PSObject.Properties).Count
+    }
+    [int] $inputCount = if ($null -eq $inputsProperty -or $null -eq $inputsProperty.Value) {
+        0
+    }
+    else {
+        @($inputsProperty.Value).Count
+    }
+    if ($serverCount -eq 0 -and $inputCount -eq 0 -and $otherProperties.Count -eq 0) {
+        Remove-Item -LiteralPath $Path -Force
+        return $true
+    }
+
+    return $false
+}
+
 function Invoke-Dotnet([string[]] $Arguments, [switch] $Capture) {
-    if ($Capture) {
-        [string[]] $output = @(& dotnet @Arguments)
+    Push-Location $root
+    try {
+        if ($Capture) {
+            [string[]] $output = @(& dotnet @Arguments)
+            [int] $exitCode = $LASTEXITCODE
+            if ($exitCode -ne 0) {
+                throw "dotnet $($Arguments -join ' ') exited with code $exitCode."
+            }
+
+            return $output -join [Environment]::NewLine
+        }
+
+        & dotnet @Arguments
         [int] $exitCode = $LASTEXITCODE
         if ($exitCode -ne 0) {
             throw "dotnet $($Arguments -join ' ') exited with code $exitCode."
         }
-
-        return $output -join [Environment]::NewLine
     }
-
-    & dotnet @Arguments
-    [int] $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) {
-        throw "dotnet $($Arguments -join ' ') exited with code $exitCode."
+    finally {
+        Pop-Location
     }
 }
 
@@ -234,6 +421,14 @@ function Get-CliScopeArguments {
 }
 
 function Get-CliState {
+    if ($CliToolPath -and
+        -not (Test-Path -LiteralPath $CliToolPath -PathType Container)) {
+        return [pscustomobject] [ordered] @{
+            installed = $false
+            version = $null
+        }
+    }
+
     [string[]] $arguments = @('tool', 'list') + @(Get-CliScopeArguments) + @('--format', 'json')
     [string] $json = Invoke-Dotnet -Arguments $arguments -Capture
     [object] $toolList = $json | ConvertFrom-Json -Depth 8
@@ -376,7 +571,9 @@ function Assert-CliPackage([object] $Cli) {
     }
 }
 
-function Write-LocalNuGetConfig([string] $Path, [string] $PackageDirectory) {
+function Write-LocalNuGetConfig(
+    [string] $Path,
+    [string] $PackageDirectory) {
     [System.Xml.XmlWriterSettings] $settings = [System.Xml.XmlWriterSettings]::new()
     $settings.Encoding = $utf8
     $settings.Indent = $true
@@ -397,6 +594,26 @@ function Write-LocalNuGetConfig([string] $Path, [string] $PackageDirectory) {
     }
     finally {
         $writer.Dispose()
+    }
+}
+
+function Invoke-ToolInstall(
+    [string] $PackageDirectory,
+    [string] $Version,
+    [string] $Workspace) {
+    [string] $operationId = [guid]::NewGuid().ToString('N')
+    [string] $configPath = Join-Path $Workspace "nuget-$operationId.config"
+    Write-LocalNuGetConfig $configPath $PackageDirectory
+
+    try {
+        [string[]] $arguments = @('tool', 'install') + @(Get-CliScopeArguments) + @(
+            '--configfile', $configPath,
+            '--version', $Version,
+            'KlutzyNinja.Filtrace')
+        Invoke-Dotnet -Arguments $arguments
+    }
+    finally {
+        Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -454,242 +671,440 @@ function Get-OverlayBytes([string] $SkillDirectory) {
     return $null
 }
 
-if ([string]::IsNullOrWhiteSpace($SkillDestination) -and [string]::IsNullOrWhiteSpace($HOME)) {
-    throw 'HOME is not set; pass -SkillDestination explicitly.'
-}
-if (-not $SkipCli -and [string]::IsNullOrWhiteSpace($CliToolPath) -and
-    [string]::IsNullOrWhiteSpace($HOME)) {
-    throw 'HOME is not set; pass -CliToolPath explicitly.'
-}
-
-$McpConfigPath = Get-FullPath $(if ($McpConfigPath) { $McpConfigPath } else { Get-DefaultMcpConfigPath }) 'MCP configuration path'
-$SkillDestination = Get-FullPath $(if ($SkillDestination) { $SkillDestination } else { Join-Path $HOME '.copilot/skills/filtrace' }) 'Skill destination'
-$StatePath = Get-FullPath $(if ($StatePath) { $StatePath } else { Join-Path $root 'artifacts/local-testing/state.json' }) 'State path'
-if ($CliToolPath) {
-    $CliToolPath = Get-FullPath $CliToolPath 'CLI tool path'
-    if (-not (Test-Path -LiteralPath $CliToolPath -PathType Container)) {
-        $null = New-Item -ItemType Directory -Path $CliToolPath -Force
-    }
-}
-
-[string] $skillSourceFull = [System.IO.Path]::GetFullPath($skillSource)
-[StringComparison] $pathComparison = if (
-    [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
-        [System.Runtime.InteropServices.OSPlatform]::Windows)) {
-    [StringComparison]::OrdinalIgnoreCase
+[string] $normalizedAction = if ($Action -ieq 'Install') { 'Install' } else { 'Restore' }
+[System.StringComparison] $pathComparison = if (Test-CaseInsensitivePathPlatform) {
+    [System.StringComparison]::OrdinalIgnoreCase
 }
 else {
-    [StringComparison]::Ordinal
-}
-if ($skillSourceFull.Equals($SkillDestination, $pathComparison)) {
-    throw 'SkillDestination must differ from the repository skill source.'
+    [System.StringComparison]::Ordinal
 }
 
-[string] $stateDirectory = Split-Path -Parent $StatePath
-[string] $skillBackup = Join-Path $stateDirectory 'skill-backup'
-[string] $cliBackup = Join-Path $stateDirectory 'cli-backup'
-[string] $packageDirectory = Join-Path $stateDirectory 'packages'
-[string] $nugetConfig = Join-Path $stateDirectory 'local.nuget.config'
-[string] $restoreNugetConfig = Join-Path $stateDirectory 'restore.nuget.config'
-[string] $mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
+$TargetRepository = Get-FullPath $(if ($PSBoundParameters.ContainsKey('TargetRepository')) {
+        $TargetRepository
+    }
+    else {
+        $PWD.Path
+    }) 'Target repository'
+[string] $defaultStatePath = Get-DefaultStatePath $TargetRepository
+[string] $legacyStatePath = Join-Path $root 'artifacts/local-testing/state.json'
+$StatePath = Get-FullPath $(if ($PSBoundParameters.ContainsKey('StatePath')) {
+        $StatePath
+    }
+    elseif ($TargetRepository.Equals($root, $pathComparison) -and
+        (Test-Path -LiteralPath $legacyStatePath -PathType Leaf)) {
+        $legacyStatePath
+    }
+    else {
+        $defaultStatePath
+    }) 'State path'
 
-if ($Action -ceq 'Install') {
-    if (-not $SkipBuild) {
-        Invoke-Dotnet @('build', $solution, '--configuration', $Configuration)
-        if (Test-Path -LiteralPath $packageDirectory) {
-            Remove-Item -LiteralPath $packageDirectory -Recurse -Force
+[System.IO.FileStream] $stateLock = Enter-StateLock $StatePath
+try {
+    [object] $state = if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
+        Read-JsonFile $StatePath 'Local-testing state'
+    }
+    else {
+        $null
+    }
+    if ($null -ne $state -and $state.schemaVersion -notin @(2, 3)) {
+        throw "Local-testing state has unsupported schema version '$($state.schemaVersion)': '$StatePath'."
+    }
+
+    if ($null -ne $state -and $state.schemaVersion -eq 3 -and
+        -not $PSBoundParameters.ContainsKey('TargetRepository')) {
+        $TargetRepository = Get-FullPath ([string] $state.targetRepository) 'Recorded target repository'
+    }
+    if ($normalizedAction -ceq 'Install' -and
+        -not (Test-Path -LiteralPath $TargetRepository -PathType Container)) {
+        throw "Target repository does not exist: '$TargetRepository'."
+    }
+
+    [string] $ownedStateWorkspace = Get-StateWorkspacePath $StatePath
+    [bool] $legacyState = $null -ne $state -and $state.schemaVersion -eq 2
+    if ($legacyState -and $normalizedAction -ceq 'Install') {
+        throw "Legacy global local-testing state must be restored before starting a repository-scoped install: '$StatePath'."
+    }
+    [string] $stateWorkspace = if ($legacyState) {
+        Split-Path -Parent $StatePath
+    }
+    else {
+        $ownedStateWorkspace
+    }
+    if ($null -ne $state -and -not $legacyState) {
+        if (-not [string]::Equals(
+                [string] $state.workspace,
+                $ownedStateWorkspace,
+                $pathComparison)) {
+            throw "Recorded local-testing workspace does not match '$StatePath'."
         }
-        $null = New-Item -ItemType Directory -Path $packageDirectory -Force
-        Invoke-Dotnet @(
-            'pack', $solution,
-            '--configuration', $Configuration,
-            '--no-build',
-            '--output', $packageDirectory)
+        Assert-StateWorkspace $stateWorkspace $StatePath
     }
 
-    if (-not (Test-Path -LiteralPath $mcpDll -PathType Leaf)) {
-        throw "Local MCP binary was not found: '$mcpDll'. Run without -SkipBuild."
-    }
-    if (-not $SkipValidation) {
-        & (Join-Path $root 'tools/Test-McpServer.ps1') -Configuration $Configuration
-        if ($LASTEXITCODE -ne 0) {
-            throw "Local MCP validation exited with code $LASTEXITCODE."
+    $McpConfigPath = Get-FullPath $(if ($PSBoundParameters.ContainsKey('McpConfigPath')) {
+            $McpConfigPath
         }
-    }
-
-    [object] $localPackage = $null
-    if (-not $SkipCli) {
-        $localPackage = Get-LocalCliPackage $packageDirectory
-    }
-
-    [object] $state = $null
-    if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
-        $state = Read-JsonFile $StatePath 'Local-testing state'
-        if ($state.schemaVersion -ne 2 -or
-            -not [string]::Equals([string] $state.mcp.path, $McpConfigPath, $pathComparison) -or
-            -not [string]::Equals([string] $state.skill.destination, $SkillDestination, $pathComparison) -or
-            -not [string]::Equals([string] $state.cliToolPath, [string] $CliToolPath, $pathComparison) -or
-            [bool] $state.cliManaged -ne (-not [bool] $SkipCli)) {
-            throw "Existing local-testing state does not match this invocation: '$StatePath'. Restore it with the original arguments first."
+        elseif ($null -ne $state) {
+            [string] $state.mcp.path
         }
-        if ($state.status -ceq 'restore-in-progress') {
-            throw "Restore is already in progress for '$StatePath'. Run -Action Restore with the original arguments."
+        else {
+            Join-Path $TargetRepository '.vscode/mcp.json'
+        }) 'MCP configuration path'
+    $SkillDestination = Get-FullPath $(if ($PSBoundParameters.ContainsKey('SkillDestination')) {
+            $SkillDestination
+        }
+        elseif ($null -ne $state) {
+            [string] $state.skill.destination
+        }
+        else {
+            Join-Path $TargetRepository '.agents/skills/filtrace'
+        }) 'Skill destination'
+
+    [bool] $cliManaged = if ($null -ne $state -and
+        -not $PSBoundParameters.ContainsKey('SkipCli')) {
+        [bool] $state.cliManaged
+    }
+    else {
+        -not [bool] $SkipCli
+    }
+    if (-not $cliManaged -and $PSBoundParameters.ContainsKey('CliToolPath')) {
+        throw 'CliToolPath cannot be combined with SkipCli.'
+    }
+    $CliToolPath = if (-not $cliManaged) {
+        $null
+    }
+    elseif ($PSBoundParameters.ContainsKey('CliToolPath')) {
+        Get-FullPath $CliToolPath 'CLI tool path'
+    }
+    elseif ($null -ne $state) {
+        if ([string]::IsNullOrWhiteSpace([string] $state.cliToolPath)) {
+            $null
+        }
+        else {
+            Get-FullPath ([string] $state.cliToolPath) 'Recorded CLI tool path'
         }
     }
     else {
-        if (-not (Test-Path -LiteralPath $stateDirectory -PathType Container)) {
-            $null = New-Item -ItemType Directory -Path $stateDirectory -Force
-        }
-        if (Test-Path -LiteralPath $skillBackup) {
-            Remove-Item -LiteralPath $skillBackup -Recurse -Force
-        }
-
-        [object] $mcpConfig = Get-McpConfig $McpConfigPath
-        [object] $servers = (Get-Property $mcpConfig 'servers').Value
-        [System.Management.Automation.PSPropertyInfo] $priorServer = Get-Property $servers 'filtrace'
-        if (Test-Path -LiteralPath $SkillDestination -PathType Leaf) {
-            throw "Skill destination is a file, not a directory: '$SkillDestination'."
-        }
-        [bool] $priorSkillExists = Test-Path -LiteralPath $SkillDestination -PathType Container
-        if ($priorSkillExists) {
-            Copy-Item -LiteralPath $SkillDestination -Destination $skillBackup -Recurse -Force
-        }
-
-        [object] $priorCli = if ($SkipCli) { $null } else { Get-CliState }
-        if (-not $SkipCli) {
-            Backup-CliPackage $priorCli $cliBackup
-        }
-        $state = [pscustomobject] [ordered] @{
-            schemaVersion = 2
-            createdUtc = [DateTimeOffset]::UtcNow.ToString('O')
-            status = 'baseline-recorded'
-            cliManaged = -not [bool] $SkipCli
-            cliToolPath = $CliToolPath
-            cli = $priorCli
-            mcp = [pscustomobject] [ordered] @{
-                path = $McpConfigPath
-                serverExisted = $null -ne $priorServer
-                server = if ($null -eq $priorServer) { $null } else { $priorServer.Value }
-            }
-            skill = [pscustomobject] [ordered] @{
-                destination = $SkillDestination
-                existed = $priorSkillExists
-            }
-        }
-        Write-JsonFile $StatePath $state
+        Join-Path $stateWorkspace 'tools'
+    }
+    if ($cliManaged -and -not $legacyState -and
+        [string]::IsNullOrWhiteSpace($CliToolPath)) {
+        throw 'Repository-scoped state must record an isolated CLI tool path.'
     }
 
-    if (-not $SkipCli) {
+    [string] $skillSourceFull = [System.IO.Path]::GetFullPath($skillSource)
+    Assert-PathsDoNotOverlap `
+        $skillSourceFull 'Repository skill source' `
+        $SkillDestination 'SkillDestination' `
+        $pathComparison
+    Assert-PathsDoNotOverlap `
+        $skillSourceFull 'Repository skill source' `
+        $StatePath 'StatePath' `
+        $pathComparison
+    Assert-PathsDoNotOverlap `
+        $skillSourceFull 'Repository skill source' `
+        $stateWorkspace 'Local-testing workspace' `
+        $pathComparison
+    Assert-PathsDoNotOverlap `
+        $skillSourceFull 'Repository skill source' `
+        $McpConfigPath 'McpConfigPath' `
+        $pathComparison
+    Assert-PathsDoNotOverlap `
+        $SkillDestination 'SkillDestination' `
+        $StatePath 'StatePath' `
+        $pathComparison
+    Assert-PathsDoNotOverlap `
+        $SkillDestination 'SkillDestination' `
+        $stateWorkspace 'Local-testing workspace' `
+        $pathComparison
+    Assert-PathsDoNotOverlap `
+        $SkillDestination 'SkillDestination' `
+        $McpConfigPath 'McpConfigPath' `
+        $pathComparison
+    Assert-PathsDoNotOverlap `
+        $StatePath 'StatePath' `
+        $McpConfigPath 'McpConfigPath' `
+        $pathComparison
+    Assert-PathsDoNotOverlap `
+        $stateWorkspace 'Local-testing workspace' `
+        $McpConfigPath 'McpConfigPath' `
+        $pathComparison
+
+    [bool] $cliOwnedByWorkspace = $CliToolPath -and
+        (Test-PathWithin $CliToolPath $stateWorkspace $pathComparison)
+    if ($CliToolPath) {
+        Assert-PathsDoNotOverlap `
+            $skillSourceFull 'Repository skill source' `
+            $CliToolPath 'CliToolPath' `
+            $pathComparison
+        Assert-PathsDoNotOverlap `
+            $SkillDestination 'SkillDestination' `
+            $CliToolPath 'CliToolPath' `
+            $pathComparison
+        Assert-PathsDoNotOverlap `
+            $McpConfigPath 'McpConfigPath' `
+            $CliToolPath 'CliToolPath' `
+            $pathComparison
+        if (-not $cliOwnedByWorkspace) {
+            Assert-PathsDoNotOverlap `
+                $StatePath 'StatePath' `
+                $CliToolPath 'CliToolPath' `
+                $pathComparison
+            Assert-PathsDoNotOverlap `
+                $stateWorkspace 'Local-testing workspace' `
+                $CliToolPath 'CliToolPath' `
+                $pathComparison
+        }
+    }
+
+    [string] $stateDirectory = Split-Path -Parent $StatePath
+    [string] $skillBackup = Join-Path $stateWorkspace 'skill-backup'
+    [string] $cliBackup = Join-Path $stateWorkspace 'cli-backup'
+    [string] $packageDirectory = Join-Path $stateWorkspace 'packages'
+    [string] $mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
+
+    if ($null -ne $state -and (
+            ($state.schemaVersion -eq 3 -and
+                -not [string]::Equals(
+                    [string] $state.targetRepository,
+                    $TargetRepository,
+                    $pathComparison)) -or
+            -not [string]::Equals([string] $state.mcp.path, $McpConfigPath, $pathComparison) -or
+            -not [string]::Equals([string] $state.skill.destination, $SkillDestination, $pathComparison) -or
+            -not [string]::Equals([string] $state.cliToolPath, [string] $CliToolPath, $pathComparison) -or
+            [bool] $state.cliManaged -ne $cliManaged)) {
+        throw "Existing local-testing state does not match this invocation: '$StatePath'."
+    }
+    if ($null -ne $state -and $normalizedAction -ceq 'Install' -and
+        $state.status -ceq 'restore-in-progress') {
+        throw "Restore is already in progress for '$StatePath'. Run -Action Restore."
+    }
+
+    if ($normalizedAction -ceq 'Install') {
+        if ($null -eq $state) {
+            Initialize-StateWorkspace $stateWorkspace $StatePath
+        }
+
+        if (-not $SkipBuild) {
+            Invoke-Dotnet @('build', $solution, '--configuration', $Configuration)
+            if (Test-Path -LiteralPath $packageDirectory) {
+                Remove-Item -LiteralPath $packageDirectory -Recurse -Force
+            }
+            $null = New-Item -ItemType Directory -Path $packageDirectory -Force
+            Invoke-Dotnet @(
+                'pack', $solution,
+                '--configuration', $Configuration,
+                '--no-build',
+                '--output', $packageDirectory)
+        }
+
+        if (-not (Test-Path -LiteralPath $mcpDll -PathType Leaf)) {
+            throw "Local MCP binary was not found: '$mcpDll'. Run without -SkipBuild."
+        }
+        if (-not $SkipValidation) {
+            Push-Location $root
+            try {
+                & (Join-Path $root 'tools/Test-McpServer.ps1') -Configuration $Configuration
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Local MCP validation exited with code $LASTEXITCODE."
+                }
+            }
+            finally {
+                Pop-Location
+            }
+        }
+
+        [object] $localPackage = if ($cliManaged) {
+            Get-LocalCliPackage $packageDirectory
+        }
+        else {
+            $null
+        }
+
+        if ($null -eq $state) {
+            if (Test-Path -LiteralPath $skillBackup) {
+                Remove-Item -LiteralPath $skillBackup -Recurse -Force
+            }
+
+            [bool] $mcpFileExisted = Test-Path -LiteralPath $McpConfigPath -PathType Leaf
+            [string] $mcpExistingAncestor = Get-NearestExistingAncestor $McpConfigPath
+            [string] $skillExistingAncestor = Get-NearestExistingAncestor $SkillDestination
+            [object] $mcpConfig = Get-McpConfig $McpConfigPath
+            [object] $servers = (Get-Property $mcpConfig 'servers').Value
+            [System.Management.Automation.PSPropertyInfo] $priorServer = Get-Property $servers 'filtrace'
+            if (Test-Path -LiteralPath $SkillDestination -PathType Leaf) {
+                throw "Skill destination is a file, not a directory: '$SkillDestination'."
+            }
+            [bool] $priorSkillExists = Test-Path -LiteralPath $SkillDestination -PathType Container
+            if ($priorSkillExists) {
+                Copy-Item -LiteralPath $SkillDestination -Destination $skillBackup -Recurse -Force
+            }
+
+            [object] $priorCli = if ($cliManaged) { Get-CliState } else { $null }
+            if ($cliOwnedByWorkspace -and [bool] $priorCli.installed) {
+                throw 'An existing CLI cannot be preserved inside the manifest-owned workspace.'
+            }
+            if ($cliManaged) {
+                Backup-CliPackage $priorCli $cliBackup
+            }
+            $state = [pscustomobject] [ordered] @{
+                schemaVersion = 3
+                createdUtc = [System.DateTimeOffset]::UtcNow.ToString('O')
+                status = 'baseline-recorded'
+                targetRepository = $TargetRepository
+                workspace = $stateWorkspace
+                cliManaged = $cliManaged
+                cliToolPath = $CliToolPath
+                cli = $priorCli
+                mcp = [pscustomobject] [ordered] @{
+                    path = $McpConfigPath
+                    fileExisted = $mcpFileExisted
+                    existingAncestor = $mcpExistingAncestor
+                    serverExisted = $null -ne $priorServer
+                    server = if ($null -eq $priorServer) { $null } else { $priorServer.Value }
+                }
+                skill = [pscustomobject] [ordered] @{
+                    destination = $SkillDestination
+                    existingAncestor = $skillExistingAncestor
+                    existed = $priorSkillExists
+                }
+            }
+            Write-JsonFile $StatePath $state
+        }
+
+        if ($cliManaged) {
+            Remove-CliIfInstalled
+            Invoke-ToolInstall $packageDirectory ([string] $localPackage.version) $stateWorkspace
+            [object] $installedCli = Get-CliState
+            if (-not $installedCli.installed) {
+                throw 'dotnet tool install completed without installing the Filtrace CLI.'
+            }
+            if ($installedCli.version -cne $localPackage.version) {
+                throw "Installed CLI version '$($installedCli.version)' does not match local package '$($localPackage.version)'."
+            }
+            [object] $installedPackage = Get-InstalledCliPackage ([string] $installedCli.version)
+            if ((Get-FileHash -LiteralPath $installedPackage.path -Algorithm SHA256).Hash -cne
+                (Get-FileHash -LiteralPath $localPackage.path -Algorithm SHA256).Hash) {
+                throw 'The installed CLI package bytes do not match the locally packed package.'
+            }
+        }
+
+        [object] $localServer = [pscustomobject] [ordered] @{
+            type = 'stdio'
+            command = 'dotnet'
+            args = @($mcpDll)
+        }
+        Set-McpServer $McpConfigPath $true $localServer
+
+        [byte[]] $overlayBytes = Get-OverlayBytes $SkillDestination
+        Copy-Skill $skillSource $SkillDestination $overlayBytes
+
+        if ($state.status -cne 'local-active') {
+            $state.status = 'local-active'
+            Write-JsonFile $StatePath $state
+        }
+
+        Write-Host "Filtrace local mode is active for '$TargetRepository' ($Configuration)."
+        if ($cliManaged) {
+            [string] $cliExecutable = if ($CliToolPath) {
+                Join-Path $CliToolPath $(if (
+                    [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+                        [System.Runtime.InteropServices.OSPlatform]::Windows)) {
+                    'filtrace.exe'
+                }
+                else {
+                    'filtrace'
+                })
+            }
+            else {
+                'filtrace (global legacy setup)'
+            }
+            Write-Host "  CLI: $cliExecutable"
+        }
+        Write-Host "  MCP: $McpConfigPath -> $mcpDll"
+        Write-Host "  Skill: $SkillDestination"
+        Write-Host "  Restore from target repository: $PSScriptRoot/Use-LocalFiltrace.ps1 -Action Restore"
+        return
+    }
+
+    if ($null -eq $state) {
+        throw "No local-testing state was found at '$StatePath'. Nothing can be restored automatically."
+    }
+    if ([bool] $state.skill.existed -and
+        -not (Test-Path -LiteralPath $skillBackup -PathType Container)) {
+        throw "Recorded skill backup is missing: '$skillBackup'."
+    }
+    if ($cliManaged) {
+        Assert-CliPackage $state.cli
+    }
+
+    $state.status = 'restore-in-progress'
+    Write-JsonFile $StatePath $state
+
+    if ($cliManaged) {
         Remove-CliIfInstalled
-        if (-not (Test-Path -LiteralPath $stateDirectory -PathType Container)) {
-            $null = New-Item -ItemType Directory -Path $stateDirectory -Force
-        }
-        Write-LocalNuGetConfig $nugetConfig $packageDirectory
-        [string[]] $installArguments = @('tool', 'install') + @(Get-CliScopeArguments) + @(
-            '--configfile', $nugetConfig,
-            '--version', $localPackage.version,
-            'KlutzyNinja.Filtrace')
-        Invoke-Dotnet -Arguments $installArguments
-        [object] $installedCli = Get-CliState
-        if (-not $installedCli.installed) {
-            throw 'dotnet tool install completed without installing the Filtrace CLI.'
-        }
-        if ($installedCli.version -cne $localPackage.version) {
-            throw "Installed CLI version '$($installedCli.version)' does not match local package '$($localPackage.version)'."
-        }
-        [object] $installedPackage = Get-InstalledCliPackage ([string] $installedCli.version)
-        if ((Get-FileHash -LiteralPath $installedPackage.path -Algorithm SHA256).Hash -cne
-            (Get-FileHash -LiteralPath $localPackage.path -Algorithm SHA256).Hash) {
-            throw 'The installed CLI package bytes do not match the locally packed package.'
+        if ([bool] $state.cli.installed) {
+            [string] $backupPackageDirectory = Split-Path -Parent ([string] $state.cli.backupPackage)
+            Invoke-ToolInstall $backupPackageDirectory ([string] $state.cli.version) $stateWorkspace
+            [object] $restoredPackage = Get-InstalledCliPackage ([string] $state.cli.version)
+            if ((Get-FileHash -LiteralPath $restoredPackage.path -Algorithm SHA256).Hash -cne
+                [string] $state.cli.backupSha256) {
+                throw 'The restored CLI package bytes do not match the recorded baseline package.'
+            }
         }
     }
 
-    [object] $localServer = [pscustomobject] [ordered] @{
-        type = 'stdio'
-        command = 'dotnet'
-        args = @($mcpDll)
-    }
-    Set-McpServer $McpConfigPath $true $localServer
-
-    [byte[]] $overlayBytes = Get-OverlayBytes $SkillDestination
-    Copy-Skill $skillSource $SkillDestination $overlayBytes
-
-    if ($state.status -cne 'local-active') {
-        $state.status = 'local-active'
-        Write-JsonFile $StatePath $state
+    Set-McpServer $McpConfigPath ([bool] $state.mcp.serverExisted) $state.mcp.server
+    if ($state.schemaVersion -eq 3 -and -not [bool] $state.mcp.fileExisted -and
+        (Remove-EmptyMcpConfig $McpConfigPath)) {
+        Remove-EmptyCreatedAncestors `
+            $McpConfigPath `
+            ([string] $state.mcp.existingAncestor) `
+            $pathComparison
     }
 
-    Write-Host "Filtrace local mode is active ($Configuration)."
-    if (-not $SkipCli) { Write-Host "  CLI: $($localPackage.version) from $packageDirectory" }
-    Write-Host "  MCP: $mcpDll"
-    Write-Host "  Skill: $SkillDestination"
-    Write-Host "  Restore: $PSScriptRoot/Use-LocalFiltrace.ps1 -Action Restore"
-    exit 0
-}
+    [byte[]] $currentOverlay = Get-OverlayBytes $SkillDestination
+    if ([bool] $state.skill.existed) {
+        Copy-Skill $skillBackup $SkillDestination $currentOverlay
+    }
+    elseif (Test-Path -LiteralPath $SkillDestination) {
+        if ($null -ne $currentOverlay) {
+            [string] $retainedOverlay = "$StatePath.restored-overlay.md"
+            [System.IO.File]::WriteAllBytes($retainedOverlay, $currentOverlay)
+            Write-Warning "The pre-local setup had no skill. The current overlay was retained at '$retainedOverlay'."
+        }
+        Remove-Item -LiteralPath $SkillDestination -Recurse -Force
+    }
+    if ($state.schemaVersion -eq 3 -and -not [bool] $state.skill.existed) {
+        Remove-EmptyCreatedAncestors `
+            $SkillDestination `
+            ([string] $state.skill.existingAncestor) `
+            $pathComparison
+    }
 
-if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) {
-    throw "No local-testing state was found at '$StatePath'. Nothing can be restored automatically."
-}
-
-[object] $state = Read-JsonFile $StatePath 'Local-testing state'
-if ($state.schemaVersion -ne 2 -or
-    -not [string]::Equals([string] $state.mcp.path, $McpConfigPath, $pathComparison) -or
-    -not [string]::Equals([string] $state.skill.destination, $SkillDestination, $pathComparison) -or
-    -not [string]::Equals([string] $state.cliToolPath, [string] $CliToolPath, $pathComparison) -or
-    [bool] $state.cliManaged -ne (-not [bool] $SkipCli)) {
-    throw "Local-testing state does not match this Restore invocation: '$StatePath'."
-}
-
-if ([bool] $state.skill.existed -and
-    -not (Test-Path -LiteralPath $skillBackup -PathType Container)) {
-    throw "Recorded skill backup is missing: '$skillBackup'."
-}
-if (-not $SkipCli) {
-    Assert-CliPackage $state.cli
-}
-
-$state.status = 'restore-in-progress'
-Write-JsonFile $StatePath $state
-
-if (-not $SkipCli) {
-    Remove-CliIfInstalled
-    if ([bool] $state.cli.installed) {
-        [string] $backupPackageDirectory = Split-Path -Parent ([string] $state.cli.backupPackage)
-        Write-LocalNuGetConfig $restoreNugetConfig $backupPackageDirectory
-        [string[]] $restoreArguments = @('tool', 'install') + @(Get-CliScopeArguments) + @(
-            '--configfile', $restoreNugetConfig,
-            '--version', [string] $state.cli.version,
-            'KlutzyNinja.Filtrace')
-        Invoke-Dotnet -Arguments $restoreArguments
-        [object] $restoredPackage = Get-InstalledCliPackage ([string] $state.cli.version)
-        if ((Get-FileHash -LiteralPath $restoredPackage.path -Algorithm SHA256).Hash -cne
-            [string] $state.cli.backupSha256) {
-            throw 'The restored CLI package bytes do not match the recorded baseline package.'
+    Remove-Item -LiteralPath $StatePath -Force
+    if ($legacyState) {
+        if ($StatePath.Equals($legacyStatePath, $pathComparison)) {
+            Remove-Item -LiteralPath $skillBackup -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $cliBackup -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $packageDirectory -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $stateDirectory 'local.nuget.config') -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $stateDirectory 'restore.nuget.config') -Force -ErrorAction SilentlyContinue
+        }
+        else {
+            if ([bool] $state.skill.existed) {
+                Remove-Item -LiteralPath $skillBackup -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            if ($cliManaged -and [bool] $state.cli.installed) {
+                Remove-Item -LiteralPath $cliBackup -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
     }
-}
-
-Set-McpServer $McpConfigPath ([bool] $state.mcp.serverExisted) $state.mcp.server
-
-[byte[]] $currentOverlay = Get-OverlayBytes $SkillDestination
-if ([bool] $state.skill.existed) {
-    Copy-Skill $skillBackup $SkillDestination $currentOverlay
-}
-elseif (Test-Path -LiteralPath $SkillDestination) {
-    if ($null -ne $currentOverlay) {
-        [string] $retainedOverlay = "$StatePath.restored-overlay.md"
-        [System.IO.File]::WriteAllBytes($retainedOverlay, $currentOverlay)
-        Write-Warning "The pre-local setup had no skill. The current overlay was retained at '$retainedOverlay'."
+    else {
+        Remove-StateWorkspace $stateWorkspace $StatePath
     }
-    Remove-Item -LiteralPath $SkillDestination -Recurse -Force
+
+    Write-Host "Filtrace local mode was removed from '$TargetRepository' and the recorded setup was restored."
 }
-
-Remove-Item -LiteralPath $StatePath -Force
-Remove-Item -LiteralPath $skillBackup -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $cliBackup -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $packageDirectory -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $nugetConfig -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $restoreNugetConfig -Force -ErrorAction SilentlyContinue
-
-Write-Host 'Filtrace local mode was removed and the recorded setup was restored.'
-exit 0
+finally {
+    $stateLock.Dispose()
+}

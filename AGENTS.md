@@ -52,9 +52,9 @@ CI also runs ten contract and evaluation checks that must stay green:
 - `tools/Test-McpServer.ps1 -Configuration Release` - stdout is pure JSON-RPC,
   the tool-list schema stays within the token budget, and a real `tools/call`
   round-trips.
-- `tools/Test-LocalFiltrace.ps1 -Configuration Release` - reversible local CLI,
-  MCP, and skill setup preserves exact package bytes, prior state, unrelated
-  servers, and overlays.
+- `tools/Test-LocalFiltrace.ps1 -Configuration Release` - repository-scoped local
+  CLI, MCP, and skill setup preserves exact package bytes, prior state, unrelated
+  servers, and overlays while rejecting unsafe paths and concurrent mutation.
 - `tools/Test-Docs.ps1` - shared workflow blocks, command/tool catalogs, and the
   packaged filtrace skill stay synchronized.
 - `tools/Test-CaptureBenchmarkTrace.ps1` - run artifacts stay isolated, overlap
