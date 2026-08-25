@@ -105,9 +105,55 @@ function Test-CaseInsensitivePathPlatform {
             [System.Runtime.InteropServices.OSPlatform]::OSX)
 }
 
+function Resolve-PhysicalPath([string] $Path, [int] $Depth = 0) {
+    if ($Depth -gt 64) {
+        throw "Path contains too many symbolic-link levels: '$Path'."
+    }
+
+    [string] $fullPath = [System.IO.Path]::GetFullPath($Path)
+    [string] $rootPath = [System.IO.Path]::GetPathRoot($fullPath)
+    [string] $relativePath = $fullPath.Substring($rootPath.Length)
+    [char[]] $separators = @(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar)
+    [string[]] $segments = $relativePath.Split(
+        $separators,
+        [System.StringSplitOptions]::RemoveEmptyEntries)
+    [string] $currentPath = $rootPath
+    for ([int] $index = 0; $index -lt $segments.Length; $index++) {
+        [string] $candidate = Join-Path $currentPath $segments[$index]
+        [System.IO.FileSystemInfo] $item = $null
+        try {
+            $item = Get-Item -LiteralPath $candidate -Force -ErrorAction Stop
+        }
+        catch [System.Management.Automation.ItemNotFoundException] {
+            for (; $index -lt $segments.Length; $index++) {
+                $currentPath = Join-Path $currentPath $segments[$index]
+            }
+            break
+        }
+        catch {
+            throw "Path component could not be inspected: '$candidate'. $($_.Exception.Message)"
+        }
+
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            [System.IO.FileSystemInfo] $target = $item.ResolveLinkTarget($true)
+            if ($null -eq $target) {
+                throw "Symbolic-link target could not be resolved: '$candidate'."
+            }
+            $currentPath = Resolve-PhysicalPath $target.FullName ($Depth + 1)
+        }
+        else {
+            $currentPath = $item.FullName
+        }
+    }
+
+    return [System.IO.Path]::TrimEndingDirectorySeparator(
+        [System.IO.Path]::GetFullPath($currentPath))
+}
+
 function Get-PathIdentity([string] $Path) {
-    [string] $identity = [System.IO.Path]::TrimEndingDirectorySeparator(
-        [System.IO.Path]::GetFullPath($Path))
+    [string] $identity = Resolve-PhysicalPath $Path
     if (Test-CaseInsensitivePathPlatform) {
         return $identity.ToUpperInvariant()
     }
@@ -125,6 +171,50 @@ function Get-StableHash([string] $Value) {
     finally {
         $algorithm.Dispose()
     }
+}
+
+function Get-DirectoryFingerprint([string] $Path, [string] $Description) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        throw "$Description does not exist: '$Path'."
+    }
+
+    [System.Collections.Generic.SortedDictionary[string, object]] $entries =
+        [System.Collections.Generic.SortedDictionary[string, object]]::new(
+            [System.StringComparer]::Ordinal)
+    [System.IO.FileSystemInfo[]] $items = @(
+        Get-ChildItem -LiteralPath $Path -Force -Recurse)
+    foreach ($item in $items) {
+        [string] $relativePath = ([System.IO.Path]::GetRelativePath($Path, $item.FullName)).Replace(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [char] '/')
+        [object] $entry = $null
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            $entry = [pscustomobject] [ordered] @{
+                path = $relativePath
+                kind = 'link'
+                target = [string] $item.LinkTarget
+            }
+        }
+        elseif ($item -is [System.IO.DirectoryInfo]) {
+            $entry = [pscustomobject] [ordered] @{
+                path = $relativePath
+                kind = 'directory'
+            }
+        }
+        else {
+            $entry = [pscustomobject] [ordered] @{
+                path = $relativePath
+                kind = 'file'
+                length = [long] $item.Length
+                sha256 = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
+            }
+        }
+        $entries.Add($relativePath, $entry)
+    }
+
+    [object[]] $manifest = @($entries.Values)
+    [string] $serialized = ConvertTo-Json -InputObject $manifest -Depth 8 -Compress
+    return Get-StableHash $serialized
 }
 
 function Get-DefaultStatePath([string] $Repository) {
@@ -156,8 +246,10 @@ function Assert-PathsDoNotOverlap(
     [string] $Second,
     [string] $SecondDescription,
     [System.StringComparison] $Comparison) {
-    if ((Test-PathWithin $First $Second $Comparison) -or
-        (Test-PathWithin $Second $First $Comparison)) {
+    [string] $firstPhysical = Resolve-PhysicalPath $First
+    [string] $secondPhysical = Resolve-PhysicalPath $Second
+    if ((Test-PathWithin $firstPhysical $secondPhysical $Comparison) -or
+        (Test-PathWithin $secondPhysical $firstPhysical $Comparison)) {
         throw "$FirstDescription and $SecondDescription must not overlap: '$First' and '$Second'."
     }
 }
@@ -189,9 +281,16 @@ function Read-JsonFile([string] $Path, [string] $Description) {
         throw "$Description is larger than the 4 MB safety limit: '$Path'."
     }
 
+    [string] $json = ''
     try {
-        return [System.IO.File]::ReadAllText($file.FullName, $utf8) |
-            ConvertFrom-Json -Depth 32
+        $json = [System.IO.File]::ReadAllText($file.FullName, $utf8)
+    }
+    catch {
+        throw "$Description could not be read: $($_.Exception.Message)"
+    }
+
+    try {
+        return ConvertFrom-Json -InputObject $json -Depth 32 -NoEnumerate
     }
     catch {
         throw "$Description is not valid JSON: $($_.Exception.Message)"
@@ -331,6 +430,11 @@ function Get-McpConfig([string] $Path) {
             servers = [pscustomobject] @{}
             inputs = @()
         }
+    }
+
+    if ($null -eq $config -or
+        $config.GetType() -ne [System.Management.Automation.PSCustomObject]) {
+        throw "VS Code MCP configuration root must be a JSON object: '$Path'."
     }
 
     [System.Management.Automation.PSPropertyInfo] $serversProperty = Get-Property $config 'servers'
@@ -706,11 +810,11 @@ try {
     else {
         $null
     }
-    if ($null -ne $state -and $state.schemaVersion -notin @(2, 3)) {
+    if ($null -ne $state -and $state.schemaVersion -notin @(2, 3, 4)) {
         throw "Local-testing state has unsupported schema version '$($state.schemaVersion)': '$StatePath'."
     }
 
-    if ($null -ne $state -and $state.schemaVersion -eq 3 -and
+    if ($null -ne $state -and $state.schemaVersion -ge 3 -and
         -not $PSBoundParameters.ContainsKey('TargetRepository')) {
         $TargetRepository = Get-FullPath ([string] $state.targetRepository) 'Recorded target repository'
     }
@@ -721,8 +825,12 @@ try {
 
     [string] $ownedStateWorkspace = Get-StateWorkspacePath $StatePath
     [bool] $legacyState = $null -ne $state -and $state.schemaVersion -eq 2
+    [bool] $legacyScopedState = $null -ne $state -and $state.schemaVersion -eq 3
     if ($legacyState -and $normalizedAction -ceq 'Install') {
         throw "Legacy global local-testing state must be restored before starting a repository-scoped install: '$StatePath'."
+    }
+    if ($legacyScopedState -and $normalizedAction -ceq 'Install') {
+        throw "Legacy repository-scoped local-testing state must be restored before starting a new install: '$StatePath'."
     }
     [string] $stateWorkspace = if ($legacyState) {
         Split-Path -Parent $StatePath
@@ -863,7 +971,7 @@ try {
     [string] $mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
 
     if ($null -ne $state -and (
-            ($state.schemaVersion -eq 3 -and
+            ($state.schemaVersion -ge 3 -and
                 -not [string]::Equals(
                     [string] $state.targetRepository,
                     $TargetRepository,
@@ -935,8 +1043,12 @@ try {
                 throw "Skill destination is a file, not a directory: '$SkillDestination'."
             }
             [bool] $priorSkillExists = Test-Path -LiteralPath $SkillDestination -PathType Container
+            [string] $skillBackupSha256 = $null
             if ($priorSkillExists) {
                 Copy-Item -LiteralPath $SkillDestination -Destination $skillBackup -Recurse -Force
+                $skillBackupSha256 = Get-DirectoryFingerprint `
+                    $skillBackup `
+                    'Recorded skill backup'
             }
 
             [object] $priorCli = if ($cliManaged) { Get-CliState } else { $null }
@@ -947,7 +1059,7 @@ try {
                 Backup-CliPackage $priorCli $cliBackup
             }
             $state = [pscustomobject] [ordered] @{
-                schemaVersion = 3
+                schemaVersion = 4
                 createdUtc = [System.DateTimeOffset]::UtcNow.ToString('O')
                 status = 'baseline-recorded'
                 targetRepository = $TargetRepository
@@ -966,6 +1078,7 @@ try {
                     destination = $SkillDestination
                     existingAncestor = $skillExistingAncestor
                     existed = $priorSkillExists
+                    backupSha256 = $skillBackupSha256
                 }
             }
             Write-JsonFile $StatePath $state
@@ -1033,6 +1146,18 @@ try {
         -not (Test-Path -LiteralPath $skillBackup -PathType Container)) {
         throw "Recorded skill backup is missing: '$skillBackup'."
     }
+    if ([bool] $state.skill.existed -and $state.schemaVersion -eq 4) {
+        [string] $expectedSkillBackupSha256 = [string] $state.skill.backupSha256
+        if ([string]::IsNullOrWhiteSpace($expectedSkillBackupSha256)) {
+            throw "Recorded skill backup hash is missing: '$skillBackup'."
+        }
+        [string] $actualSkillBackupSha256 = Get-DirectoryFingerprint `
+            $skillBackup `
+            'Recorded skill backup'
+        if ($actualSkillBackupSha256 -cne $expectedSkillBackupSha256) {
+            throw "Recorded skill backup hash changed: '$skillBackup'."
+        }
+    }
     if ($cliManaged) {
         Assert-CliPackage $state.cli
     }
@@ -1054,7 +1179,7 @@ try {
     }
 
     Set-McpServer $McpConfigPath ([bool] $state.mcp.serverExisted) $state.mcp.server
-    if ($state.schemaVersion -eq 3 -and -not [bool] $state.mcp.fileExisted -and
+    if ($state.schemaVersion -ge 3 -and -not [bool] $state.mcp.fileExisted -and
         (Remove-EmptyMcpConfig $McpConfigPath)) {
         Remove-EmptyCreatedAncestors `
             $McpConfigPath `
@@ -1074,7 +1199,7 @@ try {
         }
         Remove-Item -LiteralPath $SkillDestination -Recurse -Force
     }
-    if ($state.schemaVersion -eq 3 -and -not [bool] $state.skill.existed) {
+    if ($state.schemaVersion -ge 3 -and -not [bool] $state.skill.existed) {
         Remove-EmptyCreatedAncestors `
             $SkillDestination `
             ([string] $state.skill.existingAncestor) `

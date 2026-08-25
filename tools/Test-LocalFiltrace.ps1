@@ -306,6 +306,51 @@ try {
         (Get-FileHash -LiteralPath $cliPackages[0].FullName -Algorithm SHA256).Hash) `
         'The same-version local and baseline package bytes unexpectedly match.'
 
+    # MCP JSON: reject a valid non-object root, and distinguish a read failure
+    # from malformed JSON before any target configuration is changed.
+    [string] $arrayMcpRoot = Join-Path $temporaryRoot 'array MCP root'
+    [string] $arrayMcpConfig = Join-Path $arrayMcpRoot 'mcp.json'
+    [string] $arrayMcpSkill = Join-Path $arrayMcpRoot 'skill/filtrace'
+    [string] $arrayMcpState = Join-Path $arrayMcpRoot 'state.json'
+    $null = New-Item -ItemType Directory -Path $arrayMcpRoot -Force
+    [System.IO.File]::WriteAllText($arrayMcpConfig, '[]', $utf8)
+    [string] $arrayMcpFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $arrayMcpConfig -SkillDestination $arrayMcpSkill `
+        -StatePath $arrayMcpState -SkipCli
+    Assert-True ($arrayMcpFailure -match 'configuration root must be a JSON object') `
+        'A non-object MCP configuration root was not rejected.'
+    Assert-True ([System.IO.File]::ReadAllText($arrayMcpConfig, $utf8) -ceq '[]') `
+        'Non-object MCP root rejection changed the configuration file.'
+    Assert-True (-not (Test-Path -LiteralPath $arrayMcpState)) `
+        'Non-object MCP root rejection wrote rollback state.'
+    Assert-True (-not (Test-Path -LiteralPath $arrayMcpSkill)) `
+        'Non-object MCP root rejection changed the skill destination.'
+
+    [string] $lockedMcpRoot = Join-Path $temporaryRoot 'locked MCP config'
+    [string] $lockedMcpConfig = Join-Path $lockedMcpRoot 'mcp.json'
+    [string] $lockedMcpSkill = Join-Path $lockedMcpRoot 'skill/filtrace'
+    [string] $lockedMcpState = Join-Path $lockedMcpRoot 'state.json'
+    Write-Json $lockedMcpConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [System.IO.FileStream] $lockedMcpStream = [System.IO.File]::Open(
+        $lockedMcpConfig,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::ReadWrite,
+        [System.IO.FileShare]::None)
+    try {
+        [string] $lockedMcpFailure = Invoke-WorkflowFailure -Action Install `
+            -McpConfigPath $lockedMcpConfig -SkillDestination $lockedMcpSkill `
+            -StatePath $lockedMcpState -SkipCli
+    }
+    finally {
+        $lockedMcpStream.Dispose()
+    }
+    Assert-True ($lockedMcpFailure -match 'configuration could not be read') `
+        'An unreadable MCP configuration did not report a read failure.'
+    Assert-True ($lockedMcpFailure -notmatch 'not valid JSON') `
+        'An unreadable MCP configuration was mislabeled as malformed JSON.'
+    Assert-True (-not (Test-Path -LiteralPath $lockedMcpState)) `
+        'Unreadable MCP rejection wrote rollback state.'
+
     # Default scope: invoking from a consumer repository changes only that
     # repository, with rollback state keyed to its canonical path.
     [string] $consumerRoot = Join-Path $temporaryRoot 'consumer repository'
@@ -337,7 +382,7 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $consumerSkill 'SKILL.md') -PathType Leaf) `
         'Default install did not vendor the skill into the consumer repository.'
     [object] $consumerLocalState = Read-Json $consumerState
-    Assert-True ($consumerLocalState.schemaVersion -eq 3) 'Default install did not write schema version 3 state.'
+    Assert-True ($consumerLocalState.schemaVersion -eq 4) 'Default install did not write schema version 4 state.'
     Assert-True ([string] $consumerLocalState.targetRepository -ceq $consumerRoot) `
         'Default install did not record the consumer repository.'
     Assert-True ([string] $consumerLocalState.mcp.path -ceq $consumerMcp) `
@@ -494,6 +539,69 @@ try {
     Assert-True ([System.IO.File]::ReadAllText($legacySibling, $utf8) -ceq 'legacy sibling') `
         'Legacy restore removed an unrelated custom manifest sibling.'
 
+    [string] $legacyScopedRoot = Join-Path $temporaryRoot 'legacy scoped state'
+    [string] $legacyScopedConfig = Join-Path $legacyScopedRoot 'mcp.json'
+    [string] $legacyScopedSkill = Join-Path $legacyScopedRoot 'skill/filtrace'
+    [string] $legacyScopedState = Join-Path $legacyScopedRoot 'state.json'
+    [string] $legacyScopedWorkspace = "$legacyScopedState.workspace"
+    $null = New-Item -ItemType Directory -Path $legacyScopedSkill -Force
+    $null = New-Item -ItemType Directory -Path $legacyScopedWorkspace -Force
+    [System.IO.File]::WriteAllText(
+        (Join-Path $legacyScopedSkill 'SKILL.md'),
+        'legacy scoped local skill',
+        $utf8)
+    Write-Json $legacyScopedConfig ([ordered] @{
+            servers = [ordered] @{
+                docs = [ordered] @{ type = 'http'; url = 'https://legacy-scoped.invalid/mcp' }
+                filtrace = [ordered] @{ type = 'stdio'; command = 'dotnet'; args = @('local.dll') }
+            }
+            inputs = @()
+        })
+    Write-Json (Join-Path $legacyScopedWorkspace '.filtrace-local-testing.json') ([ordered] @{
+            schemaVersion = 1
+            statePath = $legacyScopedState
+        })
+    Write-Json $legacyScopedState ([ordered] @{
+            schemaVersion = 3
+            createdUtc = [System.DateTimeOffset]::UtcNow.ToString('O')
+            status = 'local-active'
+            targetRepository = $legacyScopedRoot
+            workspace = $legacyScopedWorkspace
+            cliManaged = $false
+            cliToolPath = $null
+            cli = $null
+            mcp = [ordered] @{
+                path = $legacyScopedConfig
+                fileExisted = $true
+                existingAncestor = $legacyScopedRoot
+                serverExisted = $false
+                server = $null
+            }
+            skill = [ordered] @{
+                destination = $legacyScopedSkill
+                existingAncestor = $legacyScopedRoot
+                existed = $false
+            }
+        })
+    [string] $legacyScopedInstallFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $legacyScopedConfig -SkillDestination $legacyScopedSkill `
+        -StatePath $legacyScopedState -SkipCli
+    Assert-True ($legacyScopedInstallFailure -match 'Legacy repository-scoped local-testing state must be restored') `
+        'Legacy scoped state refresh was not rejected with migration guidance.'
+
+    Invoke-Workflow 'Restore' $legacyScopedConfig $legacyScopedSkill $legacyScopedState
+    [object] $legacyScopedRestoredConfig = Read-Json $legacyScopedConfig
+    Assert-True ($null -eq (Get-Property $legacyScopedRestoredConfig.servers 'filtrace')) `
+        'Legacy scoped restore left the local MCP server active.'
+    Assert-True ($legacyScopedRestoredConfig.servers.docs.url -ceq 'https://legacy-scoped.invalid/mcp') `
+        'Legacy scoped restore changed an unrelated MCP server.'
+    Assert-True (-not (Test-Path -LiteralPath $legacyScopedSkill)) `
+        'Legacy scoped restore left the local skill active.'
+    Assert-True (-not (Test-Path -LiteralPath $legacyScopedState)) `
+        'Legacy scoped restore left the rollback manifest active.'
+    Assert-True (-not (Test-Path -LiteralPath $legacyScopedWorkspace)) `
+        'Legacy scoped restore left the owned workspace active.'
+
     # Path containment: exercise destructive overlap cases against a disposable
     # workflow copy, then prove a sibling-prefix destination is not over-rejected.
     [string] $copiedRoot = Join-Path $temporaryRoot 'workflow copy'
@@ -555,6 +663,35 @@ try {
         'MCP overlap rejection changed the existing MCP file.'
     Assert-True (-not (Test-Path -LiteralPath $mcpOverlapState)) `
         'MCP overlap rejection wrote rollback state.'
+
+    [string] $aliasRoot = Join-Path $copiedRoot 'alias-consumer'
+    [string] $agentsAlias = Join-Path $aliasRoot '.agents'
+    $null = New-Item -ItemType Directory -Path $aliasRoot -Force
+    [string] $linkType = if (
+        [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+            [System.Runtime.InteropServices.OSPlatform]::Windows)) {
+        'Junction'
+    }
+    else {
+        'SymbolicLink'
+    }
+    $null = New-Item `
+        -ItemType $linkType `
+        -Path $agentsAlias `
+        -Target (Join-Path $copiedRoot '.agents')
+    [string] $aliasSkill = Join-Path $agentsAlias 'skills/filtrace'
+    [string] $aliasConfig = Join-Path $aliasRoot 'mcp.json'
+    [string] $aliasState = Join-Path $aliasRoot 'state.json'
+    Write-Json $aliasConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [string] $aliasFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $aliasConfig -SkillDestination $aliasSkill `
+        -StatePath $aliasState -SkipCli -WorkflowPath $copiedWorkflow
+    Assert-True ($aliasFailure -match 'Repository skill source and SkillDestination must not overlap') `
+        'A linked SkillDestination aliasing the source was not rejected.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $copiedSkillSource 'SKILL.md') -PathType Leaf) `
+        'Linked-path overlap rejection changed the copied skill source.'
+    Assert-True (-not (Test-Path -LiteralPath $aliasState)) `
+        'Linked-path overlap rejection wrote rollback state.'
 
     [string] $siblingConfig = Join-Path $copiedRoot 'sibling-prefix/mcp.json'
     [string] $siblingState = Join-Path $copiedRoot 'sibling-prefix/state.json'
@@ -646,6 +783,22 @@ try {
             [System.IO.File]::ReadAllBytes($existingState))) `
         'Missing-marker rejection changed the rollback manifest.'
     [System.IO.File]::WriteAllBytes($existingMarker, $existingMarkerBytes)
+
+    [string] $skillBackupFile = Join-Path "$existingState.workspace" 'skill-backup/SKILL.md'
+    [byte[]] $skillBackupBytes = [System.IO.File]::ReadAllBytes($skillBackupFile)
+    [System.IO.File]::WriteAllText($skillBackupFile, 'corrupt skill backup', $utf8)
+    [string] $corruptSkillFailure = Invoke-WorkflowFailure -Action Restore `
+        -McpConfigPath $existingConfig -SkillDestination $existingSkill `
+        -StatePath $existingState
+    Assert-True ($corruptSkillFailure -match 'skill backup hash changed') `
+        'Corrupt skill backup failure was not actionable.'
+    Assert-True ((Read-Json $existingState).status -ceq 'local-active') `
+        'Skill backup preflight failure changed active state.'
+    Assert-True (
+        [System.IO.File]::ReadAllText((Join-Path $existingSkill 'SKILL.md'), $utf8) -cne
+        'shipped skill core') `
+        'Skill backup preflight failure restored corrupt prior content.'
+    [System.IO.File]::WriteAllBytes($skillBackupFile, $skillBackupBytes)
 
     $localConfig.servers | Add-Member -MemberType NoteProperty -Name later -Value ([pscustomobject] @{ type = 'http'; url = 'https://later.invalid/mcp' })
     Write-Json $existingConfig $localConfig

@@ -69,7 +69,7 @@ From the Filtrace checkout, target a consumer explicitly:
 The defaults and their scope are:
 
 | Surface | Default |
-|---|---|
+| --- | --- |
 | MCP | `<target>/.vscode/mcp.json` |
 | Skill | `<target>/.agents/skills/filtrace` |
 | CLI | Isolated `--tool-path` under the manifest-owned workspace |
@@ -92,7 +92,8 @@ still available:
 The entire skill directory travels: `SKILL.md`, `README.md`, and every bundled
 script. An existing `overlay.md` remains consumer-owned. The helper rejects exact,
 ancestor, or descendant overlap between the destination and the Filtrace source
-skill before any target write.
+skill before any target write, resolving existing symbolic-link and junction
+ancestors to their physical targets first.
 
 ## Verify local mode
 
@@ -135,10 +136,10 @@ When the project MCP file or skill parent directories did not exist before local
 mode, Restore removes only the empty paths it created. Files or entries added later
 prevent that cleanup and are retained.
 
-Restore validates retained backups before changing anything. If a later restore
-step fails, the manifest remains marked `restore-in-progress`; fix the reported
-cause and run Restore again. A successful restore consumes the manifest and its
-owned workspace.
+Restore validates retained CLI bytes and the complete prior skill-directory
+fingerprint before changing anything. If a later restore step fails, the manifest
+remains marked `restore-in-progress`; fix the reported cause and run Restore again.
+A successful restore consumes the manifest and its owned workspace.
 
 ## Restore a legacy global setup
 
@@ -155,6 +156,9 @@ Set-Location D:\repos\filtrace
 The helper recognizes the legacy default manifest and restores it, but refuses to
 refresh the old broad setup. Custom version-2 manifests can also be restored with
 `-StatePath`; generic sibling directories beside a custom manifest are preserved.
+Version-3 repository-scoped manifests from the preview workflow are likewise
+restore-only; the next Install records a version-4 manifest with skill-backup
+integrity metadata.
 
 ## Return manually to shipped releases
 
