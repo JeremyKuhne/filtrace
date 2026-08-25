@@ -71,7 +71,10 @@ public sealed class ScopeRequest
     ///  measured work in a child).
     /// </param>
     /// <returns>The scope request.</returns>
-    /// <exception cref="ArgumentException"><paramref name="processName"/> is <see langword="null"/> or empty.</exception>
+    /// <exception cref="ArgumentException">
+    ///  <paramref name="processName"/> is <see langword="null"/>, empty, or longer
+    ///  than <see cref="ProcessNameSelector.MaxNameSubstringLength"/> characters.
+    /// </exception>
     public static ScopeRequest ForProcess(string processName, bool includeChildren = true) =>
         new(includeAll: false, selector: new ProcessNameSelector(processName), includeChildren: includeChildren, activityName: null, window: null);
 

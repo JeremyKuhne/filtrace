@@ -130,7 +130,7 @@ internal static class TimelineTextRenderer
             output.WriteLine($"  process {timeline.Process}");
         }
 
-        output.WriteLine($"  at {snapshot.AtMs:N1} ms   window [{timeline.FromMs:N1}, {timeline.ToMs:N1}] ms");
+        output.WriteLine($"  at {snapshot.AtMs:N2} ms   window [{timeline.FromMs:N2}, {timeline.ToMs:N2}] ms");
         output.WriteLine();
         output.WriteLine($"  events       {snapshot.Events.EventCount:N0} total, {snapshot.Events.TypeCount:N0} types");
         foreach (SnapshotEventType type in snapshot.Events.Types)

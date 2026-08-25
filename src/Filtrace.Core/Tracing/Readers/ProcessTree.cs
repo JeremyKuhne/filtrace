@@ -59,7 +59,7 @@ internal static class ProcessTree
                 return ScopeResolution.Unscoped;
             }
 
-            selector = new ProcessNameSelector(busiest);
+            selector = ProcessNameSelector.FromTraceName(busiest);
         }
 
         List<string> warnings = [];

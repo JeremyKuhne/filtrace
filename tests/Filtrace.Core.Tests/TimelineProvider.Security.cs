@@ -22,8 +22,33 @@ public sealed class TimelineProviderSecurityTests
         result.Length.Should().BeLessThanOrEqualTo(TimelineProvider.MaxSnapshotNameChars);
         if (expectedTruncated)
         {
-            result.Should().EndWith("...");
+            result.Should().Contain("...#");
         }
+    }
+
+    [TestMethod]
+    public void BoundSnapshotName_SharedPrefix_UsesDistinctStableSuffixes()
+    {
+        string prefix = new('x', TimelineProvider.MaxSnapshotNameChars + 20);
+
+        string first = TimelineProvider.BoundSnapshotName($"{prefix}a", out bool firstTruncated);
+        string second = TimelineProvider.BoundSnapshotName($"{prefix}b", out bool secondTruncated);
+
+        firstTruncated.Should().BeTrue();
+        secondTruncated.Should().BeTrue();
+        first.Should().HaveLength(TimelineProvider.MaxSnapshotNameChars).And.NotBe(second);
+        TimelineProvider.BoundSnapshotName($"{prefix}a", out _).Should().Be(first);
+    }
+
+    [TestMethod]
+    public void BoundSnapshotName_CutAtSurrogatePair_PreservesValidUtf16()
+    {
+        string value = $"{new string('x', 219)}\U0001F600{new string('y', 100)}";
+
+        string result = TimelineProvider.BoundSnapshotName(value, out bool truncated);
+
+        truncated.Should().BeTrue();
+        result.Any(char.IsSurrogate).Should().BeFalse();
     }
 
     [TestMethod]
@@ -113,6 +138,87 @@ public sealed class TimelineProviderSecurityTests
         allocations.Should().HaveCount(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
         allocations["type-0"].Should().Be((2, 15));
         allocations.Should().NotContainKey("overflow");
+    }
+
+    [TestMethod]
+    public void AddAllocationBytes_AtLimit_Succeeds()
+    {
+        TimelineProvider.AddAllocationBytes(long.MaxValue - 1, 1).Should().Be(long.MaxValue);
+    }
+
+    [TestMethod]
+    public void AddAllocationBytes_AboveLimit_ThrowsInvalidData()
+    {
+        Action act = () => TimelineProvider.AddAllocationBytes(long.MaxValue, 1);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*64-bit total*");
+    }
+
+    [TestMethod]
+    public void TallyAllocationBounded_PerTypeBytesAboveLimit_ThrowsInvalidData()
+    {
+        Dictionary<string, (long Count, long Bytes)> allocations = new(StringComparer.Ordinal)
+        {
+            ["type"] = (1, long.MaxValue)
+        };
+
+        Action act = () => TimelineProvider.TallyAllocationBounded(allocations, "type", 1);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*64-bit total*");
+    }
+
+    [TestMethod]
+    public void AddPauseStartBounded_DuplicateDoesNotOverwrite()
+    {
+        Dictionary<(int ProcessId, int ThreadId), double> starts = new()
+        {
+            [(1, 2)] = 10.0
+        };
+
+        TimelineProvider.AddPauseStartBounded(starts, (1, 2), 15.0)
+            .Should().Be(TimelineProvider.BoundedPauseStartResult.Duplicate);
+        starts[(1, 2)].Should().Be(10.0);
+    }
+
+    [TestMethod]
+    public void AddPauseStartBounded_AtCapacity_RejectsNewStart()
+    {
+        Dictionary<(int ProcessId, int ThreadId), double> starts = [];
+        for (int i = 0; i < TimelineProvider.MaxSnapshotRetainedKeysPerFamily; i++)
+        {
+            starts[(1, i)] = i;
+        }
+
+        TimelineProvider.AddPauseStartBounded(starts, (2, 1), 10.0)
+            .Should().Be(TimelineProvider.BoundedPauseStartResult.CapacityExceeded);
+        starts.Should().HaveCount(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
+    }
+
+    [TestMethod]
+    public void GetSnapshotGcPauseWarning_IncompleteEvidence_IsExplicit()
+    {
+        TimelineSnapshot snapshot = new(
+            0.0,
+            new SnapshotGcSummary(0, 0.0, 0.0, []),
+            new SnapshotCpuSummary(0, 0, []),
+            new SnapshotExceptionSummary(0, 0, []),
+            new SnapshotAllocationSummary(0, 0, 0, []),
+            new SnapshotJitSummary(0, 0, []),
+            new SnapshotEventSummary(0, 0, []),
+            false)
+        {
+            GcPauseDataIncomplete = true
+        };
+        TimelineResult result = new(0.0, 1.0, 1.0, 1, null, null, null, null, null, null)
+        {
+            Mode = "snapshot",
+            Snapshot = snapshot
+        };
+
+        string warning = TimelineProvider.GetSnapshotGcPauseWarning(result)!;
+
+        warning.Should().Contain("incomplete").And.Contain("may be understated");
+        AnalysisDiagnostic.FromWarning(warning).Severity.Should().Be("warning");
     }
 
     [TestMethod]

@@ -4,6 +4,7 @@
 
 using System.Text.Json;
 using Filtrace.Output;
+using Filtrace.Tracing;
 using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Cli;
@@ -136,6 +137,31 @@ public sealed class TimelineExecutorTests
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain(TimelineProvider.MinSnapshotHalfWindowMs.ToString("N2"));
+    }
+
+    [TestMethod]
+    public void Run_SnapshotText_PreservesMinimumWindowPrecision()
+    {
+        (int exit, string output, string error) = Run(Request(
+            Alloc,
+            mode: TimelineMode.Snapshot,
+            at: 10.0,
+            window: TimelineProvider.MinSnapshotHalfWindowMs));
+
+        exit.Should().Be(ExitCodes.Success);
+        error.Should().BeEmpty();
+        output.Should().Contain("at 10.00 ms").And.Contain("window [9.99, 10.01] ms");
+    }
+
+    [TestMethod]
+    public void Run_ProcessSelectorAboveLimit_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(Request(
+            Alloc,
+            process: new string('x', ProcessNameSelector.MaxNameSubstringLength + 1)));
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain($"--process may not exceed {ProcessNameSelector.MaxNameSubstringLength} characters");
     }
 
     [TestMethod]

@@ -201,6 +201,12 @@ internal static class RankRequestFactory
 
         bool hasProcess = !string.IsNullOrEmpty(process);
         bool hasIds = processIds is { Length: > 0 };
+        if (hasProcess && process.Length > ProcessNameSelector.MaxNameSubstringLength)
+        {
+            errorMessage = $"--process may not exceed {ProcessNameSelector.MaxNameSubstringLength} characters.";
+            return false;
+        }
+
         if ((hasProcess ? 1 : 0) + (hasIds ? 1 : 0) + (allProcesses ? 1 : 0) > 1)
         {
             errorMessage = "Specify only one of --process, --pid, and --all-processes.";

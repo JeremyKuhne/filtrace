@@ -251,7 +251,12 @@ public sealed class TimelineProviderTests
             etl, lanes: [TimelineProvider.CpuLane], scope: ScopeRequest.ForProcess("HotLoopBench"));
 
         all.Process.Should().BeNull("--all-processes reads every process");
+        all.AppliedProcessScope.Should().Be(AppliedProcessScope.AllProcesses);
         scoped.Process.Should().Contain("HotLoopBench", "an explicit selector reports the scope it resolved to");
+        scoped.AppliedProcessScope.Should().NotBeNull();
+        scoped.AppliedProcessScope!.Mode.Should().Be("name");
+        scoped.AppliedProcessScope.Process.Should().Be("HotLoopBench");
+        scoped.AppliedProcessScope.IncludeChildren.Should().BeTrue();
 
         long allSamples = all.Cpu!.Sum(static b => (long)b.SampleCount);
         long scopedSamples = scoped.Cpu!.Sum(static b => (long)b.SampleCount);
@@ -276,10 +281,25 @@ public sealed class TimelineProviderTests
             scope: ScopeRequest.ForProcess("HotLoopBench"));
 
         all.Process.Should().BeNull();
+        all.AppliedProcessScope.Should().Be(AppliedProcessScope.AllProcesses);
         scoped.Process.Should().Contain("HotLoopBench");
+        scoped.AppliedProcessScope.Should().NotBeNull();
+        scoped.AppliedProcessScope!.Mode.Should().Be("name");
+        scoped.AppliedProcessScope.Process.Should().Be("HotLoopBench");
         scoped.Snapshot!.Cpu.SampleCount.Should().BeGreaterThan(0);
         scoped.Snapshot.Cpu.SampleCount.Should().BeLessThan(all.Snapshot!.Cpu.SampleCount);
         scoped.Snapshot.Events.EventCount.Should().BeLessThan(all.Snapshot.Events.EventCount);
+
+        int rootProcessId = scoped.AppliedProcessScope.RootProcessIds.Should().ContainSingle().Subject;
+        TimelineResult byId = new TimelineProvider().ReadSnapshot(
+            etl,
+            atMs: 0.0,
+            halfWindowMs: TimelineProvider.MaxSnapshotHalfWindowMs,
+            scope: ScopeRequest.ForProcessIds([rootProcessId], includeChildren: false));
+        byId.AppliedProcessScope.Should().NotBeNull();
+        byId.AppliedProcessScope!.Mode.Should().Be("ids");
+        byId.AppliedProcessScope.RequestedProcessIds.Should().Equal(rootProcessId);
+        byId.AppliedProcessScope.IncludeChildren.Should().BeFalse();
     }
 
     [TestMethod]

@@ -1075,6 +1075,16 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Timeline_ProcessSelectorAboveLimit_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            process: new string('x', ProcessNameSelector.MaxNameSubstringLength + 1));
+
+        act.Should().Throw<McpException>().WithMessage("*process may not exceed 256 characters*");
+    }
+
+    [TestMethod]
     public void Timeline_UnknownLane_ThrowsMcpException()
     {
         Action act = () => TraceTools.Timeline(FixturePath(Alloc), lanes: "bogus");

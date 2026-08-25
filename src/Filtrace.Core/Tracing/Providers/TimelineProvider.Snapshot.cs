@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Security.Cryptography;
 using Filtrace.Tracing.Readers;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Analysis;
@@ -31,6 +32,8 @@ public sealed partial class TimelineProvider
 
     /// <summary>The maximum characters retained from one trace-derived snapshot name.</summary>
     public const int MaxSnapshotNameChars = 256;
+
+    private const int SnapshotNameHashCharacters = 32;
 
     /// <summary>The maximum distinct keys retained by each snapshot evidence family.</summary>
     public const int MaxSnapshotRetainedKeysPerFamily = 1_024;
@@ -93,6 +96,13 @@ public sealed partial class TimelineProvider
 
         ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
         HashSet<int>? scopePids = resolved.ProcessIds;
+        bool namesTruncated = false;
+        string? appliedProcessName = resolved.Label;
+        if (appliedProcessName is not null)
+        {
+            appliedProcessName = BoundSnapshotName(appliedProcessName, out bool processNameTruncated);
+            namesTruncated |= processNameTruncated;
+        }
 
         long eventCount = 0;
         long cpuSampleCount = 0;
@@ -107,8 +117,8 @@ public sealed partial class TimelineProvider
         Dictionary<(string Provider, string Name), long> eventTypes = [];
         Dictionary<(int ProcessId, int ThreadId), double> pauseStarts = [];
         List<GcPauseInterval> pauseIntervals = [];
-        bool namesTruncated = false;
         bool detailTruncated = false;
+        bool gcPauseDataIncomplete = false;
         double totalPauseMs = 0.0;
         double maxPauseMs = 0.0;
 
@@ -116,6 +126,7 @@ public sealed partial class TimelineProvider
         source.NeedLoadedDotNetRuntimes();
         source.AllEvents += Accumulate;
         source.Process();
+        gcPauseDataIncomplete |= pauseStarts.Count > 0;
 
         SnapshotGcSummary gc = BuildSnapshotGc(
             source,
@@ -177,7 +188,8 @@ public sealed partial class TimelineProvider
             new SnapshotEventSummary(eventCount, eventTypes.Count, topEvents),
             namesTruncated)
         {
-            DetailTruncated = detailTruncated
+            DetailTruncated = detailTruncated,
+            GcPauseDataIncomplete = gcPauseDataIncomplete
         };
 
         return new TimelineResult(
@@ -185,7 +197,7 @@ public sealed partial class TimelineProvider
             endMs,
             endMs - startMs,
             1,
-            resolved.Label,
+            appliedProcessName,
             null,
             null,
             null,
@@ -193,7 +205,8 @@ public sealed partial class TimelineProvider
             null)
         {
             Mode = "snapshot",
-            Snapshot = snapshot
+            Snapshot = snapshot,
+            AppliedProcessScope = FollowUpProcessScope(resolved)
         };
 
         void Accumulate(TraceEvent data)
@@ -204,11 +217,18 @@ public sealed partial class TimelineProvider
                 return;
             }
 
+            // TraceEvent's GC analysis relies on the runtime guarantee that matching
+            // RestartEE events occur on the same thread as their suspend start.
             (int ProcessId, int ThreadId) pauseKey = (data.ProcessID, data.ThreadID);
             if (data is GCSuspendEETraceData suspend
                 && suspend.Reason is GCSuspendEEReason.SuspendForGC or GCSuspendEEReason.SuspendForGCPrep)
             {
-                detailTruncated |= !SetBounded(pauseStarts, pauseKey, timestamp);
+                BoundedPauseStartResult addResult = AddPauseStartBounded(pauseStarts, pauseKey, timestamp);
+                if (addResult != BoundedPauseStartResult.Added)
+                {
+                    gcPauseDataIncomplete = true;
+                    detailTruncated |= addResult == BoundedPauseStartResult.CapacityExceeded;
+                }
             }
             else if (data.EventName.EndsWith("RestartEEStop", StringComparison.Ordinal)
                 && pauseStarts.Remove(pauseKey, out double pauseStart)
@@ -281,7 +301,7 @@ public sealed partial class TimelineProvider
                     type = BoundSnapshotName(type, out bool allocationTypeTruncated);
                     namesTruncated |= allocationTypeTruncated;
                     allocationTickCount++;
-                    allocationBytes += bytes;
+                    allocationBytes = AddAllocationBytes(allocationBytes, bytes);
                     detailTruncated |= !TallyAllocationBounded(allocationTypes, type, bytes);
                     break;
                 }
@@ -315,6 +335,23 @@ public sealed partial class TimelineProvider
             : null;
     }
 
+    /// <summary>
+    ///  Returns the warning for incomplete GC suspend/restart evidence, or
+    ///  <see langword="null"/> when every tracked pair was complete.
+    /// </summary>
+    /// <param name="result">The timeline result to inspect.</param>
+    /// <returns>The GC evidence warning, or <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="result"/> is <see langword="null"/>.</exception>
+    public static string? GetSnapshotGcPauseWarning(TimelineResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result.Snapshot?.GcPauseDataIncomplete == true
+            ? "Snapshot GC pause evidence is incomplete because the trace contained unmatched or duplicate "
+                + "GC suspend/restart state; pause totals and overlap-based collection detail may be understated."
+            : null;
+    }
+
     private static SnapshotGcSummary BuildSnapshotGc(
         Etlx.TraceLogEventSource source,
         HashSet<int>? scopePids,
@@ -328,6 +365,11 @@ public sealed partial class TimelineProvider
         int collectionCount = 0;
         List<SnapshotGcRecord> longest = [];
         namesTruncated = false;
+        Dictionary<int, GcPauseInterval[]> intervalsByProcess = pauseIntervals
+            .GroupBy(static interval => interval.ProcessId)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group.OrderBy(static interval => interval.StartMs).ToArray());
 
         foreach (TraceProcess process in source.Processes())
         {
@@ -342,13 +384,12 @@ public sealed partial class TimelineProvider
                 continue;
             }
 
+            intervalsByProcess.TryGetValue(process.ProcessID, out GcPauseInterval[]? processIntervals);
+            processIntervals ??= [];
             foreach (TraceGC collection in runtime.GC.GCs)
             {
                 bool startsInWindow = collection.StartRelativeMSec >= startMs && collection.StartRelativeMSec <= endMs;
-                bool pauseOverlaps = pauseIntervals.Any(interval =>
-                    interval.ProcessId == process.ProcessID
-                    && interval.OverlapMs(startMs, endMs) > 0.0
-                    && PauseBelongsToCollection(interval, collection));
+                bool pauseOverlaps = PauseBelongsToCollection(processIntervals, collection);
                 if (!startsInWindow && !pauseOverlaps)
                 {
                     continue;
@@ -388,15 +429,37 @@ public sealed partial class TimelineProvider
             top);
     }
 
-    private static bool PauseBelongsToCollection(GcPauseInterval interval, TraceGC collection)
+    private static bool PauseBelongsToCollection(IReadOnlyList<GcPauseInterval> intervals, TraceGC collection)
     {
-        if (interval.Contains(collection.StartRelativeMSec))
+        if (ContainsTimestamp(intervals, collection.StartRelativeMSec))
         {
             return true;
         }
 
         double collectionEndMs = collection.StartRelativeMSec + collection.DurationMSec;
-        return collection.Type == GCType.BackgroundGC && interval.Contains(collectionEndMs);
+        return collection.Type == GCType.BackgroundGC && ContainsTimestamp(intervals, collectionEndMs);
+    }
+
+    private static bool ContainsTimestamp(IReadOnlyList<GcPauseInterval> intervals, double timestampMs)
+    {
+        int low = 0;
+        int high = intervals.Count - 1;
+        int candidate = -1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) / 2);
+            if (intervals[middle].StartMs <= timestampMs)
+            {
+                candidate = middle;
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+
+        return candidate >= 0 && intervals[candidate].Contains(timestampMs);
     }
 
     private static SnapshotCountRow[] TopCounts(Dictionary<string, long> counts, out bool namesTruncated)
@@ -419,7 +482,46 @@ public sealed partial class TimelineProvider
     internal static string BoundSnapshotName(string value, out bool truncated)
     {
         truncated = value.Length > MaxSnapshotNameChars;
-        return truncated ? $"{value[..(MaxSnapshotNameChars - 3)]}..." : value;
+        if (!truncated)
+        {
+            return value;
+        }
+
+        const string separator = "...#";
+        int prefixLength = MaxSnapshotNameChars - separator.Length - SnapshotNameHashCharacters;
+        if (prefixLength < value.Length
+            && prefixLength > 0
+            && char.IsHighSurrogate(value[prefixLength - 1])
+            && char.IsLowSurrogate(value[prefixLength]))
+        {
+            prefixLength--;
+        }
+
+        string hash = SnapshotNameHash(value);
+        return $"{value[..prefixLength]}{separator}{hash}";
+    }
+
+    private static string SnapshotNameHash(string value)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Span<byte> buffer = stackalloc byte[256];
+        int offset = 0;
+        while (offset < value.Length)
+        {
+            int characterCount = Math.Min(buffer.Length / 2, value.Length - offset);
+            for (int i = 0; i < characterCount; i++)
+            {
+                char character = value[offset + i];
+                buffer[i * 2] = (byte)character;
+                buffer[(i * 2) + 1] = (byte)(character >> 8);
+            }
+
+            hash.AppendData(buffer[..(characterCount * 2)]);
+            offset += characterCount;
+        }
+
+        byte[] digest = hash.GetHashAndReset();
+        return Convert.ToHexString(digest.AsSpan(0, SnapshotNameHashCharacters / 2));
     }
 
     private static string JitMethodName(MethodJittingStartedTraceData jit)
@@ -452,7 +554,7 @@ public sealed partial class TimelineProvider
     {
         if (allocations.TryGetValue(type, out (long Count, long Bytes) current))
         {
-            allocations[type] = (current.Count + 1, current.Bytes + bytes);
+            allocations[type] = (current.Count + 1, AddAllocationBytes(current.Bytes, bytes));
             return true;
         }
 
@@ -465,17 +567,43 @@ public sealed partial class TimelineProvider
         return true;
     }
 
-    private static bool SetBounded<TKey, TValue>(Dictionary<TKey, TValue> values, TKey key, TValue value)
-        where TKey : notnull
+    internal static long AddAllocationBytes(long current, long bytes)
     {
-        if (values.ContainsKey(key) || values.Count < MaxSnapshotRetainedKeysPerFamily)
+        try
         {
-            values[key] = value;
-            return true;
+            return checked(current + bytes);
+        }
+        catch (OverflowException exception)
+        {
+            throw new InvalidDataException(
+                "Snapshot allocation bytes exceed the supported 64-bit total; the trace is malformed.",
+                exception);
+        }
+    }
+
+    internal static BoundedPauseStartResult AddPauseStartBounded(
+        Dictionary<(int ProcessId, int ThreadId), double> pauseStarts,
+        (int ProcessId, int ThreadId) key,
+        double timestamp)
+    {
+        if (pauseStarts.ContainsKey(key))
+        {
+            return BoundedPauseStartResult.Duplicate;
         }
 
-        return false;
+        if (pauseStarts.Count >= MaxSnapshotRetainedKeysPerFamily)
+        {
+            return BoundedPauseStartResult.CapacityExceeded;
+        }
+
+        pauseStarts.Add(key, timestamp);
+        return BoundedPauseStartResult.Added;
     }
+
+    private static AppliedProcessScope? FollowUpProcessScope(ScopeResolution resolved) =>
+        resolved.AppliedScope.Mode == "automatic" && resolved.Label is null
+            ? null
+            : resolved.AppliedScope;
 
     private readonly record struct GcPauseInterval(int ProcessId, double StartMs, double EndMs)
     {
@@ -483,5 +611,18 @@ public sealed partial class TimelineProvider
 
         public double OverlapMs(double windowStartMs, double windowEndMs) =>
             Math.Max(0.0, Math.Min(EndMs, windowEndMs) - Math.Max(StartMs, windowStartMs));
+    }
+
+    /// <summary>The outcome of adding one pending GC pause start to bounded state.</summary>
+    internal enum BoundedPauseStartResult
+    {
+        /// <summary>The start was retained.</summary>
+        Added,
+
+        /// <summary>The same process/thread already had a pending start.</summary>
+        Duplicate,
+
+        /// <summary>The pending-start budget was full.</summary>
+        CapacityExceeded
     }
 }

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json.Serialization;
+
 namespace Filtrace.Tracing.Providers;
 
 /// <summary>
@@ -45,4 +47,11 @@ public sealed record TimelineResult(
     ///  otherwise <see langword="null"/>.
     /// </summary>
     public TimelineSnapshot? Snapshot { get; init; }
+
+    /// <summary>
+    ///  The exact process scope applied to this result, retained for follow-up routing
+    ///  and omitted from the result JSON because the envelope context owns scope output.
+    /// </summary>
+    [JsonIgnore]
+    public AppliedProcessScope? AppliedProcessScope { get; init; }
 }

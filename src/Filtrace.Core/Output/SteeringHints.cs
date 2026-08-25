@@ -692,6 +692,11 @@ public static class SteeringHints
         int index)
     {
         (double start, double end) = WindowOf(timeline, index);
+        if (!CanRepresentTimelineScope(timeline, out int processIdCount))
+        {
+            return UnrepresentableTimelineScopeGuidance(timeline, start, end, processIdCount);
+        }
+
         string reason = DrillWindowHint(laneLabel, metric, timeline, index);
         return Guidance(
             reason,
@@ -711,18 +716,50 @@ public static class SteeringHints
         TimelineResult timeline,
         string window)
     {
+        if (!CanRepresentTimelineScope(timeline, out int processIdCount))
+        {
+            return UnrepresentableTimelineScopeGuidance(
+                timeline,
+                timeline.FromMs,
+                timeline.ToMs,
+                processIdCount);
+        }
+
         string reason = $"snapshot covers {window}; drill the top {subject} with: "
             + $"rank --metric {metric} --time {FormatMs(timeline.FromMs)},{FormatMs(timeline.ToMs)}{ProcessScope(timeline)}";
         return Guidance(
             reason,
             "rank",
-            new AnalysisNextStepArguments
-            {
-                Metric = metric,
-                Process = timeline.Process,
-                FromMs = timeline.FromMs,
-                ToMs = timeline.ToMs
-            });
+            TimelineScopeArguments(metric, timeline));
+    }
+
+    private static AnalysisNextStepArguments TimelineScopeArguments(string metric, TimelineResult timeline)
+    {
+        AppliedProcessScope? scope = timeline.AppliedProcessScope;
+        IReadOnlyList<int>? sourceIds = scope?.Mode switch
+        {
+            "ids" => scope.RequestedProcessIds,
+            "automatic" => scope.RootProcessIds,
+            _ => null
+        };
+        int? processIdCount = sourceIds?.Count;
+        bool processIdsTruncated = sourceIds is { Count: > AnalysisScopeContext.MaxReportedProcessIds };
+        IReadOnlyList<int>? processIds = processIdsTruncated
+            ? [.. sourceIds!.Take(AnalysisScopeContext.MaxReportedProcessIds)]
+            : sourceIds;
+
+        return new AnalysisNextStepArguments
+        {
+            Metric = metric,
+            Process = scope is { Mode: "name" } ? scope.Process : null,
+            ProcessIds = processIds,
+            ProcessIdCount = processIdCount,
+            ProcessIdsTruncated = processIdsTruncated,
+            IncludeChildren = scope is null or { Mode: "all" } ? null : scope.IncludeChildren,
+            AllProcesses = scope is { Mode: "all" } ? true : null,
+            FromMs = timeline.FromMs,
+            ToMs = timeline.ToMs
+        };
     }
 
     // The safely quoted " --process <name>" suffix a scoped timeline's drill hint
@@ -730,11 +767,53 @@ public static class SteeringHints
     // the timeline spanned every process.
     private static string ProcessScope(TimelineResult timeline)
     {
-        if (timeline.Process is not { Length: > 0 } process)
+        AppliedProcessScope? scope = timeline.AppliedProcessScope;
+        if (scope is null)
         {
             return string.Empty;
         }
 
-        return $" --process {QuotePowerShellArgument(process)}";
+        string suffix = scope.Mode switch
+        {
+            "all" => " --all-processes",
+            "name" when scope.Process is { Length: > 0 } process => $" --process {QuotePowerShellArgument(process)}",
+            "ids" => ProcessIdScope(scope.RequestedProcessIds),
+            "automatic" => ProcessIdScope(scope.RootProcessIds),
+            _ => string.Empty
+        };
+        return suffix.Length > 0 && scope.Mode != "all" && !scope.IncludeChildren
+            ? $"{suffix} --children exclude"
+            : suffix;
     }
+
+    private static string ProcessIdScope(IReadOnlyList<int> processIds)
+    {
+        if (processIds.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return $" --pid {string.Join(",", processIds)}";
+    }
+
+    private static bool CanRepresentTimelineScope(TimelineResult timeline, out int processIdCount)
+    {
+        IReadOnlyList<int>? processIds = timeline.AppliedProcessScope?.Mode switch
+        {
+            "ids" => timeline.AppliedProcessScope.RequestedProcessIds,
+            "automatic" => timeline.AppliedProcessScope.RootProcessIds,
+            _ => null
+        };
+        processIdCount = processIds?.Count ?? 0;
+        return processIdCount <= AnalysisScopeContext.MaxReportedProcessIds;
+    }
+
+    private static IReadOnlyList<string> UnrepresentableTimelineScopeGuidance(
+        TimelineResult timeline,
+        double startMs,
+        double endMs,
+        int processIdCount) =>
+        Guidance(
+            $"the exact process scope has {processIdCount} ids, exceeding the bounded follow-up limit; "
+            + $"rerun rank with the original process selector and --time {FormatMs(startMs)},{FormatMs(endMs)}");
 }

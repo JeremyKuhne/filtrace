@@ -876,6 +876,11 @@ public sealed class TraceTools
             warnings.Add(detailWarning);
         }
 
+        if (TimelineProvider.GetSnapshotGcPauseWarning(result) is string gcPauseWarning)
+        {
+            warnings.Add(gcPauseWarning);
+        }
+
         return new AnalysisResult<TimelineResult>(
             result,
             warnings,
@@ -1948,6 +1953,11 @@ public sealed class TraceTools
     {
         bool hasProcess = !string.IsNullOrEmpty(process);
         bool hasProcessIds = processIds is { Length: > 0 };
+        if (hasProcess && process.Length > ProcessNameSelector.MaxNameSubstringLength)
+        {
+            throw new McpException($"process may not exceed {ProcessNameSelector.MaxNameSubstringLength} characters.");
+        }
+
         if (hasProcess && hasProcessIds && !allProcesses)
         {
             throw new McpException("Specify only one of process and pid.");

@@ -22,6 +22,22 @@ public sealed class ProcessScopeValidationTests
     }
 
     [TestMethod]
+    public void NameSelector_NameAtLimit_Succeeds()
+    {
+        ProcessNameSelector selector = new(new string('x', ProcessNameSelector.MaxNameSubstringLength));
+
+        selector.NameSubstring.Should().HaveLength(ProcessNameSelector.MaxNameSubstringLength);
+    }
+
+    [TestMethod]
+    public void NameSelector_NameAboveLimit_ThrowsArgument()
+    {
+        Action act = () => _ = new ProcessNameSelector(new string('x', ProcessNameSelector.MaxNameSubstringLength + 1));
+
+        act.Should().Throw<ArgumentException>().WithParameterName("nameSubstring");
+    }
+
+    [TestMethod]
     public void Ctor_NameSelector_Succeeds()
     {
         ProcessScope scope = new(new ProcessNameSelector("HotLoopBench"));

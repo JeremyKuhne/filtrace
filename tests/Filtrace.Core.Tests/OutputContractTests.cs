@@ -375,6 +375,7 @@ public sealed class OutputContractTests
         timeline.TryGetProperty("jit", out _).Should().BeFalse();
         timeline.TryGetProperty("mode", out _).Should().BeFalse();
         timeline.TryGetProperty("snapshot", out _).Should().BeFalse();
+        timeline.TryGetProperty("appliedProcessScope", out _).Should().BeFalse();
         timeline.GetProperty("cpu").GetArrayLength().Should().Be(0);
         timeline.GetProperty("fromMs").GetDouble().Should().Be(0.0);
     }

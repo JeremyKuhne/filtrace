@@ -307,7 +307,7 @@ public sealed class LifecycleProvider
 
         if (ProcessTree.FindBusiestProcessName(traceLog) is string busiest)
         {
-            selector = new ProcessNameSelector(busiest);
+            selector = ProcessNameSelector.FromTraceName(busiest);
             return true;
         }
 

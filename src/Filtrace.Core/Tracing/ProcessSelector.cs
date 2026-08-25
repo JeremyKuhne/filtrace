@@ -42,16 +42,37 @@ public abstract record ProcessSelector
 /// </remarks>
 public sealed record ProcessNameSelector : ProcessSelector
 {
+    /// <summary>The maximum caller-supplied process-name selector length.</summary>
+    public const int MaxNameSubstringLength = 256;
+
     /// <summary>
     ///  Initializes a new instance of the <see cref="ProcessNameSelector"/> class.
     /// </summary>
     /// <param name="nameSubstring">A case-insensitive process-name substring.</param>
-    /// <exception cref="ArgumentException"><paramref name="nameSubstring"/> is <see langword="null"/> or empty.</exception>
+    /// <exception cref="ArgumentException">
+    ///  <paramref name="nameSubstring"/> is <see langword="null"/>, empty, or longer
+    ///  than <see cref="MaxNameSubstringLength"/> characters.
+    /// </exception>
     public ProcessNameSelector(string nameSubstring)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(nameSubstring);
+        if (nameSubstring.Length > MaxNameSubstringLength)
+        {
+            throw new ArgumentException(
+                $"Process-name selectors may not exceed {MaxNameSubstringLength} characters.",
+                nameof(nameSubstring));
+        }
+
+        NameSubstring = nameSubstring;
+    }
+
+    private ProcessNameSelector(string nameSubstring, bool traceDerived)
     {
         ArgumentException.ThrowIfNullOrEmpty(nameSubstring);
         NameSubstring = nameSubstring;
     }
+
+    internal static ProcessNameSelector FromTraceName(string name) => new(name, traceDerived: true);
 
     /// <summary>
     ///  The case-insensitive substring matched against process names to find the scope

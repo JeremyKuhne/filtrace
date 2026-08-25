@@ -33,6 +33,13 @@ public sealed record TimelineSnapshot(
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool DetailTruncated { get; init; }
+
+    /// <summary>
+    ///  Whether GC suspend/restart evidence was incomplete or malformed, so GC pause
+    ///  totals and overlap-based collection inclusion may be incomplete.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool GcPauseDataIncomplete { get; init; }
 }
 
 /// <summary>Garbage-collection activity in a timeline snapshot.</summary>

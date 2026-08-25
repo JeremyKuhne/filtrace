@@ -197,6 +197,10 @@ public sealed partial class TimelineProvider
         ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
         HashSet<int>? scopePids = resolved.ProcessIds;
         string? appliedProcessName = resolved.Label;
+        if (appliedProcessName is not null)
+        {
+            appliedProcessName = BoundSnapshotName(appliedProcessName, out _);
+        }
 
         // Resolve the window against the trace: an open bound is filled from the trace,
         // and a start at or past the end degenerates to a single bucket's width rather
@@ -228,7 +232,10 @@ public sealed partial class TimelineProvider
             eventLanes.Cpu,
             eventLanes.Exceptions,
             eventLanes.Alloc,
-            eventLanes.Jit);
+            eventLanes.Jit)
+        {
+            AppliedProcessScope = FollowUpProcessScope(resolved)
+        };
     }
 
     // Maps a trace-relative time to its bucket index, clamped into range so a sample
