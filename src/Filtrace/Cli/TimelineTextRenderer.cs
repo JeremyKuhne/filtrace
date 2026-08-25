@@ -144,7 +144,7 @@ internal static class TimelineTextRenderer
             output.WriteLine($"    {method.Percent,7:N2}%  {method.Name}");
         }
 
-        output.WriteLine($"  gc           {snapshot.Gc.CollectionCount:N0} collections, {snapshot.Gc.TotalPauseMs:N2} ms total pause");
+        output.WriteLine($"  gc           {snapshot.Gc.CollectionCount:N0} collections, {snapshot.Gc.TotalPauseMs:N2} ms pause in window");
         foreach (SnapshotGcRecord collection in snapshot.Gc.Collections)
         {
             output.WriteLine(

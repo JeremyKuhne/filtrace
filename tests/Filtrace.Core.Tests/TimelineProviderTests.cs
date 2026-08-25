@@ -185,9 +185,35 @@ public sealed class TimelineProviderTests
     }
 
     [TestMethod]
+    public void ReadSnapshot_PauseStartedBeforeWindow_IncludesCollectionAndClipsTotal()
+    {
+        TimelineResult result = new TimelineProvider().ReadSnapshot(Alloc, atMs: 20.65, halfWindowMs: 0.02);
+
+        result.Snapshot!.Gc.CollectionCount.Should().Be(1);
+        result.Snapshot.Gc.Collections.Should().ContainSingle();
+        result.Snapshot.Gc.Collections[0].StartMs.Should().BeGreaterThan(result.ToMs);
+        result.Snapshot.Gc.TotalPauseMs.Should().BeGreaterThan(0.0)
+            .And.BeLessThanOrEqualTo(result.ToMs - result.FromMs);
+    }
+
+    [TestMethod]
+    public void ReadSnapshot_PauseExtendsPastWindow_ClipsTotalButKeepsFullDetail()
+    {
+        TimelineResult result = new TimelineProvider().ReadSnapshot(Alloc, atMs: 20.69, halfWindowMs: 0.01);
+
+        SnapshotGcSummary gc = result.Snapshot!.Gc;
+        gc.CollectionCount.Should().Be(1);
+        gc.TotalPauseMs.Should().BeApproximately(0.02, 0.001);
+        gc.MaxPauseMs.Should().BeApproximately(0.02, 0.001);
+        gc.Collections.Should().ContainSingle();
+        gc.Collections[0].PauseMs.Should().BeGreaterThan(gc.TotalPauseMs, "detail retains the collection's full pause");
+    }
+
+    [TestMethod]
     [DataRow(double.NaN, 100.0)]
     [DataRow(-1.0, 100.0)]
     [DataRow(0.0, 0.0)]
+    [DataRow(10.0, 0.001)]
     [DataRow(0.0, double.PositiveInfinity)]
     public void ReadSnapshot_InvalidGeometry_Throws(double atMs, double halfWindowMs)
     {

@@ -38,6 +38,30 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void ReadSnapshot_HalfWindowAtMinimum_PreservesFractionalGeometry()
+    {
+        TimelineResult result = new TimelineProvider().ReadSnapshot(
+            Alloc,
+            atMs: 10.0,
+            halfWindowMs: TimelineProvider.MinSnapshotHalfWindowMs);
+
+        result.FromMs.Should().Be(9.99);
+        result.ToMs.Should().Be(10.01);
+        result.BucketSizeMs.Should().BeApproximately(0.02, 0.0000001);
+    }
+
+    [TestMethod]
+    public void ReadSnapshot_HalfWindowBelowMinimum_Throws()
+    {
+        Action act = () => new TimelineProvider().ReadSnapshot(
+            Alloc,
+            atMs: 10.0,
+            halfWindowMs: 0.001);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [TestMethod]
     public void ReadSnapshot_HalfWindowAboveLimit_Throws()
     {
         Action act = () => new TimelineProvider().ReadSnapshot(

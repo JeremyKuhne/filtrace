@@ -20,6 +20,9 @@ public sealed partial class TimelineProvider
     /// <summary>The default half-window on either side of a snapshot center, in milliseconds.</summary>
     public const double DefaultSnapshotHalfWindowMs = 100.0;
 
+    /// <summary>The smallest half-window accepted for a snapshot, in milliseconds.</summary>
+    public const double MinSnapshotHalfWindowMs = 0.01;
+
     /// <summary>The largest half-window accepted for a snapshot, in milliseconds.</summary>
     public const double MaxSnapshotHalfWindowMs = 60_000.0;
 
@@ -35,11 +38,17 @@ public sealed partial class TimelineProvider
     /// </summary>
     /// <param name="path">The <c>.nettrace</c> or <c>.etl</c> file path.</param>
     /// <param name="atMs">Center timestamp, in milliseconds from trace start.</param>
-    /// <param name="halfWindowMs">Milliseconds retained on either side of <paramref name="atMs"/>.</param>
+    /// <param name="halfWindowMs">
+    ///  Milliseconds retained on either side of <paramref name="atMs"/>; must be from
+    ///  <see cref="MinSnapshotHalfWindowMs"/> through <see cref="MaxSnapshotHalfWindowMs"/>.
+    /// </param>
     /// <param name="scope">The process scope; <see langword="null"/> applies the automatic default.</param>
     /// <returns>A one-window timeline carrying a bounded snapshot.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">A timestamp is non-finite, negative, or outside the trace, or the half-window is not positive and finite.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    ///  A timestamp is non-finite, negative, or outside the trace, or the half-window
+    ///  is non-finite or outside the supported minimum/maximum range.
+    /// </exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
     public TimelineResult ReadSnapshot(
         string path,
@@ -53,12 +62,14 @@ public sealed partial class TimelineProvider
             throw new ArgumentOutOfRangeException(nameof(atMs), atMs, "Snapshot center must be a finite, non-negative timestamp.");
         }
 
-        if (!double.IsFinite(halfWindowMs) || halfWindowMs <= 0.0 || halfWindowMs > MaxSnapshotHalfWindowMs)
+        if (!double.IsFinite(halfWindowMs)
+            || halfWindowMs < MinSnapshotHalfWindowMs
+            || halfWindowMs > MaxSnapshotHalfWindowMs)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(halfWindowMs),
                 halfWindowMs,
-                $"Snapshot half-window must be finite, greater than zero, and at most {MaxSnapshotHalfWindowMs:N0} ms.");
+                $"Snapshot half-window must be finite and from {MinSnapshotHalfWindowMs:N2} through {MaxSnapshotHalfWindowMs:N0} ms.");
         }
 
         string fullPath = Path.GetFullPath(path);
@@ -91,6 +102,8 @@ public sealed partial class TimelineProvider
         Dictionary<string, (long Count, long Bytes)> allocationTypes = new(StringComparer.Ordinal);
         Dictionary<string, long> jitMethods = new(StringComparer.Ordinal);
         Dictionary<(string Provider, string Name), long> eventTypes = [];
+        Dictionary<(int ProcessId, int ThreadId), double> pauseStarts = [];
+        List<GcPauseInterval> pauseIntervals = [];
         bool namesTruncated = false;
 
         using Etlx.TraceLogEventSource source = traceLog.Events.GetSource();
@@ -98,7 +111,13 @@ public sealed partial class TimelineProvider
         source.AllEvents += Accumulate;
         source.Process();
 
-        SnapshotGcSummary gc = BuildSnapshotGc(source, scopePids, startMs, endMs, out bool gcNamesTruncated);
+        SnapshotGcSummary gc = BuildSnapshotGc(
+            source,
+            scopePids,
+            pauseIntervals,
+            startMs,
+            endMs,
+            out bool gcNamesTruncated);
         namesTruncated |= gcNamesTruncated;
         SnapshotCpuMethod[] topCpu = [.. cpuMethods
             .OrderByDescending(static pair => pair.Value)
@@ -141,7 +160,7 @@ public sealed partial class TimelineProvider
             })];
 
         TimelineSnapshot snapshot = new(
-            Math.Round(atMs, 2),
+            atMs,
             gc,
             new SnapshotCpuSummary(cpuSampleCount, cpuMethods.Count, topCpu),
             new SnapshotExceptionSummary(exceptionCount, exceptionTypes.Count, topExceptions),
@@ -151,9 +170,9 @@ public sealed partial class TimelineProvider
             namesTruncated);
 
         return new TimelineResult(
-            Math.Round(startMs, 2),
-            Math.Round(endMs, 2),
-            Math.Round(endMs - startMs, 2),
+            startMs,
+            endMs,
+            endMs - startMs,
             1,
             resolved.Label,
             null,
@@ -169,8 +188,27 @@ public sealed partial class TimelineProvider
         void Accumulate(TraceEvent data)
         {
             double timestamp = data.TimeStampRelativeMSec;
-            if (timestamp < startMs || timestamp > endMs
-                || (scopePids is not null && !scopePids.Contains(data.ProcessID)))
+            if (scopePids is not null && !scopePids.Contains(data.ProcessID))
+            {
+                return;
+            }
+
+            (int ProcessId, int ThreadId) pauseKey = (data.ProcessID, data.ThreadID);
+            if (data is GCSuspendEETraceData suspend
+                && suspend.Reason is GCSuspendEEReason.SuspendForGC or GCSuspendEEReason.SuspendForGCPrep)
+            {
+                pauseStarts[pauseKey] = timestamp;
+            }
+            else if (data.EventName.EndsWith("RestartEEStop", StringComparison.Ordinal)
+                && pauseStarts.Remove(pauseKey, out double pauseStart)
+                && timestamp >= pauseStart
+                && timestamp >= startMs
+                && pauseStart <= endMs)
+            {
+                pauseIntervals.Add(new GcPauseInterval(data.ProcessID, pauseStart, timestamp));
+            }
+
+            if (timestamp < startMs || timestamp > endMs)
             {
                 return;
             }
@@ -228,14 +266,17 @@ public sealed partial class TimelineProvider
     private static SnapshotGcSummary BuildSnapshotGc(
         Etlx.TraceLogEventSource source,
         HashSet<int>? scopePids,
+        IReadOnlyList<GcPauseInterval> pauseIntervals,
         double startMs,
         double endMs,
         out bool namesTruncated)
     {
         int collectionCount = 0;
         List<SnapshotGcRecord> longest = [];
-        double totalPauseMs = 0.0;
-        double maxPauseMs = 0.0;
+        double totalPauseMs = pauseIntervals.Sum(interval => interval.OverlapMs(startMs, endMs));
+        double maxPauseMs = pauseIntervals.Count == 0
+            ? 0.0
+            : pauseIntervals.Max(interval => interval.OverlapMs(startMs, endMs));
         namesTruncated = false;
 
         foreach (TraceProcess process in source.Processes())
@@ -253,13 +294,16 @@ public sealed partial class TimelineProvider
 
             foreach (TraceGC collection in runtime.GC.GCs)
             {
-                if (collection.StartRelativeMSec < startMs || collection.StartRelativeMSec > endMs)
+                bool startsInWindow = collection.StartRelativeMSec >= startMs && collection.StartRelativeMSec <= endMs;
+                bool pauseOverlaps = pauseIntervals.Any(interval =>
+                    interval.ProcessId == process.ProcessID
+                    && interval.OverlapMs(startMs, endMs) > 0.0
+                    && PauseBelongsToCollection(interval, collection));
+                if (!startsInWindow && !pauseOverlaps)
                 {
                     continue;
                 }
 
-                totalPauseMs += collection.PauseDurationMSec;
-                maxPauseMs = Math.Max(maxPauseMs, collection.PauseDurationMSec);
                 collectionCount++;
                 string kind = BoundSnapshotName(collection.Type.ToString(), out bool kindTruncated);
                 string reason = BoundSnapshotName(collection.Reason.ToString(), out bool reasonTruncated);
@@ -289,9 +333,20 @@ public sealed partial class TimelineProvider
 
         return new SnapshotGcSummary(
             collectionCount,
-            Math.Round(totalPauseMs, 2),
-            Math.Round(maxPauseMs, 2),
+            totalPauseMs,
+            maxPauseMs,
             top);
+    }
+
+    private static bool PauseBelongsToCollection(GcPauseInterval interval, TraceGC collection)
+    {
+        if (interval.Contains(collection.StartRelativeMSec))
+        {
+            return true;
+        }
+
+        double collectionEndMs = collection.StartRelativeMSec + collection.DurationMSec;
+        return collection.Type == GCType.BackgroundGC && interval.Contains(collectionEndMs);
     }
 
     private static SnapshotCountRow[] TopCounts(Dictionary<string, long> counts, out bool namesTruncated)
@@ -327,5 +382,13 @@ public sealed partial class TimelineProvider
     {
         counts.TryGetValue(key, out long current);
         counts[key] = current + 1;
+    }
+
+    private readonly record struct GcPauseInterval(int ProcessId, double StartMs, double EndMs)
+    {
+        public bool Contains(double timestampMs) => timestampMs >= StartMs && timestampMs <= EndMs;
+
+        public double OverlapMs(double windowStartMs, double windowEndMs) =>
+            Math.Max(0.0, Math.Min(EndMs, windowEndMs) - Math.Max(StartMs, windowStartMs));
     }
 }

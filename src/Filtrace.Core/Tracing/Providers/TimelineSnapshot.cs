@@ -26,9 +26,9 @@ public sealed record TimelineSnapshot(
     bool NamesTruncated);
 
 /// <summary>Garbage-collection activity in a timeline snapshot.</summary>
-/// <param name="CollectionCount">Total collections in the window.</param>
-/// <param name="TotalPauseMs">Summed pause time in the window, in milliseconds.</param>
-/// <param name="MaxPauseMs">Longest pause in the window, in milliseconds.</param>
+/// <param name="CollectionCount">Collections that started or had a managed-thread pause in the window.</param>
+/// <param name="TotalPauseMs">Summed managed-thread pause overlap with the window, in milliseconds.</param>
+/// <param name="MaxPauseMs">Longest single managed-thread pause overlap with the window, in milliseconds.</param>
 /// <param name="Collections">Longest collections, bounded by the snapshot detail limit.</param>
 public sealed record SnapshotGcSummary(
     int CollectionCount,
@@ -42,7 +42,7 @@ public sealed record SnapshotGcSummary(
 /// <param name="Generation">The condemned generation.</param>
 /// <param name="Kind">The collection kind.</param>
 /// <param name="Reason">Why the collection was triggered.</param>
-/// <param name="PauseMs">Managed-thread pause duration, in milliseconds.</param>
+/// <param name="PauseMs">Full managed-thread pause duration, which may extend outside the snapshot window.</param>
 public sealed record SnapshotGcRecord(
     int Number,
     double StartMs,

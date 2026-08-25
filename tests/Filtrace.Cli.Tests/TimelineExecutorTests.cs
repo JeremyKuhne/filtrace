@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using System.Text.Json;
+using Filtrace.Output;
 using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Cli;
@@ -122,6 +123,63 @@ public sealed class TimelineExecutorTests
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("apply only to --mode buckets");
+    }
+
+    [TestMethod]
+    public void Run_SnapshotWindowBelowMinimum_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(Request(
+            Alloc,
+            mode: TimelineMode.Snapshot,
+            at: 10.0,
+            window: 0.001));
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain(TimelineProvider.MinSnapshotHalfWindowMs.ToString("N2"));
+    }
+
+    [TestMethod]
+    public void Render_SnapshotText_WritesEverySummaryHintAndWarning()
+    {
+        TimelineSnapshot snapshot = new(
+            50.0,
+            new SnapshotGcSummary(1, 0.25, 0.25, [new SnapshotGcRecord(1, 49.9, 2, "Blocking", "Induced", 0.5)]),
+            new SnapshotCpuSummary(10, 1, [new SnapshotCpuMethod("App.Hot", 10, 100.0)]),
+            new SnapshotExceptionSummary(2, 1, [new SnapshotCountRow("System.InvalidOperationException", 2)]),
+            new SnapshotAllocationSummary(1, 1_048_576, 1, [new SnapshotAllocationType("System.Byte[]", 1, 1_048_576)]),
+            new SnapshotJitSummary(1, 1, [new SnapshotCountRow("App.Start", 1)]),
+            new SnapshotEventSummary(15, 1, [new SnapshotEventType("Runtime", "Sample", 15)]),
+            false);
+        TimelineResult result = new(
+            40.0, 60.0, 20.0, 1, "App", null, null, null, null, null)
+        {
+            Mode = "snapshot",
+            Snapshot = snapshot
+        };
+        AnalysisResult<TimelineResult> envelope = new(
+            result,
+            warnings: ["snapshot warning"],
+            hints: ["snapshot hint"]);
+        StringWriter output = new();
+
+        TimelineTextRenderer.Render(envelope, "trace.nettrace", output);
+
+        string text = output.ToString();
+        text.Should().Contain("timeline snapshot")
+            .And.Contain("events")
+            .And.Contain("Runtime/Sample")
+            .And.Contain("cpu")
+            .And.Contain("App.Hot")
+            .And.Contain("gc")
+            .And.Contain("Blocking/Induced")
+            .And.Contain("exceptions")
+            .And.Contain("System.InvalidOperationException")
+            .And.Contain("alloc")
+            .And.Contain("System.Byte[]")
+            .And.Contain("jit")
+            .And.Contain("App.Start")
+            .And.Contain("> snapshot hint")
+            .And.Contain("! snapshot warning");
     }
 
     [TestMethod]

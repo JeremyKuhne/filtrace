@@ -154,10 +154,12 @@ internal static class TimelineExecutor
         }
 
         if (!double.IsFinite(request.SnapshotHalfWindowMs)
-            || request.SnapshotHalfWindowMs <= 0.0
+            || request.SnapshotHalfWindowMs < TimelineProvider.MinSnapshotHalfWindowMs
             || request.SnapshotHalfWindowMs > TimelineProvider.MaxSnapshotHalfWindowMs)
         {
-            error.WriteLine($"--window must be finite, greater than zero, and at most {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
+            error.WriteLine(
+                $"--window must be finite and from {TimelineProvider.MinSnapshotHalfWindowMs:N2} "
+                + $"through {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
             atMs = 0.0;
             return false;
         }

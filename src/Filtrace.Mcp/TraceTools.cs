@@ -811,10 +811,13 @@ public sealed class TraceTools
                 throw new McpException("at is required for snapshot mode and must be a finite, non-negative timestamp in milliseconds.");
             }
 
-            if (!double.IsFinite(window) || window <= 0.0 || window > TimelineProvider.MaxSnapshotHalfWindowMs)
+            if (!double.IsFinite(window)
+                || window < TimelineProvider.MinSnapshotHalfWindowMs
+                || window > TimelineProvider.MaxSnapshotHalfWindowMs)
             {
                 throw new McpException(
-                    $"window must be finite, greater than zero, and at most {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
+                    $"window must be finite and from {TimelineProvider.MinSnapshotHalfWindowMs:N2} "
+                    + $"through {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
             }
 
             if (!string.IsNullOrWhiteSpace(time)

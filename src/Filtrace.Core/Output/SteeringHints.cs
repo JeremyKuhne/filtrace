@@ -547,6 +547,11 @@ public static class SteeringHints
                 return SnapshotDrillGuidance("allocation sites", "alloc", timeline, window);
             }
 
+            if (snapshot.Exceptions.Types.Count > 0)
+            {
+                return SnapshotDrillGuidance("exception paths", "exceptions", timeline, window);
+            }
+
             return Guidance($"snapshot covers {window}; widen --window if the bounded evidence is too thin");
         }
 
@@ -720,10 +725,9 @@ public static class SteeringHints
             });
     }
 
-    // The " --process <name>" suffix a scoped timeline's drill hint carries so the
-    // follow-up ranking stays on the same process tree, or empty when the timeline
-    // spanned every process. A name with whitespace is quoted so it survives as one
-    // argument.
+    // The safely quoted " --process <name>" suffix a scoped timeline's drill hint
+    // carries so the follow-up ranking stays on the same process tree, or empty when
+    // the timeline spanned every process.
     private static string ProcessScope(TimelineResult timeline)
     {
         if (timeline.Process is not { Length: > 0 } process)
@@ -731,8 +735,6 @@ public static class SteeringHints
             return string.Empty;
         }
 
-        return process.Contains(' ') || process.Contains('\t')
-            ? $" --process \"{process}\""
-            : $" --process {process}";
+        return $" --process {QuotePowerShellArgument(process)}";
     }
 }

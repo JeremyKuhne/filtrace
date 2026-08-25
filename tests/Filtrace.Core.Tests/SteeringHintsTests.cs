@@ -676,7 +676,7 @@ public sealed class SteeringHintsTests
 
         // A scoped timeline propagates its process into the drill so the follow-up
         // ranking stays on the same tree rather than re-auto-scoping.
-        hints.Should().ContainSingle().Which.Should().EndWith("--time 40,60 --process HotLoopBench");
+        hints.Should().ContainSingle().Which.Should().EndWith("--time 40,60 --process 'HotLoopBench'");
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: hints);
         envelope.NextSteps.Should().ContainSingle();
@@ -728,6 +728,7 @@ public sealed class SteeringHintsTests
     [TestMethod]
     public void ForTimeline_Snapshot_PreservesWindowAndProcessInCpuDrill()
     {
+        const string process = "My App's $(Get-Item)";
         TimelineSnapshot snapshot = new(
             50.0,
             new SnapshotGcSummary(0, 0.0, 0.0, []),
@@ -738,7 +739,7 @@ public sealed class SteeringHintsTests
             new SnapshotEventSummary(10, 1, [new SnapshotEventType("SampleProfiler", "ThreadSample", 10)]),
             false);
         TimelineResult timeline = new(
-            40.0, 60.0, 20.0, 1, "My App", null, null, null, null, null)
+            40.0, 60.0, 20.0, 1, process, null, null, null, null, null)
         {
             Mode = "snapshot",
             Snapshot = snapshot
@@ -747,11 +748,40 @@ public sealed class SteeringHintsTests
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
 
         envelope.Hints.Should().ContainSingle().Which.Should()
-            .EndWith("--time 40,60 --process \"My App\"");
+            .EndWith("--time 40,60 --process 'My App''s $(Get-Item)'");
         AnalysisNextStep next = envelope.NextSteps.Should().ContainSingle().Subject;
         next.Operation.Should().Be("rank");
         next.Arguments!.Metric.Should().Be("cpu");
-        next.Arguments.Process.Should().Be("My App");
+        next.Arguments.Process.Should().Be(process);
+        next.Arguments.FromMs.Should().Be(40.0);
+        next.Arguments.ToMs.Should().Be(60.0);
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithOnlyExceptions_DrillsExceptionPaths()
+    {
+        TimelineSnapshot snapshot = new(
+            50.0,
+            new SnapshotGcSummary(0, 0.0, 0.0, []),
+            new SnapshotCpuSummary(0, 0, []),
+            new SnapshotExceptionSummary(3, 1, [new SnapshotCountRow("System.InvalidOperationException", 3)]),
+            new SnapshotAllocationSummary(0, 0, 0, []),
+            new SnapshotJitSummary(0, 0, []),
+            new SnapshotEventSummary(3, 1, [new SnapshotEventType("Runtime", "Exception", 3)]),
+            false);
+        TimelineResult timeline = new(
+            40.0, 60.0, 20.0, 1, null, null, null, null, null, null)
+        {
+            Mode = "snapshot",
+            Snapshot = snapshot
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().Contain("top exception paths");
+        AnalysisNextStep next = envelope.NextSteps.Should().ContainSingle().Subject;
+        next.Operation.Should().Be("rank");
+        next.Arguments!.Metric.Should().Be("exceptions");
         next.Arguments.FromMs.Should().Be(40.0);
         next.Arguments.ToMs.Should().Be(60.0);
     }
