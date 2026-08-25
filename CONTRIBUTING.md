@@ -24,14 +24,18 @@ dotnet build filtrace.slnx -c Release
 dotnet test filtrace.slnx -c Release
 ```
 
-CI also runs six contract/eval checks that must stay green; run them locally before
+CI also runs ten contract/eval checks that must stay green; run them locally before
 opening a PR:
 
 ```pwsh
 ./tools/Test-CliHelp.ps1 -Configuration Release
 ./tools/Test-McpServer.ps1 -Configuration Release
+./tools/Test-LocalFiltrace.ps1 -Configuration Release
 ./tools/Test-Docs.ps1
 ./tools/Test-CaptureBenchmarkTrace.ps1
+./tools/Test-CaptureProjectTrace.ps1
+./tools/Test-FiltraceAnalysis.ps1 -Configuration Release
+./tools/Test-TrackDInvestigation.ps1
 ./eval/Invoke-Eval.ps1
 ./tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation
 ```
@@ -39,17 +43,21 @@ opening a PR:
 The full agent-skill check requires GitHub CLI with `gh skill` support and
 Node.js with `npx`.
 
-The first asserts every CLI verb is documented and within the help budget; the
-second drives the MCP server over stdio and checks stdout purity, the tool-list
-schema budget, and a real `tools/call` round-trip. The docs check guards shared
-workflow blocks, skill links, command/tool coverage, and packaged skill contents.
-The capture helper check verifies run-artifact isolation, overlap rejection, and
-manifest completeness.
+The local-setup check uses isolated tool paths to prove exact local CLI package
+installation and offline rollback, plus preservation of prior MCP and skill
+state, unrelated MCP entries, and consumer overlays without touching real user
+configuration. The remaining scripts guard CLI/MCP contracts, shared
+documentation, capture helpers, replayable analysis, the Track D wrapper,
+deterministic evals, and vendored skills.
 The deterministic eval runs the canonical trace-analysis tasks and enforces answer,
 call-count, and output-token baselines without invoking an LLM.
 The agent-skill check validates the v0.14.0 commons pins and overlays, compares
 vendored cores with fresh upstream installs, runs the reference validator, and
 checks readability and repository-relative links.
+
+To exercise a working tree through the installed CLI, MCP server, and Filtrace
+skill, then return to the prior setup, see
+[Test a local Filtrace build end to end](docs/local-testing.md).
 
 ## Conventions
 

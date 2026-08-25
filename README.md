@@ -42,10 +42,17 @@ config block and the tool workflow.
 
 ### From source
 
+To test a checkout through the installed CLI, MCP server, and user-level agent
+skill, use the reversible local workflow:
+
 ```pwsh
-dotnet pack src/Filtrace/Filtrace.csproj -c Release
-dotnet tool install --global --add-source ./artifacts/packages KlutzyNinja.Filtrace
+./tools/Use-LocalFiltrace.ps1
+# Later: restore the CLI, MCP entry, and skill that were present before local mode.
+./tools/Use-LocalFiltrace.ps1 -Action Restore
 ```
+
+See [Test a local Filtrace build end to end](docs/local-testing.md) for project
+skill vendoring, VS Code Insiders, verification, and manual shipped-version setup.
 
 ## Using filtrace
 

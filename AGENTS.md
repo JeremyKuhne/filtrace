@@ -44,7 +44,7 @@ Do not use an installed global `filtrace` or the MCP server to profile this repo
 that can silently analyze with different code. For an A/B investigation, use one fixed
 locally built baseline CLI to analyze both arms.
 
-CI also runs nine contract and evaluation checks that must stay green:
+CI also runs ten contract and evaluation checks that must stay green:
 
 - `tools/Test-CliHelp.ps1 -Configuration Release` - every canonical command appears
   in top-level help, hidden preview aliases remain callable but absent, each help
@@ -52,6 +52,9 @@ CI also runs nine contract and evaluation checks that must stay green:
 - `tools/Test-McpServer.ps1 -Configuration Release` - stdout is pure JSON-RPC,
   the tool-list schema stays within the token budget, and a real `tools/call`
   round-trips.
+- `tools/Test-LocalFiltrace.ps1 -Configuration Release` - reversible local CLI,
+  MCP, and skill setup preserves exact package bytes, prior state, unrelated
+  servers, and overlays.
 - `tools/Test-Docs.ps1` - shared workflow blocks, command/tool catalogs, and the
   packaged filtrace skill stay synchronized.
 - `tools/Test-CaptureBenchmarkTrace.ps1` - run artifacts stay isolated, overlap

@@ -76,6 +76,10 @@ jobs:
         shell: pwsh
         run: ./tools/Test-McpServer.ps1 -Configuration Release
 
+      - name: Local setup contract
+        shell: pwsh
+        run: ./tools/Test-LocalFiltrace.ps1 -Configuration Release
+
       - name: Docs drift check
         shell: pwsh
         run: ./tools/Test-Docs.ps1
@@ -128,6 +132,10 @@ jobs:
 
       - name: Test
         run: dotnet test filtrace.slnx --configuration Release --no-build
+
+      - name: Local setup contract
+        shell: pwsh
+        run: ./tools/Test-LocalFiltrace.ps1 -Configuration Release
 
       # Hosted Windows runners run elevated, so the one path that needs a real ETW
       # capture is checked here rather than left to a developer box. Keep the build of
