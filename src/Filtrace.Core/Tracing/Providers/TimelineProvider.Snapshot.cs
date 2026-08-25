@@ -32,6 +32,9 @@ public sealed partial class TimelineProvider
     /// <summary>The maximum characters retained from one trace-derived snapshot name.</summary>
     public const int MaxSnapshotNameChars = 256;
 
+    /// <summary>The maximum distinct keys retained by each snapshot evidence family.</summary>
+    public const int MaxSnapshotRetainedKeysPerFamily = 1_024;
+
     /// <summary>
     ///  Reads bounded cross-lane evidence around one timestamp from a single scoped
     ///  pass over a <c>.nettrace</c> or <c>.etl</c> trace.
@@ -105,6 +108,9 @@ public sealed partial class TimelineProvider
         Dictionary<(int ProcessId, int ThreadId), double> pauseStarts = [];
         List<GcPauseInterval> pauseIntervals = [];
         bool namesTruncated = false;
+        bool detailTruncated = false;
+        double totalPauseMs = 0.0;
+        double maxPauseMs = 0.0;
 
         using Etlx.TraceLogEventSource source = traceLog.Events.GetSource();
         source.NeedLoadedDotNetRuntimes();
@@ -115,6 +121,8 @@ public sealed partial class TimelineProvider
             source,
             scopePids,
             pauseIntervals,
+            totalPauseMs,
+            maxPauseMs,
             startMs,
             endMs,
             out bool gcNamesTruncated);
@@ -167,7 +175,10 @@ public sealed partial class TimelineProvider
             new SnapshotAllocationSummary(allocationTickCount, allocationBytes, allocationTypes.Count, topAllocations),
             new SnapshotJitSummary(jitCompilationCount, jitMethods.Count, topJit),
             new SnapshotEventSummary(eventCount, eventTypes.Count, topEvents),
-            namesTruncated);
+            namesTruncated)
+        {
+            DetailTruncated = detailTruncated
+        };
 
         return new TimelineResult(
             startMs,
@@ -197,7 +208,7 @@ public sealed partial class TimelineProvider
             if (data is GCSuspendEETraceData suspend
                 && suspend.Reason is GCSuspendEEReason.SuspendForGC or GCSuspendEEReason.SuspendForGCPrep)
             {
-                pauseStarts[pauseKey] = timestamp;
+                detailTruncated |= !SetBounded(pauseStarts, pauseKey, timestamp);
             }
             else if (data.EventName.EndsWith("RestartEEStop", StringComparison.Ordinal)
                 && pauseStarts.Remove(pauseKey, out double pauseStart)
@@ -205,7 +216,18 @@ public sealed partial class TimelineProvider
                 && timestamp >= startMs
                 && pauseStart <= endMs)
             {
-                pauseIntervals.Add(new GcPauseInterval(data.ProcessID, pauseStart, timestamp));
+                GcPauseInterval interval = new(data.ProcessID, pauseStart, timestamp);
+                double overlapMs = interval.OverlapMs(startMs, endMs);
+                totalPauseMs += overlapMs;
+                maxPauseMs = Math.Max(maxPauseMs, overlapMs);
+                if (pauseIntervals.Count < MaxSnapshotRetainedKeysPerFamily)
+                {
+                    pauseIntervals.Add(interval);
+                }
+                else
+                {
+                    detailTruncated = true;
+                }
             }
 
             if (timestamp < startMs || timestamp > endMs)
@@ -214,7 +236,10 @@ public sealed partial class TimelineProvider
             }
 
             eventCount++;
-            Tally(eventTypes, (data.ProviderName, data.EventName));
+            string provider = BoundSnapshotName(data.ProviderName, out bool providerTruncated);
+            string eventName = BoundSnapshotName(data.EventName, out bool eventNameTruncated);
+            namesTruncated |= providerTruncated || eventNameTruncated;
+            detailTruncated |= !TallyBounded(eventTypes, (provider, eventName));
 
             switch (data)
             {
@@ -231,7 +256,9 @@ public sealed partial class TimelineProvider
                     string? method = LeafMethod(stack);
                     if (method is not null)
                     {
-                        Tally(cpuMethods, method);
+                        method = BoundSnapshotName(method, out bool methodTruncated);
+                        namesTruncated |= methodTruncated;
+                        detailTruncated |= !TallyBounded(cpuMethods, method);
                     }
 
                     break;
@@ -239,44 +266,67 @@ public sealed partial class TimelineProvider
 
                 case ExceptionTraceData exception:
                     exceptionCount++;
-                    Tally(
-                        exceptionTypes,
-                        string.IsNullOrEmpty(exception.ExceptionType) ? "(unknown exception type)" : exception.ExceptionType);
+                    string exceptionType = string.IsNullOrEmpty(exception.ExceptionType)
+                        ? "(unknown exception type)"
+                        : exception.ExceptionType;
+                    exceptionType = BoundSnapshotName(exceptionType, out bool exceptionTruncated);
+                    namesTruncated |= exceptionTruncated;
+                    detailTruncated |= !TallyBounded(exceptionTypes, exceptionType);
                     break;
 
                 case GCAllocationTickTraceData allocation when allocation.AllocationAmount64 > 0:
                 {
                     long bytes = allocation.AllocationAmount64;
                     string type = string.IsNullOrEmpty(allocation.TypeName) ? "(unknown allocation type)" : allocation.TypeName;
+                    type = BoundSnapshotName(type, out bool allocationTypeTruncated);
+                    namesTruncated |= allocationTypeTruncated;
                     allocationTickCount++;
                     allocationBytes += bytes;
-                    allocationTypes.TryGetValue(type, out (long Count, long Bytes) current);
-                    allocationTypes[type] = (current.Count + 1, current.Bytes + bytes);
+                    detailTruncated |= !TallyAllocationBounded(allocationTypes, type, bytes);
                     break;
                 }
 
                 case MethodJittingStartedTraceData jit:
                     jitCompilationCount++;
-                    Tally(jitMethods, JitMethodName(jit));
+                    string jitMethod = BoundSnapshotName(JitMethodName(jit), out bool jitMethodTruncated);
+                    namesTruncated |= jitMethodTruncated;
+                    detailTruncated |= !TallyBounded(jitMethods, jitMethod);
                     break;
             }
         }
+    }
+
+    /// <summary>
+    ///  Returns the warning for a snapshot whose bounded aggregation state dropped
+    ///  detail, or <see langword="null"/> when every key and interval was retained.
+    /// </summary>
+    /// <param name="result">The timeline result to inspect.</param>
+    /// <returns>The detail warning, or <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="result"/> is <see langword="null"/>.</exception>
+    public static string? GetSnapshotDetailWarning(TimelineResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result.Snapshot?.DetailTruncated == true
+            ? $"Snapshot detail was truncated at the {MaxSnapshotRetainedKeysPerFamily}-key-per-family aggregation budget. "
+                + "Aggregate event, CPU-sample, exception, allocation-tick/byte, and JIT-compilation totals remain "
+                + "complete; retained distinct-name counts are lower bounds, top rows may omit later keys, and GC "
+                + "pause/collection detail may be incomplete."
+            : null;
     }
 
     private static SnapshotGcSummary BuildSnapshotGc(
         Etlx.TraceLogEventSource source,
         HashSet<int>? scopePids,
         IReadOnlyList<GcPauseInterval> pauseIntervals,
+        double totalPauseMs,
+        double maxPauseMs,
         double startMs,
         double endMs,
         out bool namesTruncated)
     {
         int collectionCount = 0;
         List<SnapshotGcRecord> longest = [];
-        double totalPauseMs = pauseIntervals.Sum(interval => interval.OverlapMs(startMs, endMs));
-        double maxPauseMs = pauseIntervals.Count == 0
-            ? 0.0
-            : pauseIntervals.Max(interval => interval.OverlapMs(startMs, endMs));
         namesTruncated = false;
 
         foreach (TraceProcess process in source.Processes())
@@ -378,10 +428,53 @@ public sealed partial class TimelineProvider
         return string.IsNullOrEmpty(jit.MethodNamespace) ? method : $"{jit.MethodNamespace}.{method}";
     }
 
-    private static void Tally<TKey>(Dictionary<TKey, long> counts, TKey key) where TKey : notnull
+    internal static bool TallyBounded<TKey>(Dictionary<TKey, long> counts, TKey key) where TKey : notnull
     {
-        counts.TryGetValue(key, out long current);
-        counts[key] = current + 1;
+        if (counts.TryGetValue(key, out long current))
+        {
+            counts[key] = current + 1;
+            return true;
+        }
+
+        if (counts.Count >= MaxSnapshotRetainedKeysPerFamily)
+        {
+            return false;
+        }
+
+        counts.Add(key, 1);
+        return true;
+    }
+
+    internal static bool TallyAllocationBounded(
+        Dictionary<string, (long Count, long Bytes)> allocations,
+        string type,
+        long bytes)
+    {
+        if (allocations.TryGetValue(type, out (long Count, long Bytes) current))
+        {
+            allocations[type] = (current.Count + 1, current.Bytes + bytes);
+            return true;
+        }
+
+        if (allocations.Count >= MaxSnapshotRetainedKeysPerFamily)
+        {
+            return false;
+        }
+
+        allocations.Add(type, (1, bytes));
+        return true;
+    }
+
+    private static bool SetBounded<TKey, TValue>(Dictionary<TKey, TValue> values, TKey key, TValue value)
+        where TKey : notnull
+    {
+        if (values.ContainsKey(key) || values.Count < MaxSnapshotRetainedKeysPerFamily)
+        {
+            values[key] = value;
+            return true;
+        }
+
+        return false;
     }
 
     private readonly record struct GcPauseInterval(int ProcessId, double StartMs, double EndMs)

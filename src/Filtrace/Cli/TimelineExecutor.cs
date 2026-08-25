@@ -119,6 +119,11 @@ internal static class TimelineExecutor
             warnings.Add($"Snapshot names longer than {TimelineProvider.MaxSnapshotNameChars} characters were truncated.");
         }
 
+        if (TimelineProvider.GetSnapshotDetailWarning(result) is string detailWarning)
+        {
+            warnings.Add(detailWarning);
+        }
+
         AnalysisResult<TimelineResult> envelope = new(
             result,
             warnings,

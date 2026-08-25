@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json.Serialization;
+
 namespace Filtrace.Tracing.Providers;
 
 /// <summary>
@@ -23,7 +25,15 @@ public sealed record TimelineSnapshot(
     SnapshotAllocationSummary Alloc,
     SnapshotJitSummary Jit,
     SnapshotEventSummary Events,
-    bool NamesTruncated);
+    bool NamesTruncated)
+{
+    /// <summary>
+    ///  Whether a bounded aggregation budget dropped named detail or GC interval
+    ///  state. Aggregate event-family totals remain complete.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool DetailTruncated { get; init; }
+}
 
 /// <summary>Garbage-collection activity in a timeline snapshot.</summary>
 /// <param name="CollectionCount">Collections that started or had a managed-thread pause in the window.</param>
@@ -53,8 +63,8 @@ public sealed record SnapshotGcRecord(
 
 /// <summary>CPU activity in a timeline snapshot.</summary>
 /// <param name="SampleCount">Total stack-bearing CPU samples in the window.</param>
-/// <param name="MethodCount">Distinct resolved leaf methods in the window.</param>
-/// <param name="Methods">Top resolved leaf methods, bounded by the snapshot detail limit.</param>
+/// <param name="MethodCount">Distinct resolved leaf methods retained for ranking; a lower bound when snapshot detail or names were truncated.</param>
+/// <param name="Methods">Top retained resolved leaf methods, bounded by the snapshot detail limit.</param>
 public sealed record SnapshotCpuSummary(
     long SampleCount,
     int MethodCount,
@@ -68,8 +78,8 @@ public sealed record SnapshotCpuMethod(string Name, long SampleCount, double Per
 
 /// <summary>Exception activity in a timeline snapshot.</summary>
 /// <param name="ExceptionCount">Total exception throws in the window.</param>
-/// <param name="TypeCount">Distinct exception types in the window.</param>
-/// <param name="Types">Top exception types, bounded by the snapshot detail limit.</param>
+/// <param name="TypeCount">Distinct exception types retained for ranking; a lower bound when snapshot detail or names were truncated.</param>
+/// <param name="Types">Top retained exception types, bounded by the snapshot detail limit.</param>
 public sealed record SnapshotExceptionSummary(
     long ExceptionCount,
     int TypeCount,
@@ -78,8 +88,8 @@ public sealed record SnapshotExceptionSummary(
 /// <summary>Allocation activity in a timeline snapshot.</summary>
 /// <param name="TickCount">Total positive allocation ticks in the window.</param>
 /// <param name="Bytes">Sampled allocation bytes represented by those ticks.</param>
-/// <param name="TypeCount">Distinct allocation types in the window.</param>
-/// <param name="Types">Top allocation types by bytes, bounded by the snapshot detail limit.</param>
+/// <param name="TypeCount">Distinct allocation types retained for ranking; a lower bound when snapshot detail or names were truncated.</param>
+/// <param name="Types">Top retained allocation types by bytes, bounded by the snapshot detail limit.</param>
 public sealed record SnapshotAllocationSummary(
     long TickCount,
     long Bytes,
@@ -94,8 +104,8 @@ public sealed record SnapshotAllocationType(string Name, long TickCount, long By
 
 /// <summary>JIT activity in a timeline snapshot.</summary>
 /// <param name="CompilationCount">Total method-jitting-started events in the window.</param>
-/// <param name="MethodCount">Distinct method names in the window.</param>
-/// <param name="Methods">Top method names, bounded by the snapshot detail limit.</param>
+/// <param name="MethodCount">Distinct method names retained for ranking; a lower bound when snapshot detail or names were truncated.</param>
+/// <param name="Methods">Top retained method names, bounded by the snapshot detail limit.</param>
 public sealed record SnapshotJitSummary(
     long CompilationCount,
     int MethodCount,
@@ -103,8 +113,8 @@ public sealed record SnapshotJitSummary(
 
 /// <summary>Raw event activity in a timeline snapshot.</summary>
 /// <param name="EventCount">Total raw events in the window.</param>
-/// <param name="TypeCount">Distinct provider/event-name pairs in the window.</param>
-/// <param name="Types">Top event types, bounded by the snapshot detail limit.</param>
+/// <param name="TypeCount">Distinct provider/event-name pairs retained for ranking; a lower bound when snapshot detail or names were truncated.</param>
+/// <param name="Types">Top retained event types, bounded by the snapshot detail limit.</param>
 public sealed record SnapshotEventSummary(
     long EventCount,
     int TypeCount,

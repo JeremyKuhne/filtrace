@@ -871,6 +871,11 @@ public sealed class TraceTools
             warnings.Add($"Snapshot names longer than {TimelineProvider.MaxSnapshotNameChars} characters were truncated.");
         }
 
+        if (TimelineProvider.GetSnapshotDetailWarning(result) is string detailWarning)
+        {
+            warnings.Add(detailWarning);
+        }
+
         return new AnalysisResult<TimelineResult>(
             result,
             warnings,

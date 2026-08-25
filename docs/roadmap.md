@@ -682,7 +682,9 @@ selected surface.
 `trace_timeline` with `mode=snapshot` return one exact, process-scoped window with
 bounded GC, top CPU leaf methods, exceptions, allocations, JIT methods, and raw
 event types. Each evidence family retains at most five rows, trace-derived names are
-capped at 256 characters, and the half-window is capped at 60 seconds.
+capped at 256 characters, aggregation retains at most 1,024 distinct keys per
+evidence family with an explicit truncation diagnostic, and the half-window is
+capped at 60 seconds.
 
 The `point-in-time-snapshot` deterministic task answers the cross-lane question in
 one call and 507 tokens. Its live contract allows exactly one `trace_timeline` call

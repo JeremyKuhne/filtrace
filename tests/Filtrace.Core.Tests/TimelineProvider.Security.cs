@@ -84,6 +84,38 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void TallyBounded_AtLimitRetainsExistingAndRejectsNewKey()
+    {
+        Dictionary<string, long> counts = new(StringComparer.Ordinal);
+        for (int i = 0; i < TimelineProvider.MaxSnapshotRetainedKeysPerFamily; i++)
+        {
+            TimelineProvider.TallyBounded(counts, $"key-{i}").Should().BeTrue();
+        }
+
+        TimelineProvider.TallyBounded(counts, "key-0").Should().BeTrue();
+        TimelineProvider.TallyBounded(counts, "overflow").Should().BeFalse();
+        counts.Should().HaveCount(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
+        counts["key-0"].Should().Be(2);
+        counts.Should().NotContainKey("overflow");
+    }
+
+    [TestMethod]
+    public void TallyAllocationBounded_AtLimitRetainsExistingAndRejectsNewType()
+    {
+        Dictionary<string, (long Count, long Bytes)> allocations = new(StringComparer.Ordinal);
+        for (int i = 0; i < TimelineProvider.MaxSnapshotRetainedKeysPerFamily; i++)
+        {
+            TimelineProvider.TallyAllocationBounded(allocations, $"type-{i}", 10).Should().BeTrue();
+        }
+
+        TimelineProvider.TallyAllocationBounded(allocations, "type-0", 5).Should().BeTrue();
+        TimelineProvider.TallyAllocationBounded(allocations, "overflow", 20).Should().BeFalse();
+        allocations.Should().HaveCount(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
+        allocations["type-0"].Should().Be((2, 15));
+        allocations.Should().NotContainKey("overflow");
+    }
+
+    [TestMethod]
     public void Serialize_MaximumSnapshotRowsAndNames_StaysUnderResponseCeiling()
     {
         string name = new('x', TimelineProvider.MaxSnapshotNameChars);
@@ -119,11 +151,16 @@ public sealed class TimelineProviderSecurityTests
             null)
         {
             Mode = "snapshot",
-            Snapshot = snapshot
+            Snapshot = snapshot with { DetailTruncated = true }
         };
 
         string json = OutputJson.Serialize(new AnalysisResult<TimelineResult>(result));
+        string warning = TimelineProvider.GetSnapshotDetailWarning(result)!;
 
         OutputBudget.EstimateTokens(json).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
+        json.Should().Contain("\"detailTruncated\":true");
+        warning.Should().Contain("1024-key-per-family")
+            .And.Contain("Aggregate event, CPU-sample, exception, allocation-tick/byte, and JIT-compilation totals remain complete");
+        AnalysisDiagnostic.FromWarning(warning).Code.Should().Be(AnalysisDiagnosticCodes.TruncatedOutput);
     }
 }
