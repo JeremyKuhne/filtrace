@@ -701,10 +701,8 @@ public static class SteeringHints
         return Guidance(
             reason,
             "rank",
-            new AnalysisNextStepArguments
+            TimelineScopeArguments(metric, timeline) with
             {
-                Metric = metric,
-                Process = timeline.Process,
                 FromMs = start,
                 ToMs = end
             });

@@ -693,6 +693,64 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForTimeline_BucketWithPidScope_PreservesIdsAndChildrenMode()
+    {
+        TimelineResult timeline = CpuBucketTimeline() with
+        {
+            AppliedProcessScope = new AppliedProcessScope("ids", null, [123, 456], [123, 456], [], false)
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--pid 123,456 --children exclude");
+        AnalysisNextStepArguments arguments = envelope.NextSteps.Single().Arguments!;
+        arguments.Process.Should().BeNull();
+        arguments.ProcessIds.Should().Equal(123, 456);
+        arguments.ProcessIdCount.Should().Be(2);
+        arguments.IncludeChildren.Should().BeFalse();
+        arguments.FromMs.Should().Be(40.0);
+        arguments.ToMs.Should().Be(60.0);
+    }
+
+    [TestMethod]
+    public void ForTimeline_BucketWithAllProcesses_PreservesOptOut()
+    {
+        TimelineResult timeline = CpuBucketTimeline() with
+        {
+            AppliedProcessScope = AppliedProcessScope.AllProcesses
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--all-processes");
+        AnalysisNextStepArguments arguments = envelope.NextSteps.Single().Arguments!;
+        arguments.AllProcesses.Should().BeTrue();
+        arguments.Process.Should().BeNull();
+        arguments.ProcessIds.Should().BeNull();
+        arguments.IncludeChildren.Should().BeNull();
+        arguments.FromMs.Should().Be(40.0);
+        arguments.ToMs.Should().Be(60.0);
+    }
+
+    [TestMethod]
+    public void ForTimeline_BucketWithAutomaticScope_PreservesResolvedRootIds()
+    {
+        TimelineResult timeline = CpuBucketTimeline() with
+        {
+            AppliedProcessScope = new AppliedProcessScope("automatic", "App", [], [789], [790], true)
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--pid 789");
+        AnalysisNextStepArguments arguments = envelope.NextSteps.Single().Arguments!;
+        arguments.ProcessIds.Should().Equal(789);
+        arguments.IncludeChildren.Should().BeTrue();
+        arguments.FromMs.Should().Be(40.0);
+        arguments.ToMs.Should().Be(60.0);
+    }
+
+    [TestMethod]
     public void ForTimeline_SubMillisecondBuckets_KeepsPreciseDrillWindow()
     {
         // A short capture divided into many buckets yields sub-millisecond bucket widths;
@@ -909,4 +967,24 @@ public sealed class SteeringHintsTests
             Snapshot = snapshot
         };
     }
+
+    private static TimelineResult CpuBucketTimeline() =>
+        new(
+            0.0,
+            100.0,
+            20.0,
+            5,
+            null,
+            Gc: null,
+            Cpu:
+            [
+                new CpuBucket(0, null),
+                new CpuBucket(0, null),
+                new CpuBucket(50, "App.Hot"),
+                new CpuBucket(1, null),
+                new CpuBucket(0, null)
+            ],
+            Exceptions: null,
+            Alloc: null,
+            Jit: null);
 }
