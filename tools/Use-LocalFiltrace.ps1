@@ -184,7 +184,7 @@ function Read-JsonFile([string] $Path, [string] $Description) {
         throw "$Description does not exist: '$Path'."
     }
 
-    [System.IO.FileInfo] $file = Get-Item -LiteralPath $Path
+    [System.IO.FileInfo] $file = Get-Item -LiteralPath $Path -Force
     if ($file.Length -gt 4MB) {
         throw "$Description is larger than the 4 MB safety limit: '$Path'."
     }
