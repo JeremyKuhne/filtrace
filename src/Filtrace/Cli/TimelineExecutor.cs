@@ -116,7 +116,9 @@ internal static class TimelineExecutor
 
         if (result.Snapshot?.NamesTruncated == true)
         {
-            warnings.Add($"Snapshot names longer than {TimelineProvider.MaxSnapshotNameChars} characters were truncated.");
+            warnings.Add(
+                $"Snapshot names were bounded to {TimelineProvider.MaxSnapshotNameChars} characters and "
+                + "control characters were escaped for terminal-safe output where needed.");
         }
 
         if (TimelineProvider.GetSnapshotDetailWarning(result) is string detailWarning)

@@ -38,6 +38,18 @@ public sealed class ProcessScopeValidationTests
     }
 
     [TestMethod]
+    [DataRow("line\nbreak")]
+    [DataRow("escape\u001b")]
+    public void NameSelector_ControlCharacter_ThrowsArgument(string name)
+    {
+        Action act = () => _ = new ProcessNameSelector(name);
+
+        act.Should().Throw<ArgumentException>()
+            .WithParameterName("nameSubstring")
+            .WithMessage("*control characters*");
+    }
+
+    [TestMethod]
     public void Ctor_NameSelector_Succeeds()
     {
         ProcessScope scope = new(new ProcessNameSelector("HotLoopBench"));

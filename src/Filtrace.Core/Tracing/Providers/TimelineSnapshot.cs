@@ -16,7 +16,10 @@ namespace Filtrace.Tracing.Providers;
 /// <param name="Alloc">Top allocation types in the resolved window.</param>
 /// <param name="Jit">Top jitted methods in the resolved window.</param>
 /// <param name="Events">Top raw event types in the resolved window.</param>
-/// <param name="NamesTruncated">Whether any emitted trace-derived name exceeded the snapshot name limit.</param>
+/// <param name="NamesTruncated">
+///  Whether any emitted trace-derived name was length-bounded or escaped for
+///  terminal-safe output.
+/// </param>
 public sealed record TimelineSnapshot(
     double AtMs,
     SnapshotGcSummary Gc,

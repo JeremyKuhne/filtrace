@@ -1085,6 +1085,14 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Timeline_ProcessSelectorWithControlCharacter_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(FixturePath(Alloc), process: "App\nInjected");
+
+        act.Should().Throw<McpException>().WithMessage("*process may not contain control characters*");
+    }
+
+    [TestMethod]
     public void Timeline_UnknownLane_ThrowsMcpException()
     {
         Action act = () => TraceTools.Timeline(FixturePath(Alloc), lanes: "bogus");

@@ -52,6 +52,22 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void BoundSnapshotName_ControlCharacters_AreEscapedWithDistinctIdentity()
+    {
+        const string unsafeName = "line\r\n\u001b[31m";
+        const string literalLookalike = "line\\u000D\\u000A\\u001B[31m";
+
+        string escaped = TimelineProvider.BoundSnapshotName(unsafeName, out bool escapedChanged);
+        string literal = TimelineProvider.BoundSnapshotName(literalLookalike, out bool literalChanged);
+
+        escapedChanged.Should().BeTrue();
+        literalChanged.Should().BeFalse();
+        escaped.Any(char.IsControl).Should().BeFalse();
+        escaped.Should().Contain("\\u000D\\u000A\\u001B").And.NotBe(literal);
+        escaped.Length.Should().BeLessThanOrEqualTo(TimelineProvider.MaxSnapshotNameChars);
+    }
+
+    [TestMethod]
     public void ReadSnapshot_HalfWindowAtLimit_Succeeds()
     {
         TimelineResult result = new TimelineProvider().ReadSnapshot(

@@ -165,6 +165,15 @@ public sealed class TimelineExecutorTests
     }
 
     [TestMethod]
+    public void Run_ProcessSelectorWithControlCharacter_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(Request(Alloc, process: "App\nInjected"));
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--process may not contain control characters");
+    }
+
+    [TestMethod]
     public void Render_SnapshotText_WritesEverySummaryHintAndWarning()
     {
         TimelineSnapshot snapshot = new(

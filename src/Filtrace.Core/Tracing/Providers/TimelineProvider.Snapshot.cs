@@ -481,24 +481,84 @@ public sealed partial class TimelineProvider
 
     internal static string BoundSnapshotName(string value, out bool truncated)
     {
-        truncated = value.Length > MaxSnapshotNameChars;
+        bool requiresEscaping = RequiresSnapshotNameEscaping(value);
+        truncated = value.Length > MaxSnapshotNameChars || requiresEscaping;
         if (!truncated)
         {
             return value;
         }
 
         const string separator = "...#";
-        int prefixLength = MaxSnapshotNameChars - separator.Length - SnapshotNameHashCharacters;
-        if (prefixLength < value.Length
-            && prefixLength > 0
-            && char.IsHighSurrogate(value[prefixLength - 1])
-            && char.IsLowSurrogate(value[prefixLength]))
+        int prefixLimit = MaxSnapshotNameChars - separator.Length - SnapshotNameHashCharacters;
+        string prefix = SnapshotNamePrefix(value, prefixLimit);
+        string hash = SnapshotNameHash(value);
+        return $"{prefix}{separator}{hash}";
+    }
+
+    private static bool RequiresSnapshotNameEscaping(string value)
+    {
+        for (int i = 0; i < value.Length; i++)
         {
-            prefixLength--;
+            char character = value[i];
+            if (char.IsHighSurrogate(character)
+                && i + 1 < value.Length
+                && char.IsLowSurrogate(value[i + 1]))
+            {
+                i++;
+                continue;
+            }
+
+            if (char.IsControl(character) || char.IsSurrogate(character))
+            {
+                return true;
+            }
         }
 
-        string hash = SnapshotNameHash(value);
-        return $"{value[..prefixLength]}{separator}{hash}";
+        return false;
+    }
+
+    private static string SnapshotNamePrefix(string value, int maxLength)
+    {
+        const string hex = "0123456789ABCDEF";
+        Span<char> prefix = stackalloc char[maxLength];
+        int written = 0;
+        for (int i = 0; i < value.Length && written < prefix.Length; i++)
+        {
+            char character = value[i];
+            if (char.IsHighSurrogate(character)
+                && i + 1 < value.Length
+                && char.IsLowSurrogate(value[i + 1]))
+            {
+                if (prefix.Length - written < 2)
+                {
+                    break;
+                }
+
+                prefix[written++] = character;
+                prefix[written++] = value[++i];
+                continue;
+            }
+
+            if (char.IsControl(character) || char.IsSurrogate(character))
+            {
+                if (prefix.Length - written < 6)
+                {
+                    break;
+                }
+
+                prefix[written++] = '\\';
+                prefix[written++] = 'u';
+                prefix[written++] = hex[(character >> 12) & 0xF];
+                prefix[written++] = hex[(character >> 8) & 0xF];
+                prefix[written++] = hex[(character >> 4) & 0xF];
+                prefix[written++] = hex[character & 0xF];
+                continue;
+            }
+
+            prefix[written++] = character;
+        }
+
+        return new string(prefix[..written]);
     }
 
     private static string SnapshotNameHash(string value)

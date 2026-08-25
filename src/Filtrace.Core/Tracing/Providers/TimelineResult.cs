@@ -50,7 +50,8 @@ public sealed record TimelineResult(
 
     /// <summary>
     ///  The exact process scope applied to this result, retained for follow-up routing
-    ///  and omitted from the result JSON because the envelope context owns scope output.
+    ///  and omitted from result JSON. Timeline heads currently use it only to preserve
+    ///  scope in generated follow-ups.
     /// </summary>
     [JsonIgnore]
     public AppliedProcessScope? AppliedProcessScope { get; init; }

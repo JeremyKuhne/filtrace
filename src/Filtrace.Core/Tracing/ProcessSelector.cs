@@ -50,12 +50,20 @@ public sealed record ProcessNameSelector : ProcessSelector
     /// </summary>
     /// <param name="nameSubstring">A case-insensitive process-name substring.</param>
     /// <exception cref="ArgumentException">
-    ///  <paramref name="nameSubstring"/> is <see langword="null"/>, empty, or longer
-    ///  than <see cref="MaxNameSubstringLength"/> characters.
+    ///  <paramref name="nameSubstring"/> is <see langword="null"/>, empty, contains
+    ///  control characters, or is longer than <see cref="MaxNameSubstringLength"/>
+    ///  characters.
     /// </exception>
     public ProcessNameSelector(string nameSubstring)
     {
         ArgumentException.ThrowIfNullOrEmpty(nameSubstring);
+        if (nameSubstring.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                "Process-name selectors may not contain control characters.",
+                nameof(nameSubstring));
+        }
+
         if (nameSubstring.Length > MaxNameSubstringLength)
         {
             throw new ArgumentException(
