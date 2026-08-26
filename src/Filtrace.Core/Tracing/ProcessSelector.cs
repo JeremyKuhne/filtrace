@@ -74,6 +74,8 @@ public sealed record ProcessNameSelector : ProcessSelector
         NameSubstring = nameSubstring;
     }
 
+    // A trace-derived name describes what the capture contains rather than what the caller
+    // asked for, so it skips selector validation and is bounded where it is reported.
     private ProcessNameSelector(string nameSubstring, bool traceDerived)
     {
         ArgumentException.ThrowIfNullOrEmpty(nameSubstring);

@@ -401,7 +401,7 @@ public sealed partial class TimelineProvider
             .GroupBy(static interval => interval.ProcessId)
             .ToDictionary(
                 static group => group.Key,
-                static group => group.OrderBy(static interval => interval.StartMs).ToArray());
+                static group => MergeOverlapping(group));
 
         foreach (TraceProcess process in source.Processes())
         {
@@ -456,9 +456,33 @@ public sealed partial class TimelineProvider
 
         return new SnapshotGcSummary(
             collectionCount,
-            totalPauseMs,
-            maxPauseMs,
+            Math.Round(totalPauseMs, 2),
+            Math.Round(maxPauseMs, 2),
             top);
+    }
+
+    // ContainsTimestamp binary-searches a single candidate, so the intervals it reads must
+    // be disjoint; concurrent suspends on two threads of one process would otherwise hide
+    // the enclosing pause.
+    internal static GcPauseInterval[] MergeOverlapping(IEnumerable<GcPauseInterval> intervals)
+    {
+        List<GcPauseInterval> merged = [];
+        foreach (GcPauseInterval interval in intervals.OrderBy(static candidate => candidate.StartMs))
+        {
+            if (merged.Count > 0 && interval.StartMs <= merged[^1].EndMs)
+            {
+                if (interval.EndMs > merged[^1].EndMs)
+                {
+                    merged[^1] = merged[^1] with { EndMs = interval.EndMs };
+                }
+
+                continue;
+            }
+
+            merged.Add(interval);
+        }
+
+        return [.. merged];
     }
 
     private static bool PauseBelongsToCollection(IReadOnlyList<GcPauseInterval> intervals, TraceGC collection)
@@ -783,7 +807,7 @@ public sealed partial class TimelineProvider
         TraceEventOpcode Opcode,
         int Version);
 
-    private readonly record struct GcPauseInterval(int ProcessId, double StartMs, double EndMs)
+    internal readonly record struct GcPauseInterval(int ProcessId, double StartMs, double EndMs)
     {
         public bool Contains(double timestampMs) => timestampMs >= StartMs && timestampMs <= EndMs;
 

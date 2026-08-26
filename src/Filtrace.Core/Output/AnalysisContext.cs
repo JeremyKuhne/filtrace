@@ -4,6 +4,7 @@
 
 using System.Text.Json.Serialization;
 using Filtrace.Tracing;
+using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Output;
 
@@ -195,7 +196,13 @@ public sealed record AnalysisScopeContext
             RootKind = hasRoot ? StackAncestryRootKind : null,
             RootCoverage = hasRoot ? rootCoverage : null,
             ProcessMode = hasProcessSelector ? processScope?.Mode : null,
-            Process = processScope?.Process,
+            // An automatic scope names the busiest process from the trace itself, so this
+            // is untrusted text on every surface that renders the context.
+            // An automatic scope names the busiest process from the trace itself, so this
+            // is untrusted text on every surface that renders the context.
+            Process = processScope?.Process is string scopeProcess
+                ? TimelineProvider.BoundSnapshotName(scopeProcess, out _)
+                : null,
             RequestedProcessIds = hasRequestedIds ? Bounded(processScope!.RequestedProcessIds) : null,
             RootProcessIds = hasProcessSelector ? Bounded(processScope!.RootProcessIds) : null,
             DescendantProcessIds = hasDescendants ? Bounded(processScope!.DescendantProcessIds) : null,

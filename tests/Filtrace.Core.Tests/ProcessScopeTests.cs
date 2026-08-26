@@ -3,6 +3,8 @@
 // See LICENSE file in the project root for full license information
 
 using System.Globalization;
+using Filtrace.Output;
+using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Tracing;
 
@@ -27,6 +29,35 @@ public sealed class ProcessScopeValidationTests
         ProcessNameSelector selector = new(new string('x', ProcessNameSelector.MaxNameSubstringLength));
 
         selector.NameSubstring.Should().HaveLength(ProcessNameSelector.MaxNameSubstringLength);
+    }
+
+    // An automatic scope takes its name from the trace, which never passes selector validation.
+    [TestMethod]
+    public void ScopeContext_AutomaticTraceDerivedName_IsBoundedAndEscaped()
+    {
+        AppliedProcessScope scope = new(
+            "automatic",
+            $"App\r\n\u001b[31m{new string('x', TimelineProvider.MaxSnapshotNameChars)}",
+            [],
+            [42],
+            [],
+            IncludeChildren: true);
+
+        AnalysisScopeContext context = AnalysisScopeContext.Create("", scope, null, null, null)!;
+
+        context.Process.Should().NotBeNull();
+        context.Process!.Length.Should().BeLessThanOrEqualTo(TimelineProvider.MaxSnapshotNameChars);
+        context.Process.Any(char.IsControl).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void ScopeContext_ValidatedSelectorName_IsUnchanged()
+    {
+        AppliedProcessScope scope = new("name", "HotLoopBench", [], [42], [], IncludeChildren: true);
+
+        AnalysisScopeContext context = AnalysisScopeContext.Create("", scope, null, null, null)!;
+
+        context.Process.Should().Be("HotLoopBench");
     }
 
     [TestMethod]

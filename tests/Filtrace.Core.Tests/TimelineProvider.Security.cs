@@ -347,6 +347,38 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void MergeOverlapping_NestedInterval_KeepsEnclosingPauseDiscoverable()
+    {
+        TimelineProvider.GcPauseInterval[] intervals =
+        [
+            new(1, 0.0, 100.0),
+            new(1, 50.0, 60.0)
+        ];
+
+        TimelineProvider.GcPauseInterval[] merged = TimelineProvider.MergeOverlapping(intervals);
+
+        merged.Should().ContainSingle();
+        merged[0].Contains(80.0).Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void MergeOverlapping_DisjointIntervals_AreRetainedInStartOrder()
+    {
+        TimelineProvider.GcPauseInterval[] intervals =
+        [
+            new(1, 30.0, 40.0),
+            new(1, 10.0, 20.0)
+        ];
+
+        TimelineProvider.GcPauseInterval[] merged = TimelineProvider.MergeOverlapping(intervals);
+
+        merged.Should().HaveCount(2);
+        merged[0].StartMs.Should().Be(10.0);
+        merged[1].StartMs.Should().Be(30.0);
+        merged[0].Contains(25.0).Should().BeFalse();
+    }
+
+    [TestMethod]
     public void GetSnapshotGcPauseWarning_IncompleteEvidence_IsExplicit()
     {
         TimelineSnapshot snapshot = new(
