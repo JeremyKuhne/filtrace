@@ -1182,12 +1182,14 @@ try {
         }
 
         if (-not $SkipBuild) {
-            Invoke-Dotnet @('build', $solution, '--configuration', $Configuration)
+            Invoke-Dotnet -Arguments @(
+                'build', $solution,
+                '--configuration', $Configuration)
             if (Test-Path -LiteralPath $packageDirectory) {
                 Remove-Item -LiteralPath $packageDirectory -Recurse -Force
             }
             $null = New-Item -ItemType Directory -Path $packageDirectory -Force
-            Invoke-Dotnet @(
+            Invoke-Dotnet -Arguments @(
                 'pack', $solution,
                 '--configuration', $Configuration,
                 '--no-build',

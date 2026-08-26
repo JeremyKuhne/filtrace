@@ -333,14 +333,17 @@ function Invoke-WorkflowFailure(
 function Invoke-DefaultWorkflow(
     [string] $Action,
     [string] $Repository,
-    [switch] $ManageCli) {
+    [switch] $ManageCli,
+    [switch] $Build) {
     [System.Collections.Generic.List[string]] $arguments = @(
         '-NoProfile',
         '-File', $workflow,
         '-Configuration', $Configuration,
-        '-SkipBuild',
         '-SkipValidation'
     )
+    if (-not $Build) {
+        $arguments.Add('-SkipBuild')
+    }
     if (-not $ManageCli) {
         $arguments.Add('-SkipCli')
     }
@@ -503,7 +506,7 @@ try {
         })
     Copy-LocalPackages $consumerState $localFixturePackages
 
-    Invoke-DefaultWorkflow '' $consumerRoot -ManageCli
+    Invoke-DefaultWorkflow '' $consumerRoot -ManageCli -Build
     Assert-True (Test-Path -LiteralPath $consumerMcp -PathType Leaf) `
         'Default install did not use the consumer repository MCP configuration.'
     Assert-True (Test-Path -LiteralPath (Join-Path $consumerSkill 'SKILL.md') -PathType Leaf) `

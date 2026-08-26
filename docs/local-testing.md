@@ -170,10 +170,50 @@ Version-3 repository-scoped manifests from the preview workflow are likewise
 restore-only; the next Install records a version-4 manifest with skill-backup
 integrity metadata.
 
-## Return manually to shipped releases
+## Recover repository-scoped setup without a manifest
 
-When no saved state exists, remove the local CLI and install the current stable
-NuGet release:
+Without a saved manifest, the helper cannot reconstruct the exact prior MCP entry,
+skill contents, or explicit CLI path. Clean up only the consumer repository and
+workspace that belonged to that setup:
+
+1. In the consumer's `.vscode/mcp.json`, remove the local `filtrace` property or
+   replace it with the shipped `dnx` entry below. Preserve every unrelated server.
+2. Preserve any consumer `overlay.md`, then remove or re-vendor the consumer's
+   `.agents/skills/filtrace` directory with `gh skill --scope project`.
+3. Remove the isolated `state.json.workspace` that contains the exact CLI path
+   printed by Install. If that path was not retained, inspect, rather than blindly
+   delete, the ownership markers under the Filtrace checkout:
+
+```pwsh
+Get-ChildItem D:\repos\filtrace\artifacts\local-testing\repositories `
+  -Filter .filtrace-local-testing.json -Recurse -Force |
+  ForEach-Object {
+    [pscustomobject]@{
+      Marker = $_.FullName
+      StatePath = (Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json).statePath
+      CliDirectory = Join-Path $_.DirectoryName 'tools'
+    }
+  }
+```
+
+Delete only the workspace identified for that consumer. For an install that used
+`-StatePath`, `-CliToolPath`, `-McpConfigPath`, or `-SkillDestination`, clean the
+explicit paths instead of these defaults.
+
+The shipped project MCP entry is:
+
+```json
+{
+  "type": "stdio",
+  "command": "dnx",
+  "args": ["KlutzyNinja.Filtrace.Mcp", "--yes"]
+}
+```
+
+## Recover the legacy global workflow without a manifest
+
+The following global commands apply only to the legacy version-2 workflow. Remove
+the global local CLI and install the current stable NuGet release:
 
 ```pwsh
 dotnet tool uninstall --global KlutzyNinja.Filtrace
