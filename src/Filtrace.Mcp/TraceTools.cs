@@ -1567,14 +1567,23 @@ public sealed class TraceTools
 
     private static TimelineResult ReadTimelineSnapshot(string path, double atMs, double halfWindowMs, ScopeRequest? scope)
     {
+        return ReadTimelineSnapshot(
+            path,
+            () => new TimelineProvider().ReadSnapshot(path, atMs, halfWindowMs, scope));
+    }
+
+    internal static TimelineResult ReadTimelineSnapshot(string path, Func<TimelineResult> read)
+    {
         RequireNetTraceOrEtl(path, "timeline snapshot");
+        ArgumentNullException.ThrowIfNull(read);
 
         try
         {
-            return new TimelineProvider().ReadSnapshot(path, atMs, halfWindowMs, scope);
+            return read();
         }
         catch (Exception ex) when (
             ex is IOException
+            or InvalidDataException
             or UnauthorizedAccessException
             or NotSupportedException
             or InvalidOperationException

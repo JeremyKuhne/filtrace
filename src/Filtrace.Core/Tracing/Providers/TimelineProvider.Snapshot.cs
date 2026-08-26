@@ -224,8 +224,8 @@ public sealed partial class TimelineProvider
             if (data is GCSuspendEETraceData suspend
                 && suspend.Reason is GCSuspendEEReason.SuspendForGC or GCSuspendEEReason.SuspendForGCPrep)
             {
-                BoundedPauseStartResult addResult = AddPauseStartBounded(pauseStarts, pauseKey, timestamp);
-                if (addResult != BoundedPauseStartResult.Added)
+                BoundedPauseStartResult addResult = AddPauseStartBounded(pauseStarts, pauseKey, timestamp, endMs);
+                if (addResult is BoundedPauseStartResult.Duplicate or BoundedPauseStartResult.CapacityExceeded)
                 {
                     gcPauseDataIncomplete = true;
                     detailTruncated |= addResult == BoundedPauseStartResult.CapacityExceeded;
@@ -645,8 +645,14 @@ public sealed partial class TimelineProvider
     internal static BoundedPauseStartResult AddPauseStartBounded(
         Dictionary<(int ProcessId, int ThreadId), double> pauseStarts,
         (int ProcessId, int ThreadId) key,
-        double timestamp)
+        double timestamp,
+        double windowEndMs)
     {
+        if (timestamp > windowEndMs)
+        {
+            return BoundedPauseStartResult.AfterWindow;
+        }
+
         if (pauseStarts.ContainsKey(key))
         {
             return BoundedPauseStartResult.Duplicate;
@@ -695,6 +701,9 @@ public sealed partial class TimelineProvider
         Duplicate,
 
         /// <summary>The pending-start budget was full.</summary>
-        CapacityExceeded
+        CapacityExceeded,
+
+        /// <summary>The start occurred after the selected window.</summary>
+        AfterWindow
     }
 }

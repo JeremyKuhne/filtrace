@@ -35,6 +35,7 @@
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <ProjectReference Include="..\Filtrace.Core\Filtrace.Core.csproj" />
+    <InternalsVisibleTo Include="Filtrace.Mcp.Tests" />
   </ItemGroup>
 
   <!--

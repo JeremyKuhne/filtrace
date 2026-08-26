@@ -537,7 +537,7 @@ public static class SteeringHints
         if (timeline.Snapshot is TimelineSnapshot snapshot)
         {
             string window = $"{FormatMs(timeline.FromMs)}-{FormatMs(timeline.ToMs)} ms";
-            if (snapshot.Cpu.Methods.Count > 0)
+            if (snapshot.Cpu.SampleCount > 0)
             {
                 return SnapshotDrillGuidance("CPU work", "cpu", timeline, window);
             }

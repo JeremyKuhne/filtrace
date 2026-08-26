@@ -264,4 +264,21 @@ public sealed class TimelineExecutorTests
         exit.Should().Be(ExitCodes.InputError);
         error.Should().NotBeEmpty();
     }
+
+    [TestMethod]
+    public void TryReadDualFormatReport_InvalidData_ReturnsCleanInputFailure()
+    {
+        StringWriter error = new();
+
+        bool success = TraceExecution.TryReadDualFormatReport(
+            Alloc,
+            "timeline snapshot",
+            static () => throw new InvalidDataException("malformed snapshot trace"),
+            error,
+            out TimelineResult? result);
+
+        success.Should().BeFalse();
+        result.Should().BeNull();
+        error.ToString().Should().Contain("malformed snapshot trace");
+    }
 }

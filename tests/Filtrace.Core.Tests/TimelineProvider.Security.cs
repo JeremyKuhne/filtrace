@@ -192,7 +192,7 @@ public sealed class TimelineProviderSecurityTests
             [(1, 2)] = 10.0
         };
 
-        TimelineProvider.AddPauseStartBounded(starts, (1, 2), 15.0)
+        TimelineProvider.AddPauseStartBounded(starts, (1, 2), 15.0, 20.0)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.Duplicate);
         starts[(1, 2)].Should().Be(10.0);
     }
@@ -206,9 +206,29 @@ public sealed class TimelineProviderSecurityTests
             starts[(1, i)] = i;
         }
 
-        TimelineProvider.AddPauseStartBounded(starts, (2, 1), 10.0)
+        TimelineProvider.AddPauseStartBounded(starts, (2, 1), 10.0, 20.0)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.CapacityExceeded);
         starts.Should().HaveCount(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
+    }
+
+    [TestMethod]
+    public void AddPauseStartBounded_AtWindowEnd_RetainsStart()
+    {
+        Dictionary<(int ProcessId, int ThreadId), double> starts = [];
+
+        TimelineProvider.AddPauseStartBounded(starts, (1, 2), 10.0, 10.0)
+            .Should().Be(TimelineProvider.BoundedPauseStartResult.Added);
+        starts.Should().ContainKey((1, 2)).WhoseValue.Should().Be(10.0);
+    }
+
+    [TestMethod]
+    public void AddPauseStartBounded_AfterWindowEnd_DoesNotRetainStart()
+    {
+        Dictionary<(int ProcessId, int ThreadId), double> starts = [];
+
+        TimelineProvider.AddPauseStartBounded(starts, (1, 2), 10.0001, 10.0)
+            .Should().Be(TimelineProvider.BoundedPauseStartResult.AfterWindow);
+        starts.Should().BeEmpty();
     }
 
     [TestMethod]

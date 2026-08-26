@@ -919,6 +919,30 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForTimeline_SnapshotWithUnresolvedCpuSamples_DrillsCpuRanking()
+    {
+        TimelineSnapshot snapshot = new(
+            50.0,
+            new SnapshotGcSummary(0, 0.0, 0.0, []),
+            new SnapshotCpuSummary(10, 0, []),
+            new SnapshotExceptionSummary(0, 0, []),
+            new SnapshotAllocationSummary(0, 0, 0, []),
+            new SnapshotJitSummary(0, 0, []),
+            new SnapshotEventSummary(10, 1, [new SnapshotEventType("SampleProfiler", "ThreadSample", 10)]),
+            false);
+        TimelineResult timeline = new(40.0, 60.0, 20.0, 1, null, null, null, null, null, null)
+        {
+            Mode = "snapshot",
+            Snapshot = snapshot
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().Contain("top CPU work");
+        envelope.NextSteps.Single().Arguments!.Metric.Should().Be("cpu");
+    }
+
+    [TestMethod]
     public void ForRanking_Null_ThrowsArgumentNull()
     {
         Action act = () => SteeringHints.ForRanking(null!);

@@ -1128,6 +1128,16 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void TimelineSnapshot_InvalidData_ThrowsCleanMcpException()
+    {
+        Action act = () => TraceTools.ReadTimelineSnapshot(
+            FixturePath(Alloc),
+            static () => throw new InvalidDataException("malformed snapshot trace"));
+
+        act.Should().Throw<McpException>().WithMessage("malformed snapshot trace");
+    }
+
+    [TestMethod]
     public void ThreadPool_NetTrace_ReturnsAdjustmentSummary()
     {
         AnalysisResult<ThreadPoolResult> envelope = TraceTools.ThreadPool(FixturePath(ThreadPoolTrace));
