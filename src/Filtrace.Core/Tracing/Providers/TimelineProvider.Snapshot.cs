@@ -9,6 +9,7 @@ using Microsoft.Diagnostics.Tracing.Analysis;
 using Microsoft.Diagnostics.Tracing.Analysis.GC;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.EventPipe;
+using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using Etlx = Microsoft.Diagnostics.Tracing.Etlx;
@@ -230,7 +231,7 @@ public sealed partial class TimelineProvider
                     detailTruncated |= addResult == BoundedPauseStartResult.CapacityExceeded;
                 }
             }
-            else if (data.EventName.EndsWith("RestartEEStop", StringComparison.Ordinal)
+            else if (IsGcRestartEvent(data)
                 && pauseStarts.Remove(pauseKey, out double pauseStart)
                 && timestamp >= pauseStart
                 && timestamp >= startMs
@@ -659,6 +660,17 @@ public sealed partial class TimelineProvider
         pauseStarts.Add(key, timestamp);
         return BoundedPauseStartResult.Added;
     }
+
+    private static bool IsGcRestartEvent(TraceEvent data) =>
+        IsGcRestartEventIdentity(
+            data is GCNoUserDataTraceData,
+            data.ProviderGuid,
+            data.EventName);
+
+    internal static bool IsGcRestartEventIdentity(bool expectedType, Guid providerGuid, string eventName) =>
+        expectedType
+        && providerGuid == ClrTraceEventParser.ProviderGuid
+        && string.Equals(eventName, "GC/RestartEEStop", StringComparison.Ordinal);
 
     private static AppliedProcessScope? FollowUpProcessScope(ScopeResolution resolved) =>
         resolved.AppliedScope.Mode == "automatic" && resolved.Label is null

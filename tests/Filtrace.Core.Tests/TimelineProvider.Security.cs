@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Output;
+using Microsoft.Diagnostics.Tracing.Parsers;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -235,6 +236,27 @@ public sealed class TimelineProviderSecurityTests
 
         warning.Should().Contain("incomplete").And.Contain("may be understated");
         AnalysisDiagnostic.FromWarning(warning).Severity.Should().Be("warning");
+    }
+
+    [TestMethod]
+    public void IsGcRestartEventIdentity_RequiresTypeProviderAndExactName()
+    {
+        TimelineProvider.IsGcRestartEventIdentity(
+            expectedType: true,
+            ClrTraceEventParser.ProviderGuid,
+            "GC/RestartEEStop").Should().BeTrue();
+        TimelineProvider.IsGcRestartEventIdentity(
+            expectedType: false,
+            ClrTraceEventParser.ProviderGuid,
+            "GC/RestartEEStop").Should().BeFalse();
+        TimelineProvider.IsGcRestartEventIdentity(
+            expectedType: true,
+            Guid.Empty,
+            "GC/RestartEEStop").Should().BeFalse();
+        TimelineProvider.IsGcRestartEventIdentity(
+            expectedType: true,
+            ClrTraceEventParser.ProviderGuid,
+            "Custom/RestartEEStop").Should().BeFalse();
     }
 
     [TestMethod]

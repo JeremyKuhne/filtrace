@@ -7,17 +7,19 @@ using System.Text.Json.Serialization;
 namespace Filtrace.Tracing.Providers;
 
 /// <summary>
-///  A time-bucketed correlation of what a trace was doing: the window and bucket
-///  geometry, the process scoped to, and one aligned array per requested lane. Each
-///  lane's array has <see cref="BucketCount"/> entries on the same time axis, so a
-///  spike in one lane reads against the others at the same instant. A lane not
-///  requested is <see langword="null"/>, distinguishing "not asked for" from "asked
-///  for, nothing happened".
+///  A temporal correlation of what a trace was doing. Bucket mode returns aligned
+///  arrays for requested lanes; snapshot mode returns one bounded cross-lane
+///  <see cref="Snapshot"/> around a selected timestamp and leaves the lane arrays
+///  <see langword="null"/>.
 /// </summary>
 /// <param name="FromMs">Window start, in milliseconds from the trace start.</param>
 /// <param name="ToMs">Window end, in milliseconds from the trace start.</param>
-/// <param name="BucketSizeMs">Width of each bucket, in milliseconds.</param>
-/// <param name="BucketCount">Number of buckets each requested lane is divided into.</param>
+/// <param name="BucketSizeMs">
+///  Width of each aligned bucket in bucket mode; resolved window width in snapshot mode.
+/// </param>
+/// <param name="BucketCount">
+///  Number of aligned buckets in bucket mode; one in snapshot mode.
+/// </param>
 /// <param name="Process">Process tree scoped to (explicit or auto-busiest), or <see langword="null"/> for every process.</param>
 /// <param name="Gc">GC lane, or <see langword="null"/> when not requested.</param>
 /// <param name="Cpu">CPU lane, or <see langword="null"/> when not requested.</param>
