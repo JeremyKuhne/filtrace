@@ -478,22 +478,24 @@ public sealed partial class TimelineProvider
         return lane;
     }
 
-    // Resolves the shortened innermost resolved method of a CPU sample's stack: the
-    // leaf if it resolved, else the first caller up the stack that did. Null when no
-    // frame resolved to a managed method (an all-native or broken stack), so an
-    // unresolved leaf does not drown the top-method tally in "?".
-    private static string? LeafMethod(TraceCallStack callStack)
+    // An unresolved leaf falls back to the first resolved caller so "?" does not dominate tallies.
+    private static TraceCodeAddress? LeafCodeAddress(TraceCallStack callStack)
     {
         for (TraceCallStack? frame = callStack; frame is not null; frame = frame.Caller)
         {
             if (!string.IsNullOrEmpty(frame.CodeAddress.FullMethodName))
             {
-                return FrameNames.Short(QualifyFrame(frame.CodeAddress));
+                return frame.CodeAddress;
             }
         }
 
         return null;
     }
+
+    private static string? LeafMethod(TraceCallStack callStack) =>
+        LeafCodeAddress(callStack) is TraceCodeAddress address
+            ? FrameNames.Short(QualifyFrame(address))
+            : null;
 
     // Builds the "module!Method(sig)" frame name FrameNames.Short expects, matching the
     // CPU reader's naming so the shortened leaf reads the same as a ranking's rows.

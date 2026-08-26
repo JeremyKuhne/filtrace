@@ -112,6 +112,7 @@ public sealed partial class TimelineProvider
         long allocationBytes = 0;
         long jitCompilationCount = 0;
         Dictionary<string, long> cpuMethods = new(StringComparer.Ordinal);
+        Dictionary<CodeAddressIndex, (string Name, bool Truncated)> cpuMethodCache = [];
         Dictionary<string, long> exceptionTypes = new(StringComparer.Ordinal);
         Dictionary<string, (long Count, long Bytes)> allocationTypes = new(StringComparer.Ordinal);
         Dictionary<string, long> jitMethods = new(StringComparer.Ordinal);
@@ -298,12 +299,22 @@ public sealed partial class TimelineProvider
                     }
 
                     cpuSampleCount++;
-                    string? method = LeafMethod(stack);
-                    if (method is not null)
+                    TraceCodeAddress? leafAddress = LeafCodeAddress(stack);
+                    if (leafAddress is not null
+                        && TryGetBoundedCpuMethod(
+                            cpuMethodCache,
+                            leafAddress.CodeAddressIndex,
+                            leafAddress,
+                            static address => FrameNames.Short(QualifyFrame(address)),
+                            out string method,
+                            out bool methodTruncated))
                     {
-                        method = BoundSnapshotName(method, out bool methodTruncated);
                         namesTruncated |= methodTruncated;
                         detailTruncated |= !TallyBounded(cpuMethods, method);
+                    }
+                    else if (leafAddress is not null)
+                    {
+                        detailTruncated = true;
                     }
 
                     break;
@@ -591,6 +602,32 @@ public sealed partial class TimelineProvider
         boundedName = BoundSnapshotName(name, out bool nameTruncated);
         truncated = providerTruncated || nameTruncated;
         cache.Add(metadataIdentity, (boundedProvider, boundedName, truncated));
+        return true;
+    }
+
+    internal static bool TryGetBoundedCpuMethod<TKey, TState>(
+        Dictionary<TKey, (string Name, bool Truncated)> cache,
+        TKey codeAddressIdentity,
+        TState state,
+        Func<TState, string> resolveMethod,
+        out string boundedMethod,
+        out bool truncated) where TKey : notnull
+    {
+        if (cache.TryGetValue(codeAddressIdentity, out (string Name, bool Truncated) cached))
+        {
+            (boundedMethod, truncated) = cached;
+            return true;
+        }
+
+        if (cache.Count >= MaxSnapshotRetainedKeysPerFamily)
+        {
+            boundedMethod = "";
+            truncated = false;
+            return false;
+        }
+
+        boundedMethod = BoundSnapshotName(resolveMethod(state), out truncated);
+        cache.Add(codeAddressIdentity, (boundedMethod, truncated));
         return true;
     }
 

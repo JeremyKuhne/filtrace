@@ -198,8 +198,6 @@ public sealed record AnalysisScopeContext
             ProcessMode = hasProcessSelector ? processScope?.Mode : null,
             // An automatic scope names the busiest process from the trace itself, so this
             // is untrusted text on every surface that renders the context.
-            // An automatic scope names the busiest process from the trace itself, so this
-            // is untrusted text on every surface that renders the context.
             Process = processScope?.Process is string scopeProcess
                 ? TimelineProvider.BoundSnapshotName(scopeProcess, out _)
                 : null,

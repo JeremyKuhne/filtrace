@@ -139,6 +139,80 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void TryGetBoundedCpuMethod_RepeatedLongMethod_CompletesPromptlyAndResolvesOnce()
+    {
+        Dictionary<int, (string Name, bool Truncated)> cache = [];
+        string method = new('m', 1_000_000);
+        List<int> resolveCalls = [];
+        (string Method, List<int> Calls) state = (method, resolveCalls);
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        TimelineProvider.TryGetBoundedCpuMethod(
+            cache,
+            1,
+            state,
+            static value =>
+            {
+                value.Calls.Add(1);
+                return value.Method;
+            },
+            out string firstMethod,
+            out bool firstTruncated).Should().BeTrue();
+        bool allSucceeded = true;
+        string repeatedMethod = "";
+        bool repeatedTruncated = false;
+        for (int i = 0; i < 10_000; i++)
+        {
+            allSucceeded &= TimelineProvider.TryGetBoundedCpuMethod(
+                cache,
+                1,
+                state,
+                static value =>
+                {
+                    value.Calls.Add(1);
+                    return value.Method;
+                },
+                out repeatedMethod,
+                out repeatedTruncated);
+        }
+
+        stopwatch.Stop();
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+        allSucceeded.Should().BeTrue();
+        resolveCalls.Should().ContainSingle();
+        cache.Should().ContainSingle();
+        firstTruncated.Should().BeTrue();
+        ReferenceEquals(repeatedMethod, firstMethod).Should().BeTrue();
+        repeatedTruncated.Should().Be(firstTruncated);
+    }
+
+    [TestMethod]
+    public void TryGetBoundedCpuMethod_AtCapacity_RejectsBeforeResolving()
+    {
+        Dictionary<int, (string Name, bool Truncated)> cache = [];
+        for (int i = 0; i < TimelineProvider.MaxSnapshotRetainedKeysPerFamily; i++)
+        {
+            cache.Add(i, ($"method-{i}", false));
+        }
+
+        List<bool> resolutionCalls = [];
+        TimelineProvider.TryGetBoundedCpuMethod(
+            cache,
+            TimelineProvider.MaxSnapshotRetainedKeysPerFamily,
+            resolutionCalls,
+            static calls =>
+            {
+                calls.Add(true);
+                return "overflow-method";
+            },
+            out _,
+            out _).Should().BeFalse();
+
+        resolutionCalls.Should().BeEmpty();
+        cache.Should().HaveCount(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
+    }
+
+    [TestMethod]
     public void ReadSnapshot_HalfWindowAtLimit_Succeeds()
     {
         TimelineResult result = new TimelineProvider().ReadSnapshot(
