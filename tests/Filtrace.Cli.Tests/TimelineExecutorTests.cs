@@ -164,6 +164,32 @@ public sealed class TimelineExecutorTests
     }
 
     [TestMethod]
+    public void Run_SnapshotCenterBeyondWirePrecision_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(Request(
+            Alloc,
+            mode: TimelineMode.Snapshot,
+            at: 10.005,
+            window: 2.0));
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--at").And.Contain("0.01 millisecond increments");
+    }
+
+    [TestMethod]
+    public void Run_SnapshotWindowBeyondWirePrecision_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(Request(
+            Alloc,
+            mode: TimelineMode.Snapshot,
+            at: 10.0,
+            window: 0.015));
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--window").And.Contain("0.01 millisecond increments");
+    }
+
+    [TestMethod]
     public void Run_SnapshotText_PreservesMinimumWindowPrecision()
     {
         (int exit, string output, string error) = Run(Request(

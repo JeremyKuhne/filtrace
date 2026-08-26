@@ -773,8 +773,8 @@ public sealed class TraceTools
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
     /// <param name="mode">The timeline representation: <c>buckets</c> or <c>snapshot</c>.</param>
-    /// <param name="at">Snapshot center in milliseconds from trace start.</param>
-    /// <param name="window">Snapshot half-window in milliseconds, or <see langword="null"/> to use the default.</param>
+    /// <param name="at">Snapshot center in 0.01 millisecond increments from trace start.</param>
+    /// <param name="window">Snapshot half-window in 0.01 millisecond increments, or <see langword="null"/> to use the default.</param>
     /// <param name="lanes">Comma-separated lanes to include; empty means every lane.</param>
     /// <param name="buckets">Number of equal time buckets to divide the window into, or <see langword="null"/> to use the default.</param>
     /// <param name="time">Optional time window (<c>start,end</c> ms) scoping the timeline.</param>
@@ -786,8 +786,8 @@ public sealed class TraceTools
     public static AnalysisResult<TimelineResult> Timeline(
         [Description("Path to a .nettrace or .etl trace file.")] string path,
         [Description("Mode: buckets (default) or snapshot.")] string mode = "buckets",
-        [Description("Snapshot center in ms; required when mode=snapshot.")] double? at = null,
-        [Description("Snapshot half-window in ms on either side of at; defaults to 100 when omitted.")] double? window = null,
+        [Description("Snapshot center in 0.01 ms increments; required when mode=snapshot.")] double? at = null,
+        [Description("Snapshot half-window in 0.01 ms increments; defaults to 100 when omitted.")] double? window = null,
         [Description("Bucket-mode lanes: gc, cpu, exceptions, alloc, jit; omit for all.")] string lanes = "",
         [Description("Bucket-mode slice count (default 50, clamped to 5-200).")] int? buckets = null,
         [Description("Bucket-mode time window 'start,end' in ms; either bound may be omitted.")] string time = "",
@@ -806,18 +806,21 @@ public sealed class TraceTools
         TimelineResult result;
         if (resolvedMode == TimelineMode.Snapshot)
         {
-            if (at is not double center || !double.IsFinite(center) || center < 0.0)
+            if (at is not double center
+                || center < 0.0
+                || !TimelineProvider.IsSnapshotGeometryRepresentable(center))
             {
-                throw new McpException("at is required for snapshot mode and must be a finite, non-negative timestamp in milliseconds.");
+                throw new McpException(
+                    "at is required for snapshot mode and must be a finite, non-negative timestamp in 0.01 millisecond increments.");
             }
 
             double resolvedWindow = window ?? TimelineProvider.DefaultSnapshotHalfWindowMs;
-            if (!double.IsFinite(resolvedWindow)
-                || resolvedWindow < TimelineProvider.MinSnapshotHalfWindowMs
-                || resolvedWindow > TimelineProvider.MaxSnapshotHalfWindowMs)
+            if (resolvedWindow < TimelineProvider.MinSnapshotHalfWindowMs
+                || resolvedWindow > TimelineProvider.MaxSnapshotHalfWindowMs
+                || !TimelineProvider.IsSnapshotGeometryRepresentable(resolvedWindow))
             {
                 throw new McpException(
-                    $"window must be finite and from {TimelineProvider.MinSnapshotHalfWindowMs:N2} "
+                    $"window must be finite, in 0.01 millisecond increments, and from {TimelineProvider.MinSnapshotHalfWindowMs:N2} "
                     + $"through {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
             }
 

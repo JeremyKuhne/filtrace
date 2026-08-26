@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using System.Security.Cryptography;
+using Filtrace.Output;
 using Filtrace.Tracing.Readers;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Analysis;
@@ -44,17 +45,19 @@ public sealed partial class TimelineProvider
     ///  pass over a <c>.nettrace</c> or <c>.etl</c> trace.
     /// </summary>
     /// <param name="path">The <c>.nettrace</c> or <c>.etl</c> file path.</param>
-    /// <param name="atMs">Center timestamp, in milliseconds from trace start.</param>
+    /// <param name="atMs">Center timestamp, in 0.01 millisecond increments from trace start.</param>
     /// <param name="halfWindowMs">
-    ///  Milliseconds retained on either side of <paramref name="atMs"/>; must be from
-    ///  <see cref="MinSnapshotHalfWindowMs"/> through <see cref="MaxSnapshotHalfWindowMs"/>.
+    ///  Milliseconds retained on either side of <paramref name="atMs"/>; must be in
+    ///  0.01 millisecond increments from <see cref="MinSnapshotHalfWindowMs"/> through
+    ///  <see cref="MaxSnapshotHalfWindowMs"/>.
     /// </param>
     /// <param name="scope">The process scope; <see langword="null"/> applies the automatic default.</param>
     /// <returns>A one-window timeline carrying a bounded snapshot.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="ArgumentOutOfRangeException">
-    ///  A timestamp is non-finite, negative, or outside the trace, or the half-window
-    ///  is non-finite or outside the supported minimum/maximum range.
+    ///  A timestamp is non-finite, negative, outside the trace, or not representable at
+    ///  the wire format's precision, or the half-window is non-finite, outside the
+    ///  supported minimum/maximum range, or not representable at that precision.
     /// </exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
     public TimelineResult ReadSnapshot(
@@ -64,19 +67,23 @@ public sealed partial class TimelineProvider
         ScopeRequest? scope = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        if (!double.IsFinite(atMs) || atMs < 0.0)
+        if (atMs < 0.0 || !IsSnapshotGeometryRepresentable(atMs))
         {
-            throw new ArgumentOutOfRangeException(nameof(atMs), atMs, "Snapshot center must be a finite, non-negative timestamp.");
+            throw new ArgumentOutOfRangeException(
+                nameof(atMs),
+                atMs,
+                "Snapshot center must be a finite, non-negative timestamp in 0.01 millisecond increments.");
         }
 
-        if (!double.IsFinite(halfWindowMs)
-            || halfWindowMs < MinSnapshotHalfWindowMs
-            || halfWindowMs > MaxSnapshotHalfWindowMs)
+        if (halfWindowMs < MinSnapshotHalfWindowMs
+            || halfWindowMs > MaxSnapshotHalfWindowMs
+            || !IsSnapshotGeometryRepresentable(halfWindowMs))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(halfWindowMs),
                 halfWindowMs,
-                $"Snapshot half-window must be finite and from {MinSnapshotHalfWindowMs:N2} through {MaxSnapshotHalfWindowMs:N0} ms.");
+                $"Snapshot half-window must be finite, in 0.01 millisecond increments, and from "
+                    + $"{MinSnapshotHalfWindowMs:N2} through {MaxSnapshotHalfWindowMs:N0} ms.");
         }
 
         string fullPath = Path.GetFullPath(path);
@@ -351,6 +358,16 @@ public sealed partial class TimelineProvider
             }
         }
     }
+
+    /// <summary>
+    ///  Returns whether a snapshot geometry value is finite and exactly representable
+    ///  by the shared serialized-output precision.
+    /// </summary>
+    /// <param name="value">The trace-relative millisecond value to inspect.</param>
+    /// <returns><see langword="true"/> when the value is supported; otherwise <see langword="false"/>.</returns>
+    public static bool IsSnapshotGeometryRepresentable(double value) =>
+        double.IsFinite(value)
+        && value == Math.Round(value, OutputJson.DoublePrecision, MidpointRounding.AwayFromZero);
 
     /// <summary>
     ///  Returns the warning for a snapshot whose bounded aggregation state dropped

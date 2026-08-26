@@ -237,6 +237,26 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void ReadSnapshot_FractionalCenterBeyondWirePrecision_Throws()
+    {
+        Action act = () => new TimelineProvider().ReadSnapshot(Alloc, atMs: 10.005, halfWindowMs: 2.0);
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("atMs")
+            .WithMessage("*0.01 millisecond increments*");
+    }
+
+    [TestMethod]
+    public void ReadSnapshot_FractionalHalfWindowBeyondWirePrecision_Throws()
+    {
+        Action act = () => new TimelineProvider().ReadSnapshot(Alloc, atMs: 10.0, halfWindowMs: 0.015);
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("halfWindowMs")
+            .WithMessage("*0.01 millisecond increments*");
+    }
+
+    [TestMethod]
     public void ReadSnapshot_HalfWindowBelowMinimum_Throws()
     {
         Action act = () => new TimelineProvider().ReadSnapshot(

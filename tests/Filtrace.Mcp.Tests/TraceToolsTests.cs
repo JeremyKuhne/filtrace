@@ -1109,6 +1109,30 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Timeline_SnapshotCenterBeyondWirePrecision_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: "snapshot",
+            at: 10.005,
+            window: 2.0);
+
+        act.Should().Throw<McpException>().WithMessage("*0.01 millisecond increments*");
+    }
+
+    [TestMethod]
+    public void Timeline_SnapshotWindowBeyondWirePrecision_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: "snapshot",
+            at: 10.0,
+            window: 0.015);
+
+        act.Should().Throw<McpException>().WithMessage("*0.01 millisecond increments*");
+    }
+
+    [TestMethod]
     public void Timeline_ProcessSelectorAboveLimit_ThrowsMcpException()
     {
         Action act = () => TraceTools.Timeline(

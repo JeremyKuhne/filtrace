@@ -165,21 +165,21 @@ internal static class TimelineExecutor
             return false;
         }
 
-        if (!double.IsFinite(center) || center < 0.0)
+        if (center < 0.0 || !TimelineProvider.IsSnapshotGeometryRepresentable(center))
         {
-            error.WriteLine("--at must be a finite, non-negative timestamp in milliseconds.");
+            error.WriteLine("--at must be a finite, non-negative timestamp in 0.01 millisecond increments.");
             atMs = 0.0;
             halfWindowMs = 0.0;
             return false;
         }
 
         double resolvedHalfWindowMs = request.SnapshotHalfWindowMs ?? TimelineProvider.DefaultSnapshotHalfWindowMs;
-        if (!double.IsFinite(resolvedHalfWindowMs)
-            || resolvedHalfWindowMs < TimelineProvider.MinSnapshotHalfWindowMs
-            || resolvedHalfWindowMs > TimelineProvider.MaxSnapshotHalfWindowMs)
+        if (resolvedHalfWindowMs < TimelineProvider.MinSnapshotHalfWindowMs
+            || resolvedHalfWindowMs > TimelineProvider.MaxSnapshotHalfWindowMs
+            || !TimelineProvider.IsSnapshotGeometryRepresentable(resolvedHalfWindowMs))
         {
             error.WriteLine(
-                $"--window must be finite and from {TimelineProvider.MinSnapshotHalfWindowMs:N2} "
+                $"--window must be finite, in 0.01 millisecond increments, and from {TimelineProvider.MinSnapshotHalfWindowMs:N2} "
                 + $"through {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
             atMs = 0.0;
             halfWindowMs = 0.0;

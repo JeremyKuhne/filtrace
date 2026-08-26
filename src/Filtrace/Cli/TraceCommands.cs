@@ -1061,8 +1061,8 @@ internal sealed class TraceCommands
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe or .etl ETW file (a speedscope export is rejected).</param>
     /// <param name="mode">View to return: buckets (default) or snapshot.</param>
-    /// <param name="at">Snapshot center in ms relative to trace start; required for snapshot.</param>
-    /// <param name="window">Half-window in ms on either side of --at; defaults to 100 (snapshot only).</param>
+    /// <param name="at">Snapshot center in 0.01 ms increments relative to trace start; required for snapshot.</param>
+    /// <param name="window">Half-window in 0.01 ms increments on either side of --at; defaults to 100 (snapshot only).</param>
     /// <param name="lanes">Bucket-mode lanes: gc, cpu, exceptions, alloc, jit; omit for every lane.</param>
     /// <param name="buckets">-n, Bucket-mode slice count; defaults to 50 (clamped to 5-200).</param>
     /// <param name="time">Bucket-mode time window 'start,end' in ms; either bound may be omitted.</param>

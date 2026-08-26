@@ -1136,6 +1136,24 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    [DataRow("--at", "10.005")]
+    [DataRow("--window", "0.015")]
+    public void Run_TimelineSnapshotWithGeometryBeyondWirePrecision_ReturnsUsageError(
+        string option,
+        string value)
+    {
+        string[] arguments = option == "--at"
+            ? ["timeline", Alloc, "--mode", "snapshot", "--at", value]
+            : ["timeline", Alloc, "--mode", "snapshot", "--at", "10", "--window", value];
+
+        (int exit, string output, string error) = Run(arguments);
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("0.01 millisecond increments");
+    }
+
+    [TestMethod]
     public void Run_TimelineHelp_DescribesSnapshotSelectors()
     {
         (int exit, string output, _) = Run("timeline", "--help");
