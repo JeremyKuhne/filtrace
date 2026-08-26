@@ -872,6 +872,25 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForTimeline_SnapshotWithTooManyAutomaticRootIds_AsksForNarrowerSelector()
+    {
+        int[] processIds = [.. Enumerable.Range(1, AnalysisScopeContext.MaxReportedProcessIds + 1)];
+        TimelineResult timeline = SnapshotTimeline() with
+        {
+            AppliedProcessScope = new AppliedProcessScope("automatic", "App", [], processIds, [], true)
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should()
+            .Contain($"exact process scope has {processIds.Length} ids")
+            .And.Contain("choose a narrower --process or --pid selector")
+            .And.NotContain("original process selector");
+        envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+        envelope.NextSteps[0].Arguments.Should().BeNull();
+    }
+
+    [TestMethod]
     public void ForTimeline_SnapshotWithTooManyExactIds_EmitsNoRunnableFollowUp()
     {
         int[] processIds = [.. Enumerable.Range(1, AnalysisScopeContext.MaxReportedProcessIds + 1)];

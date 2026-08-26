@@ -810,8 +810,13 @@ public static class SteeringHints
         TimelineResult timeline,
         double startMs,
         double endMs,
-        int processIdCount) =>
-        Guidance(
+        int processIdCount)
+    {
+        string selectorGuidance = timeline.AppliedProcessScope?.Mode == "automatic"
+            ? "choose a narrower --process or --pid selector"
+            : "reuse the original process selector";
+        return Guidance(
             $"the exact process scope has {processIdCount} ids, exceeding the bounded follow-up limit; "
-            + $"rerun rank with the original process selector and --time {FormatMs(startMs)},{FormatMs(endMs)}");
+            + $"{selectorGuidance} and rerun rank with --time {FormatMs(startMs)},{FormatMs(endMs)}");
+    }
 }
