@@ -23,10 +23,10 @@ public sealed class TimelineExecutorTests
         string path,
         TimelineMode mode = TimelineMode.Buckets,
         double? at = null,
-        double window = TimelineProvider.DefaultSnapshotHalfWindowMs,
+        double? window = null,
         string lanes = "",
         string time = "",
-        int buckets = TimelineProvider.DefaultBucketCount,
+        int? buckets = null,
         string process = "",
         bool allProcesses = false,
         int[]? pid = null,
@@ -111,6 +111,30 @@ public sealed class TimelineExecutorTests
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("--at is required");
+    }
+
+    [TestMethod]
+    public void Run_BucketsWithExplicitDefaultWindow_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(Request(
+            Alloc,
+            window: TimelineProvider.DefaultSnapshotHalfWindowMs));
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--window require --mode snapshot");
+    }
+
+    [TestMethod]
+    public void Run_SnapshotWithExplicitDefaultBucketCount_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(Request(
+            Alloc,
+            mode: TimelineMode.Snapshot,
+            at: 10.0,
+            buckets: TimelineProvider.DefaultBucketCount));
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--buckets apply only to --mode buckets");
     }
 
     [TestMethod]

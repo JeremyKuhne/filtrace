@@ -21,12 +21,12 @@ true.
 
 - **The surface is 16 canonical CLI commands, 12 hidden preview aliases, and 18
   `trace_*` MCP tools.** Top-level CLI help is 27 lines / 2,171 characters, down
-  from 37 / 3,170. The MCP tool list is ~6,679 estimated tokens against a
+  from 37 / 3,170. The MCP tool list is ~6,695 estimated tokens against a
   7,000-token CI gate.
 - **The permanent schema is dominated by input schemas, not output schemas.**
   Advertising the envelope alone instead of every expanded result type reclaimed
-  roughly 3,000 tokens. Measured across the current 18 tools: input schemas 4,039
-  (60%), output schemas 1,116 (17%), descriptions 886 (13%), names and JSON
+  roughly 3,000 tokens. Measured across the current 18 tools: input schemas 4,055
+  (61%), output schemas 1,116 (17%), descriptions 886 (13%), names and JSON
   structure the rest. Input schemas are the largest lever; prose is the smallest.
   Regenerate the breakdown with `tools/Test-McpServer.ps1`, which writes
   `artifacts/mcp-schema-tokens.json`.
@@ -687,7 +687,7 @@ evidence family with an explicit truncation diagnostic, and the half-window is
 capped at 60 seconds.
 
 The `point-in-time-snapshot` deterministic task answers the cross-lane question in
-one call and 507 tokens. Its live contract allows exactly one `trace_timeline` call
+one call and 571 tokens. Its live contract allows exactly one `trace_timeline` call
 and forbids `rank` and `events`; this is materially better than the prior
 timeline-then-rank/query flow while leaving ordinary bucket output unchanged.
 

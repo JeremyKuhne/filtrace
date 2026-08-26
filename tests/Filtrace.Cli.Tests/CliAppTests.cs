@@ -1096,6 +1096,46 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_TimelineSnapshot_OmittedWindowUsesDefault()
+    {
+        (int exit, string output, string error) = Run(
+            "timeline", Alloc,
+            "--mode", "snapshot",
+            "--at", "0",
+            "--format", "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        error.Should().BeEmpty();
+        output.Should().Contain("\"mode\":\"snapshot\"");
+    }
+
+    [TestMethod]
+    public void Run_TimelineBucketsWithExplicitDefaultWindow_ReturnsUsageError()
+    {
+        (int exit, string output, string error) = Run(
+            "timeline", Alloc,
+            "--window", "100");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("--window require --mode snapshot");
+    }
+
+    [TestMethod]
+    public void Run_TimelineSnapshotWithExplicitDefaultBuckets_ReturnsUsageError()
+    {
+        (int exit, string output, string error) = Run(
+            "timeline", Alloc,
+            "--mode", "snapshot",
+            "--at", "0",
+            "--buckets", "50");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("--buckets apply only to --mode buckets");
+    }
+
+    [TestMethod]
     public void Run_TimelineHelp_DescribesSnapshotSelectors()
     {
         (int exit, string output, _) = Run("timeline", "--help");

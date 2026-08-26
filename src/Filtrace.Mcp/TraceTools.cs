@@ -774,9 +774,9 @@ public sealed class TraceTools
     /// <param name="path">Path to the trace file.</param>
     /// <param name="mode">The timeline representation: <c>buckets</c> or <c>snapshot</c>.</param>
     /// <param name="at">Snapshot center in milliseconds from trace start.</param>
-    /// <param name="window">Snapshot half-window in milliseconds.</param>
+    /// <param name="window">Snapshot half-window in milliseconds, or <see langword="null"/> to use the default.</param>
     /// <param name="lanes">Comma-separated lanes to include; empty means every lane.</param>
-    /// <param name="buckets">Number of equal time buckets to divide the window into.</param>
+    /// <param name="buckets">Number of equal time buckets to divide the window into, or <see langword="null"/> to use the default.</param>
     /// <param name="time">Optional time window (<c>start,end</c> ms) scoping the timeline.</param>
     /// <returns>The timeline envelope.</returns>
     [McpServerTool(Name = "trace_timeline", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
@@ -787,9 +787,9 @@ public sealed class TraceTools
         [Description("Path to a .nettrace or .etl trace file.")] string path,
         [Description("Mode: buckets (default) or snapshot.")] string mode = "buckets",
         [Description("Snapshot center in ms; required when mode=snapshot.")] double? at = null,
-        [Description("Snapshot half-window in ms on either side of at.")] double window = TimelineProvider.DefaultSnapshotHalfWindowMs,
+        [Description("Snapshot half-window in ms on either side of at; defaults to 100 when omitted.")] double? window = null,
         [Description("Bucket-mode lanes: gc, cpu, exceptions, alloc, jit; omit for all.")] string lanes = "",
-        [Description("Bucket-mode slice count (clamped to 5-200).")] int buckets = TimelineProvider.DefaultBucketCount,
+        [Description("Bucket-mode slice count (default 50, clamped to 5-200).")] int? buckets = null,
         [Description("Bucket-mode time window 'start,end' in ms; either bound may be omitted.")] string time = "",
         [Description("Process-name substring scoping a multi-process .etl to one tree; omit to auto-scope to the busiest.")] string process = "",
         [Description("Exact process ids; excludes process.")] int[]? pid = null,
@@ -811,9 +811,10 @@ public sealed class TraceTools
                 throw new McpException("at is required for snapshot mode and must be a finite, non-negative timestamp in milliseconds.");
             }
 
-            if (!double.IsFinite(window)
-                || window < TimelineProvider.MinSnapshotHalfWindowMs
-                || window > TimelineProvider.MaxSnapshotHalfWindowMs)
+            double resolvedWindow = window ?? TimelineProvider.DefaultSnapshotHalfWindowMs;
+            if (!double.IsFinite(resolvedWindow)
+                || resolvedWindow < TimelineProvider.MinSnapshotHalfWindowMs
+                || resolvedWindow > TimelineProvider.MaxSnapshotHalfWindowMs)
             {
                 throw new McpException(
                     $"window must be finite and from {TimelineProvider.MinSnapshotHalfWindowMs:N2} "
@@ -822,16 +823,16 @@ public sealed class TraceTools
 
             if (!string.IsNullOrWhiteSpace(time)
                 || !string.IsNullOrWhiteSpace(lanes)
-                || buckets != TimelineProvider.DefaultBucketCount)
+                || buckets is not null)
             {
                 throw new McpException("time, lanes, and buckets apply only to buckets mode.");
             }
 
-            result = ReadTimelineSnapshot(path, center, window, ResolveScope(process, pid, children));
+            result = ReadTimelineSnapshot(path, center, resolvedWindow, ResolveScope(process, pid, children));
         }
         else
         {
-            if (at is not null || window != TimelineProvider.DefaultSnapshotHalfWindowMs)
+            if (at is not null || window is not null)
             {
                 throw new McpException("at and window require mode=snapshot.");
             }
@@ -846,7 +847,9 @@ public sealed class TraceTools
                 throw new McpException(laneError!);
             }
 
-            int resolvedBuckets = TimelineProvider.ClampBucketCount(buckets, out string? bucketWarning);
+            int resolvedBuckets = TimelineProvider.ClampBucketCount(
+                buckets ?? TimelineProvider.DefaultBucketCount,
+                out string? bucketWarning);
             if (bucketWarning is not null)
             {
                 warnings.Add(bucketWarning);

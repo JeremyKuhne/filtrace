@@ -51,7 +51,7 @@ internal static class TimelineExecutor
         TimelineResult? result;
         if (request.Mode == TimelineMode.Snapshot)
         {
-            if (!TryValidateSnapshot(request, error, out double atMs))
+            if (!TryValidateSnapshot(request, error, out double atMs, out double halfWindowMs))
             {
                 return ExitCodes.UsageError;
             }
@@ -59,7 +59,7 @@ internal static class TimelineExecutor
             if (!TraceExecution.TryReadDualFormatReport(
                 request.Path,
                 "timeline snapshot",
-                () => new TimelineProvider().ReadSnapshot(request.Path, atMs, request.SnapshotHalfWindowMs, scope),
+                () => new TimelineProvider().ReadSnapshot(request.Path, atMs, halfWindowMs, scope),
                 error,
                 out result))
             {
@@ -68,7 +68,7 @@ internal static class TimelineExecutor
         }
         else
         {
-            if (request.AtMs is not null || request.SnapshotHalfWindowMs != TimelineProvider.DefaultSnapshotHalfWindowMs)
+            if (request.AtMs is not null || request.SnapshotHalfWindowMs is not null)
             {
                 error.WriteLine("--at and --window require --mode snapshot.");
                 return ExitCodes.UsageError;
@@ -86,7 +86,9 @@ internal static class TimelineExecutor
                 return ExitCodes.UsageError;
             }
 
-            int buckets = TimelineProvider.ClampBucketCount(request.BucketCount, out string? bucketWarning);
+            int buckets = TimelineProvider.ClampBucketCount(
+                request.BucketCount ?? TimelineProvider.DefaultBucketCount,
+                out string? bucketWarning);
             if (bucketWarning is not null)
             {
                 warnings.Add(bucketWarning);
@@ -149,12 +151,17 @@ internal static class TimelineExecutor
         return ExitCodes.Success;
     }
 
-    private static bool TryValidateSnapshot(TimelineRequest request, TextWriter error, out double atMs)
+    private static bool TryValidateSnapshot(
+        TimelineRequest request,
+        TextWriter error,
+        out double atMs,
+        out double halfWindowMs)
     {
         if (request.AtMs is not double center)
         {
             error.WriteLine("--at is required when --mode snapshot is selected.");
             atMs = 0.0;
+            halfWindowMs = 0.0;
             return false;
         }
 
@@ -162,30 +169,35 @@ internal static class TimelineExecutor
         {
             error.WriteLine("--at must be a finite, non-negative timestamp in milliseconds.");
             atMs = 0.0;
+            halfWindowMs = 0.0;
             return false;
         }
 
-        if (!double.IsFinite(request.SnapshotHalfWindowMs)
-            || request.SnapshotHalfWindowMs < TimelineProvider.MinSnapshotHalfWindowMs
-            || request.SnapshotHalfWindowMs > TimelineProvider.MaxSnapshotHalfWindowMs)
+        double resolvedHalfWindowMs = request.SnapshotHalfWindowMs ?? TimelineProvider.DefaultSnapshotHalfWindowMs;
+        if (!double.IsFinite(resolvedHalfWindowMs)
+            || resolvedHalfWindowMs < TimelineProvider.MinSnapshotHalfWindowMs
+            || resolvedHalfWindowMs > TimelineProvider.MaxSnapshotHalfWindowMs)
         {
             error.WriteLine(
                 $"--window must be finite and from {TimelineProvider.MinSnapshotHalfWindowMs:N2} "
                 + $"through {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
             atMs = 0.0;
+            halfWindowMs = 0.0;
             return false;
         }
 
         if (!string.IsNullOrWhiteSpace(request.Time)
             || !string.IsNullOrWhiteSpace(request.Lanes)
-            || request.BucketCount != TimelineProvider.DefaultBucketCount)
+            || request.BucketCount is not null)
         {
             error.WriteLine("--time, --lanes, and --buckets apply only to --mode buckets.");
             atMs = 0.0;
+            halfWindowMs = 0.0;
             return false;
         }
 
         atMs = center;
+        halfWindowMs = resolvedHalfWindowMs;
         return true;
     }
 }

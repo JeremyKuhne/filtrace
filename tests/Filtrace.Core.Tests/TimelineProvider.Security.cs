@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Diagnostics;
 using Filtrace.Output;
 using Microsoft.Diagnostics.Tracing.Parsers;
 
@@ -66,6 +67,75 @@ public sealed class TimelineProviderSecurityTests
         escaped.Any(char.IsControl).Should().BeFalse();
         escaped.Should().Contain("\\u000D\\u000A\\u001B").And.NotBe(literal);
         escaped.Length.Should().BeLessThanOrEqualTo(TimelineProvider.MaxSnapshotNameChars);
+    }
+
+    [TestMethod]
+    public void TryGetBoundedEventNames_RepeatedLongMetadata_CompletesPromptlyAndReusesNames()
+    {
+        Dictionary<int, (string Provider, string Name, bool Truncated)> cache = [];
+        string provider = new('p', 1_000_000);
+        string name = new('n', 1_000_000);
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        TimelineProvider.TryGetBoundedEventNames(
+            cache,
+            1,
+            provider,
+            name,
+            out string firstProvider,
+            out string firstName,
+            out bool firstTruncated).Should().BeTrue();
+        bool allSucceeded = true;
+        string repeatedProvider = "";
+        string repeatedName = "";
+        bool repeatedTruncated = false;
+        for (int i = 0; i < 10_000; i++)
+        {
+            allSucceeded &= TimelineProvider.TryGetBoundedEventNames(
+                cache,
+                1,
+                provider,
+                name,
+                out repeatedProvider,
+                out repeatedName,
+                out repeatedTruncated);
+        }
+
+        stopwatch.Stop();
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+        allSucceeded.Should().BeTrue();
+        cache.Should().ContainSingle();
+        firstTruncated.Should().BeTrue();
+        ReferenceEquals(repeatedProvider, firstProvider).Should().BeTrue();
+        ReferenceEquals(repeatedName, firstName).Should().BeTrue();
+        repeatedTruncated.Should().Be(firstTruncated);
+    }
+
+    [TestMethod]
+    public void TryGetBoundedEventNames_AtCapacity_RejectsNewMetadata()
+    {
+        Dictionary<int, (string Provider, string Name, bool Truncated)> cache = [];
+        for (int i = 0; i < TimelineProvider.MaxSnapshotRetainedKeysPerFamily; i++)
+        {
+            TimelineProvider.TryGetBoundedEventNames(
+                cache,
+                i,
+                "provider",
+                $"event-{i}",
+                out _,
+                out _,
+                out _).Should().BeTrue();
+        }
+
+        TimelineProvider.TryGetBoundedEventNames(
+            cache,
+            TimelineProvider.MaxSnapshotRetainedKeysPerFamily,
+            "overflow-provider",
+            "overflow-event",
+            out _,
+            out _,
+            out _).Should().BeFalse();
+        cache.Should().HaveCount(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
     }
 
     [TestMethod]
@@ -228,6 +298,51 @@ public sealed class TimelineProviderSecurityTests
 
         TimelineProvider.AddPauseStartBounded(starts, (1, 2), 10.0001, 10.0)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.AfterWindow);
+        starts.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void MatchGcPauseRestart_MissingStartInsideWindow_ReturnsMissingStart()
+    {
+        Dictionary<(int ProcessId, int ThreadId), double> starts = [];
+
+        TimelineProvider.MatchGcPauseRestart(starts, (1, 2), 10.0, 5.0, 15.0, out _)
+            .Should().Be(TimelineProvider.GcRestartResult.MissingStart);
+    }
+
+    [TestMethod]
+    public void MatchGcPauseRestart_MissingStartAfterWindow_IsOutsideWindow()
+    {
+        Dictionary<(int ProcessId, int ThreadId), double> starts = [];
+
+        TimelineProvider.MatchGcPauseRestart(starts, (1, 2), 20.0, 5.0, 15.0, out _)
+            .Should().Be(TimelineProvider.GcRestartResult.OutsideWindow);
+    }
+
+    [TestMethod]
+    public void MatchGcPauseRestart_NonMonotonicPair_IsInvalidAndPreservesStart()
+    {
+        Dictionary<(int ProcessId, int ThreadId), double> starts = new()
+        {
+            [(1, 2)] = 10.0
+        };
+
+        TimelineProvider.MatchGcPauseRestart(starts, (1, 2), 9.0, 5.0, 15.0, out _)
+            .Should().Be(TimelineProvider.GcRestartResult.InvalidPair);
+        starts.Should().ContainKey((1, 2)).WhoseValue.Should().Be(10.0);
+    }
+
+    [TestMethod]
+    public void MatchGcPauseRestart_StartBeforeWindowAndRestartAfterWindow_Completes()
+    {
+        Dictionary<(int ProcessId, int ThreadId), double> starts = new()
+        {
+            [(1, 2)] = 4.0
+        };
+
+        TimelineProvider.MatchGcPauseRestart(starts, (1, 2), 16.0, 5.0, 15.0, out double pauseStart)
+            .Should().Be(TimelineProvider.GcRestartResult.Completed);
+        pauseStart.Should().Be(4.0);
         starts.Should().BeEmpty();
     }
 

@@ -1055,11 +1055,45 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Timeline_SnapshotWithOmittedWindow_UsesDefault()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: "snapshot",
+            at: 10.0);
+
+        envelope.Result.Mode.Should().Be("snapshot");
+        envelope.Result.Snapshot.Should().NotBeNull();
+    }
+
+    [TestMethod]
     public void Timeline_SnapshotWithoutAt_ThrowsMcpException()
     {
         Action act = () => TraceTools.Timeline(FixturePath(Alloc), mode: "snapshot");
 
         act.Should().Throw<McpException>().WithMessage("*at is required*");
+    }
+
+    [TestMethod]
+    public void Timeline_BucketsWithExplicitDefaultWindow_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            window: TimelineProvider.DefaultSnapshotHalfWindowMs);
+
+        act.Should().Throw<McpException>().WithMessage("*window require mode=snapshot*");
+    }
+
+    [TestMethod]
+    public void Timeline_SnapshotWithExplicitDefaultBuckets_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: "snapshot",
+            at: 10.0,
+            buckets: TimelineProvider.DefaultBucketCount);
+
+        act.Should().Throw<McpException>().WithMessage("*buckets apply only to buckets mode*");
     }
 
     [TestMethod]

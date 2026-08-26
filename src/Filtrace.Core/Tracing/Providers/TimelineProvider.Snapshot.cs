@@ -116,6 +116,7 @@ public sealed partial class TimelineProvider
         Dictionary<string, (long Count, long Bytes)> allocationTypes = new(StringComparer.Ordinal);
         Dictionary<string, long> jitMethods = new(StringComparer.Ordinal);
         Dictionary<(string Provider, string Name), long> eventTypes = [];
+        Dictionary<EventMetadataIdentity, (string Provider, string Name, bool Truncated)> eventNameCache = [];
         Dictionary<(int ProcessId, int ThreadId), double> pauseStarts = [];
         List<GcPauseInterval> pauseIntervals = [];
         bool detailTruncated = false;
@@ -231,23 +232,33 @@ public sealed partial class TimelineProvider
                     detailTruncated |= addResult == BoundedPauseStartResult.CapacityExceeded;
                 }
             }
-            else if (IsGcRestartEvent(data)
-                && pauseStarts.Remove(pauseKey, out double pauseStart)
-                && timestamp >= pauseStart
-                && timestamp >= startMs
-                && pauseStart <= endMs)
+            else if (IsGcRestartEvent(data))
             {
-                GcPauseInterval interval = new(data.ProcessID, pauseStart, timestamp);
-                double overlapMs = interval.OverlapMs(startMs, endMs);
-                totalPauseMs += overlapMs;
-                maxPauseMs = Math.Max(maxPauseMs, overlapMs);
-                if (pauseIntervals.Count < MaxSnapshotRetainedKeysPerFamily)
+                GcRestartResult restartResult = MatchGcPauseRestart(
+                    pauseStarts,
+                    pauseKey,
+                    timestamp,
+                    startMs,
+                    endMs,
+                    out double pauseStart);
+                if (restartResult is GcRestartResult.MissingStart or GcRestartResult.InvalidPair)
                 {
-                    pauseIntervals.Add(interval);
+                    gcPauseDataIncomplete = true;
                 }
-                else
+                else if (restartResult == GcRestartResult.Completed)
                 {
-                    detailTruncated = true;
+                    GcPauseInterval interval = new(data.ProcessID, pauseStart, timestamp);
+                    double overlapMs = interval.OverlapMs(startMs, endMs);
+                    totalPauseMs += overlapMs;
+                    maxPauseMs = Math.Max(maxPauseMs, overlapMs);
+                    if (pauseIntervals.Count < MaxSnapshotRetainedKeysPerFamily)
+                    {
+                        pauseIntervals.Add(interval);
+                    }
+                    else
+                    {
+                        detailTruncated = true;
+                    }
                 }
             }
 
@@ -257,10 +268,30 @@ public sealed partial class TimelineProvider
             }
 
             eventCount++;
-            string provider = BoundSnapshotName(data.ProviderName, out bool providerTruncated);
-            string eventName = BoundSnapshotName(data.EventName, out bool eventNameTruncated);
-            namesTruncated |= providerTruncated || eventNameTruncated;
-            detailTruncated |= !TallyBounded(eventTypes, (provider, eventName));
+            // Provider/event identity is stable across occurrences; classic events
+            // add task/opcode because their provider-scoped ID is always zero.
+            EventMetadataIdentity metadataIdentity = new(
+                data.ProviderGuid,
+                data.ID,
+                data.TaskGuid,
+                data.Opcode,
+                data.Version);
+            if (TryGetBoundedEventNames(
+                eventNameCache,
+                metadataIdentity,
+                data.ProviderName,
+                data.EventName,
+                out string provider,
+                out string eventName,
+                out bool eventNamesTruncated))
+            {
+                namesTruncated |= eventNamesTruncated;
+                detailTruncated |= !TallyBounded(eventTypes, (provider, eventName));
+            }
+            else
+            {
+                detailTruncated = true;
+            }
 
             switch (data)
             {
@@ -496,6 +527,36 @@ public sealed partial class TimelineProvider
         return $"{prefix}{separator}{hash}";
     }
 
+    internal static bool TryGetBoundedEventNames<TKey>(
+        Dictionary<TKey, (string Provider, string Name, bool Truncated)> cache,
+        TKey metadataIdentity,
+        string provider,
+        string name,
+        out string boundedProvider,
+        out string boundedName,
+        out bool truncated) where TKey : notnull
+    {
+        if (cache.TryGetValue(metadataIdentity, out (string Provider, string Name, bool Truncated) cached))
+        {
+            (boundedProvider, boundedName, truncated) = cached;
+            return true;
+        }
+
+        if (cache.Count >= MaxSnapshotRetainedKeysPerFamily)
+        {
+            boundedProvider = "";
+            boundedName = "";
+            truncated = false;
+            return false;
+        }
+
+        boundedProvider = BoundSnapshotName(provider, out bool providerTruncated);
+        boundedName = BoundSnapshotName(name, out bool nameTruncated);
+        truncated = providerTruncated || nameTruncated;
+        cache.Add(metadataIdentity, (boundedProvider, boundedName, truncated));
+        return true;
+    }
+
     private static bool RequiresSnapshotNameEscaping(string value)
     {
         for (int i = 0; i < value.Length; i++)
@@ -667,6 +728,38 @@ public sealed partial class TimelineProvider
         return BoundedPauseStartResult.Added;
     }
 
+    internal static GcRestartResult MatchGcPauseRestart(
+        Dictionary<(int ProcessId, int ThreadId), double> pauseStarts,
+        (int ProcessId, int ThreadId) key,
+        double timestamp,
+        double windowStartMs,
+        double windowEndMs,
+        out double pauseStart)
+    {
+        if (!double.IsFinite(timestamp))
+        {
+            pauseStarts.TryGetValue(key, out pauseStart);
+            return GcRestartResult.InvalidPair;
+        }
+
+        if (!pauseStarts.TryGetValue(key, out pauseStart))
+        {
+            return timestamp >= windowStartMs && timestamp <= windowEndMs
+                ? GcRestartResult.MissingStart
+                : GcRestartResult.OutsideWindow;
+        }
+
+        if (!double.IsFinite(pauseStart) || timestamp < pauseStart)
+        {
+            return GcRestartResult.InvalidPair;
+        }
+
+        pauseStarts.Remove(key);
+        return timestamp >= windowStartMs && pauseStart <= windowEndMs
+            ? GcRestartResult.Completed
+            : GcRestartResult.OutsideWindow;
+    }
+
     private static bool IsGcRestartEvent(TraceEvent data) =>
         IsGcRestartEventIdentity(
             data is GCNoUserDataTraceData,
@@ -682,6 +775,13 @@ public sealed partial class TimelineProvider
         resolved.AppliedScope.Mode == "automatic" && resolved.Label is null
             ? null
             : resolved.AppliedScope;
+
+    private readonly record struct EventMetadataIdentity(
+        Guid ProviderGuid,
+        TraceEventID Id,
+        Guid TaskGuid,
+        TraceEventOpcode Opcode,
+        int Version);
 
     private readonly record struct GcPauseInterval(int ProcessId, double StartMs, double EndMs)
     {
@@ -705,5 +805,21 @@ public sealed partial class TimelineProvider
 
         /// <summary>The start occurred after the selected window.</summary>
         AfterWindow
+    }
+
+    /// <summary>The outcome of matching one GC restart to pending pause state.</summary>
+    internal enum GcRestartResult
+    {
+        /// <summary>A valid pair overlaps the selected window.</summary>
+        Completed,
+
+        /// <summary>No pending start exists for a restart inside the selected window.</summary>
+        MissingStart,
+
+        /// <summary>The retained pair contains a non-finite or non-monotonic timestamp.</summary>
+        InvalidPair,
+
+        /// <summary>The restart cannot establish a pause overlapping the selected window.</summary>
+        OutsideWindow
     }
 }

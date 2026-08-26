@@ -190,7 +190,7 @@ These are checked by CI; a change that breaks one is not shippable.
 
 | Measure | Gate | Current | Enforced by |
 |---|---|---|---|
-| MCP `tools/list` size | <= 7,000 estimated tokens | ~6,679 tokens / 26,450 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
+| MCP `tools/list` size | <= 7,000 estimated tokens | ~6,695 tokens / 26,504 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | MCP stdout purity | pure JSON-RPC, real `tools/call` round trip | envelope `schemaVersion` 16 | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | Single analysis response | <= 25,000 tokens (`OutputBudget.DefaultCeilingTokens`) | every producer bounds its rows against `OutputBudget.DefaultRowBudgetTokens` | Core budget plus worst-case tests |
 | Per-command `--help` | <= 60 lines | 16 canonical commands; 12 hidden preview aliases remain help-addressable | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |

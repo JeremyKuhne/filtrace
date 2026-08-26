@@ -1062,9 +1062,9 @@ internal sealed class TraceCommands
     /// <param name="trace">Path to a .nettrace EventPipe or .etl ETW file (a speedscope export is rejected).</param>
     /// <param name="mode">View to return: buckets (default) or snapshot.</param>
     /// <param name="at">Snapshot center in ms relative to trace start; required for snapshot.</param>
-    /// <param name="window">Half-window in ms on either side of --at (snapshot only).</param>
+    /// <param name="window">Half-window in ms on either side of --at; defaults to 100 (snapshot only).</param>
     /// <param name="lanes">Bucket-mode lanes: gc, cpu, exceptions, alloc, jit; omit for every lane.</param>
-    /// <param name="buckets">-n, Bucket-mode slice count (clamped to 5-200).</param>
+    /// <param name="buckets">-n, Bucket-mode slice count; defaults to 50 (clamped to 5-200).</param>
     /// <param name="time">Bucket-mode time window 'start,end' in ms; either bound may be omitted.</param>
     /// <param name="process">Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.</param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
@@ -1083,9 +1083,9 @@ internal sealed class TraceCommands
         [Argument] string trace,
         TimelineMode mode = TimelineMode.Buckets,
         double? at = null,
-        double window = TimelineProvider.DefaultSnapshotHalfWindowMs,
+        double? window = null,
         string lanes = "",
-        int buckets = TimelineProvider.DefaultBucketCount,
+        int? buckets = null,
         string time = "",
         string process = "",
         bool allProcesses = false,
