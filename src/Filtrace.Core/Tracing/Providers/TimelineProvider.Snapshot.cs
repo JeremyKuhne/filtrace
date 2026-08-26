@@ -97,7 +97,7 @@ public sealed partial class TimelineProvider
 
         ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
         HashSet<int>? scopePids = resolved.ProcessIds;
-        bool namesTruncated = false;
+        bool namesTruncated = resolved.ProcessNameBounded;
         string? appliedProcessName = resolved.Label;
         if (appliedProcessName is not null)
         {
@@ -121,8 +121,6 @@ public sealed partial class TimelineProvider
         List<GcPauseInterval> pauseIntervals = [];
         bool detailTruncated = false;
         bool gcPauseDataIncomplete = false;
-        double totalPauseMs = 0.0;
-        double maxPauseMs = 0.0;
 
         using Etlx.TraceLogEventSource source = traceLog.Events.GetSource();
         source.NeedLoadedDotNetRuntimes();
@@ -134,8 +132,6 @@ public sealed partial class TimelineProvider
             source,
             scopePids,
             pauseIntervals,
-            totalPauseMs,
-            maxPauseMs,
             startMs,
             endMs,
             out bool gcNamesTruncated);
@@ -248,9 +244,6 @@ public sealed partial class TimelineProvider
                 else if (restartResult == GcRestartResult.Completed)
                 {
                     GcPauseInterval interval = new(data.ProcessID, pauseStart, timestamp);
-                    double overlapMs = interval.OverlapMs(startMs, endMs);
-                    totalPauseMs += overlapMs;
-                    maxPauseMs = Math.Max(maxPauseMs, overlapMs);
                     if (pauseIntervals.Count < MaxSnapshotRetainedKeysPerFamily)
                     {
                         pauseIntervals.Add(interval);
@@ -380,7 +373,7 @@ public sealed partial class TimelineProvider
 
         return result.Snapshot?.GcPauseDataIncomplete == true
             ? "Snapshot GC pause evidence is incomplete because the trace contained unmatched or duplicate "
-                + "GC suspend/restart state; pause totals and overlap-based collection detail may be understated."
+                + "GC suspend/restart state; pause totals and overlap-based collection detail may be inaccurate."
             : null;
     }
 
@@ -388,8 +381,6 @@ public sealed partial class TimelineProvider
         Etlx.TraceLogEventSource source,
         HashSet<int>? scopePids,
         IReadOnlyList<GcPauseInterval> pauseIntervals,
-        double totalPauseMs,
-        double maxPauseMs,
         double startMs,
         double endMs,
         out bool namesTruncated)
@@ -397,11 +388,8 @@ public sealed partial class TimelineProvider
         int collectionCount = 0;
         List<SnapshotGcRecord> longest = [];
         namesTruncated = false;
-        Dictionary<int, GcPauseInterval[]> intervalsByProcess = pauseIntervals
-            .GroupBy(static interval => interval.ProcessId)
-            .ToDictionary(
-                static group => group.Key,
-                static group => MergeOverlapping(group));
+        GcPauseAggregate pauseAggregate = AggregateGcPauses(pauseIntervals, startMs, endMs);
+        IReadOnlyDictionary<int, GcPauseInterval[]> intervalsByProcess = pauseAggregate.IntervalsByProcess;
 
         foreach (TraceProcess process in source.Processes())
         {
@@ -456,9 +444,34 @@ public sealed partial class TimelineProvider
 
         return new SnapshotGcSummary(
             collectionCount,
-            Math.Round(totalPauseMs, 2),
-            Math.Round(maxPauseMs, 2),
+            Math.Round(pauseAggregate.TotalPauseMs, 2),
+            Math.Round(pauseAggregate.MaxPauseMs, 2),
             top);
+    }
+
+    internal static GcPauseAggregate AggregateGcPauses(
+        IEnumerable<GcPauseInterval> intervals,
+        double windowStartMs,
+        double windowEndMs)
+    {
+        Dictionary<int, GcPauseInterval[]> intervalsByProcess = intervals
+            .GroupBy(static interval => interval.ProcessId)
+            .ToDictionary(
+                static group => group.Key,
+                static group => MergeOverlapping(group));
+        double totalPauseMs = 0.0;
+        double maxPauseMs = 0.0;
+        foreach (GcPauseInterval[] processIntervals in intervalsByProcess.Values)
+        {
+            foreach (GcPauseInterval interval in processIntervals)
+            {
+                double overlapMs = interval.OverlapMs(windowStartMs, windowEndMs);
+                totalPauseMs += overlapMs;
+                maxPauseMs = Math.Max(maxPauseMs, overlapMs);
+            }
+        }
+
+        return new GcPauseAggregate(intervalsByProcess, totalPauseMs, maxPauseMs);
     }
 
     // ContainsTimestamp binary-searches a single candidate, so the intervals it reads must
@@ -814,6 +827,11 @@ public sealed partial class TimelineProvider
         public double OverlapMs(double windowStartMs, double windowEndMs) =>
             Math.Max(0.0, Math.Min(EndMs, windowEndMs) - Math.Max(StartMs, windowStartMs));
     }
+
+    internal sealed record GcPauseAggregate(
+        IReadOnlyDictionary<int, GcPauseInterval[]> IntervalsByProcess,
+        double TotalPauseMs,
+        double MaxPauseMs);
 
     /// <summary>The outcome of adding one pending GC pause start to bounded state.</summary>
     internal enum BoundedPauseStartResult

@@ -379,6 +379,39 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void AggregateGcPauses_OverlappingSameProcess_CountsUnionOnce()
+    {
+        TimelineProvider.GcPauseInterval[] intervals =
+        [
+            new(1, 0.0, 60.0),
+            new(1, 50.0, 100.0)
+        ];
+
+        TimelineProvider.GcPauseAggregate aggregate = TimelineProvider.AggregateGcPauses(intervals, 0.0, 100.0);
+
+        aggregate.IntervalsByProcess.Should().ContainSingle();
+        aggregate.IntervalsByProcess[1].Should().ContainSingle();
+        aggregate.TotalPauseMs.Should().Be(100.0);
+        aggregate.MaxPauseMs.Should().Be(100.0);
+    }
+
+    [TestMethod]
+    public void AggregateGcPauses_OverlappingDifferentProcesses_SumsEachProcess()
+    {
+        TimelineProvider.GcPauseInterval[] intervals =
+        [
+            new(1, 0.0, 100.0),
+            new(2, 0.0, 100.0)
+        ];
+
+        TimelineProvider.GcPauseAggregate aggregate = TimelineProvider.AggregateGcPauses(intervals, 0.0, 100.0);
+
+        aggregate.IntervalsByProcess.Should().HaveCount(2);
+        aggregate.TotalPauseMs.Should().Be(200.0);
+        aggregate.MaxPauseMs.Should().Be(100.0);
+    }
+
+    [TestMethod]
     public void GetSnapshotGcPauseWarning_IncompleteEvidence_IsExplicit()
     {
         TimelineSnapshot snapshot = new(
@@ -401,7 +434,7 @@ public sealed class TimelineProviderSecurityTests
 
         string warning = TimelineProvider.GetSnapshotGcPauseWarning(result)!;
 
-        warning.Should().Contain("incomplete").And.Contain("may be understated");
+        warning.Should().Contain("incomplete").And.Contain("may be inaccurate");
         AnalysisDiagnostic.FromWarning(warning).Severity.Should().Be("warning");
     }
 

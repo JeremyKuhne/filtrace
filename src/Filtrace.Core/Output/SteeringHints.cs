@@ -103,7 +103,7 @@ public static class SteeringHints
             Metric = metric,
             Frame = frame,
             Root = string.IsNullOrEmpty(root) ? null : root,
-            Process = (scope?.Selector as ProcessNameSelector)?.NameSubstring,
+            Process = (scope?.Selector as ProcessNameSelector)?.DisplayName,
             ProcessIds = processIds,
             ProcessIdCount = processIdCount,
             ProcessIdsTruncated = processIdsTruncated,
@@ -372,7 +372,7 @@ public static class SteeringHints
 
         hint = scope?.Selector switch
         {
-            ProcessNameSelector name => $"{hint} --process {QuotePowerShellArgument(name.NameSubstring)}",
+            ProcessNameSelector name => $"{hint} --process {QuotePowerShellArgument(name.DisplayName)}",
             // Comma-separated, not repeated: a repeated --pid keeps only the last value.
             ProcessIdSelector ids => $"{hint} --pid {string.Join(",", ids.ProcessIds)}",
             _ => scope?.IncludeAll == true ? $"{hint} --all-processes" : hint

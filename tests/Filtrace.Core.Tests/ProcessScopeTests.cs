@@ -5,6 +5,7 @@
 using System.Globalization;
 using Filtrace.Output;
 using Filtrace.Tracing.Providers;
+using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Tracing;
 
@@ -29,6 +30,8 @@ public sealed class ProcessScopeValidationTests
         ProcessNameSelector selector = new(new string('x', ProcessNameSelector.MaxNameSubstringLength));
 
         selector.NameSubstring.Should().HaveLength(ProcessNameSelector.MaxNameSubstringLength);
+        selector.DisplayName.Should().Be(selector.NameSubstring);
+        selector.DisplayNameChanged.Should().BeFalse();
     }
 
     // An automatic scope takes its name from the trace, which never passes selector validation.
@@ -58,6 +61,22 @@ public sealed class ProcessScopeValidationTests
         AnalysisScopeContext context = AnalysisScopeContext.Create("", scope, null, null, null)!;
 
         context.Process.Should().Be("HotLoopBench");
+    }
+
+    [TestMethod]
+    public void TraceDerivedName_OutputPathsUseBoundedDisplayName()
+    {
+        string rawName = $"App\r\n\u001b[31m{new string('x', TimelineProvider.MaxSnapshotNameChars)}";
+        ProcessNameSelector selector = ProcessNameSelector.FromTraceName(rawName);
+
+        selector.NameSubstring.Should().Be(rawName);
+        selector.DisplayName.Length.Should().BeLessThanOrEqualTo(TimelineProvider.MaxSnapshotNameChars);
+        selector.DisplayName.Any(char.IsControl).Should().BeFalse();
+        selector.DisplayNameChanged.Should().BeTrue();
+        ProcessTree.Label(selector).Should().Be(selector.DisplayName);
+        ProcessTree.Phrase(selector, includeChildren: true).Should().Contain(selector.DisplayName);
+        ProcessTree.Phrase(selector, includeChildren: true).Any(char.IsControl).Should().BeFalse();
+        LifecycleProvider.Describe(selector).Should().Be(selector.DisplayName);
     }
 
     [TestMethod]

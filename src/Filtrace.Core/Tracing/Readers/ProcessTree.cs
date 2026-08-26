@@ -85,18 +85,19 @@ internal static class ProcessTree
                 Label(selector),
                 Phrase(selector, request.IncludeChildren),
                 warnings,
-                appliedScope)
-            : new ScopeResolution(keep, null, null, [], appliedScope);
+                appliedScope,
+                selector is ProcessNameSelector { DisplayNameChanged: true })
+            : new ScopeResolution(keep, null, null, [], appliedScope, processNameBounded: false);
     }
 
     // A short identity for the scope, for structured output and terse rendering.
-    private static string Label(ProcessSelector selector) => selector is ProcessIdSelector ids
+    internal static string Label(ProcessSelector selector) => selector is ProcessIdSelector ids
         ? FormatIds(ids.ProcessIds)
-        : ((ProcessNameSelector)selector).NameSubstring;
+        : ((ProcessNameSelector)selector).DisplayName;
 
     // The scope as a prose phrase, so a warning reads the same whichever selector and
     // descendant mode produced it.
-    private static string Phrase(ProcessSelector selector, bool includeChildren)
+    internal static string Phrase(ProcessSelector selector, bool includeChildren)
     {
         if (selector is ProcessIdSelector ids)
         {
@@ -105,7 +106,7 @@ internal static class ProcessTree
                 : $"{FormatIds(ids.ProcessIds)} (no children)";
         }
 
-        string name = ((ProcessNameSelector)selector).NameSubstring;
+        string name = ((ProcessNameSelector)selector).DisplayName;
         return includeChildren
             ? $"the '{name}' process tree"
             : $"the '{name}' process itself (no children)";
@@ -300,7 +301,7 @@ internal static class ProcessTree
             ? "automatic"
             : selector is ProcessIdSelector ? "ids" : "name";
         string? process = selector is ProcessNameSelector nameSelector
-            ? nameSelector.NameSubstring
+            ? nameSelector.DisplayName
             : null;
         IReadOnlyList<int> requestedIds = selector is ProcessIdSelector idSelector
             ? idSelector.ProcessIds
@@ -365,7 +366,7 @@ internal static class ProcessTree
         if (independentRoots > 1)
         {
             warnings.Add(
-                $"The name '{selector.NameSubstring}' matched {independentRoots} unrelated process trees "
+                $"The name '{selector.DisplayName}' matched {independentRoots} unrelated process trees "
                 + $"({FormatIds([.. matched.Select(static process => process.ProcessID).Order()])}); "
                 + "they are ranked together. Pass --pid to scope to exact processes.");
         }

@@ -15,20 +15,22 @@ internal sealed class ScopeResolution
     ///  The resolution for a read that keeps every process.
     /// </summary>
     public static ScopeResolution Unscoped { get; } =
-        new(null, null, null, [], AppliedProcessScope.AllProcesses);
+        new(null, null, null, [], AppliedProcessScope.AllProcesses, processNameBounded: false);
 
     public ScopeResolution(
         HashSet<int>? processIds,
         string? label,
         string? phrase,
         IReadOnlyList<string> warnings,
-        AppliedProcessScope appliedScope)
+        AppliedProcessScope appliedScope,
+        bool processNameBounded)
     {
         ProcessIds = processIds;
         Label = label;
         Phrase = phrase;
         Warnings = warnings;
         AppliedScope = appliedScope;
+        ProcessNameBounded = processNameBounded;
     }
 
     /// <summary>
@@ -57,4 +59,7 @@ internal sealed class ScopeResolution
 
     /// <summary>The machine-readable process scope the read applied.</summary>
     public AppliedProcessScope AppliedScope { get; }
+
+    /// <summary>Whether the reported trace-derived process name was bounded or escaped.</summary>
+    public bool ProcessNameBounded { get; }
 }

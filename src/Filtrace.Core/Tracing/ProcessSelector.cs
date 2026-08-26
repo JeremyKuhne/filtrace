@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Tracing.Providers;
+
 namespace Filtrace.Tracing;
 
 /// <summary>
@@ -72,6 +74,8 @@ public sealed record ProcessNameSelector : ProcessSelector
         }
 
         NameSubstring = nameSubstring;
+        DisplayName = nameSubstring;
+        DisplayNameChanged = false;
     }
 
     // A trace-derived name describes what the capture contains rather than what the caller
@@ -80,9 +84,15 @@ public sealed record ProcessNameSelector : ProcessSelector
     {
         ArgumentException.ThrowIfNullOrEmpty(nameSubstring);
         NameSubstring = nameSubstring;
+        DisplayName = TimelineProvider.BoundSnapshotName(nameSubstring, out bool displayNameChanged);
+        DisplayNameChanged = displayNameChanged;
     }
 
     internal static ProcessNameSelector FromTraceName(string name) => new(name, traceDerived: true);
+
+    internal string DisplayName { get; }
+
+    internal bool DisplayNameChanged { get; }
 
     /// <summary>
     ///  The case-insensitive substring matched against process names to find the scope
