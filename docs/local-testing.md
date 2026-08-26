@@ -8,7 +8,7 @@ skill, and records enough state to reverse every switch.
 ## Prerequisites
 
 - .NET 10 SDK selected by [global.json](../global.json).
-- PowerShell 7 or later.
+- PowerShell 7.2 or later.
 - A consumer repository where project MCP and skill configuration can be tested.
 - GitHub CLI with `gh skill` support (2.90 or later) only when manually
   re-vendoring a shipped skill without a saved baseline.
@@ -81,7 +81,8 @@ The defaults and their scope are:
 `-McpConfigPath`, `-SkillDestination`, `-CliToolPath`, and `-StatePath` override
 those paths. A user-profile MCP path or user skill destination is therefore an
 explicit broadening of scope, not the default. `-SkipCli` leaves every CLI install
-unchanged when only MCP and skill behavior needs testing.
+unchanged when only MCP and skill behavior needs testing. A custom CLI path cannot
+overlap the workspace marker, package feed, or either backup directory.
 
 For VS Code Insiders or a nondefault profile, an explicit user MCP override is
 still available:
@@ -96,7 +97,8 @@ The entire skill directory travels: `SKILL.md`, `README.md`, and every bundled
 script. An existing `overlay.md` remains consumer-owned. The helper rejects exact,
 ancestor, or descendant overlap between the destination and the Filtrace source
 skill before any target write, resolving existing symbolic-link and junction
-ancestors to their physical targets first.
+ancestors to their physical targets first. Case comparison follows the filesystem
+containing each path, including case-sensitive APFS volumes.
 
 ## Verify local mode
 

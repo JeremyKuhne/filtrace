@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE file in the project root for full license information
 
-#Requires -Version 7.0
+#Requires -Version 7.2
 
 <#
 .SYNOPSIS
@@ -98,13 +98,6 @@ function Get-FullPath([string] $Path, [string] $Description) {
     return [System.IO.Path]::GetFullPath($Path)
 }
 
-function Test-CaseInsensitivePathPlatform {
-    return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
-        [System.Runtime.InteropServices.OSPlatform]::Windows) -or
-        [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
-            [System.Runtime.InteropServices.OSPlatform]::OSX)
-}
-
 function Resolve-PhysicalPath([string] $Path, [int] $Depth = 0) {
     if ($Depth -gt 64) {
         throw "Path contains too many symbolic-link levels: '$Path'."
@@ -152,9 +145,82 @@ function Resolve-PhysicalPath([string] $Path, [int] $Depth = 0) {
         [System.IO.Path]::GetFullPath($currentPath))
 }
 
+function Get-CaseVariant([string] $Name) {
+    for ([int] $index = 0; $index -lt $Name.Length; $index++) {
+        [char] $character = $Name[$index]
+        if ($character -ge [char] 'a' -and $character -le [char] 'z') {
+            return $Name.Substring(0, $index) +
+                [char]::ToUpperInvariant($character) +
+                $Name.Substring($index + 1)
+        }
+        if ($character -ge [char] 'A' -and $character -le [char] 'Z') {
+            return $Name.Substring(0, $index) +
+                [char]::ToLowerInvariant($character) +
+                $Name.Substring($index + 1)
+        }
+    }
+
+    return $null
+}
+
+function Get-PathComparison([string] $Path) {
+    [string] $currentPath = Resolve-PhysicalPath $Path
+    while (-not [string]::IsNullOrWhiteSpace($currentPath)) {
+        [System.IO.FileSystemInfo] $item = Get-Item `
+            -LiteralPath $currentPath `
+            -Force `
+            -ErrorAction SilentlyContinue
+        if ($null -ne $item -and $null -ne $item.Parent) {
+            [string] $variant = Get-CaseVariant $item.Name
+            if (-not [string]::IsNullOrWhiteSpace($variant)) {
+                [System.IO.FileSystemInfo[]] $caseMatches = @(
+                    Get-ChildItem -LiteralPath $item.Parent.FullName -Force |
+                        Where-Object Name -IEQ $item.Name)
+                if ($caseMatches.Count -gt 1) {
+                    return [System.StringComparison]::Ordinal
+                }
+
+                [string] $variantPath = Join-Path $item.Parent.FullName $variant
+                if (Test-Path -LiteralPath $variantPath) {
+                    return [System.StringComparison]::OrdinalIgnoreCase
+                }
+                return [System.StringComparison]::Ordinal
+            }
+        }
+
+        [string] $parentPath = Split-Path -Parent $currentPath
+        if ([string]::IsNullOrWhiteSpace($parentPath) -or $parentPath -ceq $currentPath) {
+            break
+        }
+        $currentPath = $parentPath
+    }
+
+    return $(if (Test-WindowsPlatform) {
+            [System.StringComparison]::OrdinalIgnoreCase
+        }
+        else {
+            [System.StringComparison]::Ordinal
+        })
+}
+
+function Test-PathsEqual([string] $First, [string] $Second) {
+    [bool] $firstEmpty = [string]::IsNullOrWhiteSpace($First)
+    [bool] $secondEmpty = [string]::IsNullOrWhiteSpace($Second)
+    if ($firstEmpty -or $secondEmpty) {
+        return $firstEmpty -and $secondEmpty
+    }
+
+    [string] $firstPhysical = Resolve-PhysicalPath $First
+    [string] $secondPhysical = Resolve-PhysicalPath $Second
+    return [string]::Equals(
+        $firstPhysical,
+        $secondPhysical,
+        (Get-PathComparison $firstPhysical))
+}
+
 function Get-PathIdentity([string] $Path) {
     [string] $identity = Resolve-PhysicalPath $Path
-    if (Test-CaseInsensitivePathPlatform) {
+    if ((Get-PathComparison $identity) -eq [System.StringComparison]::OrdinalIgnoreCase) {
         return $identity.ToUpperInvariant()
     }
 
@@ -248,8 +314,8 @@ function Assert-PathsDoNotOverlap(
     [System.StringComparison] $Comparison) {
     [string] $firstPhysical = Resolve-PhysicalPath $First
     [string] $secondPhysical = Resolve-PhysicalPath $Second
-    if ((Test-PathWithin $firstPhysical $secondPhysical $Comparison) -or
-        (Test-PathWithin $secondPhysical $firstPhysical $Comparison)) {
+    if ((Test-PathWithin $firstPhysical $secondPhysical (Get-PathComparison $secondPhysical)) -or
+        (Test-PathWithin $secondPhysical $firstPhysical (Get-PathComparison $firstPhysical))) {
         throw "$FirstDescription and $SecondDescription must not overlap: '$First' and '$Second'."
     }
 }
@@ -426,17 +492,8 @@ function Assert-StateWorkspace([string] $Workspace, [string] $ManifestPath) {
 
     [string] $markerPath = Get-StateWorkspaceMarkerPath $Workspace
     [object] $marker = Read-JsonFile $markerPath 'Local-testing workspace marker'
-    [System.StringComparison] $comparison = if (Test-CaseInsensitivePathPlatform) {
-        [System.StringComparison]::OrdinalIgnoreCase
-    }
-    else {
-        [System.StringComparison]::Ordinal
-    }
     if ($marker.schemaVersion -ne 1 -or
-        -not [string]::Equals(
-            [string] $marker.statePath,
-            $ManifestPath,
-            $comparison)) {
+        -not (Test-PathsEqual ([string] $marker.statePath) $ManifestPath)) {
         throw "The local-testing workspace marker does not own '$Workspace'."
     }
 }
@@ -469,7 +526,12 @@ function Initialize-StateWorkspace([string] $Workspace, [string] $ManifestPath) 
 
 function Remove-StateWorkspace([string] $Workspace, [string] $ManifestPath) {
     Assert-StateWorkspace $Workspace $ManifestPath
-    Remove-Item -LiteralPath $Workspace -Recurse -Force
+    [string] $markerPath = Get-StateWorkspaceMarkerPath $Workspace
+    Get-ChildItem -LiteralPath $Workspace -Force |
+        Where-Object FullName -CNE $markerPath |
+        Remove-Item -Recurse -Force
+    Remove-Item -LiteralPath $markerPath -Force
+    Remove-Item -LiteralPath $Workspace -Force
 }
 
 function Get-Property([object] $Object, [string] $Name) {
@@ -501,7 +563,7 @@ function Remove-EmptyCreatedAncestors(
     [System.StringComparison] $Comparison) {
     [string] $current = Split-Path -Parent $Path
     while (-not [string]::IsNullOrWhiteSpace($current) -and
-        -not $current.Equals($ExistingAncestor, $Comparison)) {
+        -not (Test-PathsEqual $current $ExistingAncestor)) {
         if (-not (Test-Path -LiteralPath $current -PathType Container) -or
             @(Get-ChildItem -LiteralPath $current -Force).Count -ne 0) {
             return
@@ -877,25 +939,19 @@ function Get-OverlayBytes([string] $SkillDirectory) {
 }
 
 [string] $normalizedAction = if ($Action -ieq 'Install') { 'Install' } else { 'Restore' }
-[System.StringComparison] $pathComparison = if (Test-CaseInsensitivePathPlatform) {
-    [System.StringComparison]::OrdinalIgnoreCase
-}
-else {
-    [System.StringComparison]::Ordinal
-}
-
 $TargetRepository = Get-FullPath $(if ($PSBoundParameters.ContainsKey('TargetRepository')) {
         $TargetRepository
     }
     else {
         $PWD.Path
     }) 'Target repository'
+[System.StringComparison] $pathComparison = Get-PathComparison $TargetRepository
 [string] $defaultStatePath = Get-DefaultStatePath $TargetRepository
 [string] $legacyStatePath = Join-Path $root 'artifacts/local-testing/state.json'
 $StatePath = Get-FullPath $(if ($PSBoundParameters.ContainsKey('StatePath')) {
         $StatePath
     }
-    elseif ($TargetRepository.Equals($root, $pathComparison) -and
+    elseif ((Test-PathsEqual $TargetRepository $root) -and
         (Test-Path -LiteralPath $legacyStatePath -PathType Leaf)) {
         $legacyStatePath
     }
@@ -918,6 +974,7 @@ try {
     if ($null -ne $state -and $state.schemaVersion -ge 3 -and
         -not $PSBoundParameters.ContainsKey('TargetRepository')) {
         $TargetRepository = Get-FullPath ([string] $state.targetRepository) 'Recorded target repository'
+        $pathComparison = Get-PathComparison $TargetRepository
     }
     if ($normalizedAction -ceq 'Install' -and
         -not (Test-Path -LiteralPath $TargetRepository -PathType Container)) {
@@ -940,15 +997,21 @@ try {
         $ownedStateWorkspace
     }
     if ($null -ne $state -and -not $legacyState) {
-        if (-not [string]::Equals(
-                [string] $state.workspace,
-                $ownedStateWorkspace,
-                $pathComparison)) {
+        if (-not (Test-PathsEqual ([string] $state.workspace) $ownedStateWorkspace)) {
             throw "Recorded local-testing workspace does not match '$StatePath'."
         }
         if ($state.status -ceq 'cleanup-in-progress') {
             if (Test-Path -LiteralPath $stateWorkspace -PathType Container) {
-                Remove-StateWorkspace $stateWorkspace $StatePath
+                [string] $cleanupMarker = Get-StateWorkspaceMarkerPath $stateWorkspace
+                if (Test-Path -LiteralPath $cleanupMarker -PathType Leaf) {
+                    Remove-StateWorkspace $stateWorkspace $StatePath
+                }
+                elseif (@(Get-ChildItem -LiteralPath $stateWorkspace -Force).Count -eq 0) {
+                    Remove-Item -LiteralPath $stateWorkspace -Force
+                }
+                else {
+                    throw "Cleanup workspace is nonempty but its ownership marker is missing: '$stateWorkspace'."
+                }
             }
             Remove-Item -LiteralPath $StatePath -Force
             Write-Host "Filtrace local-mode cleanup completed for '$TargetRepository'."
@@ -1046,8 +1109,16 @@ try {
         $McpConfigPath 'McpConfigPath' `
         $pathComparison
 
+    [string] $workspaceMarker = Get-StateWorkspaceMarkerPath $stateWorkspace
+    [string] $skillBackup = Join-Path $stateWorkspace 'skill-backup'
+    [string] $cliBackup = Join-Path $stateWorkspace 'cli-backup'
+    [string] $packageDirectory = Join-Path $stateWorkspace 'packages'
+
     [bool] $cliOwnedByWorkspace = $CliToolPath -and
-        (Test-PathWithin $CliToolPath $stateWorkspace $pathComparison)
+        (Test-PathWithin `
+            (Resolve-PhysicalPath $CliToolPath) `
+            (Resolve-PhysicalPath $stateWorkspace) `
+            (Get-PathComparison $stateWorkspace))
     if ($CliToolPath) {
         Assert-PathsDoNotOverlap `
             $skillSourceFull 'Repository skill source' `
@@ -1061,6 +1132,17 @@ try {
             $McpConfigPath 'McpConfigPath' `
             $CliToolPath 'CliToolPath' `
             $pathComparison
+        foreach ($reservedPath in ([ordered] @{
+                'Workspace marker' = $workspaceMarker
+                'Skill backup' = $skillBackup
+                'CLI backup' = $cliBackup
+                'Package directory' = $packageDirectory
+            }).GetEnumerator()) {
+            Assert-PathsDoNotOverlap `
+                $CliToolPath 'CliToolPath' `
+                ([string] $reservedPath.Value) ([string] $reservedPath.Key) `
+                $pathComparison
+        }
         if (-not $cliOwnedByWorkspace) {
             Assert-PathsDoNotOverlap `
                 $StatePath 'StatePath' `
@@ -1074,20 +1156,14 @@ try {
     }
 
     [string] $stateDirectory = Split-Path -Parent $StatePath
-    [string] $skillBackup = Join-Path $stateWorkspace 'skill-backup'
-    [string] $cliBackup = Join-Path $stateWorkspace 'cli-backup'
-    [string] $packageDirectory = Join-Path $stateWorkspace 'packages'
     [string] $mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
 
     if ($null -ne $state -and (
             ($state.schemaVersion -ge 3 -and
-                -not [string]::Equals(
-                    [string] $state.targetRepository,
-                    $TargetRepository,
-                    $pathComparison)) -or
-            -not [string]::Equals([string] $state.mcp.path, $McpConfigPath, $pathComparison) -or
-            -not [string]::Equals([string] $state.skill.destination, $SkillDestination, $pathComparison) -or
-            -not [string]::Equals([string] $state.cliToolPath, [string] $CliToolPath, $pathComparison) -or
+                -not (Test-PathsEqual ([string] $state.targetRepository) $TargetRepository)) -or
+            -not (Test-PathsEqual ([string] $state.mcp.path) $McpConfigPath) -or
+            -not (Test-PathsEqual ([string] $state.skill.destination) $SkillDestination) -or
+            -not (Test-PathsEqual ([string] $state.cliToolPath) ([string] $CliToolPath)) -or
             [bool] $state.cliManaged -ne $cliManaged)) {
         throw "Existing local-testing state does not match this invocation: '$StatePath'."
     }
@@ -1316,7 +1392,7 @@ try {
 
     if ($legacyState) {
         Remove-Item -LiteralPath $StatePath -Force
-        if ($StatePath.Equals($legacyStatePath, $pathComparison)) {
+        if (Test-PathsEqual $StatePath $legacyStatePath) {
             Remove-Item -LiteralPath $skillBackup -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $cliBackup -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $packageDirectory -Recurse -Force -ErrorAction SilentlyContinue

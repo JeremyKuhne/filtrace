@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE file in the project root for full license information
 
-#Requires -Version 7.0
+#Requires -Version 7.2
 
 <#
 .SYNOPSIS
@@ -45,11 +45,60 @@ function Get-Property([object] $Object, [string] $Name) {
     return $Object.PSObject.Properties[$Name]
 }
 
-function Test-CaseInsensitivePathPlatform {
-    return [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
-        [System.Runtime.InteropServices.OSPlatform]::Windows) -or
-        [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
-            [System.Runtime.InteropServices.OSPlatform]::OSX)
+function Get-CaseVariant([string] $Name) {
+    for ([int] $index = 0; $index -lt $Name.Length; $index++) {
+        [char] $character = $Name[$index]
+        if ($character -ge [char] 'a' -and $character -le [char] 'z') {
+            return $Name.Substring(0, $index) +
+                [char]::ToUpperInvariant($character) +
+                $Name.Substring($index + 1)
+        }
+        if ($character -ge [char] 'A' -and $character -le [char] 'Z') {
+            return $Name.Substring(0, $index) +
+                [char]::ToLowerInvariant($character) +
+                $Name.Substring($index + 1)
+        }
+    }
+
+    return $null
+}
+
+function Get-PathComparison([string] $Path) {
+    [string] $currentPath = [System.IO.Path]::GetFullPath($Path)
+    while (-not [string]::IsNullOrWhiteSpace($currentPath)) {
+        [System.IO.FileSystemInfo] $item = Get-Item `
+            -LiteralPath $currentPath `
+            -Force `
+            -ErrorAction SilentlyContinue
+        if ($null -ne $item -and $null -ne $item.Parent) {
+            [string] $variant = Get-CaseVariant $item.Name
+            if (-not [string]::IsNullOrWhiteSpace($variant)) {
+                [System.IO.FileSystemInfo[]] $caseMatches = @(
+                    Get-ChildItem -LiteralPath $item.Parent.FullName -Force |
+                        Where-Object Name -IEQ $item.Name)
+                if ($caseMatches.Count -gt 1) {
+                    return [System.StringComparison]::Ordinal
+                }
+                if (Test-Path -LiteralPath (Join-Path $item.Parent.FullName $variant)) {
+                    return [System.StringComparison]::OrdinalIgnoreCase
+                }
+                return [System.StringComparison]::Ordinal
+            }
+        }
+
+        [string] $parentPath = Split-Path -Parent $currentPath
+        if ([string]::IsNullOrWhiteSpace($parentPath) -or $parentPath -ceq $currentPath) {
+            break
+        }
+        $currentPath = $parentPath
+    }
+
+    return $(if (Test-WindowsPlatform) {
+            [System.StringComparison]::OrdinalIgnoreCase
+        }
+        else {
+            [System.StringComparison]::Ordinal
+        })
 }
 
 function Test-WindowsPlatform {
@@ -118,7 +167,7 @@ function Assert-RestrictedFile([string] $Path, [string] $Description) {
 function Get-PathIdentity([string] $Path) {
     [string] $identity = [System.IO.Path]::TrimEndingDirectorySeparator(
         [System.IO.Path]::GetFullPath($Path))
-    if (Test-CaseInsensitivePathPlatform) {
+    if ((Get-PathComparison $identity) -eq [System.StringComparison]::OrdinalIgnoreCase) {
         return $identity.ToUpperInvariant()
     }
 
@@ -368,6 +417,21 @@ try {
         (Get-FileHash -LiteralPath $localCliPackages[0].FullName -Algorithm SHA256).Hash -cne
         (Get-FileHash -LiteralPath $cliPackages[0].FullName -Algorithm SHA256).Hash) `
         'The same-version local and baseline package bytes unexpectedly match.'
+
+    [string] $caseRepository = Join-Path $temporaryRoot 'CaseRepository'
+    $null = New-Item -ItemType Directory -Path $caseRepository
+    [string] $caseVariantRepository = Join-Path $temporaryRoot 'caseRepository'
+    [string] $caseState = Get-DefaultStatePath $caseRepository
+    [string] $caseVariantState = Get-DefaultStatePath $caseVariantRepository
+    if ((Get-PathComparison $caseRepository) -eq [System.StringComparison]::Ordinal) {
+        $null = New-Item -ItemType Directory -Path $caseVariantRepository
+        Assert-True ($caseState -cne $caseVariantState) `
+            'Case-distinct repositories share state on a case-sensitive volume.'
+    }
+    else {
+        Assert-True ($caseState -ceq $caseVariantState) `
+            'Case aliases do not share state on a case-insensitive volume.'
+    }
 
     # MCP JSON: reject a valid non-object root, and distinguish a read failure
     # from malformed JSON before any target configuration is changed.
@@ -729,6 +793,23 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $mcpOverlapState)) `
         'MCP overlap rejection wrote rollback state.'
 
+    foreach ($reservedName in @('skill-backup', 'cli-backup', 'packages')) {
+        [string] $reservedCliRoot = Join-Path $copiedRoot "reserved-cli-$reservedName"
+        [string] $reservedCliConfig = Join-Path $reservedCliRoot 'mcp.json'
+        [string] $reservedCliSkill = Join-Path $reservedCliRoot 'skill/filtrace'
+        [string] $reservedCliState = Join-Path $reservedCliRoot 'state.json'
+        [string] $reservedCliPath = Join-Path "$reservedCliState.workspace" $reservedName
+        Write-Json $reservedCliConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+        [string] $reservedCliFailure = Invoke-WorkflowFailure -Action Install `
+            -McpConfigPath $reservedCliConfig -SkillDestination $reservedCliSkill `
+            -StatePath $reservedCliState -CliToolPath $reservedCliPath `
+            -WorkflowPath $copiedWorkflow
+        Assert-True ($reservedCliFailure -match 'CliToolPath and .* must not overlap') `
+            "CliToolPath overlap with '$reservedName' was not rejected."
+        Assert-True (-not (Test-Path -LiteralPath $reservedCliState)) `
+            "Reserved CLI overlap '$reservedName' wrote rollback state."
+    }
+
     [string] $aliasRoot = Join-Path $copiedRoot 'alias-consumer'
     [string] $agentsAlias = Join-Path $aliasRoot '.agents'
     $null = New-Item -ItemType Directory -Path $aliasRoot -Force
@@ -874,7 +955,33 @@ try {
     Write-Json $existingConfig $localConfig
     [System.IO.File]::WriteAllText((Join-Path $existingSkill 'overlay.md'), 'updated overlay', $utf8)
 
-    Invoke-Workflow 'Restore' $existingConfig $existingSkill $existingState
+    if (Test-WindowsPlatform) {
+        [string] $cleanupLockPath = Join-Path "$existingState.workspace" 'cleanup-lock.txt'
+        [System.IO.File]::WriteAllText($cleanupLockPath, 'locked cleanup file', $utf8)
+        [System.IO.FileStream] $cleanupLock = [System.IO.File]::Open(
+            $cleanupLockPath,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None)
+        try {
+            [string] $cleanupFailure = Invoke-WorkflowFailure -Action Restore `
+                -McpConfigPath $existingConfig -SkillDestination $existingSkill `
+                -StatePath $existingState -SkipCli
+        }
+        finally {
+            $cleanupLock.Dispose()
+        }
+        Assert-True ($cleanupFailure -match 'being used by another process') `
+            'Locked workspace cleanup failure was not actionable.'
+        Assert-True ((Read-Json $existingState).status -ceq 'cleanup-in-progress') `
+            'Cleanup failure did not retain resumable cleanup state.'
+        Assert-True (Test-Path -LiteralPath $existingMarker -PathType Leaf) `
+            'Cleanup failure removed the ownership marker before fallible content.'
+        Invoke-Workflow 'Restore' $existingConfig $existingSkill $existingState
+    }
+    else {
+        Invoke-Workflow 'Restore' $existingConfig $existingSkill $existingState
+    }
     [object] $restoredConfig = Read-Json $existingConfig
     Assert-True ($restoredConfig.servers.filtrace.command -ceq 'dnx') 'Restore did not restore the shipped MCP command.'
     Assert-True ($restoredConfig.servers.filtrace.args[0] -ceq 'KlutzyNinja.Filtrace.Mcp') 'Restore changed the shipped MCP package id.'
