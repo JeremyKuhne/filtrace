@@ -586,6 +586,10 @@ function Set-Property([object] $Object, [string] $Name, [object] $Value) {
 
 function Get-McpConfig([string] $Path) {
     [object] $config = if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        [System.IO.FileInfo] $mcpFile = Get-Item -LiteralPath $Path -Force
+        if (($mcpFile.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "VS Code MCP configuration must not be a symbolic link or junction: '$Path'."
+        }
         Read-JsonFile $Path 'VS Code MCP configuration'
     }
     else {

@@ -82,7 +82,9 @@ The defaults and their scope are:
 those paths. A user-profile MCP path or user skill destination is therefore an
 explicit broadening of scope, not the default. `-SkipCli` leaves every CLI install
 unchanged when only MCP and skill behavior needs testing. A custom CLI path cannot
-overlap the workspace marker, package feed, or either backup directory.
+overlap the workspace marker, package feed, or either backup directory. The MCP
+configuration file itself must not be a symbolic link or junction; rejecting it
+preserves the link rather than replacing it during an atomic update.
 
 For VS Code Insiders or a nondefault profile, an explicit user MCP override is
 still available:

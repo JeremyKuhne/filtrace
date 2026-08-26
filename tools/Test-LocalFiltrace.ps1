@@ -793,6 +793,31 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $mcpOverlapState)) `
         'MCP overlap rejection wrote rollback state.'
 
+    if (-not (Test-WindowsPlatform)) {
+        [string] $linkedMcpRoot = Join-Path $copiedRoot 'linked-mcp'
+        [string] $linkedMcpTarget = Join-Path $linkedMcpRoot 'actual-mcp.json'
+        [string] $linkedMcpConfig = Join-Path $linkedMcpRoot 'mcp.json'
+        [string] $linkedMcpSkill = Join-Path $linkedMcpRoot 'skill/filtrace'
+        [string] $linkedMcpState = Join-Path $linkedMcpRoot 'state.json'
+        Write-Json $linkedMcpTarget ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+        $null = New-Item -ItemType SymbolicLink -Path $linkedMcpConfig -Target $linkedMcpTarget
+        [byte[]] $linkedMcpTargetBytes = [System.IO.File]::ReadAllBytes($linkedMcpTarget)
+        [string] $linkedMcpFailure = Invoke-WorkflowFailure -Action Install `
+            -McpConfigPath $linkedMcpConfig -SkillDestination $linkedMcpSkill `
+            -StatePath $linkedMcpState -SkipCli -WorkflowPath $copiedWorkflow
+        Assert-True ($linkedMcpFailure -match 'configuration must not be a symbolic link') `
+            'A linked MCP configuration was not rejected before baseline capture.'
+        Assert-True ((Get-Item -LiteralPath $linkedMcpConfig -Force).LinkType -ceq 'SymbolicLink') `
+            'Linked MCP rejection replaced the symbolic link.'
+        Assert-True (
+            [System.Linq.Enumerable]::SequenceEqual(
+                $linkedMcpTargetBytes,
+                [System.IO.File]::ReadAllBytes($linkedMcpTarget))) `
+            'Linked MCP rejection changed the link target.'
+        Assert-True (-not (Test-Path -LiteralPath $linkedMcpState)) `
+            'Linked MCP rejection wrote rollback state.'
+    }
+
     foreach ($reservedName in @('skill-backup', 'cli-backup', 'packages')) {
         [string] $reservedCliRoot = Join-Path $copiedRoot "reserved-cli-$reservedName"
         [string] $reservedCliConfig = Join-Path $reservedCliRoot 'mcp.json'
