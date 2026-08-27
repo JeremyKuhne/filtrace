@@ -992,6 +992,66 @@ try {
             "Dangerous SkillDestination '$dangerousSkill' wrote rollback state."
     }
 
+    [string] $equalWorkspaceState = Join-Path $targetGuardRoot 'equal-workspace-state.json'
+    [string] $equalWorkspaceRepository = "$equalWorkspaceState.workspace"
+    [string] $equalWorkspaceConfig = Join-Path $targetGuardRoot 'equal-workspace-mcp.json'
+    [string] $equalWorkspaceSkill = Join-Path $targetGuardRoot 'equal-workspace-skill/filtrace'
+    $null = New-Item -ItemType Directory -Path $equalWorkspaceRepository -Force
+    Write-Json $equalWorkspaceConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [string] $equalWorkspaceFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $equalWorkspaceConfig -SkillDestination $equalWorkspaceSkill `
+        -StatePath $equalWorkspaceState -SkipCli -WorkflowPath $copiedWorkflow `
+        -TargetRepository $equalWorkspaceRepository
+    Assert-True ($equalWorkspaceFailure -match 'workspace must not contain TargetRepository') `
+        'A workspace equal to TargetRepository was not rejected.'
+    Assert-True (Test-Path -LiteralPath $equalWorkspaceRepository -PathType Container) `
+        'Equal-workspace rejection removed TargetRepository.'
+    Assert-True (-not (Test-Path -LiteralPath $equalWorkspaceState)) `
+        'Equal-workspace rejection wrote rollback state.'
+
+    [string] $containingWorkspaceState = Join-Path $targetGuardRoot 'containing-workspace-state.json'
+    [string] $containingWorkspace = "$containingWorkspaceState.workspace"
+    [string] $containedRepository = Join-Path $containingWorkspace 'consumer'
+    [string] $containedSentinel = Join-Path $containedRepository 'keep.txt'
+    [string] $containingWorkspaceConfig = Join-Path $targetGuardRoot 'containing-workspace-mcp.json'
+    [string] $containingWorkspaceSkill = Join-Path $targetGuardRoot 'containing-workspace-skill/filtrace'
+    $null = New-Item -ItemType Directory -Path $containedRepository -Force
+    [System.IO.File]::WriteAllText($containedSentinel, 'contained repository', $utf8)
+    Write-Json (Join-Path $containingWorkspace '.filtrace-local-testing.json') ([ordered] @{
+            schemaVersion = 1
+            statePath = $containingWorkspaceState
+        })
+    Write-Json $containingWorkspaceConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [string] $containingWorkspaceFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $containingWorkspaceConfig -SkillDestination $containingWorkspaceSkill `
+        -StatePath $containingWorkspaceState -SkipCli -WorkflowPath $copiedWorkflow `
+        -TargetRepository $containedRepository
+    Assert-True ($containingWorkspaceFailure -match 'workspace must not contain TargetRepository') `
+        'A workspace containing TargetRepository was not rejected.'
+    Assert-True ([System.IO.File]::ReadAllText($containedSentinel, $utf8) -ceq 'contained repository') `
+        'Containing-workspace rejection changed TargetRepository.'
+    Assert-True (-not (Test-Path -LiteralPath $containingWorkspaceState)) `
+        'Containing-workspace rejection wrote rollback state.'
+
+    [string] $nestedWorkspaceRepository = Join-Path $targetGuardRoot 'nested-workspace-repository'
+    [string] $nestedWorkspaceSentinel = Join-Path $nestedWorkspaceRepository 'keep.txt'
+    [string] $nestedWorkspaceConfig = Join-Path $nestedWorkspaceRepository '.vscode/mcp.json'
+    [string] $nestedWorkspaceSkill = Join-Path $nestedWorkspaceRepository '.agents/skills/filtrace'
+    [string] $nestedWorkspaceState = Join-Path $nestedWorkspaceRepository '.local-testing/state.json'
+    $null = New-Item -ItemType Directory -Path $nestedWorkspaceRepository -Force
+    [System.IO.File]::WriteAllText($nestedWorkspaceSentinel, 'nested workspace repository', $utf8)
+    Write-Json $nestedWorkspaceConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    Invoke-Workflow -Action Install -McpConfigPath $nestedWorkspaceConfig `
+        -SkillDestination $nestedWorkspaceSkill -StatePath $nestedWorkspaceState `
+        -WorkflowPath $copiedWorkflow -TargetRepository $nestedWorkspaceRepository
+    Invoke-Workflow -Action Restore -McpConfigPath $nestedWorkspaceConfig `
+        -SkillDestination $nestedWorkspaceSkill -StatePath $nestedWorkspaceState `
+        -WorkflowPath $copiedWorkflow -TargetRepository $nestedWorkspaceRepository
+    Assert-True (
+        [System.IO.File]::ReadAllText($nestedWorkspaceSentinel, $utf8) -ceq
+        'nested workspace repository') `
+        'A workspace below TargetRepository changed the repository sentinel.'
+
     [string] $sharedRootSkill = Join-Path $copiedRoot 'artifacts/local-testing/owners'
     [string] $sharedRootSentinel = Join-Path $sharedRootSkill 'keep.txt'
     [string] $sharedRootConfig = Join-Path $copiedRoot 'shared-root-mcp.json'
@@ -1023,6 +1083,64 @@ try {
     [string] $ownerRegistrySentinel = Join-Path $resourceOwnersRoot 'keep.txt'
     $null = New-Item -ItemType Directory -Path $resourceOwnersRoot -Force
     [System.IO.File]::WriteAllText($ownerRegistrySentinel, 'machine-wide registry', $utf8)
+
+    [string] $registryOverlapConfig = Join-Path $copiedRoot 'registry-overlap-mcp.json'
+    [string] $registryOverlapSkill = Join-Path $copiedRoot 'registry-overlap-skill/filtrace'
+    Write-Json $registryOverlapConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [object[]] $registryOverlapCases = @(
+        [pscustomobject] @{
+            Name = 'skill'
+            McpConfigPath = $registryOverlapConfig
+            SkillDestination = $resourceOwnersRoot
+            StatePath = Join-Path $copiedRoot 'registry-skill-state.json'
+            CliToolPath = ''
+            SkipCli = $true
+            Expected = 'SkillDestination and Resource ownership registry must not overlap'
+        },
+        [pscustomobject] @{
+            Name = 'mcp'
+            McpConfigPath = Join-Path $resourceOwnersRoot 'mcp.json'
+            SkillDestination = $registryOverlapSkill
+            StatePath = Join-Path $copiedRoot 'registry-mcp-state.json'
+            CliToolPath = ''
+            SkipCli = $true
+            Expected = 'McpConfigPath and Resource ownership registry must not overlap'
+        },
+        [pscustomobject] @{
+            Name = 'cli'
+            McpConfigPath = $registryOverlapConfig
+            SkillDestination = $registryOverlapSkill
+            StatePath = Join-Path $copiedRoot 'registry-cli-state.json'
+            CliToolPath = $resourceOwnersRoot
+            SkipCli = $false
+            Expected = 'CliToolPath and Resource ownership registry must not overlap'
+        })
+    foreach ($registryOverlapCase in $registryOverlapCases) {
+        [hashtable] $registryOverlapArguments = @{
+            Action = 'Install'
+            McpConfigPath = [string] $registryOverlapCase.McpConfigPath
+            SkillDestination = [string] $registryOverlapCase.SkillDestination
+            StatePath = [string] $registryOverlapCase.StatePath
+            WorkflowPath = $copiedWorkflow
+        }
+        if ([bool] $registryOverlapCase.SkipCli) {
+            $registryOverlapArguments.SkipCli = $true
+        }
+        else {
+            $registryOverlapArguments.CliToolPath = [string] $registryOverlapCase.CliToolPath
+        }
+        [string] $registryOverlapFailure = Invoke-WorkflowFailure @registryOverlapArguments
+        Assert-True ($registryOverlapFailure -match [regex]::Escape(
+                [string] $registryOverlapCase.Expected)) `
+            "The $($registryOverlapCase.Name) path was not rejected inside the resource registry."
+        Assert-True (-not (Test-Path -LiteralPath $registryOverlapCase.StatePath)) `
+            "The $($registryOverlapCase.Name) registry-overlap case wrote rollback state."
+        Assert-True (
+            [System.IO.File]::ReadAllText($ownerRegistrySentinel, $utf8) -ceq
+            'machine-wide registry') `
+            "The $($registryOverlapCase.Name) registry-overlap case changed registry content."
+    }
+
     [string] $sharedStatePath = Join-Path $resourceOwnersRoot 'state.json'
     [string] $sharedStateConfig = Join-Path $copiedRoot 'shared-state-mcp.json'
     [string] $sharedStateSkill = Join-Path $copiedRoot 'shared-state-skill/filtrace'
@@ -1172,6 +1290,66 @@ try {
         'Linked SkillDestination rejection changed its target.'
     Assert-True (-not (Test-Path -LiteralPath $linkedSkillState)) `
         'Linked SkillDestination rejection wrote rollback state.'
+
+    [string] $retargetRoot = Join-Path $copiedRoot 'retargeted-ancestor'
+    [string] $retargetOriginal = Join-Path $retargetRoot 'original'
+    [string] $retargetReplacement = Join-Path $retargetRoot 'replacement'
+    [string] $retargetAlias = Join-Path $retargetRoot 'alias'
+    [string] $retargetConfig = Join-Path $retargetAlias 'mcp.json'
+    [string] $retargetSkill = Join-Path $retargetRoot 'skill/filtrace'
+    [string] $retargetState = Join-Path $retargetRoot 'state.json'
+    $null = New-Item -ItemType Directory -Path $retargetOriginal -Force
+    $null = New-Item -ItemType Directory -Path $retargetReplacement -Force
+    Write-Json (Join-Path $retargetOriginal 'mcp.json') ([ordered] @{
+            servers = [ordered] @{
+                docs = [ordered] @{ type = 'http'; url = 'https://original.invalid/mcp' }
+            }
+            inputs = @()
+        })
+    Write-Json (Join-Path $retargetReplacement 'mcp.json') ([ordered] @{
+            servers = [ordered] @{
+                sentinel = [ordered] @{ type = 'http'; url = 'https://replacement.invalid/mcp' }
+            }
+            inputs = @()
+        })
+    [string] $retargetLinkType = if (Test-WindowsPlatform) { 'Junction' } else { 'SymbolicLink' }
+    $null = New-Item -ItemType $retargetLinkType -Path $retargetAlias -Target $retargetOriginal
+    Invoke-Workflow 'Install' $retargetConfig $retargetSkill $retargetState `
+        -SkipCli -WorkflowPath $copiedWorkflow
+    Remove-Item -LiteralPath $retargetAlias -Force
+    $null = New-Item -ItemType $retargetLinkType -Path $retargetAlias -Target $retargetReplacement
+    [byte[]] $retargetReplacementBytes =
+        [System.IO.File]::ReadAllBytes((Join-Path $retargetReplacement 'mcp.json'))
+    [string] $retargetFailure = Invoke-WorkflowFailure -Action Restore `
+        -McpConfigPath $retargetConfig -SkillDestination $retargetSkill `
+        -StatePath $retargetState -SkipCli -WorkflowPath $copiedWorkflow
+    Assert-True ($retargetFailure -match 'resolved resource paths no longer match') `
+        'A retargeted MCP ancestor was not rejected before restore.'
+    Assert-True (
+        [System.Linq.Enumerable]::SequenceEqual(
+            $retargetReplacementBytes,
+            [System.IO.File]::ReadAllBytes((Join-Path $retargetReplacement 'mcp.json')))) `
+        'Retargeted-ancestor rejection changed the replacement MCP configuration.'
+    Assert-True (Test-Path -LiteralPath $retargetState -PathType Leaf) `
+        'Retargeted-ancestor rejection removed rollback state.'
+
+    [object] $retargetSchemaSixState = Read-Json $retargetState
+    $retargetSchemaSixState.schemaVersion = 6
+    Write-Json $retargetState $retargetSchemaSixState
+    [string] $retargetSchemaSixFailure = Invoke-WorkflowFailure -Action Restore `
+        -McpConfigPath $retargetConfig -SkillDestination $retargetSkill `
+        -StatePath $retargetState -SkipCli -WorkflowPath $copiedWorkflow
+    Assert-True ($retargetSchemaSixFailure -match 'resolved resource paths no longer match') `
+        'A schema-6 manifest did not reject a retargeted MCP ancestor.'
+    Assert-True (
+        [System.Linq.Enumerable]::SequenceEqual(
+            $retargetReplacementBytes,
+            [System.IO.File]::ReadAllBytes((Join-Path $retargetReplacement 'mcp.json')))) `
+        'Schema-6 retarget rejection changed the replacement MCP configuration.'
+    Remove-Item -LiteralPath $retargetAlias -Force
+    $null = New-Item -ItemType $retargetLinkType -Path $retargetAlias -Target $retargetOriginal
+    Invoke-Workflow 'Restore' $retargetConfig $retargetSkill $retargetState `
+        -SkipCli -WorkflowPath $copiedWorkflow
 
     [string[]] $nestedLinkKinds = if (Test-WindowsPlatform) {
         @('directory')

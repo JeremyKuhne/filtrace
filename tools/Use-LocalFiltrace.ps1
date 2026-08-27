@@ -389,6 +389,23 @@ function Get-ResourceKeys(
     return ,([string[]] $keys)
 }
 
+function Test-ResourceKeysEqual([string[]] $First, [string[]] $Second) {
+    [string[]] $firstKeys = @($First | Sort-Object -CaseSensitive)
+    [string[]] $secondKeys = @($Second | Sort-Object -CaseSensitive)
+    if ($firstKeys.Count -ne $secondKeys.Count) { return $false }
+
+    for ([int] $index = 0; $index -lt $firstKeys.Count; $index++) {
+        if (-not [string]::Equals(
+                $firstKeys[$index],
+                $secondKeys[$index],
+                [System.StringComparison]::Ordinal)) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
 function Enter-ResourceLocks([string[]] $ResourceKeys) {
     [string] $lockRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'filtrace-local-testing-resource-locks'
     $null = [System.IO.Directory]::CreateDirectory($lockRoot)
@@ -1274,11 +1291,18 @@ try {
 
     [string] $targetRepositoryPhysical = Resolve-PhysicalPath $TargetRepository
     [string] $skillDestinationPhysical = Resolve-PhysicalPath $SkillDestination
+    [string] $stateWorkspacePhysical = Resolve-PhysicalPath $stateWorkspace
     if (Test-PathWithin `
         $targetRepositoryPhysical `
         $skillDestinationPhysical `
         (Get-PathComparison $skillDestinationPhysical)) {
         throw "SkillDestination must not contain TargetRepository: '$SkillDestination'."
+    }
+    if (Test-PathWithin `
+        $targetRepositoryPhysical `
+        $stateWorkspacePhysical `
+        (Get-PathComparison $stateWorkspacePhysical)) {
+        throw "Local-testing workspace must not contain TargetRepository: '$stateWorkspace'."
     }
     [string] $localTestingRoot = Join-Path $root 'artifacts/local-testing'
     [string] $resourceOwnersRoot = Get-ResourceOwnersRoot
@@ -1288,6 +1312,12 @@ try {
     Assert-PathsDoNotOverlap `
         $McpConfigPath 'McpConfigPath' `
         $localTestingRoot 'Shared local-testing root'
+    Assert-PathsDoNotOverlap `
+        $SkillDestination 'SkillDestination' `
+        $resourceOwnersRoot 'Resource ownership registry'
+    Assert-PathsDoNotOverlap `
+        $McpConfigPath 'McpConfigPath' `
+        $resourceOwnersRoot 'Resource ownership registry'
     Assert-PathsDoNotOverlap `
         $StatePath 'StatePath' `
         $resourceOwnersRoot 'Resource ownership registry'
@@ -1396,6 +1426,9 @@ try {
             Assert-PathsDoNotOverlap `
                 $stateWorkspace 'Local-testing workspace' `
                 $CliToolPath 'CliToolPath'
+            Assert-PathsDoNotOverlap `
+                $CliToolPath 'CliToolPath' `
+                $resourceOwnersRoot 'Resource ownership registry'
         }
     }
 
@@ -1412,6 +1445,13 @@ try {
         throw "Existing local-testing state does not match this invocation: '$StatePath'."
     }
 
+    [string[]] $currentResourceKeys = Get-ResourceKeys `
+        $McpConfigPath `
+        $SkillDestination `
+        $cliManaged `
+        $CliToolPath `
+        $StatePath `
+        $stateWorkspace
     [string[]] $resourceKeys = if ($null -ne $state -and $state.schemaVersion -in @(6, 7)) {
         [string[]] $state.resourceKeys
     }
@@ -1425,19 +1465,27 @@ try {
         [string[]] $migratedKeys
     }
     else {
-        Get-ResourceKeys `
-            $McpConfigPath `
-            $SkillDestination `
-            $cliManaged `
-            $CliToolPath `
-            $StatePath `
-            $stateWorkspace
+        $currentResourceKeys
+    }
+    if ($null -ne $state -and $state.schemaVersion -in @(6, 7) -and
+        -not (Test-ResourceKeysEqual $resourceKeys $currentResourceKeys)) {
+        throw "Existing local-testing state's resolved resource paths no longer match its recorded ownership. Restore the original path targets before retrying: '$StatePath'."
     }
     [System.IO.FileStream[]] $resourceLocks = Enter-ResourceLocks $resourceKeys
     [bool] $statePersisted = $null -ne $state
     [bool] $ownershipClaimed = $false
     [bool] $workspaceInitialized = $false
     try {
+        [string[]] $lockedResourceKeys = Get-ResourceKeys `
+            $McpConfigPath `
+            $SkillDestination `
+            $cliManaged `
+            $CliToolPath `
+            $StatePath `
+            $stateWorkspace
+        if (-not (Test-ResourceKeysEqual $resourceKeys $lockedResourceKeys)) {
+            throw "Local-testing resource paths changed while acquiring locks. Restore the original path targets before retrying: '$StatePath'."
+        }
         if ($null -ne $state -and $state.schemaVersion -eq 7 -and
             $state.status -cne 'cleanup-in-progress') {
             Assert-ResourceOwnership $resourceKeys $StatePath

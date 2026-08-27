@@ -89,10 +89,18 @@ overlap the workspace marker, package feed, or either backup directory. The MCP
 configuration file itself must not be a symbolic link or junction; rejecting it
 preserves the link rather than replacing it during an atomic update. The state
 manifest and skill destination likewise must not be symbolic links or junctions.
+A manifest-owned workspace may be below the target repository, but it cannot equal
+or contain the target because Restore recursively removes that workspace. MCP,
+skill, CLI, manifest, and workspace paths also cannot overlap the per-user resource
+ownership registry.
 A skill destination cannot overlap the Filtrace checkout's shared
 `artifacts/local-testing` state tree. A pre-existing skill containing linked files
 or directories is rejected before backup so external link targets are never
-traversed or restored as regular content.
+traversed or restored as regular content. Refresh and Restore also require every
+managed path to resolve to the same physical target recorded by Install. If a
+symbolic-link or junction ancestor is retargeted, the helper stops before changing
+the replacement target and retains the manifest for retry. Paths are checked both
+before and immediately after acquiring their recorded resource locks.
 
 For VS Code Insiders or a nondefault profile, an explicit user MCP override is
 still available:
