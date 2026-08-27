@@ -1133,6 +1133,41 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Timeline_OversizedUnknownMode_ThrowsBoundedMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: new string('x', 1_000_000));
+
+        act.Should().Throw<McpException>()
+            .WithMessage("Unknown timeline mode. Valid modes: buckets, snapshot.");
+    }
+
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow("unknown")]
+    public void Timeline_UnknownMode_ThrowsBoundedMcpException(string? mode)
+    {
+        Action act = () => TraceTools.Timeline(FixturePath(Alloc), mode: mode!);
+
+        act.Should().Throw<McpException>()
+            .WithMessage("Unknown timeline mode. Valid modes: buckets, snapshot.");
+    }
+
+    [TestMethod]
+    public void Timeline_ModeIgnoresWhitespaceAndCase()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: " SNAPSHOT ",
+            at: 10.0,
+            window: 2.0);
+
+        envelope.Result.Mode.Should().Be("snapshot");
+    }
+
+    [TestMethod]
     public void Timeline_ProcessSelectorAboveLimit_ThrowsMcpException()
     {
         Action act = () => TraceTools.Timeline(

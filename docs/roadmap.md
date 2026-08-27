@@ -667,7 +667,6 @@ selected surface.
 
 | ID | Capability | Proposed surface | Priority | Main gate |
 |---|---|---|:---:|---|
-| VC2 | Point-in-time snapshot | `timeline --mode snapshot` | Complete | one-call eval and bounded output |
 | VC3 | Per-frame temporal buckets | `rank --temporal` or `detail=full` | Medium | response and aggregation cost |
 | VC4 | PMC / CPU-counter ranking | new `rank` metric | Medium | ETW capture support and a fixture |
 | VC5 | Retention / leak analysis | dedicated retention result | Medium | PerfView graph dependency |
@@ -675,30 +674,6 @@ selected surface.
 | VC7 | Physical ETL trim | `trim` or `cache --action trim` | Low | preserving JITted managed frames |
 | VC8 | Activity and file-I/O follow-ups | extend existing scopes and reports | Low | demand and capture volume |
 | VC1 | DATAS server-GC tuning | extend `report --kind gc` / `trace_gc` | Backlog | [issue #92](https://github.com/JeremyKuhne/filtrace/issues/92) |
-
-### VC2 - point-in-time snapshot
-
-**Status:** Complete. `timeline --mode snapshot --at <ms>` and
-`trace_timeline` with `mode=snapshot` return one exact, process-scoped window with
-bounded GC, top CPU leaf methods, exceptions, allocations, JIT methods, and raw
-event types. Each evidence family retains at most five rows, trace-derived names are
-capped at 256 characters, aggregation retains at most 1,024 distinct keys per
-evidence family with an explicit truncation diagnostic, and the half-window is
-capped at 60 seconds.
-
-The `point-in-time-snapshot` deterministic task answers the cross-lane question in
-one call and 571 tokens. Its live contract allows exactly one `trace_timeline` call
-and forbids `rank` and `events`; this is materially better than the prior
-timeline-then-rank/query flow while leaving ordinary bucket output unchanged.
-
-"What was happening around this millisecond?" - a bounded window containing GC
-activity, top CPU work, exceptions, allocations, JIT activity, and event counts.
-Every underlying reader exists, and `timeline` already finds the interesting window.
-
-Implement as a `timeline` mode, not a new tool. Before committing, add an eval task
-comparing one snapshot call against the existing timeline-then-rank flow. Accept it
-only if it reduces calls or gives materially better cross-lane evidence. The result
-must identify the exact window and preserve process scope.
 
 ### VC3 - per-frame temporal buckets
 

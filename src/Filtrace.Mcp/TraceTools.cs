@@ -795,11 +795,12 @@ public sealed class TraceTools
         [Description("Exact process ids; excludes process.")] int[]? pid = null,
         [Description("Follow descendants of the matched processes.")] bool children = true)
     {
-        TimelineMode resolvedMode = mode?.Trim().ToLowerInvariant() switch
+        ReadOnlySpan<char> normalizedMode = mode.AsSpan().Trim();
+        TimelineMode resolvedMode = normalizedMode switch
         {
-            "buckets" => TimelineMode.Buckets,
-            "snapshot" => TimelineMode.Snapshot,
-            _ => throw new McpException($"Unknown timeline mode '{mode}'. Valid modes: buckets, snapshot.")
+            _ when normalizedMode.Equals("buckets", StringComparison.OrdinalIgnoreCase) => TimelineMode.Buckets,
+            _ when normalizedMode.Equals("snapshot", StringComparison.OrdinalIgnoreCase) => TimelineMode.Snapshot,
+            _ => throw new McpException("Unknown timeline mode. Valid modes: buckets, snapshot.")
         };
 
         List<string> warnings = [];

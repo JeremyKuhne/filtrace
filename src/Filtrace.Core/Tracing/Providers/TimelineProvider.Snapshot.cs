@@ -99,8 +99,7 @@ public sealed partial class TimelineProvider
             throw new ArgumentOutOfRangeException(nameof(atMs), atMs, $"Snapshot center exceeds the {traceEnd:N2} ms trace duration.");
         }
 
-        double startMs = Math.Max(0.0, atMs - halfWindowMs);
-        double endMs = Math.Min(traceEnd, atMs + halfWindowMs);
+        (double startMs, double endMs) = ResolveSnapshotBounds(atMs, halfWindowMs, traceEnd);
 
         ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
         HashSet<int>? scopePids = resolved.ProcessIds;
@@ -373,6 +372,30 @@ public sealed partial class TimelineProvider
     public static bool IsSnapshotGeometryRepresentable(double value) =>
         double.IsFinite(value)
         && value == Math.Round(value, OutputJson.DoublePrecision, MidpointRounding.AwayFromZero);
+
+    internal static (double StartMs, double EndMs) ResolveSnapshotBounds(
+        double atMs,
+        double halfWindowMs,
+        double traceEndMs)
+    {
+        double requestedStartMs = Math.Round(
+            atMs - halfWindowMs,
+            OutputJson.DoublePrecision,
+            MidpointRounding.AwayFromZero);
+        double requestedEndMs = Math.Round(
+            atMs + halfWindowMs,
+            OutputJson.DoublePrecision,
+            MidpointRounding.AwayFromZero);
+        double startMs = Math.Max(0.0, requestedStartMs);
+        if (requestedEndMs <= traceEndMs)
+        {
+            return (startMs, requestedEndMs);
+        }
+
+        double scale = Math.Pow(10.0, OutputJson.DoublePrecision);
+        double endMs = Math.Ceiling(traceEndMs * scale) / scale;
+        return (startMs, endMs);
+    }
 
     /// <summary>
     ///  Returns the warning for a snapshot whose bounded aggregation state dropped

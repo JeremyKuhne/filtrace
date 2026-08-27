@@ -258,6 +258,43 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void ResolveSnapshotBounds_ClippedFractionalTraceEnd_RoundsUp()
+    {
+        (double startMs, double endMs) = TimelineProvider.ResolveSnapshotBounds(
+            atMs: 10.0,
+            halfWindowMs: 0.01,
+            traceEndMs: 10.004);
+
+        startMs.Should().Be(9.99);
+        endMs.Should().Be(10.01).And.BeGreaterThan(10.004);
+        TimelineProvider.IsSnapshotGeometryRepresentable(startMs).Should().BeTrue();
+        TimelineProvider.IsSnapshotGeometryRepresentable(endMs).Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void ResolveSnapshotBounds_UnclippedWindow_PreservesRequestedGeometry()
+    {
+        (double startMs, double endMs) = TimelineProvider.ResolveSnapshotBounds(
+            atMs: 10.0,
+            halfWindowMs: 0.01,
+            traceEndMs: 20.0);
+
+        startMs.Should().Be(9.99);
+        endMs.Should().Be(10.01);
+    }
+
+    [TestMethod]
+    public void ResolveSnapshotBounds_ClippedRepresentableTraceEnd_PreservesEnd()
+    {
+        (_, double endMs) = TimelineProvider.ResolveSnapshotBounds(
+            atMs: 10.0,
+            halfWindowMs: 0.01,
+            traceEndMs: 10.0);
+
+        endMs.Should().Be(10.0);
+    }
+
+    [TestMethod]
     public void ReadSnapshot_HalfWindowBelowMinimum_Throws()
     {
         Action act = () => new TimelineProvider().ReadSnapshot(
