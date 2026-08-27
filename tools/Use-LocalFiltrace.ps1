@@ -341,12 +341,16 @@ function Get-ResourceKeys(
     [string] $McpPath,
     [string] $SkillPath,
     [bool] $CliManaged,
-    [string] $CliPath) {
+    [string] $CliPath,
+    [string] $ManifestPath,
+    [string] $WorkspacePath) {
     [System.Collections.Generic.SortedSet[string]] $keys =
         [System.Collections.Generic.SortedSet[string]]::new(
             [System.StringComparer]::Ordinal)
     [void] $keys.Add("path:$(Get-PathIdentity $McpPath)")
     [void] $keys.Add("path:$(Get-PathIdentity $SkillPath)")
+    [void] $keys.Add("path:$(Get-PathIdentity $ManifestPath)")
+    [void] $keys.Add("path:$(Get-PathIdentity $WorkspacePath)")
     if ($CliManaged) {
         [void] $keys.Add($(if ([string]::IsNullOrWhiteSpace($CliPath)) {
                     'cli:global'
@@ -1151,7 +1155,7 @@ try {
     else {
         $null
     }
-    if ($null -ne $state -and $state.schemaVersion -notin @(2, 3, 4, 5)) {
+    if ($null -ne $state -and $state.schemaVersion -notin @(2, 3, 4, 5, 6)) {
         throw "Local-testing state has unsupported schema version '$($state.schemaVersion)': '$StatePath'."
     }
 
@@ -1167,7 +1171,7 @@ try {
 
     [string] $ownedStateWorkspace = Get-StateWorkspacePath $StatePath
     [bool] $legacyState = $null -ne $state -and $state.schemaVersion -eq 2
-    [bool] $legacyScopedState = $null -ne $state -and $state.schemaVersion -in @(3, 4)
+    [bool] $legacyScopedState = $null -ne $state -and $state.schemaVersion -in @(3, 4, 5)
     if ($legacyState -and $normalizedAction -ceq 'Install') {
         throw "Legacy global local-testing state must be restored before starting a repository-scoped install: '$StatePath'."
     }
@@ -1217,9 +1221,22 @@ try {
         throw "SkillDestination must not contain TargetRepository: '$SkillDestination'."
     }
     [string] $localTestingRoot = Join-Path $root 'artifacts/local-testing'
+    [string] $resourceOwnersRoot = Join-Path $localTestingRoot 'owners'
     Assert-PathsDoNotOverlap `
         $SkillDestination 'SkillDestination' `
         $localTestingRoot 'Shared local-testing root' `
+        $pathComparison
+    Assert-PathsDoNotOverlap `
+        $McpConfigPath 'McpConfigPath' `
+        $localTestingRoot 'Shared local-testing root' `
+        $pathComparison
+    Assert-PathsDoNotOverlap `
+        $StatePath 'StatePath' `
+        $resourceOwnersRoot 'Resource ownership registry' `
+        $pathComparison
+    Assert-PathsDoNotOverlap `
+        $stateWorkspace 'Local-testing workspace' `
+        $resourceOwnersRoot 'Resource ownership registry' `
         $pathComparison
 
     [bool] $cliManaged = if ($null -ne $state -and
@@ -1328,6 +1345,10 @@ try {
         }
         if (-not $cliOwnedByWorkspace) {
             Assert-PathsDoNotOverlap `
+                $CliToolPath 'CliToolPath' `
+                $localTestingRoot 'Shared local-testing root' `
+                $pathComparison
+            Assert-PathsDoNotOverlap `
                 $StatePath 'StatePath' `
                 $CliToolPath 'CliToolPath' `
                 $pathComparison
@@ -1341,22 +1362,37 @@ try {
     [string] $stateDirectory = Split-Path -Parent $StatePath
     [string] $mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
 
-    [string[]] $resourceKeys = if ($null -ne $state -and $state.schemaVersion -eq 5) {
+    [string[]] $resourceKeys = if ($null -ne $state -and $state.schemaVersion -eq 6) {
         [string[]] $state.resourceKeys
     }
+    elseif ($null -ne $state -and $state.schemaVersion -eq 5) {
+        [System.Collections.Generic.SortedSet[string]] $migratedKeys =
+            [System.Collections.Generic.SortedSet[string]]::new(
+                [string[]] $state.resourceKeys,
+                [System.StringComparer]::Ordinal)
+        [void] $migratedKeys.Add("path:$(Get-PathIdentity $StatePath)")
+        [void] $migratedKeys.Add("path:$(Get-PathIdentity $stateWorkspace)")
+        [string[]] $migratedKeys
+    }
     else {
-        Get-ResourceKeys $McpConfigPath $SkillDestination $cliManaged $CliToolPath
+        Get-ResourceKeys `
+            $McpConfigPath `
+            $SkillDestination `
+            $cliManaged `
+            $CliToolPath `
+            $StatePath `
+            $stateWorkspace
     }
     [System.IO.FileStream[]] $resourceLocks = Enter-ResourceLocks $resourceKeys
     [bool] $statePersisted = $null -ne $state
     [bool] $ownershipClaimed = $false
     [bool] $workspaceInitialized = $false
     try {
-        if ($null -ne $state -and $state.schemaVersion -eq 5 -and
+        if ($null -ne $state -and $state.schemaVersion -eq 6 -and
             $state.status -cne 'cleanup-in-progress') {
             Assert-ResourceOwnership $resourceKeys $StatePath
         }
-        elseif ($null -ne $state -and $state.schemaVersion -ne 5) {
+        elseif ($null -ne $state -and $state.schemaVersion -ne 6) {
             $null = Claim-ResourceOwnership $resourceKeys $StatePath
             $ownershipClaimed = $true
         }
@@ -1373,7 +1409,7 @@ try {
                     throw "Cleanup workspace is nonempty but its ownership marker is missing: '$stateWorkspace'."
                 }
             }
-            if ($state.schemaVersion -eq 5 -or $ownershipClaimed) {
+            if ($state.schemaVersion -in @(5, 6) -or $ownershipClaimed) {
                 Remove-ResourceOwnership $resourceKeys $StatePath
                 $ownershipClaimed = $false
             }
@@ -1473,7 +1509,7 @@ try {
                 Backup-CliPackage $priorCli $cliBackup
             }
             $state = [pscustomobject] [ordered] @{
-                schemaVersion = 5
+                schemaVersion = 6
                 createdUtc = [System.DateTimeOffset]::UtcNow.ToString('O')
                 status = 'baseline-recorded'
                 targetRepository = $TargetRepository
@@ -1562,7 +1598,7 @@ try {
         -not (Test-Path -LiteralPath $skillBackup -PathType Container)) {
         throw "Recorded skill backup is missing: '$skillBackup'."
     }
-        if ([bool] $state.skill.existed -and $state.schemaVersion -in @(4, 5)) {
+        if ([bool] $state.skill.existed -and $state.schemaVersion -in @(4, 5, 6)) {
         [string] $expectedSkillBackupSha256 = [string] $state.skill.backupSha256
         if ([string]::IsNullOrWhiteSpace($expectedSkillBackupSha256)) {
             throw "Recorded skill backup hash is missing: '$skillBackup'."
@@ -1647,7 +1683,7 @@ try {
             $state.status = 'cleanup-in-progress'
             Write-JsonFile $StatePath $state
             Remove-StateWorkspace $stateWorkspace $StatePath
-            if ($state.schemaVersion -eq 5 -or $ownershipClaimed) {
+            if ($state.schemaVersion -in @(5, 6) -or $ownershipClaimed) {
                 Remove-ResourceOwnership $resourceKeys $StatePath
                 $ownershipClaimed = $false
             }

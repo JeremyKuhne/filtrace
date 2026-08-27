@@ -57,9 +57,9 @@ fails after that point, fix the reported cause and either run Install again or r
 Restore; do not delete the manifest or its owned workspace. One process holds an
 exclusive lock keyed by `StatePath` for the complete action, so an overlapping
 install or restore is rejected before MCP, skill, CLI, or manifest mutation.
-Schema-version-5 state also owns the canonical MCP, skill, and CLI paths until
-Restore commits final cleanup. Another manifest cannot claim the same or an
-ancestor/descendant resource, even after the first process exits.
+Schema-version-6 state also owns the canonical manifest, workspace, MCP, skill,
+and CLI paths until Restore commits final cleanup. Another manifest cannot claim
+the same or an ancestor/descendant resource, even after the first process exits.
 
 An already-running chat may need an MCP tool refresh or a new chat before the
 project server and skill are discovered.
@@ -172,8 +172,9 @@ The helper recognizes the legacy default manifest and restores it, but refuses t
 refresh the old broad setup. Custom version-2 manifests can also be restored with
 `-StatePath`; generic sibling directories beside a custom manifest are preserved.
 Version-3 repository-scoped manifests from the preview workflow are likewise
-restore-only. Version-4 manifests with skill-backup integrity metadata are also
-restore-only; the next Install records version 5 with durable resource ownership.
+restore-only. Version-4 manifests with skill-backup integrity metadata and
+version-5 manifests with partial resource ownership are also restore-only; the
+next Install records version 6 with complete durable resource ownership.
 
 ## Recover repository-scoped setup without a manifest
 
@@ -203,7 +204,7 @@ Get-ChildItem D:\repos\filtrace\artifacts\local-testing\repositories `
 
 Delete only the workspace identified for that consumer. For an install that used
 `-StatePath`, `-CliToolPath`, `-McpConfigPath`, or `-SkillDestination`, clean the
-explicit paths instead of these defaults. Schema-version-5 installs also retain
+explicit paths instead of these defaults. Schema-version-6 installs also retain
 one ownership record per canonical MCP, skill, and CLI resource under
 `artifacts/local-testing/owners`. After the corresponding resources and workspace
 have been cleaned, remove only records whose `statePath` is the lost manifest:

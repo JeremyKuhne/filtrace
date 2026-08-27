@@ -529,7 +529,7 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $consumerSkill 'SKILL.md') -PathType Leaf) `
         'Default install did not vendor the skill into the consumer repository.'
     [object] $consumerLocalState = Read-Json $consumerState
-    Assert-True ($consumerLocalState.schemaVersion -eq 5) 'Default install did not write schema version 5 state.'
+    Assert-True ($consumerLocalState.schemaVersion -eq 6) 'Default install did not write schema version 6 state.'
     Assert-True ([string] $consumerLocalState.targetRepository -ceq $consumerRoot) `
         'Default install did not record the consumer repository.'
     Assert-True ([string] $consumerLocalState.mcp.path -ceq $consumerMcp) `
@@ -631,10 +631,11 @@ try {
     # Resource ownership: different StatePath values cannot concurrently or
     # sequentially claim the same MCP and skill resources.
     [string] $ownershipRoot = Join-Path $temporaryRoot 'resource ownership'
+    [string] $ownershipStateRoot = Join-Path $temporaryRoot 'resource ownership states'
     [string] $ownershipConfig = Join-Path $ownershipRoot 'mcp.json'
     [string] $ownershipSkill = Join-Path $ownershipRoot 'skill/filtrace'
-    [string] $firstOwnershipState = Join-Path $ownershipRoot 'first-state.json'
-    [string] $secondOwnershipState = Join-Path $ownershipRoot 'second-state.json'
+    [string] $firstOwnershipState = Join-Path $ownershipStateRoot 'first-state.json'
+    [string] $secondOwnershipState = Join-Path $ownershipStateRoot 'second-state.json'
     Write-Json $ownershipConfig ([ordered] @{
             servers = [ordered] @{
                 docs = [ordered] @{ type = 'http'; url = 'https://ownership.invalid/mcp' }
@@ -689,6 +690,23 @@ try {
         'A descendant resource path was not rejected by durable ownership.'
     Assert-True (-not (Test-Path -LiteralPath $overlapOwnershipState)) `
         'Overlapping resource ownership wrote another rollback manifest.'
+
+    [string] $rollbackAttackRoot = Join-Path $temporaryRoot 'rollback ownership attack'
+    [string] $rollbackAttackConfig = Join-Path $rollbackAttackRoot 'mcp.json'
+    [string] $rollbackAttackState = Join-Path $rollbackAttackRoot 'state.json'
+    Write-Json $rollbackAttackConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [string] $rollbackAttackFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $rollbackAttackConfig -SkillDestination $ownershipStateRoot `
+        -StatePath $rollbackAttackState -SkipCli
+    Assert-True ($rollbackAttackFailure -match 'owned by') `
+        'A skill destination containing another manifest was not rejected.'
+    Assert-True (
+        [System.Linq.Enumerable]::SequenceEqual(
+            $firstOwnershipStateBytes,
+            [System.IO.File]::ReadAllBytes($firstOwnershipState))) `
+        'Rollback-data ownership rejection changed the first manifest.'
+    Assert-True (-not (Test-Path -LiteralPath $rollbackAttackState)) `
+        'Rollback-data ownership rejection wrote another manifest.'
 
     Invoke-Workflow 'Restore' $ownershipConfig $ownershipSkill $firstOwnershipState
     Invoke-Workflow 'Install' $ownershipConfig $ownershipSkill $secondOwnershipState
@@ -881,6 +899,45 @@ try {
         'Shared local-testing root rejection changed existing registry content.'
     Assert-True (-not (Test-Path -LiteralPath $sharedRootState)) `
         'Shared local-testing root rejection wrote rollback state.'
+
+    [string] $sharedMcpPath = Join-Path $sharedRootSkill 'mcp.json'
+    [string] $sharedMcpSkill = Join-Path $copiedRoot 'shared-mcp-skill/filtrace'
+    [string] $sharedMcpState = Join-Path $copiedRoot 'shared-mcp-state/state.json'
+    [string] $sharedMcpFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $sharedMcpPath -SkillDestination $sharedMcpSkill `
+        -StatePath $sharedMcpState -SkipCli -WorkflowPath $copiedWorkflow
+    Assert-True ($sharedMcpFailure -match 'McpConfigPath and Shared local-testing root must not overlap') `
+        'MCP configuration inside the shared local-testing root was not rejected.'
+    Assert-True (-not (Test-Path -LiteralPath $sharedMcpState)) `
+        'Shared-root MCP rejection wrote rollback state.'
+
+    [string] $sharedStatePath = Join-Path $sharedRootSkill 'state.json'
+    [string] $sharedStateConfig = Join-Path $copiedRoot 'shared-state-mcp.json'
+    [string] $sharedStateSkill = Join-Path $copiedRoot 'shared-state-skill/filtrace'
+    Write-Json $sharedStateConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [string] $sharedStateFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $sharedStateConfig -SkillDestination $sharedStateSkill `
+        -StatePath $sharedStatePath -SkipCli -WorkflowPath $copiedWorkflow
+    Assert-True ($sharedStateFailure -match 'StatePath and Resource ownership registry must not overlap') `
+        'StatePath inside the resource ownership registry was not rejected.'
+    Assert-True (-not (Test-Path -LiteralPath $sharedStatePath)) `
+        'Owner-registry StatePath rejection wrote rollback state.'
+
+    [string] $sharedCliPath = Join-Path $sharedRootSkill 'tools'
+    [string] $sharedCliConfig = Join-Path $copiedRoot 'shared-cli-mcp.json'
+    [string] $sharedCliSkill = Join-Path $copiedRoot 'shared-cli-skill/filtrace'
+    [string] $sharedCliState = Join-Path $copiedRoot 'shared-cli-state/state.json'
+    Write-Json $sharedCliConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [string] $sharedCliFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $sharedCliConfig -SkillDestination $sharedCliSkill `
+        -StatePath $sharedCliState -CliToolPath $sharedCliPath `
+        -WorkflowPath $copiedWorkflow
+    Assert-True ($sharedCliFailure -match 'CliToolPath and Shared local-testing root must not overlap') `
+        'External CLI path inside the shared local-testing root was not rejected.'
+    Assert-True (-not (Test-Path -LiteralPath $sharedCliState)) `
+        'Shared-root CLI rejection wrote rollback state.'
+    Assert-True ([System.IO.File]::ReadAllText($sharedRootSentinel, $utf8) -ceq 'shared registry') `
+        'Shared-root path rejection changed existing registry content.'
 
     [string[]] $overlapDestinations = @(
         $copiedSkillSource,
