@@ -4,12 +4,16 @@
 
 namespace Filtrace.Tracing;
 
-/// <summary>Pairs capture-manifest cases by exact benchmark and parameter identity.</summary>
+/// <summary>
+///  Pairs capture-manifest cases by exact benchmark and parameter identity.
+/// </summary>
 public static class CaptureManifestPairer
 {
     private const int MaxWarnings = 16;
 
-    /// <summary>Pairs baseline and current cases without using job/display labels.</summary>
+    /// <summary>
+    ///  Pairs baseline and current cases without using job/display labels.
+    /// </summary>
     /// <param name="before">Baseline capture manifest.</param>
     /// <param name="after">Current capture manifest.</param>
     /// <returns>Matched cases and bounded unmatched-identity warnings.</returns>
@@ -125,17 +129,3 @@ public static class CaptureManifestPairer
         }
     }
 }
-
-/// <summary>One baseline/current capture case pair.</summary>
-/// <param name="Before">Baseline case.</param>
-/// <param name="After">Current case.</param>
-public sealed record CaptureManifestCasePair(
-    CaptureManifestCase Before,
-    CaptureManifestCase After);
-
-/// <summary>Paired cases plus bounded pairing warnings.</summary>
-/// <param name="Pairs">Cases matched by exact benchmark and parameters.</param>
-/// <param name="Warnings">Unresolved and unmatched case diagnostics.</param>
-public sealed record CaptureManifestPairResult(
-    IReadOnlyList<CaptureManifestCasePair> Pairs,
-    IReadOnlyList<string> Warnings);

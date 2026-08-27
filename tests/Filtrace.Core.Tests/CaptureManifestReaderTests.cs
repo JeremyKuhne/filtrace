@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Touki;
+
 namespace Filtrace.Tracing;
 
 [TestClass]
@@ -144,22 +146,27 @@ public sealed class CaptureManifestReaderTests
         act.Should().Throw<InvalidDataException>().WithMessage("*maximum is 1000*");
     }
 
-    private sealed class TemporaryManifest : IDisposable
+    private sealed class TemporaryManifest : DisposableBase
     {
         private readonly string _directory;
 
         public TemporaryManifest(string json)
         {
-            _directory = Path.Combine(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}");
+            _directory = Path.Join(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}");
             Directory.CreateDirectory(_directory);
-            ManifestPath = Path.Combine(_directory, "manifest.json");
+            ManifestPath = Path.Join(_directory, "manifest.json");
             File.WriteAllText(ManifestPath, json);
         }
 
         public string ManifestPath { get; }
 
-        public void Dispose()
+        protected override void Dispose(bool disposing)
         {
+            if (!disposing)
+            {
+                return;
+            }
+
             try
             {
                 Directory.Delete(_directory, recursive: true);
@@ -174,9 +181,9 @@ public sealed class CaptureManifestReaderTests
     [TestMethod]
     public void Read_ParameterCasesAndOperationStates_PreservesIdentityAndMetadata()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}");
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        string path = Path.Combine(directory, "manifest.json");
+        string path = Path.Join(directory, "manifest.json");
         File.WriteAllText(
             path,
             """
@@ -200,8 +207,8 @@ public sealed class CaptureManifestReaderTests
             manifest.Cases[1].HasCompleteOperationMetadata.Should().BeFalse();
             manifest.Cases[2].HasCompleteOperationMetadata.Should().BeTrue();
             manifest.Cases[2].OperationUnit.Should().Be("items");
-            manifest.Cases[2].TracePath.Should().Be(Path.Combine(directory, "c.speedscope.json"));
-            manifest.Cases[2].SymbolsDirectory.Should().Be(Path.Combine(directory, "symbols"));
+            manifest.Cases[2].TracePath.Should().Be(Path.Join(directory, "c.speedscope.json"));
+            manifest.Cases[2].SymbolsDirectory.Should().Be(Path.Join(directory, "symbols"));
         }
         finally
         {
@@ -220,7 +227,7 @@ public sealed class CaptureManifestReaderTests
     [TestMethod]
     public void Read_DurableManifestSizeBoundary_AcceptsCompleteLargeFileAndRejectsLimit()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}.json");
+        string path = Path.Join(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}.json");
         const string prefix = "{\"schemaVersion\":1,\"padding\":\"";
         const string suffix = "\",\"cases\":[{\"id\":\"a\",\"benchmark\":\"Bench.Work\",\"trace\":\"a.nettrace\"}]}";
         try
@@ -252,7 +259,7 @@ public sealed class CaptureManifestReaderTests
     [TestMethod]
     public void Read_MalformedAndOversizedInput_ThrowsInvalidDataException()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}.json");
+        string path = Path.Join(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}.json");
         try
         {
             File.WriteAllText(path, "{\"schemaVersion\":1,\"cases\":[{\"id\":\"a\"}]}");
@@ -281,7 +288,7 @@ public sealed class CaptureManifestReaderTests
     [TestMethod]
     public void Read_DuplicateProperties_ThrowsInvalidDataException()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}.json");
+        string path = Path.Join(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}.json");
         try
         {
             File.WriteAllText(path, """{"schemaVersion":1,"schemaVersion":1,"cases":[]}""");
@@ -303,7 +310,7 @@ public sealed class CaptureManifestReaderTests
     [TestMethod]
     public void Read_CaseCountBoundary_Accepts256AndRejects257()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}.json");
+        string path = Path.Join(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}.json");
         try
         {
             string Cases(int count) => string.Join(",", Enumerable.Range(0, count).Select(
@@ -327,10 +334,10 @@ public sealed class CaptureManifestReaderTests
     [TestMethod]
     public void Read_RelativeTraversalPath_NormalizesAgainstManifestDirectory()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}");
-        string nested = Path.Combine(directory, "nested");
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-manifest-{Guid.NewGuid():N}");
+        string nested = Path.Join(directory, "nested");
         Directory.CreateDirectory(nested);
-        string path = Path.Combine(nested, "manifest.json");
+        string path = Path.Join(nested, "manifest.json");
         File.WriteAllText(
             path,
             """{"schemaVersion":1,"cases":[{"id":"a","benchmark":"B","trace":"../outside.nettrace"}]}""");
@@ -338,7 +345,7 @@ public sealed class CaptureManifestReaderTests
         {
             CaptureManifest manifest = CaptureManifestReader.Read(path);
 
-            manifest.Cases[0].TracePath.Should().Be(Path.Combine(directory, "outside.nettrace"));
+            manifest.Cases[0].TracePath.Should().Be(Path.Join(directory, "outside.nettrace"));
         }
         finally
         {

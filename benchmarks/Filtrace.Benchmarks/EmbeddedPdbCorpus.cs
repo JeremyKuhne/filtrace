@@ -3,10 +3,11 @@
 // See LICENSE file in the project root for full license information
 
 using System.Reflection.PortableExecutable;
+using Touki;
 
 namespace Filtrace.Benchmarks;
 
-internal sealed class EmbeddedPdbCorpus : IDisposable
+internal sealed class EmbeddedPdbCorpus : DisposableBase
 {
     private EmbeddedPdbCorpus(string directoryPath) => DirectoryPath = directoryPath;
 
@@ -27,7 +28,7 @@ internal sealed class EmbeddedPdbCorpus : IDisposable
         }
 
         (string embeddedAssembly, string portableAssembly, long assemblyLength) = ValidateSources();
-        string directory = Path.Combine(
+        string directory = Path.Join(
             Path.GetTempPath(),
             $"filtrace-pdb-benchmark-{Guid.NewGuid():N}");
         EmbeddedPdbCorpus corpus = new(directory);
@@ -42,7 +43,7 @@ internal sealed class EmbeddedPdbCorpus : IDisposable
                     > index * embeddedCount / dllCount;
                 string source = embedded ? embeddedAssembly : portableAssembly;
                 string kind = embedded ? "embedded" : "portable";
-                string destination = Path.Combine(directory, $"{kind}-{index:D2}.dll");
+                string destination = Path.Join(directory, $"{kind}-{index:D2}.dll");
                 File.Copy(source, destination);
                 using FileStream stream = new(
                     destination,
@@ -73,9 +74,9 @@ internal sealed class EmbeddedPdbCorpus : IDisposable
 
     public static void ValidateSourceAssemblies() => _ = ValidateSources();
 
-    public void Dispose()
+    protected override void Dispose(bool disposing)
     {
-        if (Directory.Exists(DirectoryPath))
+        if (disposing && Directory.Exists(DirectoryPath))
         {
             Directory.Delete(DirectoryPath, recursive: true);
         }
@@ -83,8 +84,8 @@ internal sealed class EmbeddedPdbCorpus : IDisposable
 
     private static (string Embedded, string Portable, long Length) ValidateSources()
     {
-        string embeddedAssembly = Path.Combine(AppContext.BaseDirectory, "touki.dll");
-        string portableAssembly = Path.Combine(AppContext.BaseDirectory, "Filtrace.Core.dll");
+        string embeddedAssembly = Path.Join(AppContext.BaseDirectory, "touki.dll");
+        string portableAssembly = Path.Join(AppContext.BaseDirectory, "Filtrace.Core.dll");
         ValidateEmbeddedPdb(embeddedAssembly, expected: true);
         ValidateEmbeddedPdb(portableAssembly, expected: false);
         long assemblyLength = Math.Max(

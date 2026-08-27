@@ -4,7 +4,9 @@
 
 namespace Filtrace.Benchmarks;
 
-/// <summary>Measures fresh filtrace processes against a prepared warm ETLX cache.</summary>
+/// <summary>
+///  Measures fresh filtrace processes against a prepared warm ETLX cache.
+/// </summary>
 [MemoryDiagnoser]
 public class CliWarmBenchmarks
 {
@@ -14,19 +16,25 @@ public class CliWarmBenchmarks
     private EmbeddedPdbCorpus? _symbolCorpus;
     private string _trace = null!;
 
-    /// <summary>The stable warm CLI scenario name.</summary>
+    /// <summary>
+    ///  The stable warm CLI scenario name.
+    /// </summary>
     [ParamsSource(nameof(Scenarios))]
     public string Scenario { get; set; } = null!;
 
-    /// <summary>The stable warm CLI scenario names.</summary>
+    /// <summary>
+    ///  The stable warm CLI scenario names.
+    /// </summary>
     public static IEnumerable<string> Scenarios => CliBenchmarkScenarios.WarmNames;
 
-    /// <summary>Preconverts the trace and validates the selected CLI invocation.</summary>
+    /// <summary>
+    ///  Preconverts the trace and validates the selected CLI invocation.
+    /// </summary>
     [GlobalSetup]
     public void Setup()
     {
         _executable = CliProcessRunner.FindFiltraceExecutable();
-        _trace = Path.Combine(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
+        _trace = Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
         CliScenarioDefinition definition = CliBenchmarkScenarios.Get(Scenario);
         if (definition.IsManifest)
         {
@@ -71,7 +79,9 @@ public class CliWarmBenchmarks
         }
     }
 
-    /// <summary>Removes any generated manifest corpus.</summary>
+    /// <summary>
+    ///  Removes any generated manifest corpus.
+    /// </summary>
     [GlobalCleanup]
     public void Cleanup()
     {
@@ -81,7 +91,9 @@ public class CliWarmBenchmarks
         _symbolCorpus = null;
     }
 
-    /// <summary>Starts filtrace and consumes its redirected output streams.</summary>
+    /// <summary>
+    ///  Starts filtrace and consumes its redirected output streams.
+    /// </summary>
     [Benchmark]
     public Task<CliProcessResult> Run() =>
         CliProcessRunner.RunAsync(_executable, _arguments);

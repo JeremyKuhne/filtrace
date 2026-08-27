@@ -10,9 +10,13 @@ namespace Filtrace.Tracing;
 /// </summary>
 public enum FrameMatchSelection
 {
-    /// <summary>Select the first match in the outermost-first stack.</summary>
+    /// <summary>
+    ///  Select the first match in the outermost-first stack.
+    /// </summary>
     Outermost,
 
-    /// <summary>Select the last match in the outermost-first stack.</summary>
+    /// <summary>
+    ///  Select the last match in the outermost-first stack.
+    /// </summary>
     Deepest
 }

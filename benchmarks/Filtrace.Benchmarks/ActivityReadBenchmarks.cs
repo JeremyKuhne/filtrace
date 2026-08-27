@@ -4,18 +4,22 @@
 
 namespace Filtrace.Benchmarks;
 
-/// <summary>Measures fresh CPU loads from one preconverted activity trace.</summary>
+/// <summary>
+///  Measures fresh CPU loads from one preconverted activity trace.
+/// </summary>
 [MemoryDiagnoser]
 public class ActivityReadBenchmarks
 {
     private string _activityTrace = null!;
     private ScopeRequest _orderScope = null!;
 
-    /// <summary>Preconverts the trace and validates the named activity scope.</summary>
+    /// <summary>
+    ///  Preconverts the trace and validates the named activity scope.
+    /// </summary>
     [GlobalSetup]
     public void Setup()
     {
-        _activityTrace = Path.Combine(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
+        _activityTrace = Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
         _orderScope = ScopeRequest.Auto.WithActivity("Order");
 
         LoadedTrace whole = new TraceLoader().Load(_activityTrace, TraceMetric.Cpu);
@@ -32,12 +36,16 @@ public class ActivityReadBenchmarks
         }
     }
 
-    /// <summary>Loads all CPU samples with a fresh loader.</summary>
+    /// <summary>
+    ///  Loads all CPU samples with a fresh loader.
+    /// </summary>
     [Benchmark(Baseline = true)]
     public LoadedTrace Unscoped() =>
         new TraceLoader().Load(_activityTrace, TraceMetric.Cpu);
 
-    /// <summary>Loads CPU samples inside Order activities with a fresh loader.</summary>
+    /// <summary>
+    ///  Loads CPU samples inside Order activities with a fresh loader.
+    /// </summary>
     [Benchmark]
     public LoadedTrace OrderScoped() =>
         new TraceLoader().Load(_activityTrace, TraceMetric.Cpu, scope: _orderScope);

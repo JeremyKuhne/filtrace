@@ -10,7 +10,7 @@ namespace Filtrace.Cli;
 public sealed class EventsExecutorTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static string Alloc => FixturePath("alloc.nettrace");
 

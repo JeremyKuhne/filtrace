@@ -145,9 +145,7 @@ public sealed partial class DiskIoProvider
     ///  The warning naming what was dropped, or <see langword="null"/> when the whole file
     ///  list was kept.
     /// </param>
-    /// <returns>
-    ///  The limited report, or <paramref name="report"/> itself when every file fit.
-    /// </returns>
+    /// <returns>The limited report, or <paramref name="report"/> itself when every file fit.</returns>
     /// <remarks>
     ///  <para>
     ///   Shared by both heads so they bound and word the result identically. A file row

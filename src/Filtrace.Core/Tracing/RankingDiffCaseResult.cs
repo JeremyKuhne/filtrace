@@ -4,7 +4,9 @@
 
 namespace Filtrace.Tracing;
 
-/// <summary>One benchmark case's normalized baseline/current ranking diff.</summary>
+/// <summary>
+///  One benchmark case's normalized baseline/current ranking diff.
+/// </summary>
 /// <param name="Benchmark">Exact benchmark name.</param>
 /// <param name="Parameters">Stable parameter display, empty when unparameterized.</param>
 /// <param name="BeforeScopeWeight">Baseline scoped weight.</param>
@@ -21,27 +23,43 @@ public sealed record RankingDiffCaseResult(
     IReadOnlyList<DiffRow> Rows,
     IReadOnlyList<string> Warnings)
 {
-    /// <summary>Baseline contributing records, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  Baseline contributing records, or <see langword="null"/>.
+    /// </summary>
     public int? BeforeContributingRecordCount { get; init; }
 
-    /// <summary>Current contributing records, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  Current contributing records, or <see langword="null"/>.
+    /// </summary>
     public int? AfterContributingRecordCount { get; init; }
 
-    /// <summary>Baseline pre-root and retained coverage, or <see langword="null"/> without a root.</summary>
+    /// <summary>
+    ///  Baseline pre-root and retained coverage, or <see langword="null"/> without a root.
+    /// </summary>
     public RootScopeCoverage? BeforeRootCoverage { get; init; }
 
-    /// <summary>Current pre-root and retained coverage, or <see langword="null"/> without a root.</summary>
+    /// <summary>
+    ///  Current pre-root and retained coverage, or <see langword="null"/> without a root.
+    /// </summary>
     public RootScopeCoverage? AfterRootCoverage { get; init; }
 
-    /// <summary>Shared operation unit, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  Shared operation unit, or <see langword="null"/>.
+    /// </summary>
     public string? OperationUnit { get; init; }
 
-    /// <summary>Baseline scope weight per operation, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  Baseline scope weight per operation, or <see langword="null"/>.
+    /// </summary>
     public double? BeforeScopeWeightPerOperation { get; init; }
 
-    /// <summary>Current scope weight per operation, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  Current scope weight per operation, or <see langword="null"/>.
+    /// </summary>
     public double? AfterScopeWeightPerOperation { get; init; }
 
-    /// <summary>Per-operation scope change, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  Per-operation scope change, or <see langword="null"/>.
+    /// </summary>
     public double? ScopeWeightPerOperationDelta { get; init; }
 }

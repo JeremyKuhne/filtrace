@@ -8,7 +8,7 @@ namespace Filtrace.Cli;
 public sealed class ThreadPoolExecutorTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     // The threadpool trace is captured under thread-pool starvation, so it carries the
     // worker-thread adjustment events the report reads.

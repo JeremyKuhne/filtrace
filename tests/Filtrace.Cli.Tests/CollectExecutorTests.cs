@@ -58,7 +58,7 @@ public sealed class CollectExecutorTests
             Assert.Inconclusive("Elevated: the not-elevated guard cannot be exercised here.");
         }
 
-        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-collect-{Guid.NewGuid():N}.etl");
+        string outputPath = Path.Join(Path.GetTempPath(), $"filtrace-collect-{Guid.NewGuid():N}.etl");
         EtwCollectRequest request = new()
         {
             LaunchExecutable = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/true",
@@ -85,7 +85,7 @@ public sealed class CollectExecutorTests
             Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
         }
 
-        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-collect-{Guid.NewGuid():N}.etl");
+        string outputPath = Path.Join(Path.GetTempPath(), $"filtrace-collect-{Guid.NewGuid():N}.etl");
         EtwCollectRequest request = new()
         {
             // A process that starts and exits on its own, so the capture spans a real (if
@@ -129,10 +129,10 @@ public sealed class CollectExecutorTests
         // trade is only worth making if the names actually survive it. Capture a real
         // managed process and prove the method events are in the trace - a sampling-based
         // assertion would be flaky on a run this short.
-        string managedApp = Path.Combine(AppContext.BaseDirectory, "filtrace.dll");
+        string managedApp = Path.Join(AppContext.BaseDirectory, "filtrace.dll");
         File.Exists(managedApp).Should().BeTrue("the CLI assembly is the managed capture target");
 
-        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-startup-{Guid.NewGuid():N}.etl");
+        string outputPath = Path.Join(Path.GetTempPath(), $"filtrace-startup-{Guid.NewGuid():N}.etl");
         EtwCollectRequest request = new()
         {
             LaunchExecutable = "dotnet",
@@ -244,7 +244,7 @@ public sealed class CollectExecutorTests
             Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
         }
 
-        string workload = Path.Combine(
+        string workload = Path.Join(
             AppContext.BaseDirectory, "..", "..", "..", "..", "..", "fixtures", "NativeLoop", "NativeLoop.exe");
         if (!File.Exists(workload))
         {
@@ -277,7 +277,7 @@ public sealed class CollectExecutorTests
             Assert.Inconclusive("This platform does not report profile source bounds.");
         }
 
-        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-clamp-{Guid.NewGuid():N}.etl");
+        string outputPath = Path.Join(Path.GetTempPath(), $"filtrace-clamp-{Guid.NewGuid():N}.etl");
         try
         {
             EtwCollectResult result = EtwCollector.Collect(new EtwCollectRequest
@@ -307,7 +307,7 @@ public sealed class CollectExecutorTests
     // Captures the workload at one interval and returns how many CPU samples it produced.
     private static int CountSamples(string workload, double cpuSampleMSec)
     {
-        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-density-{Guid.NewGuid():N}.etl");
+        string outputPath = Path.Join(Path.GetTempPath(), $"filtrace-density-{Guid.NewGuid():N}.etl");
         try
         {
             EtwCollector.Collect(new EtwCollectRequest
@@ -344,7 +344,7 @@ public sealed class CollectExecutorTests
             Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
         }
 
-        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-iterations-{Guid.NewGuid():N}.etl");
+        string outputPath = Path.Join(Path.GetTempPath(), $"filtrace-iterations-{Guid.NewGuid():N}.etl");
         EtwCollectRequest request = new()
         {
             LaunchExecutable = "cmd.exe",
@@ -394,7 +394,7 @@ public sealed class CollectExecutorTests
 
         // Every launch fails, so the single reported exit code has to be a failure rather
         // than whichever run happened to finish last.
-        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-iterations-{Guid.NewGuid():N}.etl");
+        string outputPath = Path.Join(Path.GetTempPath(), $"filtrace-iterations-{Guid.NewGuid():N}.etl");
         EtwCollectRequest request = new()
         {
             LaunchExecutable = "cmd.exe",
@@ -431,7 +431,7 @@ public sealed class CollectExecutorTests
         // A capture script has to record each launch in its manifest, and reading them back
         // out of the human summary would be guesswork - this is the machine-readable path
         // that makes the manifest's invocations accurate.
-        string outputPath = Path.Combine(Path.GetTempPath(), $"filtrace-json-{Guid.NewGuid():N}.etl");
+        string outputPath = Path.Join(Path.GetTempPath(), $"filtrace-json-{Guid.NewGuid():N}.etl");
         EtwCollectRequest request = new()
         {
             LaunchExecutable = "cmd.exe",

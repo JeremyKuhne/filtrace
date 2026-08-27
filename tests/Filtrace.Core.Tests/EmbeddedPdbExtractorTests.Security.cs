@@ -27,8 +27,8 @@ public sealed partial class EmbeddedPdbExtractorTests
     public void Extract_AggregateSizeAtBudget_WritesEveryPdb()
     {
         using TemporaryDirectory input = new();
-        File.Copy(EmbeddedAssembly, Path.Combine(input.Path, "first.dll"));
-        File.Copy(EmbeddedAssembly, Path.Combine(input.Path, "second.dll"));
+        File.Copy(EmbeddedAssembly, Path.Join(input.Path, "first.dll"));
+        File.Copy(EmbeddedAssembly, Path.Join(input.Path, "second.dll"));
         int declaredSize = GetDeclaredSize(EmbeddedAssembly);
         long remainingExtractedBytes = (long)declaredSize * 2;
 
@@ -50,8 +50,8 @@ public sealed partial class EmbeddedPdbExtractorTests
     public void Extract_AggregateSizeOverBudget_SkipsPdbBeyondBudget()
     {
         using TemporaryDirectory input = new();
-        File.Copy(EmbeddedAssembly, Path.Combine(input.Path, "first.dll"));
-        File.Copy(EmbeddedAssembly, Path.Combine(input.Path, "second.dll"));
+        File.Copy(EmbeddedAssembly, Path.Join(input.Path, "first.dll"));
+        File.Copy(EmbeddedAssembly, Path.Join(input.Path, "second.dll"));
         int declaredSize = GetDeclaredSize(EmbeddedAssembly);
         long remainingExtractedBytes = (long)declaredSize * 2 - 1;
 
@@ -75,7 +75,7 @@ public sealed partial class EmbeddedPdbExtractorTests
     public void Extract_DeclaredSizeDoesNotMatchOutput_ReturnsNull(int sizeDelta)
     {
         using TemporaryDirectory input = new();
-        string assembly = Path.Combine(input.Path, "mismatched.dll");
+        string assembly = Path.Join(input.Path, "mismatched.dll");
         File.Copy(EmbeddedAssembly, assembly);
         int declaredSize = GetDeclaredSize(assembly);
         SetDeclaredSize(assembly, checked((uint)(declaredSize + sizeDelta)));
@@ -96,7 +96,7 @@ public sealed partial class EmbeddedPdbExtractorTests
     public void Extract_FailedExtraction_ReservesDeclaredSize()
     {
         using TemporaryDirectory input = new();
-        string assembly = Path.Combine(input.Path, "mismatched.dll");
+        string assembly = Path.Join(input.Path, "mismatched.dll");
         File.Copy(EmbeddedAssembly, assembly);
         const uint declaredSize = 128u * 1024 * 1024;
         SetDeclaredSize(assembly, declaredSize);

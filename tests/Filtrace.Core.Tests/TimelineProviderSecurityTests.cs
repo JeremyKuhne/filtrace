@@ -12,7 +12,7 @@ namespace Filtrace.Tracing.Providers;
 [TestClass]
 public sealed class TimelineProviderSecurityTests
 {
-    private static string Alloc => Path.Combine(AppContext.BaseDirectory, "Fixtures", "alloc.nettrace");
+    private static string Alloc => Path.Join(AppContext.BaseDirectory, "Fixtures", "alloc.nettrace");
 
     private static TimelineProvider.PauseIdentity Pause(int processInstanceIndex, int threadInstanceIndex) =>
         new(processInstanceIndex, threadInstanceIndex);

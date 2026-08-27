@@ -4,29 +4,6 @@
 
 namespace Filtrace.Benchmarks;
 
-internal enum CliScenarioOperation
-{
-    Info,
-    RankSelf,
-    RankInclusive,
-    RankActivity,
-    Batch,
-    Diff,
-    Symbols
-}
-
-internal sealed record CliScenarioDefinition(
-    string Name,
-    CliScenarioOperation Operation,
-    bool Cold = false,
-    int CaseCount = 0,
-    int SymbolDllCount = 0)
-{
-    public bool IsManifest => Operation is CliScenarioOperation.Batch or CliScenarioOperation.Diff;
-
-    public bool IsPaired => Operation == CliScenarioOperation.Diff;
-}
-
 internal static class CliBenchmarkScenarios
 {
     private static readonly CliScenarioDefinition[] Definitions =

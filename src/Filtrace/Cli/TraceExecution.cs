@@ -132,9 +132,7 @@ internal static class TraceExecution
     /// </summary>
     /// <typeparam name="T">The report result type.</typeparam>
     /// <param name="path">The trace file path.</param>
-    /// <param name="reportName">
-    ///  The report's name, used in the wrong-format message (for example <c>GC</c>).
-    /// </param>
+    /// <param name="reportName">The report's name, used in the wrong-format message (for example <c>GC</c>).</param>
     /// <param name="read">The provider call producing the report.</param>
     /// <param name="error">The writer a guardrail or failure message is reported to.</param>
     /// <param name="result">The report on success.</param>

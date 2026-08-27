@@ -7,7 +7,9 @@ using Filtrace.Tracing;
 
 namespace Filtrace.Cli;
 
-/// <summary>Renders one compact case row per manifest ranking.</summary>
+/// <summary>
+///  Renders one compact case row per manifest ranking.
+/// </summary>
 internal static class BatchTextRenderer
 {
     private const int IdentityWidth = 42;

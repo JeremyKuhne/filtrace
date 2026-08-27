@@ -65,7 +65,7 @@ public sealed class SymbolOptionsTests
     [TestMethod]
     public void DefaultCacheDirectory_IsUnderTheTempPath()
     {
-        SymbolOptions.DefaultCacheDirectory.Should().Be(Path.Combine(Path.GetTempPath(), "filtrace-symbols"));
+        SymbolOptions.DefaultCacheDirectory.Should().Be(Path.Join(Path.GetTempPath(), "filtrace-symbols"));
     }
 
     [TestMethod]

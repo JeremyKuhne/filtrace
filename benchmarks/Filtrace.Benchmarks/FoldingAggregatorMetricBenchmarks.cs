@@ -4,7 +4,9 @@
 
 namespace Filtrace.Benchmarks;
 
-/// <summary>Measures aggregation-family parity across non-CPU metric units.</summary>
+/// <summary>
+///  Measures aggregation-family parity across non-CPU metric units.
+/// </summary>
 [MemoryDiagnoser]
 public class FoldingAggregatorMetricBenchmarks
 {
@@ -12,11 +14,15 @@ public class FoldingAggregatorMetricBenchmarks
     private const string SourceFile = "Pipeline.cs";
     private FoldingAggregator _aggregator = null!;
 
-    /// <summary>The representative metric family.</summary>
+    /// <summary>
+    ///  The representative metric family.
+    /// </summary>
     [Params("thread-time", "allocations", "count")]
     public string Metric { get; set; } = null!;
 
-    /// <summary>Builds and validates the representative metric source.</summary>
+    /// <summary>
+    ///  Builds and validates the representative metric source.
+    /// </summary>
     [GlobalSetup]
     public void Setup()
     {
@@ -46,32 +52,44 @@ public class FoldingAggregatorMetricBenchmarks
         }
     }
 
-    /// <summary>Ranks folded leaf weight.</summary>
+    /// <summary>
+    ///  Ranks folded leaf weight.
+    /// </summary>
     [Benchmark]
     public RankingResult SelfTime() =>
         _aggregator.SelfTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
 
-    /// <summary>Ranks every frame by inclusive weight.</summary>
+    /// <summary>
+    ///  Ranks every frame by inclusive weight.
+    /// </summary>
     [Benchmark]
     public RankingResult InclusiveTime() =>
         _aggregator.InclusiveTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
 
-    /// <summary>Finds immediate callers of a stable focus frame.</summary>
+    /// <summary>
+    ///  Finds immediate callers of a stable focus frame.
+    /// </summary>
     [Benchmark]
     public CallersResult CallersOf() =>
         _aggregator.CallersOf(FocusFrame, string.Empty, top: 25);
 
-    /// <summary>Ranks the representative metric by synthetic source line.</summary>
+    /// <summary>
+    ///  Ranks the representative metric by synthetic source line.
+    /// </summary>
     [Benchmark]
     public LineRankingResult HotLines() =>
         _aggregator.HotLines("Pipeline.Frame", FrameNames.DefaultFoldPatterns, top: 25);
 
-    /// <summary>Builds the representative metric's source heatmap.</summary>
+    /// <summary>
+    ///  Builds the representative metric's source heatmap.
+    /// </summary>
     [Benchmark]
     public SourceHeatmapResult SourceHeatmap() =>
         _aggregator.SourceHeatmap(SourceFile, FrameNames.DefaultFoldPatterns);
 
-    /// <summary>Builds the representative metric's bounded call tree.</summary>
+    /// <summary>
+    ///  Builds the representative metric's bounded call tree.
+    /// </summary>
     [Benchmark]
     public CallTreeResult CallTree() =>
         _aggregator.CallTree(
@@ -80,7 +98,9 @@ public class FoldingAggregatorMetricBenchmarks
             maxDepth: 20,
             minPercentOfScope: 0.0);
 
-    /// <summary>Classifies the representative metric's leaf weights.</summary>
+    /// <summary>
+    ///  Classifies the representative metric's leaf weights.
+    /// </summary>
     [Benchmark]
     public ClassifyResult Classify() =>
         _aggregator.Classify(string.Empty);

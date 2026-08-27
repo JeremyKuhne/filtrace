@@ -11,7 +11,7 @@ namespace Filtrace.Cli;
 public sealed class RankingExecutorTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static string Speedscope => FixturePath("folding.speedscope.json");
 
@@ -244,7 +244,7 @@ public sealed class RankingExecutorTests
     [DataRow("")]
     public void Run_ManifestCase_NullOrEmptySymbolsUsesRecordedDirectory(string? symbols)
     {
-        string missingSymbols = Path.Combine(Path.GetTempPath(), $"missing-symbols-{Guid.NewGuid():N}");
+        string missingSymbols = Path.Join(Path.GetTempPath(), $"missing-symbols-{Guid.NewGuid():N}");
         string manifest = WriteManifestWithSymbols("source", Activity, missingSymbols);
         try
         {
@@ -264,7 +264,7 @@ public sealed class RankingExecutorTests
     [TestMethod]
     public void Run_ManifestCase_ExplicitSymbolsOverridesRecordedDirectory()
     {
-        string missingSymbols = Path.Combine(Path.GetTempPath(), $"missing-symbols-{Guid.NewGuid():N}");
+        string missingSymbols = Path.Join(Path.GetTempPath(), $"missing-symbols-{Guid.NewGuid():N}");
         string manifest = WriteManifestWithSymbols("source", Activity, missingSymbols);
         try
         {
@@ -289,7 +289,7 @@ public sealed class RankingExecutorTests
     [OSCondition(OperatingSystems.Windows)]
     public void Run_CommandManifestCase_ReplaysExactProcessId()
     {
-        string manifest = Path.Combine(Path.GetTempPath(), $"filtrace-rank-command-{Guid.NewGuid():N}.json");
+        string manifest = Path.Join(Path.GetTempPath(), $"filtrace-rank-command-{Guid.NewGuid():N}.json");
         string trace = Etw.Replace("\\", "\\\\", StringComparison.Ordinal);
         File.WriteAllText(
             manifest,
@@ -314,7 +314,7 @@ public sealed class RankingExecutorTests
 
     private static string WriteManifest(string caseId)
     {
-        string manifest = Path.Combine(Path.GetTempPath(), $"filtrace-rank-case-{Guid.NewGuid():N}.json");
+        string manifest = Path.Join(Path.GetTempPath(), $"filtrace-rank-case-{Guid.NewGuid():N}.json");
         string trace = Speedscope.Replace("\\", "\\\\", StringComparison.Ordinal);
         File.WriteAllText(
             manifest,
@@ -326,7 +326,7 @@ public sealed class RankingExecutorTests
 
     private static string WriteManifestWithSymbols(string caseId, string tracePath, string symbolsDirectory)
     {
-        string manifest = Path.Combine(Path.GetTempPath(), $"filtrace-rank-case-{Guid.NewGuid():N}.json");
+        string manifest = Path.Join(Path.GetTempPath(), $"filtrace-rank-case-{Guid.NewGuid():N}.json");
         string trace = tracePath.Replace("\\", "\\\\", StringComparison.Ordinal);
         string symbols = symbolsDirectory.Replace("\\", "\\\\", StringComparison.Ordinal);
         File.WriteAllText(
@@ -369,7 +369,7 @@ public sealed class RankingExecutorTests
     public void Run_MalformedSpeedscopeJson_ReturnsInputError()
     {
         // Malformed JSON must terminate with a defined exit code, not an unhandled crash.
-        string path = Path.Combine(Path.GetTempPath(), $"filtrace-malformed-{Guid.NewGuid():N}.speedscope.json");
+        string path = Path.Join(Path.GetTempPath(), $"filtrace-malformed-{Guid.NewGuid():N}.speedscope.json");
         File.WriteAllText(path, "{ this is not valid json");
         try
         {
@@ -390,7 +390,7 @@ public sealed class RankingExecutorTests
         // Valid JSON whose shape is wrong (an event is missing its required "at" field)
         // surfaces as a KeyNotFoundException from the reader's JsonElement access; it must
         // map to a defined exit code rather than crashing the process.
-        string path = Path.Combine(Path.GetTempPath(), $"filtrace-wrongshape-{Guid.NewGuid():N}.speedscope.json");
+        string path = Path.Join(Path.GetTempPath(), $"filtrace-wrongshape-{Guid.NewGuid():N}.speedscope.json");
         File.WriteAllText(path, """{"profiles":[{"name":"t","events":[{"type":"O","frame":0}]}]}""");
         try
         {

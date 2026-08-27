@@ -11,48 +11,6 @@ using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 namespace Filtrace.Tracing.Readers;
 
 /// <summary>
-///  Outcome of a local native symbol lookup for a single module.
-/// </summary>
-internal enum NativeSymbolStatus
-{
-    /// <summary>The module's symbols were found on the local path and applied.</summary>
-    Resolved,
-
-    /// <summary>No symbol file for the module was found on the local path.</summary>
-    NoSymbolFile,
-
-    /// <summary>
-    ///  A symbol file with the module's PDB name exists locally, but its identity
-    ///  (signature and age) does not match the module in the trace.
-    /// </summary>
-    IdentityMismatch,
-
-    /// <summary>
-    ///  The module's share of unresolved samples was too small to spend a lookup on.
-    /// </summary>
-    NotAttempted,
-
-    /// <summary>The lookup was attempted and failed.</summary>
-    LookupFailed
-}
-
-/// <summary>
-///  The result of a local native symbol lookup for one module, with the share of
-///  unresolved sampled frames that module accounted for.
-/// </summary>
-/// <param name="ModuleName">The module's name, without extension.</param>
-/// <param name="Status">What the lookup found.</param>
-/// <param name="UnresolvedFrames">Sampled frames in the module that carried no method.</param>
-/// <param name="UnresolvedShare">
-///  <paramref name="UnresolvedFrames"/> as a share of all unresolved sampled frames.
-/// </param>
-internal sealed record NativeModuleSymbolStatus(
-    string ModuleName,
-    NativeSymbolStatus Status,
-    int UnresolvedFrames,
-    double UnresolvedShare);
-
-/// <summary>
 ///  Applies locally available native symbols to the modules that account for the most
 ///  unresolved sampled frames.
 /// </summary>
@@ -163,9 +121,7 @@ internal static class NativeSymbolResolution
     ///  frames and reports what each lookup found.
     /// </summary>
     /// <param name="traceLog">The trace to resolve against.</param>
-    /// <param name="symbolReader">
-    ///  The reader, whose symbol path must not yet carry a symbol-server element.
-    /// </param>
+    /// <param name="symbolReader">The reader, whose symbol path must not yet carry a symbol-server element.</param>
     /// <param name="symbolsDirectory">The directory the caller supplied, for reason reporting.</param>
     /// <returns>
     ///  One entry per module that had unresolved sampled frames, ordered by descending

@@ -34,13 +34,19 @@ public sealed record RankingDiffResult(
     private string _kind = TraceKind;
     private IReadOnlyList<RankingDiffCaseResult> _cases = [];
 
-    /// <summary>The result kind for a direct trace-to-trace diff.</summary>
+    /// <summary>
+    ///  The result kind for a direct trace-to-trace diff.
+    /// </summary>
     public const string TraceKind = "trace";
 
-    /// <summary>The result kind for a paired capture-manifest diff.</summary>
+    /// <summary>
+    ///  The result kind for a paired capture-manifest diff.
+    /// </summary>
     public const string ManifestKind = "manifest";
 
-    /// <summary>Initializes a paired capture-manifest diff.</summary>
+    /// <summary>
+    ///  Initializes a paired capture-manifest diff.
+    /// </summary>
     /// <param name="cases">The case-keyed manifest diffs, including an empty completed result.</param>
     public RankingDiffResult(IReadOnlyList<RankingDiffCaseResult> cases)
         : this(0.0, 0.0, 0.0, [])
@@ -49,10 +55,14 @@ public sealed record RankingDiffResult(
         Cases = cases;
     }
 
-    /// <summary>The result shape: <c>trace</c> or <c>manifest</c>.</summary>
+    /// <summary>
+    ///  The result shape: <c>trace</c> or <c>manifest</c>.
+    /// </summary>
     public string Kind => _kind;
 
-    /// <summary>The per-frame changes for a direct trace diff.</summary>
+    /// <summary>
+    ///  The per-frame changes for a direct trace diff.
+    /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
     [JsonIgnore]
     public IReadOnlyList<DiffRow> Rows { get; init; } =
@@ -74,40 +84,58 @@ public sealed record RankingDiffResult(
         }
     }
 
-    /// <summary>Baseline records contributing to the ranking, or <see langword="null"/> when unavailable.</summary>
+    /// <summary>
+    ///  Baseline records contributing to the ranking, or <see langword="null"/> when unavailable.
+    /// </summary>
     [JsonIgnore]
     public int? BeforeContributingRecordCount { get; init; }
 
-    /// <summary>Current records contributing to the ranking, or <see langword="null"/> when unavailable.</summary>
+    /// <summary>
+    ///  Current records contributing to the ranking, or <see langword="null"/> when unavailable.
+    /// </summary>
     [JsonIgnore]
     public int? AfterContributingRecordCount { get; init; }
 
-    /// <summary>Baseline pre-root and retained coverage, or <see langword="null"/> without a root.</summary>
+    /// <summary>
+    ///  Baseline pre-root and retained coverage, or <see langword="null"/> without a root.
+    /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public RootScopeCoverage? BeforeRootCoverage { get; init; }
 
-    /// <summary>Current pre-root and retained coverage, or <see langword="null"/> without a root.</summary>
+    /// <summary>
+    ///  Current pre-root and retained coverage, or <see langword="null"/> without a root.
+    /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public RootScopeCoverage? AfterRootCoverage { get; init; }
 
-    /// <summary>Unit named by complete per-operation metadata, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  Unit named by complete per-operation metadata, or <see langword="null"/>.
+    /// </summary>
     /// <remarks>Direct trace pairs have no operation metadata and leave this <see langword="null"/>.</remarks>
     [JsonIgnore]
     public string? OperationUnit { get; init; }
 
-    /// <summary>Baseline scope weight per operation, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  Baseline scope weight per operation, or <see langword="null"/>.
+    /// </summary>
     [JsonIgnore]
     public double? BeforeScopeWeightPerOperation { get; init; }
 
-    /// <summary>Current scope weight per operation, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  Current scope weight per operation, or <see langword="null"/>.
+    /// </summary>
     [JsonIgnore]
     public double? AfterScopeWeightPerOperation { get; init; }
 
-    /// <summary>Per-operation scope-weight change, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  Per-operation scope-weight change, or <see langword="null"/>.
+    /// </summary>
     [JsonIgnore]
     public double? ScopeWeightPerOperationDelta { get; init; }
 
-    /// <summary>Whether one or more frame names were shortened or sanitized for bounded output.</summary>
+    /// <summary>
+    ///  Whether one or more frame names were shortened or sanitized for bounded output.
+    /// </summary>
     [JsonIgnore]
     public bool FrameNamesBounded { get; init; }
 

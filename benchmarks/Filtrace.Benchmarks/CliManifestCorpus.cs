@@ -4,10 +4,11 @@
 
 using System.Text;
 using System.Text.Json;
+using Touki;
 
 namespace Filtrace.Benchmarks;
 
-internal sealed class CliManifestCorpus : IDisposable
+internal sealed class CliManifestCorpus : DisposableBase
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -47,15 +48,15 @@ internal sealed class CliManifestCorpus : IDisposable
             caseCount,
             CaptureManifestBatchAnalyzer.MaxAnalyzedCases);
 
-        string root = Path.Combine(
+        string root = Path.Join(
             Path.GetTempPath(),
             $"filtrace-cli-manifest-{Guid.NewGuid():N}");
-        string beforeDirectory = Path.Combine(root, paired ? "before" : "batch");
-        string beforeManifest = Path.Combine(beforeDirectory, "manifest.json");
-        string? afterDirectory = paired ? Path.Combine(root, "after") : null;
+        string beforeDirectory = Path.Join(root, paired ? "before" : "batch");
+        string beforeManifest = Path.Join(beforeDirectory, "manifest.json");
+        string? afterDirectory = paired ? Path.Join(root, "after") : null;
         string? afterManifest = afterDirectory is null
             ? null
-            : Path.Combine(afterDirectory, "manifest.json");
+            : Path.Join(afterDirectory, "manifest.json");
         CliManifestCorpus corpus = new(root, beforeManifest, afterManifest);
         try
         {
@@ -126,9 +127,9 @@ internal sealed class CliManifestCorpus : IDisposable
         }
     }
 
-    public void Dispose()
+    protected override void Dispose(bool disposing)
     {
-        if (Directory.Exists(Root))
+        if (disposing && Directory.Exists(Root))
         {
             Directory.Delete(Root, recursive: true);
         }
@@ -146,7 +147,7 @@ internal sealed class CliManifestCorpus : IDisposable
         for (int caseIndex = 0; caseIndex < caseCount; caseIndex++)
         {
             string traceName = $"case-{caseIndex:D2}.nettrace";
-            string trace = Path.Combine(directory, traceName);
+            string trace = Path.Join(directory, traceName);
             File.Copy(sourceTrace, trace);
             _tracePaths.Add(trace);
             if (preconvert)
@@ -165,7 +166,7 @@ internal sealed class CliManifestCorpus : IDisposable
 
         ManifestFile manifest = new(1, cases);
         string json = JsonSerializer.Serialize(manifest, JsonOptions);
-        File.WriteAllText(Path.Combine(directory, "manifest.json"), json, Utf8);
+        File.WriteAllText(Path.Join(directory, "manifest.json"), json, Utf8);
     }
 
     private static StringComparer PathComparer() =>

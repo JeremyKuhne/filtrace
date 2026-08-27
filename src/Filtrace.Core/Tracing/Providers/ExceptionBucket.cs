@@ -4,7 +4,9 @@
 
 namespace Filtrace.Tracing.Providers;
 
-/// <summary>An exceptions time bucket: throw count and the type thrown most.</summary>
+/// <summary>
+///  An exceptions time bucket: throw count and the type thrown most.
+/// </summary>
 /// <param name="Count">Exceptions thrown in the bucket.</param>
 /// <param name="TopType">Exception type thrown most, or <see langword="null"/> when none carried a type.</param>
 public sealed record ExceptionBucket(int Count, string? TopType);

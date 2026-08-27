@@ -4,12 +4,18 @@
 
 namespace Filtrace.Cli;
 
-/// <summary>The ETLX cache operation selected by the <c>cache</c> command.</summary>
+/// <summary>
+///  The ETLX cache operation selected by the <c>cache</c> command.
+/// </summary>
 internal enum CacheAction
 {
-    /// <summary>Build or reuse the ETLX cache.</summary>
+    /// <summary>
+    ///  Build or reuse the ETLX cache.
+    /// </summary>
     Convert,
 
-    /// <summary>Remove the ETLX cache.</summary>
+    /// <summary>
+    ///  Remove the ETLX cache.
+    /// </summary>
     Clean
 }

@@ -8,13 +8,13 @@ namespace Filtrace.Tracing;
 public sealed class TraceLoaderTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     [TestMethod]
     public void Load_MissingFile_ThrowsFileNotFound()
     {
         TraceLoader loader = new();
-        string missing = Path.Combine(AppContext.BaseDirectory, "Fixtures", "missing.speedscope.json");
+        string missing = Path.Join(AppContext.BaseDirectory, "Fixtures", "missing.speedscope.json");
 
         Action act = () => loader.Load(missing);
 
@@ -196,7 +196,7 @@ public sealed class TraceLoaderTests
 public sealed class TraceLoaderThreadTimeTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     [TestMethod]
     public void Load_ThreadTimeMetric_BuildsThreadTimeSource()

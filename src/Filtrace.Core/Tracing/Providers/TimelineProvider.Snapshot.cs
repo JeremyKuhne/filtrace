@@ -20,24 +20,36 @@ namespace Filtrace.Tracing.Providers;
 
 public sealed partial class TimelineProvider
 {
-    /// <summary>The default half-window on either side of a snapshot center, in milliseconds.</summary>
+    /// <summary>
+    ///  The default half-window on either side of a snapshot center, in milliseconds.
+    /// </summary>
     public const double DefaultSnapshotHalfWindowMs = 100.0;
 
-    /// <summary>The smallest half-window accepted for a snapshot, in milliseconds.</summary>
+    /// <summary>
+    ///  The smallest half-window accepted for a snapshot, in milliseconds.
+    /// </summary>
     public const double MinSnapshotHalfWindowMs = 0.01;
 
-    /// <summary>The largest half-window accepted for a snapshot, in milliseconds.</summary>
+    /// <summary>
+    ///  The largest half-window accepted for a snapshot, in milliseconds.
+    /// </summary>
     public const double MaxSnapshotHalfWindowMs = 60_000.0;
 
-    /// <summary>The maximum rows retained for each snapshot evidence family.</summary>
+    /// <summary>
+    ///  The maximum rows retained for each snapshot evidence family.
+    /// </summary>
     public const int SnapshotDetailLimit = 5;
 
-    /// <summary>The maximum characters retained from one trace-derived snapshot name.</summary>
+    /// <summary>
+    ///  The maximum characters retained from one trace-derived snapshot name.
+    /// </summary>
     public const int MaxSnapshotNameChars = 256;
 
     private const int SnapshotNameHashCharacters = 32;
 
-    /// <summary>The maximum distinct keys retained by each snapshot evidence family.</summary>
+    /// <summary>
+    ///  The maximum distinct keys retained by each snapshot evidence family.
+    /// </summary>
     public const int MaxSnapshotRetainedKeysPerFamily = 1_024;
 
     /// <summary>
@@ -335,34 +347,34 @@ public sealed partial class TimelineProvider
             {
                 case SampledProfileTraceData:
                 case ClrThreadSampleTraceData { Type: not ClrThreadSampleType.Error }:
-                {
-                    TraceCallStack? stack = data.CallStack();
-                    if (stack is null)
                     {
+                        TraceCallStack? stack = data.CallStack();
+                        if (stack is null)
+                        {
+                            break;
+                        }
+
+                        cpuSampleCount++;
+                        TraceCodeAddress? leafAddress = LeafCodeAddress(stack);
+                        if (leafAddress is not null
+                            && TryGetBoundedCpuMethod(
+                                cpuMethodCache,
+                                leafAddress.CodeAddressIndex,
+                                leafAddress,
+                                static address => FrameNames.Short(QualifyFrame(address)),
+                                out string method,
+                                out bool methodTruncated))
+                        {
+                            namesTruncated |= methodTruncated;
+                            detailTruncated |= !TallyBounded(cpuMethods, method);
+                        }
+                        else if (leafAddress is not null)
+                        {
+                            detailTruncated = true;
+                        }
+
                         break;
                     }
-
-                    cpuSampleCount++;
-                    TraceCodeAddress? leafAddress = LeafCodeAddress(stack);
-                    if (leafAddress is not null
-                        && TryGetBoundedCpuMethod(
-                            cpuMethodCache,
-                            leafAddress.CodeAddressIndex,
-                            leafAddress,
-                            static address => FrameNames.Short(QualifyFrame(address)),
-                            out string method,
-                            out bool methodTruncated))
-                    {
-                        namesTruncated |= methodTruncated;
-                        detailTruncated |= !TallyBounded(cpuMethods, method);
-                    }
-                    else if (leafAddress is not null)
-                    {
-                        detailTruncated = true;
-                    }
-
-                    break;
-                }
 
                 case ExceptionTraceData exception:
                     exceptionCount++;
@@ -375,16 +387,16 @@ public sealed partial class TimelineProvider
                     break;
 
                 case GCAllocationTickTraceData allocation when allocation.AllocationAmount64 > 0:
-                {
-                    long bytes = allocation.AllocationAmount64;
-                    string type = string.IsNullOrEmpty(allocation.TypeName) ? "(unknown allocation type)" : allocation.TypeName;
-                    type = BoundSnapshotName(type, out bool allocationTypeTruncated);
-                    namesTruncated |= allocationTypeTruncated;
-                    allocationTickCount++;
-                    allocationBytes = AddAllocationBytes(allocationBytes, bytes);
-                    detailTruncated |= !TallyAllocationBounded(allocationTypes, type, bytes);
-                    break;
-                }
+                    {
+                        long bytes = allocation.AllocationAmount64;
+                        string type = string.IsNullOrEmpty(allocation.TypeName) ? "(unknown allocation type)" : allocation.TypeName;
+                        type = BoundSnapshotName(type, out bool allocationTypeTruncated);
+                        namesTruncated |= allocationTypeTruncated;
+                        allocationTickCount++;
+                        allocationBytes = AddAllocationBytes(allocationBytes, bytes);
+                        detailTruncated |= !TallyAllocationBounded(allocationTypes, type, bytes);
+                        break;
+                    }
 
                 case MethodJittingStartedTraceData jit:
                     jitCompilationCount++;
@@ -1018,41 +1030,65 @@ public sealed partial class TimelineProvider
         double TotalPauseMs,
         double MaxPauseMs);
 
-    /// <summary>The outcome of adding one pending GC pause start to bounded state.</summary>
+    /// <summary>
+    ///  The outcome of adding one pending GC pause start to bounded state.
+    /// </summary>
     internal enum BoundedPauseStartResult
     {
-        /// <summary>The start was retained.</summary>
+        /// <summary>
+        ///  The start was retained.
+        /// </summary>
         Added,
 
-        /// <summary>The same process/thread already had a pending start.</summary>
+        /// <summary>
+        ///  The same process/thread already had a pending start.
+        /// </summary>
         Duplicate,
 
-        /// <summary>The pending-start budget was full.</summary>
+        /// <summary>
+        ///  The pending-start budget was full.
+        /// </summary>
         CapacityExceeded,
 
-        /// <summary>The start occurred after the selected window.</summary>
+        /// <summary>
+        ///  The start occurred after the selected window.
+        /// </summary>
         AfterWindow,
 
-        /// <summary>The start carried a non-finite timestamp and was not retained.</summary>
+        /// <summary>
+        ///  The start carried a non-finite timestamp and was not retained.
+        /// </summary>
         InvalidTimestamp
     }
 
-    /// <summary>The outcome of matching one EE restart to pending suspension state.</summary>
+    /// <summary>
+    ///  The outcome of matching one EE restart to pending suspension state.
+    /// </summary>
     internal enum PauseRestartResult
     {
-        /// <summary>A valid GC pair overlaps the selected window.</summary>
+        /// <summary>
+        ///  A valid GC pair overlaps the selected window.
+        /// </summary>
         CompletedGc,
 
-        /// <summary>A valid non-GC pair was consumed without contributing pause evidence.</summary>
+        /// <summary>
+        ///  A valid non-GC pair was consumed without contributing pause evidence.
+        /// </summary>
         CompletedNonGc,
 
-        /// <summary>No pending start exists, so the reason for this restart is unknown.</summary>
+        /// <summary>
+        ///  No pending start exists, so the reason for this restart is unknown.
+        /// </summary>
         MissingStart,
 
-        /// <summary>The retained pair contains a non-finite or non-monotonic timestamp.</summary>
+        /// <summary>
+        ///  The retained pair contains a non-finite or non-monotonic timestamp.
+        /// </summary>
         InvalidPair,
 
-        /// <summary>The restart cannot establish a pause overlapping the selected window.</summary>
+        /// <summary>
+        ///  The restart cannot establish a pause overlapping the selected window.
+        /// </summary>
         OutsideWindow
     }
 }

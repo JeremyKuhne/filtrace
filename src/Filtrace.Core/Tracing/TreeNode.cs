@@ -19,7 +19,9 @@ namespace Filtrace.Tracing;
 ///  </para>
 /// </remarks>
 /// <param name="Frame">The shortened frame name, or <c>&lt;root&gt;</c> for the synthetic root.</param>
-/// <param name="Weight">The subtree's inclusive weight, in the metric's unit (milliseconds for CPU, bytes for allocations).</param>
+/// <param name="Weight">
+///  The subtree's inclusive weight, in the metric's unit (milliseconds for CPU, bytes for allocations).
+/// </param>
 /// <param name="PercentOfScope">The subtree's share of the scoped total, in percent.</param>
 /// <param name="Children">The called frames, highest weight first.</param>
 public sealed record TreeNode(

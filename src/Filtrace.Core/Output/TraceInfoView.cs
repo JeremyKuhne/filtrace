@@ -34,7 +34,9 @@ namespace Filtrace.Output;
 ///  The analyses this trace format supports. This does not establish capture
 ///  enablement; use <see cref="Analyses"/> for that.
 /// </param>
-/// <param name="EtlxCacheState">How this request obtained the ETLX cache, or <see langword="null"/> when ETLX is not used.</param>
+/// <param name="EtlxCacheState">
+///  How this request obtained the ETLX cache, or <see langword="null"/> when ETLX is not used.
+/// </param>
 public sealed record TraceInfoView(
     string Path,
     string Format,

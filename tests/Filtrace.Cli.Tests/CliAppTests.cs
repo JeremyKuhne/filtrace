@@ -30,7 +30,7 @@ public sealed class CliAppTests
     ];
 
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static string Speedscope => FixturePath("folding.speedscope.json");
 
@@ -256,7 +256,7 @@ public sealed class CliAppTests
     [TestMethod]
     public void Run_RankManifestCase_IsParsed()
     {
-        string manifest = Path.Combine(Path.GetTempPath(), $"filtrace-rank-case-{Guid.NewGuid():N}.json");
+        string manifest = Path.Join(Path.GetTempPath(), $"filtrace-rank-case-{Guid.NewGuid():N}.json");
         string trace = Speedscope.Replace("\\", "\\\\", StringComparison.Ordinal);
         File.WriteAllText(
             manifest,
@@ -1325,9 +1325,9 @@ public sealed class CliAppTests
     [TestMethod]
     public void Run_CacheConvertAndClean_RoundTrips()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-cache-{Guid.NewGuid():N}");
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-cache-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        string trace = Path.Combine(directory, "alloc.nettrace");
+        string trace = Path.Join(directory, "alloc.nettrace");
         File.Copy(Alloc, trace);
         try
         {

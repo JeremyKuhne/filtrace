@@ -527,7 +527,7 @@ public sealed class OutputContractTests
     [TestMethod]
     public void Serialize_Envelope_MatchesGolden()
     {
-        string goldenPath = Path.Combine(AppContext.BaseDirectory, "Goldens", "ranking-envelope.golden.json");
+        string goldenPath = Path.Join(AppContext.BaseDirectory, "Goldens", "ranking-envelope.golden.json");
         string expected = File.ReadAllText(goldenPath).Trim();
 
         string json = OutputJson.Serialize(SampleEnvelope());

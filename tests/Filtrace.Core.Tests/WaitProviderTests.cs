@@ -10,7 +10,7 @@ namespace Filtrace.Tracing.Providers;
 public sealed class WaitProviderTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static StackSampleSource LoadWait() =>
         new WaitProvider().Read(FixturePath("wait.nettrace"));

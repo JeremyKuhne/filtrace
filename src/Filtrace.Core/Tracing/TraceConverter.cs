@@ -147,9 +147,7 @@ public static class TraceConverter
     ///  Removes the ETLX cache beside the trace at <paramref name="path"/>, if present.
     /// </summary>
     /// <param name="path">The trace file path.</param>
-    /// <returns>
-    ///  The ETLX path that was deleted, or <see langword="null"/> when no cache existed.
-    /// </returns>
+    /// <returns>The ETLX path that was deleted, or <see langword="null"/> when no cache existed.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
     /// <exception cref="NotSupportedException">The file is not a convertible trace format.</exception>
@@ -259,7 +257,7 @@ public static class TraceConverter
     private static string TemporaryPathFor(string cachePath, string lockKey)
     {
         string directory = Path.GetDirectoryName(cachePath) ?? Directory.GetCurrentDirectory();
-        return Path.Combine(
+        return Path.Join(
             directory,
             $".filtrace-etlx-{lockKey}-{Environment.ProcessId}-{Guid.NewGuid():N}.tmp");
     }

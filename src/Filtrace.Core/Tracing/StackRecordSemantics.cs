@@ -10,18 +10,28 @@ namespace Filtrace.Tracing;
 /// </summary>
 public enum StackRecordSemantics
 {
-    /// <summary>The source does not establish a meaningful record count.</summary>
+    /// <summary>
+    ///  The source does not establish a meaningful record count.
+    /// </summary>
     Unavailable,
 
-    /// <summary>A periodic CPU sampler observation.</summary>
+    /// <summary>
+    ///  A periodic CPU sampler observation.
+    /// </summary>
     PeriodicCpuSamples,
 
-    /// <summary>A record from a speedscope sampled profile with unknown sampling cadence.</summary>
+    /// <summary>
+    ///  A record from a speedscope sampled profile with unknown sampling cadence.
+    /// </summary>
     SampledProfileRecords,
 
-    /// <summary>A duration interval reconstructed from a speedscope evented profile.</summary>
+    /// <summary>
+    ///  A duration interval reconstructed from a speedscope evented profile.
+    /// </summary>
     EventedIntervals,
 
-    /// <summary>A mix of sampled-profile records and evented intervals.</summary>
+    /// <summary>
+    ///  A mix of sampled-profile records and evented intervals.
+    /// </summary>
     MixedProfileRecords
 }

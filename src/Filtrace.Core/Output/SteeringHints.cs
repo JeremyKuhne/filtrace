@@ -438,11 +438,15 @@ public static class SteeringHints
             new AnalysisNextStepArguments { Metric = "cpu", Frame = top });
     }
 
-    /// <summary>Next step after a manifest batch summary.</summary>
+    /// <summary>
+    ///  Next step after a manifest batch summary.
+    /// </summary>
     public static IReadOnlyList<string> ForBatch(BatchRankingResult batch)
         => ForBatch(batch, scope: null, symbols: null, foldPatterns: null);
 
-    /// <summary>Next step after a manifest batch summary, preserving query overrides.</summary>
+    /// <summary>
+    ///  Next step after a manifest batch summary, preserving query overrides.
+    /// </summary>
     /// <param name="batch">The compact batch result.</param>
     /// <param name="scope">Explicit process scope used by the batch, or <see langword="null"/>.</param>
     /// <param name="symbols">Explicit symbol-directory override, or <see langword="null"/>.</param>

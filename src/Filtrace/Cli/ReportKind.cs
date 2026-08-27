@@ -4,18 +4,28 @@
 
 namespace Filtrace.Cli;
 
-/// <summary>The structured report selected by the <c>report</c> command.</summary>
+/// <summary>
+///  The structured report selected by the <c>report</c> command.
+/// </summary>
 internal enum ReportKind
 {
-    /// <summary>Garbage-collection counts, pauses, and heap summary.</summary>
+    /// <summary>
+    ///  Garbage-collection counts, pauses, and heap summary.
+    /// </summary>
     Gc,
 
-    /// <summary>Just-in-time compilation count, time, and generated-code sizes.</summary>
+    /// <summary>
+    ///  Just-in-time compilation count, time, and generated-code sizes.
+    /// </summary>
     Jit,
 
-    /// <summary>Thread-pool worker adjustments and starvation.</summary>
+    /// <summary>
+    ///  Thread-pool worker adjustments and starvation.
+    /// </summary>
     Threadpool,
 
-    /// <summary>Physical disk bytes and service time by file.</summary>
+    /// <summary>
+    ///  Physical disk bytes and service time by file.
+    /// </summary>
     Diskio
 }

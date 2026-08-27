@@ -68,7 +68,9 @@ internal static class DiffTextRenderer
         }
     }
 
-    /// <summary>Renders case-keyed diffs from paired capture manifests.</summary>
+    /// <summary>
+    ///  Renders case-keyed diffs from paired capture manifests.
+    /// </summary>
     public static void RenderManifest(
         AnalysisResult<RankingDiffResult> envelope,
         MetricInfo metric,

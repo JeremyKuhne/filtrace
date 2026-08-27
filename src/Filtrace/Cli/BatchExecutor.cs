@@ -8,7 +8,9 @@ using Filtrace.Tracing;
 
 namespace Filtrace.Cli;
 
-/// <summary>Runs one compact ranking query across every case in a manifest.</summary>
+/// <summary>
+///  Runs one compact ranking query across every case in a manifest.
+/// </summary>
 internal static class BatchExecutor
 {
     public static int Run(BatchRequest request, TextWriter output, TextWriter error)

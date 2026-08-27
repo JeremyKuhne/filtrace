@@ -18,7 +18,7 @@ public sealed class TraceLoaderAvailabilityTests
     [DataRow("threadpool.nettrace", "threadpool")]
     public void Load_ObservedAnalysisEvents_ReportEnabledNonzero(string fixture, string analysis)
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture);
+        string path = Path.Join(AppContext.BaseDirectory, "Fixtures", fixture);
 
         TraceInfo info = new TraceLoader().Load(path).Info;
 
@@ -30,7 +30,7 @@ public sealed class TraceLoaderAvailabilityTests
     [TestMethod]
     public void Load_UnobservedAnalysisWithoutMetadata_ReportsUnknown()
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "alloc.nettrace");
+        string path = Path.Join(AppContext.BaseDirectory, "Fixtures", "alloc.nettrace");
 
         TraceInfo info = new TraceLoader().Load(path).Info;
 
@@ -49,7 +49,7 @@ public sealed class TraceLoaderAvailabilityTests
         string fixture,
         string analysis)
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture);
+        string path = Path.Join(AppContext.BaseDirectory, "Fixtures", fixture);
         TraceLoader loader = new();
 
         AnalysisAvailability oriented = loader.Load(path).Info.Analyses[analysis];
@@ -61,7 +61,7 @@ public sealed class TraceLoaderAvailabilityTests
     [TestMethod]
     public void Load_WindowedMetricView_ReportsCaptureWideEventCount()
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "alloc.nettrace");
+        string path = Path.Join(AppContext.BaseDirectory, "Fixtures", "alloc.nettrace");
         ScopeRequest future = ScopeRequest.Auto.WithTimeWindow(1e9, 1e9 + 1.0);
 
         TraceInfo info = new TraceLoader().Load(path, TraceMetric.Allocations, scope: future).Info;

@@ -61,9 +61,13 @@ public sealed class LifecycleProvider
     ///  Case-insensitive module-name substrings to time as loader milestones, or empty
     ///  for none.
     /// </param>
-    /// <param name="warnings">Collects advisories about how the selector matched, or <see langword="null"/> to discard them.</param>
+    /// <param name="warnings">
+    ///  Collects advisories about how the selector matched, or <see langword="null"/> to discard them.
+    /// </param>
     /// <returns>The lifecycle report; an empty report when the selector matches nothing.</returns>
-    /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty, or a requested process id was reused.</exception>
+    /// <exception cref="ArgumentException">
+    ///  <paramref name="path"/> is <see langword="null"/> or empty, or a requested process id was reused.
+    /// </exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
     public LifecycleResult Read(
         string path,
@@ -189,9 +193,7 @@ public sealed class LifecycleProvider
     ///  The warning naming what was dropped, or <see langword="null"/> when every
     ///  invocation was kept.
     /// </param>
-    /// <returns>
-    ///  The limited report, or <paramref name="report"/> itself when every invocation fit.
-    /// </returns>
+    /// <returns>The limited report, or <paramref name="report"/> itself when every invocation fit.</returns>
     /// <remarks>
     ///  <para>
     ///   Invocations stay in start order, because a lifecycle report is read as a

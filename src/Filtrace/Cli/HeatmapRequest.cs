@@ -20,7 +20,9 @@ namespace Filtrace.Cli;
 /// <param name="Symbols">Optional build-output directory whose PDBs map managed code to source lines.</param>
 /// <param name="Format">The render format.</param>
 /// <param name="Strict">Whether to trip the strict symbol-resolution exit gate.</param>
-/// <param name="Scope">The process scope for a multi-process capture, or <see langword="null"/> for the automatic default.</param>
+/// <param name="Scope">
+///  The process scope for a multi-process capture, or <see langword="null"/> for the automatic default.
+/// </param>
 internal sealed record HeatmapRequest(
     string Path,
     string File,

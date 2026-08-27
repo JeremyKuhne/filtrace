@@ -13,10 +13,14 @@ namespace Filtrace.Tracing;
 /// <param name="Delta">The change in weight (<c>AfterWeight - BeforeWeight</c>); positive is a regression.</param>
 public sealed record DiffRow(string Frame, double BeforeWeight, double AfterWeight, double Delta)
 {
-    /// <summary>The frame's share of baseline scope, in percent.</summary>
+    /// <summary>
+    ///  The frame's share of baseline scope, in percent.
+    /// </summary>
     public double BeforePercentOfScope { get; init; }
 
-    /// <summary>The frame's share of current scope, in percent.</summary>
+    /// <summary>
+    ///  The frame's share of current scope, in percent.
+    /// </summary>
     public double AfterPercentOfScope { get; init; }
 
     /// <summary>
@@ -31,15 +35,23 @@ public sealed record DiffRow(string Frame, double BeforeWeight, double AfterWeig
     /// </summary>
     public double? NormalizedWeightChange { get; init; }
 
-    /// <summary><c>appeared</c>, <c>disappeared</c>, or <c>changed</c>.</summary>
+    /// <summary>
+    ///  <c>appeared</c>, <c>disappeared</c>, or <c>changed</c>.
+    /// </summary>
     public string ChangeKind { get; init; } = "changed";
 
-    /// <summary>Baseline weight per operation, or <see langword="null"/> when unavailable.</summary>
+    /// <summary>
+    ///  Baseline weight per operation, or <see langword="null"/> when unavailable.
+    /// </summary>
     public double? BeforeWeightPerOperation { get; init; }
 
-    /// <summary>Current weight per operation, or <see langword="null"/> when unavailable.</summary>
+    /// <summary>
+    ///  Current weight per operation, or <see langword="null"/> when unavailable.
+    /// </summary>
     public double? AfterWeightPerOperation { get; init; }
 
-    /// <summary>Per-operation change, or <see langword="null"/> when unavailable.</summary>
+    /// <summary>
+    ///  Per-operation change, or <see langword="null"/> when unavailable.
+    /// </summary>
     public double? PerOperationDelta { get; init; }
 }

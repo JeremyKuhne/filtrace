@@ -7,16 +7,24 @@ using System.Text.Json;
 
 namespace Filtrace.Tracing;
 
-/// <summary>Reads the bounded schema-v1 manifests emitted by the capture helper.</summary>
+/// <summary>
+///  Reads the bounded schema-v1 manifests emitted by the capture helper.
+/// </summary>
 public static class CaptureManifestReader
 {
-    /// <summary>Maximum UTF-8 manifest size accepted by the analyzer.</summary>
+    /// <summary>
+    ///  Maximum UTF-8 manifest size accepted by the analyzer.
+    /// </summary>
     public const int MaxManifestBytes = 16 * 1024 * 1024;
 
-    /// <summary>Maximum cases accepted from one manifest.</summary>
+    /// <summary>
+    ///  Maximum cases accepted from one manifest.
+    /// </summary>
     public const int MaxCases = 256;
 
-    /// <summary>Maximum characters accepted in a manifest case identifier.</summary>
+    /// <summary>
+    ///  Maximum characters accepted in a manifest case identifier.
+    /// </summary>
     public const int MaxCaseIdLength = 256;
 
     private const int MaxBenchmarkLength = 512;
@@ -33,11 +41,15 @@ public static class CaptureManifestReader
     /// </summary>
     private const int MaxInvocations = 1000;
 
-    /// <summary>Whether a path names the capture helper's manifest artifact.</summary>
+    /// <summary>
+    ///  Whether a path names the capture helper's manifest artifact.
+    /// </summary>
     public static bool IsManifestPath(string path) =>
         string.Equals(Path.GetFileName(path), "manifest.json", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Reads and validates a capture manifest.</summary>
+    /// <summary>
+    ///  Reads and validates a capture manifest.
+    /// </summary>
     /// <param name="path">Path to <c>manifest.json</c>.</param>
     /// <returns>The parsed manifest with canonical case paths.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is empty.</exception>
@@ -374,5 +386,5 @@ public static class CaptureManifestReader
     private static string ResolvePath(string manifestDirectory, string path) =>
         Path.GetFullPath(Path.IsPathFullyQualified(path)
             ? path
-            : Path.Combine(manifestDirectory, path));
+            : Path.Join(manifestDirectory, path));
 }

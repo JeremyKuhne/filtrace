@@ -4,7 +4,9 @@
 
 namespace Filtrace.Tracing;
 
-/// <summary>A bounded BenchmarkDotNet capture manifest.</summary>
+/// <summary>
+///  A bounded BenchmarkDotNet capture manifest.
+/// </summary>
 /// <param name="Path">Canonical manifest path.</param>
 /// <param name="Process">Optional process selector recorded by the capture.</param>
 /// <param name="Cases">Captured benchmark cases in manifest order.</param>
@@ -19,7 +21,9 @@ public sealed record CaptureManifest(
     /// </summary>
     public CaptureKind Kind { get; init; } = CaptureKind.Benchmark;
 
-    /// <summary>Finds one case by its run-unique identifier.</summary>
+    /// <summary>
+    ///  Finds one case by its run-unique identifier.
+    /// </summary>
     /// <param name="caseId">The exact case identifier.</param>
     /// <returns>The matching case.</returns>
     /// <exception cref="ArgumentException">
@@ -92,47 +96,4 @@ public sealed record CaptureManifest(
             ? resolved.WithTimeWindow(window.StartMSec, window.EndMSec)
             : resolved;
     }
-}
-
-/// <summary>One captured benchmark case from a capture manifest.</summary>
-/// <param name="Id">Run-unique case identifier.</param>
-/// <param name="Benchmark">Exact benchmark name, or <see langword="null"/> when unresolved.</param>
-/// <param name="Parameters">Stable parameter display, empty for an unparameterized benchmark.</param>
-/// <param name="BenchmarkDisplay">Human-readable BenchmarkDotNet display text.</param>
-/// <param name="TracePath">Preferred raw trace path, or the speedscope path when no raw trace exists.</param>
-/// <param name="SymbolsDirectory">Exact local symbol directory, when verified.</param>
-/// <param name="OperationCount">Operations represented by the case, when supplied.</param>
-/// <param name="OperationUnit">Operation unit, when supplied.</param>
-public sealed record CaptureManifestCase(
-    string Id,
-    string? Benchmark,
-    string Parameters,
-    string BenchmarkDisplay,
-    string TracePath,
-    string? SymbolsDirectory,
-    double? OperationCount,
-    string? OperationUnit)
-{
-    /// <summary>
-    ///  The launches this case's trace contains, in order. Empty for a case whose trace
-    ///  holds a single run, which is every benchmark case.
-    /// </summary>
-    /// <remarks>
-    ///  <para>
-    ///   A short command is captured by running it repeatedly inside one session, so one
-    ///   trace holds many runs. These separate them: each carries the root process id the
-    ///   analysis scopes by, and the window that run occupied.
-    ///  </para>
-    /// </remarks>
-    public IReadOnlyList<CaptureInvocation> Invocations { get; init; } = [];
-
-    /// <summary>
-    ///  Stable benchmark-and-parameter key used for cross-manifest pairing, or
-    ///  <see langword="null"/> when the capture could not resolve benchmark identity.
-    /// </summary>
-    public string? PairingKey => Benchmark is null ? null : $"{Benchmark}\0{Parameters}";
-
-    /// <summary>Whether count and unit are both present and usable.</summary>
-    public bool HasCompleteOperationMetadata =>
-        OperationCount is > 0.0 && OperationUnit is not null;
 }

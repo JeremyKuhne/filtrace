@@ -8,7 +8,7 @@ namespace Filtrace.Tracing;
 public sealed class TimeWindowScopeTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static string ActivityTrace => FixturePath("activity.nettrace");
 

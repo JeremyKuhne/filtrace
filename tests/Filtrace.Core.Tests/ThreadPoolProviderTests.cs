@@ -8,7 +8,7 @@ namespace Filtrace.Tracing.Providers;
 public sealed class ThreadPoolProviderTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     // The threadpool fixture is captured with the runtime pool forced to start at a
     // single worker thread, so a backlog of blocking work items starves it and the

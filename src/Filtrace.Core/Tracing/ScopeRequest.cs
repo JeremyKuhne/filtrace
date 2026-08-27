@@ -91,7 +91,9 @@ public sealed class ScopeRequest
     /// </param>
     /// <returns>The scope request.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="processIds"/> is <see langword="null"/>.</exception>
-    /// <exception cref="ArgumentException"><paramref name="processIds"/> is empty or contains a non-positive id.</exception>
+    /// <exception cref="ArgumentException">
+    ///  <paramref name="processIds"/> is empty or contains a non-positive id.
+    /// </exception>
     /// <remarks>
     ///  <para>
     ///   Unlike a name substring, an exact id set cannot silently pick up an unrelated
@@ -119,11 +121,17 @@ public sealed class ScopeRequest
     ///  either open): only the samples whose anchor time falls inside the window are
     ///  kept. Passing <see langword="null"/> for both bounds clears the time scope.
     /// </summary>
-    /// <param name="startMSec">The window start in milliseconds relative to the trace start, or <see langword="null"/> for the trace start.</param>
-    /// <param name="endMSec">The window end in milliseconds relative to the trace start, or <see langword="null"/> for the trace end.</param>
+    /// <param name="startMSec">
+    ///  The window start in milliseconds relative to the trace start, or <see langword="null"/> for the trace start.
+    /// </param>
+    /// <param name="endMSec">
+    ///  The window end in milliseconds relative to the trace start, or <see langword="null"/> for the trace end.
+    /// </param>
     /// <returns>A copy of this request with the time-window scope applied.</returns>
     /// <exception cref="ArgumentOutOfRangeException">A bound is negative or not a number.</exception>
-    /// <exception cref="ArgumentException"><paramref name="startMSec"/> is greater than <paramref name="endMSec"/>.</exception>
+    /// <exception cref="ArgumentException">
+    ///  <paramref name="startMSec"/> is greater than <paramref name="endMSec"/>.
+    /// </exception>
     public ScopeRequest WithTimeWindow(double? startMSec, double? endMSec) =>
         new(
             IncludeAll,
@@ -166,4 +174,3 @@ public sealed class ScopeRequest
     /// </summary>
     public TimeWindow? Window { get; }
 }
-

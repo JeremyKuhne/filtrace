@@ -28,9 +28,7 @@ namespace Filtrace.Tracing;
 ///   native parent's own CPU from a child runtime's.
 ///  </para>
 /// </remarks>
-/// <param name="Selector">
-///  How the tree roots are chosen: by name substring or by exact process id.
-/// </param>
+/// <param name="Selector">How the tree roots are chosen: by name substring or by exact process id.</param>
 /// <param name="IncludeChildren">
 ///  Whether to also include every descendant of a matched process. Defaults to
 ///  <see langword="true"/>.

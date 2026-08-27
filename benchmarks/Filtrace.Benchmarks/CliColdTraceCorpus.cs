@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Touki;
+
 namespace Filtrace.Benchmarks;
 
-internal sealed class CliColdTraceCorpus : IDisposable
+internal sealed class CliColdTraceCorpus : DisposableBase
 {
     private CliColdTraceCorpus(string root, string tracePath)
     {
@@ -25,10 +27,10 @@ internal sealed class CliColdTraceCorpus : IDisposable
             throw new FileNotFoundException("The cold source trace was not found.", sourceTrace);
         }
 
-        string root = Path.Combine(
+        string root = Path.Join(
             Path.GetTempPath(),
             $"filtrace-cli-cold-{Guid.NewGuid():N}");
-        string trace = Path.Combine(root, "activity.nettrace");
+        string trace = Path.Join(root, "activity.nettrace");
         CliColdTraceCorpus corpus = new(root, trace);
         try
         {
@@ -56,9 +58,9 @@ internal sealed class CliColdTraceCorpus : IDisposable
         }
     }
 
-    public void Dispose()
+    protected override void Dispose(bool disposing)
     {
-        if (Directory.Exists(Root))
+        if (disposing && Directory.Exists(Root))
         {
             Directory.Delete(Root, recursive: true);
         }

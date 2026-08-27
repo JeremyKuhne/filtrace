@@ -12,7 +12,7 @@ namespace Filtrace.Cli;
 public sealed class DiffExecutorTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static string Speedscope => FixturePath("folding.speedscope.json");
 
@@ -78,8 +78,8 @@ public sealed class DiffExecutorTests
     public void Run_ChangedWeights_ShowsPerFrameDeltas()
     {
         // before: B self 5, A self 5; after: B self 8, A self 2.
-        string before = Path.Combine(Path.GetTempPath(), $"filtrace-before-{Guid.NewGuid():N}.speedscope.json");
-        string after = Path.Combine(Path.GetTempPath(), $"filtrace-after-{Guid.NewGuid():N}.speedscope.json");
+        string before = Path.Join(Path.GetTempPath(), $"filtrace-before-{Guid.NewGuid():N}.speedscope.json");
+        string after = Path.Join(Path.GetTempPath(), $"filtrace-after-{Guid.NewGuid():N}.speedscope.json");
         File.WriteAllText(before, TwoFrameSpeedscope(bCloseAt: 5, aCloseAt: 10));
         File.WriteAllText(after, TwoFrameSpeedscope(bCloseAt: 8, aCloseAt: 10));
         try
@@ -103,8 +103,8 @@ public sealed class DiffExecutorTests
     [TestMethod]
     public void Run_ChangedWeights_TextShowsNormalizedColumns()
     {
-        string before = Path.Combine(Path.GetTempPath(), $"filtrace-before-{Guid.NewGuid():N}.speedscope.json");
-        string after = Path.Combine(Path.GetTempPath(), $"filtrace-after-{Guid.NewGuid():N}.speedscope.json");
+        string before = Path.Join(Path.GetTempPath(), $"filtrace-before-{Guid.NewGuid():N}.speedscope.json");
+        string after = Path.Join(Path.GetTempPath(), $"filtrace-after-{Guid.NewGuid():N}.speedscope.json");
         File.WriteAllText(before, TwoFrameSpeedscope(bCloseAt: 5, aCloseAt: 10));
         File.WriteAllText(after, TwoFrameSpeedscope(bCloseAt: 8, aCloseAt: 10));
         try
@@ -242,15 +242,15 @@ public sealed class DiffExecutorTests
     [TestMethod]
     public void Run_PairedManifests_ReportsNormalizedCaseAndPerOperationValues()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-diff-{Guid.NewGuid():N}");
-        string beforeDirectory = Path.Combine(directory, "before");
-        string afterDirectory = Path.Combine(directory, "after");
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-diff-{Guid.NewGuid():N}");
+        string beforeDirectory = Path.Join(directory, "before");
+        string afterDirectory = Path.Join(directory, "after");
         Directory.CreateDirectory(beforeDirectory);
         Directory.CreateDirectory(afterDirectory);
-        string beforeTrace = Path.Combine(beforeDirectory, "case.speedscope.json");
-        string afterTrace = Path.Combine(afterDirectory, "case.speedscope.json");
-        string beforeManifest = Path.Combine(beforeDirectory, "manifest.json");
-        string afterManifest = Path.Combine(afterDirectory, "manifest.json");
+        string beforeTrace = Path.Join(beforeDirectory, "case.speedscope.json");
+        string afterTrace = Path.Join(afterDirectory, "case.speedscope.json");
+        string beforeManifest = Path.Join(beforeDirectory, "manifest.json");
+        string afterManifest = Path.Join(afterDirectory, "manifest.json");
         try
         {
             File.WriteAllText(beforeTrace, TwoFrameSpeedscope(bCloseAt: 4, aCloseAt: 10));
@@ -300,9 +300,9 @@ public sealed class DiffExecutorTests
     [TestMethod]
     public void Run_ManifestBatch_ReturnsParameterKeyedCompactRows()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-batch-{Guid.NewGuid():N}");
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-batch-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        string manifest = Path.Combine(directory, "manifest.json");
+        string manifest = Path.Join(directory, "manifest.json");
         string trace = Speedscope.Replace("\\", "\\\\", StringComparison.Ordinal);
         try
         {

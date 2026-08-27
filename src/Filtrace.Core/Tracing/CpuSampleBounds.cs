@@ -22,10 +22,14 @@ namespace Filtrace.Tracing;
 /// </remarks>
 public static class CpuSampleBounds
 {
-    /// <summary>The timer profile source, which is what CPU sampling uses.</summary>
+    /// <summary>
+    ///  The timer profile source, which is what CPU sampling uses.
+    /// </summary>
     private const string TimerSourceName = "Timer";
 
-    /// <summary>100-nanosecond ticks per millisecond, the unit the OS reports in.</summary>
+    /// <summary>
+    ///  100-nanosecond ticks per millisecond, the unit the OS reports in.
+    /// </summary>
     private const double TicksPerMillisecond = 10_000.0;
 
     /// <summary>
@@ -52,7 +56,9 @@ public static class CpuSampleBounds
     ///  When the bounds cannot be read, the request is returned unclamped with both
     ///  bounds set to it, so a caller never sees a fabricated clamp.
     /// </returns>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="requestedMSec"/> is not a positive, finite number.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    ///  <paramref name="requestedMSec"/> is not a positive, finite number.
+    /// </exception>
     public static CpuSampleInterval Resolve(double requestedMSec)
     {
         if (!double.IsFinite(requestedMSec) || requestedMSec <= 0)

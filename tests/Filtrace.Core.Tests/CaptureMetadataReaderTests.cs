@@ -97,9 +97,9 @@ public sealed class CaptureMetadataReaderTests
 
     private static string CreateTrace(out string directory)
     {
-        directory = Path.Combine(Path.GetTempPath(), $"filtrace-metadata-{Guid.NewGuid():N}");
+        directory = Path.Join(Path.GetTempPath(), $"filtrace-metadata-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        string trace = Path.Combine(directory, "sample.nettrace");
+        string trace = Path.Join(directory, "sample.nettrace");
         File.WriteAllBytes(trace, []);
         return trace;
     }

@@ -4,7 +4,9 @@
 
 namespace Filtrace.Benchmarks;
 
-/// <summary>Measures trace loading while scanning controlled symbol directories.</summary>
+/// <summary>
+///  Measures trace loading while scanning controlled symbol directories.
+/// </summary>
 [MemoryDiagnoser]
 public class EmbeddedPdbBenchmarks
 {
@@ -27,19 +29,25 @@ public class EmbeddedPdbBenchmarks
     private EmbeddedPdbCorpus? _corpus;
     private PdbScenario _selected = null!;
 
-    /// <summary>The DLL count and exact embedded-PDB hit rate.</summary>
+    /// <summary>
+    ///  The DLL count and exact embedded-PDB hit rate.
+    /// </summary>
     [ParamsSource(nameof(Scenarios))]
     public string Scenario { get; set; } = null!;
 
-    /// <summary>The feasible symbol-directory scenarios.</summary>
+    /// <summary>
+    ///  The feasible symbol-directory scenarios.
+    /// </summary>
     public static IEnumerable<string> Scenarios =>
         PdbScenarios.Select(static scenario => scenario.Name);
 
-    /// <summary>Validates the source binaries and preconverts the trace.</summary>
+    /// <summary>
+    ///  Validates the source binaries and preconverts the trace.
+    /// </summary>
     [GlobalSetup]
     public void Setup()
     {
-        _activityTrace = Path.Combine(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
+        _activityTrace = Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
         _selected = PdbScenarios.Single(scenario => scenario.Name == Scenario);
 
         EmbeddedPdbCorpus.ValidateSourceAssemblies();
@@ -50,7 +58,9 @@ public class EmbeddedPdbBenchmarks
         }
     }
 
-    /// <summary>Creates a fresh controlled symbol directory for each iteration.</summary>
+    /// <summary>
+    ///  Creates a fresh controlled symbol directory for each iteration.
+    /// </summary>
     [IterationSetup]
     public void CreateSymbolsDirectory()
     {
@@ -58,15 +68,21 @@ public class EmbeddedPdbBenchmarks
         _corpus = EmbeddedPdbCorpus.Create(_selected.DllCount, _selected.HitRatePercent);
     }
 
-    /// <summary>Removes the per-iteration symbol directory.</summary>
+    /// <summary>
+    ///  Removes the per-iteration symbol directory.
+    /// </summary>
     [IterationCleanup]
     public void CleanupIteration() => DeleteSymbolsDirectory();
 
-    /// <summary>Removes a symbol directory left by an interrupted iteration.</summary>
+    /// <summary>
+    ///  Removes a symbol directory left by an interrupted iteration.
+    /// </summary>
     [GlobalCleanup]
     public void Cleanup() => DeleteSymbolsDirectory();
 
-    /// <summary>Loads the trace through the public symbol-directory path.</summary>
+    /// <summary>
+    ///  Loads the trace through the public symbol-directory path.
+    /// </summary>
     [Benchmark]
     public LoadedTrace LoadWithSymbols() =>
         new TraceLoader().Load(_activityTrace, _corpus!.DirectoryPath);

@@ -300,7 +300,9 @@ internal static class ProcessTree
     /// </summary>
     /// <param name="traceLog">The opened trace whose process table is queried.</param>
     /// <param name="scope">The scope to resolve.</param>
-    /// <param name="warnings">Collects advisories about how the selector matched, or <see langword="null"/> to discard them.</param>
+    /// <param name="warnings">
+    ///  Collects advisories about how the selector matched, or <see langword="null"/> to discard them.
+    /// </param>
     /// <returns>The process IDs in the scoped tree; empty when nothing matches.</returns>
     /// <exception cref="ArgumentException">
     ///  A requested process id was reused by more than one process in the trace.

@@ -4,7 +4,9 @@
 
 namespace Filtrace.Benchmarks;
 
-/// <summary>Measures batch and diff over fresh manifest trees with no ETLX caches.</summary>
+/// <summary>
+///  Measures batch and diff over fresh manifest trees with no ETLX caches.
+/// </summary>
 [MemoryDiagnoser]
 public class CliColdManifestBenchmarks
 {
@@ -15,19 +17,25 @@ public class CliColdManifestBenchmarks
     private bool _paired;
     private string _sourceTrace = null!;
 
-    /// <summary>The stable cold manifest scenario name.</summary>
+    /// <summary>
+    ///  The stable cold manifest scenario name.
+    /// </summary>
     [ParamsSource(nameof(Scenarios))]
     public string Scenario { get; set; } = null!;
 
-    /// <summary>The stable cold manifest scenario names.</summary>
+    /// <summary>
+    ///  The stable cold manifest scenario names.
+    /// </summary>
     public static IEnumerable<string> Scenarios => CliBenchmarkScenarios.ColdManifestNames;
 
-    /// <summary>Locates the child executable and immutable source trace.</summary>
+    /// <summary>
+    ///  Locates the child executable and immutable source trace.
+    /// </summary>
     [GlobalSetup]
     public void Setup()
     {
         _executable = CliProcessRunner.FindFiltraceExecutable();
-        _sourceTrace = Path.Combine(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
+        _sourceTrace = Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
         if (!File.Exists(_sourceTrace))
         {
             throw new FileNotFoundException("The activity fixture was not copied.", _sourceTrace);
@@ -43,7 +51,9 @@ public class CliColdManifestBenchmarks
         _paired = definition.IsPaired;
     }
 
-    /// <summary>Creates fresh distinct trace paths and manifests without ETLX files.</summary>
+    /// <summary>
+    ///  Creates fresh distinct trace paths and manifests without ETLX files.
+    /// </summary>
     [IterationSetup]
     public void CreateFreshCorpus()
     {
@@ -60,7 +70,9 @@ public class CliColdManifestBenchmarks
             _manifestCorpus.AfterManifest);
     }
 
-    /// <summary>Verifies every trace was converted and removes the corpus tree.</summary>
+    /// <summary>
+    ///  Verifies every trace was converted and removes the corpus tree.
+    /// </summary>
     [IterationCleanup]
     public void CleanupIteration()
     {
@@ -79,11 +91,15 @@ public class CliColdManifestBenchmarks
         }
     }
 
-    /// <summary>Removes files left by an interrupted benchmark iteration.</summary>
+    /// <summary>
+    ///  Removes files left by an interrupted benchmark iteration.
+    /// </summary>
     [GlobalCleanup]
     public void Cleanup() => DisposeCorpus();
 
-    /// <summary>Starts filtrace once against the fresh manifest tree.</summary>
+    /// <summary>
+    ///  Starts filtrace once against the fresh manifest tree.
+    /// </summary>
     [Benchmark]
     public Task<CliProcessResult> Run() =>
         CliProcessRunner.RunAsync(_executable, _arguments);

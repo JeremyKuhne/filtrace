@@ -9,10 +9,14 @@ namespace Filtrace.Tracing;
 /// </summary>
 public static class ContributingRecordQuality
 {
-    /// <summary>The default directional minimum for method-level CPU analysis.</summary>
+    /// <summary>
+    ///  The default directional minimum for method-level CPU analysis.
+    /// </summary>
     public const int DefaultMinimumMethodRecords = 200;
 
-    /// <summary>The default directional minimum for source-line CPU analysis.</summary>
+    /// <summary>
+    ///  The default directional minimum for source-line CPU analysis.
+    /// </summary>
     public const int DefaultMinimumLineRecords = 1000;
 
     /// <summary>

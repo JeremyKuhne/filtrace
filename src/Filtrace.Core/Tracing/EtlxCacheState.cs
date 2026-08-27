@@ -9,15 +9,23 @@ namespace Filtrace.Tracing;
 /// </summary>
 public enum EtlxCacheState
 {
-    /// <summary>An up-to-date cache was already available.</summary>
+    /// <summary>
+    ///  An up-to-date cache was already available.
+    /// </summary>
     Hit,
 
-    /// <summary>The request waited for another converter, then reused its cache.</summary>
+    /// <summary>
+    ///  The request waited for another converter, then reused its cache.
+    /// </summary>
     Waited,
 
-    /// <summary>The request converted and published a new cache.</summary>
+    /// <summary>
+    ///  The request converted and published a new cache.
+    /// </summary>
     Converted,
 
-    /// <summary>The request removed stale conversion state or took over an abandoned conversion lock.</summary>
+    /// <summary>
+    ///  The request removed stale conversion state or took over an abandoned conversion lock.
+    /// </summary>
     Recovered
 }

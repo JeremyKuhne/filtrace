@@ -5,6 +5,7 @@
 using System.Globalization;
 using Filtrace.Tracing.Readers;
 using Microsoft.Diagnostics.Tracing.Etlx;
+using Touki;
 
 namespace Filtrace.Tracing;
 
@@ -13,7 +14,7 @@ namespace Filtrace.Tracing;
 [OSCondition(OperatingSystems.Windows)]
 public sealed class NativeSymbolResolutionTests
 {
-    private static string EtwFixture => Path.Combine(AppContext.BaseDirectory, "Fixtures", "etw.etl");
+    private static string EtwFixture => Path.Join(AppContext.BaseDirectory, "Fixtures", "etw.etl");
 
     // Resolution succeeding end to end is covered by tools/Test-NativeSymbolResolution.ps1
     // rather than by a committed capture. A filtrace capture records no PDB identity of
@@ -96,7 +97,7 @@ public sealed class NativeSymbolResolutionTests
         using TemporaryDirectory symbols = new();
         // Any bytes under the expected PDB name: the file exists, so the only thing that
         // can disagree is the recorded identity (signature and age).
-        File.WriteAllText(Path.Combine(symbols.Path, pdbName!), "not a real pdb");
+        File.WriteAllText(Path.Join(symbols.Path, pdbName!), "not a real pdb");
 
         TraceReadResult result = reader.Read(EtwFixture, symbols.Path);
 
@@ -160,11 +161,11 @@ public sealed class NativeSymbolResolutionTests
         return int.Parse(count, CultureInfo.InvariantCulture);
     }
 
-    private sealed class TemporaryDirectory : IDisposable
+    private sealed class TemporaryDirectory : DisposableBase
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(
+            Path = System.IO.Path.Join(
                 System.IO.Path.GetTempPath(),
                 $"filtrace-native-symbols-{Guid.NewGuid():N}");
             Directory.CreateDirectory(Path);
@@ -172,8 +173,13 @@ public sealed class NativeSymbolResolutionTests
 
         public string Path { get; }
 
-        public void Dispose()
+        protected override void Dispose(bool disposing)
         {
+            if (!disposing)
+            {
+                return;
+            }
+
             try
             {
                 Directory.Delete(Path, recursive: true);

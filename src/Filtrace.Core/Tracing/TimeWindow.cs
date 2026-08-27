@@ -45,9 +45,7 @@ public readonly struct TimeWindow
     ///  The inclusive upper bound in milliseconds relative to the start of the trace,
     ///  or <see langword="null"/> to run to the end of the trace.
     /// </param>
-    /// <exception cref="ArgumentOutOfRangeException">
-    ///  A bound is negative or not a number.
-    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">A bound is negative or not a number.</exception>
     /// <exception cref="ArgumentException">
     ///  <paramref name="startMSec"/> is greater than <paramref name="endMSec"/>.
     /// </exception>
@@ -132,7 +130,9 @@ public readonly struct TimeWindow
     ///  <c>start,end</c> with a single comma; either bound may be omitted for an open
     ///  side (<c>1000,5000</c>, <c>1000,</c>, or <c>,5000</c>).
     /// </param>
-    /// <param name="startMSec">The parsed lower bound, or <see langword="null"/> for an open start or no window.</param>
+    /// <param name="startMSec">
+    ///  The parsed lower bound, or <see langword="null"/> for an open start or no window.
+    /// </param>
     /// <param name="endMSec">The parsed upper bound, or <see langword="null"/> for an open end or no window.</param>
     /// <param name="errorMessage">The reason the value is malformed, or <see langword="null"/> on success.</param>
     /// <returns>

@@ -34,28 +34,44 @@ namespace Filtrace.Tracing.Providers;
 /// </remarks>
 public sealed partial class TimelineProvider
 {
-    /// <summary>The garbage-collection lane name.</summary>
+    /// <summary>
+    ///  The garbage-collection lane name.
+    /// </summary>
     public const string GcLane = "gc";
 
-    /// <summary>The CPU-sample lane name.</summary>
+    /// <summary>
+    ///  The CPU-sample lane name.
+    /// </summary>
     public const string CpuLane = "cpu";
 
-    /// <summary>The exceptions lane name.</summary>
+    /// <summary>
+    ///  The exceptions lane name.
+    /// </summary>
     public const string ExceptionsLane = "exceptions";
 
-    /// <summary>The allocation lane name.</summary>
+    /// <summary>
+    ///  The allocation lane name.
+    /// </summary>
     public const string AllocLane = "alloc";
 
-    /// <summary>The JIT-compilation lane name.</summary>
+    /// <summary>
+    ///  The JIT-compilation lane name.
+    /// </summary>
     public const string JitLane = "jit";
 
-    /// <summary>The default number of buckets a lane is divided into.</summary>
+    /// <summary>
+    ///  The default number of buckets a lane is divided into.
+    /// </summary>
     public const int DefaultBucketCount = 50;
 
-    /// <summary>The smallest number of buckets a lane may be divided into.</summary>
+    /// <summary>
+    ///  The smallest number of buckets a lane may be divided into.
+    /// </summary>
     public const int MinBucketCount = 5;
 
-    /// <summary>The largest number of buckets a lane may be divided into.</summary>
+    /// <summary>
+    ///  The largest number of buckets a lane may be divided into.
+    /// </summary>
     public const int MaxBucketCount = 200;
 
     /// <summary>
@@ -341,60 +357,60 @@ public sealed partial class TimelineProvider
             {
                 case SampledProfileTraceData when wantCpu:
                 case ClrThreadSampleTraceData { Type: not ClrThreadSampleType.Error } when wantCpu:
-                {
-                    // Match the CPU reader's sample selection so the lane's count agrees with
-                    // the cpu ranking: a sample counts only if it carries a call stack, which
-                    // drops the stackless idle-CPU samples the reader also excludes. EventPipe
-                    // surfaces CPU samples as the SampleProfiler's ClrThreadSampleTraceData, ETW
-                    // as SampledProfileTraceData.
-                    TraceCallStack? stack = data.CallStack();
-                    if (stack is null)
                     {
+                        // Match the CPU reader's sample selection so the lane's count agrees with
+                        // the cpu ranking: a sample counts only if it carries a call stack, which
+                        // drops the stackless idle-CPU samples the reader also excludes. EventPipe
+                        // surfaces CPU samples as the SampleProfiler's ClrThreadSampleTraceData, ETW
+                        // as SampledProfileTraceData.
+                        TraceCallStack? stack = data.CallStack();
+                        if (stack is null)
+                        {
+                            break;
+                        }
+
+                        int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
+                        cpuCount![idx]++;
+                        string? leaf = LeafMethod(stack);
+                        if (leaf is not null)
+                        {
+                            Tally(cpuTop![idx], leaf);
+                        }
+
                         break;
                     }
-
-                    int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
-                    cpuCount![idx]++;
-                    string? leaf = LeafMethod(stack);
-                    if (leaf is not null)
-                    {
-                        Tally(cpuTop![idx], leaf);
-                    }
-
-                    break;
-                }
 
                 case ExceptionTraceData exception when wantExceptions:
-                {
-                    int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
-                    exCount![idx]++;
-                    string type = string.IsNullOrEmpty(exception.ExceptionType)
-                        ? "(unknown exception type)"
-                        : exception.ExceptionType;
-                    Tally(exTop![idx], type);
-                    break;
-                }
-
-                case GCAllocationTickTraceData alloc when wantAlloc:
-                {
-                    long bytes = alloc.AllocationAmount64;
-                    if (bytes <= 0)
                     {
+                        int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
+                        exCount![idx]++;
+                        string type = string.IsNullOrEmpty(exception.ExceptionType)
+                            ? "(unknown exception type)"
+                            : exception.ExceptionType;
+                        Tally(exTop![idx], type);
                         break;
                     }
 
-                    int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
-                    allocCount![idx]++;
-                    allocBytes![idx] += bytes;
-                    break;
-                }
+                case GCAllocationTickTraceData alloc when wantAlloc:
+                    {
+                        long bytes = alloc.AllocationAmount64;
+                        if (bytes <= 0)
+                        {
+                            break;
+                        }
+
+                        int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
+                        allocCount![idx]++;
+                        allocBytes![idx] += bytes;
+                        break;
+                    }
 
                 case MethodJittingStartedTraceData when wantJit:
-                {
-                    int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
-                    jitCount![idx]++;
-                    break;
-                }
+                    {
+                        int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
+                        jitCount![idx]++;
+                        break;
+                    }
             }
         }
     }

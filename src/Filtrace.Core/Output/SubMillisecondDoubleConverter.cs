@@ -28,7 +28,9 @@ namespace Filtrace.Output;
 /// </remarks>
 internal sealed class SubMillisecondDoubleConverter : JsonConverter<double>
 {
-    /// <summary>One hundred-nanosecond tick expressed in milliseconds is 0.0001.</summary>
+    /// <summary>
+    ///  One hundred-nanosecond tick expressed in milliseconds is 0.0001.
+    /// </summary>
     private const int TickDigits = 4;
 
     /// <inheritdoc/>

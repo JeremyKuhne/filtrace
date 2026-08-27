@@ -60,8 +60,12 @@ public sealed class TraceTools
     /// <param name="store">The trace cache (injected).</param>
     /// <param name="path">Path to the trace file.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
-    /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
-    /// <param name="pid">Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.</param>
+    /// <param name="process">
+    ///  Optional process-name substring scoping a multi-process .etl capture to one process tree.
+    /// </param>
+    /// <param name="pid">
+    ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
+    /// </param>
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The trace summary envelope.</returns>
@@ -183,15 +187,27 @@ public sealed class TraceTools
     /// <param name="top">Maximum rows to return.</param>
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
-    /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
-    /// <param name="pid">Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.</param>
+    /// <param name="process">
+    ///  Optional process-name substring scoping a multi-process .etl capture to one process tree.
+    /// </param>
+    /// <param name="pid">
+    ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
+    /// </param>
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
-    /// <param name="activity">Optional start-stop activity task name scoping the CPU ranking to that request/job.</param>
+    /// <param name="activity">
+    ///  Optional start-stop activity task name scoping the CPU ranking to that request/job.
+    /// </param>
     /// <param name="time">Optional time window 'start,end' in ms scoping the ranking to that slice; any metric.</param>
-    /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
+    /// <param name="nativeSymbols">
+    ///  Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.
+    /// </param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.
+    /// </param>
     /// <param name="allProcesses">Read every process rather than automatic or manifest scope.</param>
-    /// <param name="manifestPath">Capture manifest path; requires <paramref name="caseId"/> and excludes <paramref name="path"/>.</param>
+    /// <param name="manifestPath">
+    ///  Capture manifest path; requires <paramref name="caseId"/> and excludes <paramref name="path"/>.
+    /// </param>
     /// <param name="caseId">Exact case id within <paramref name="manifestPath"/>.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The ranking envelope.</returns>
@@ -358,10 +374,16 @@ public sealed class TraceTools
     /// <param name="root">Optional substring scoping the analysis to a subtree.</param>
     /// <param name="top">Maximum caller rows to return.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
-    /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
-    /// <param name="pid">Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.</param>
+    /// <param name="process">
+    ///  Optional process-name substring scoping a multi-process .etl capture to one process tree.
+    /// </param>
+    /// <param name="pid">
+    ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
+    /// </param>
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.
+    /// </param>
     /// <returns>The caller-breakdown envelope.</returns>
     [McpServerTool(Name = "trace_callers", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
@@ -425,8 +447,12 @@ public sealed class TraceTools
     /// <param name="top">Maximum rows to return.</param>
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
-    /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
-    /// <param name="pid">Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.</param>
+    /// <param name="process">
+    ///  Optional process-name substring scoping a multi-process .etl capture to one process tree.
+    /// </param>
+    /// <param name="pid">
+    ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
+    /// </param>
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The line-level self-time envelope.</returns>
@@ -486,8 +512,12 @@ public sealed class TraceTools
     /// <param name="file">Path or file name of the source file to map.</param>
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
-    /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
-    /// <param name="pid">Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.</param>
+    /// <param name="process">
+    ///  Optional process-name substring scoping a multi-process .etl capture to one process tree.
+    /// </param>
+    /// <param name="pid">
+    ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
+    /// </param>
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <returns>The heat-map envelope.</returns>
     [McpServerTool(Name = "trace_heatmap", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
@@ -544,7 +574,9 @@ public sealed class TraceTools
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring applied to both traces.</param>
-    /// <param name="benchmark">Use the BenchmarkDotNet workload root; mutually exclusive with <paramref name="root"/>.</param>
+    /// <param name="benchmark">
+    ///  Use the BenchmarkDotNet workload root; mutually exclusive with <paramref name="root"/>.
+    /// </param>
     /// <returns>The diff envelope; result kind is <c>trace</c> or <c>manifest</c>.</returns>
     [McpServerTool(Name = "trace_diff", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
@@ -666,7 +698,9 @@ public sealed class TraceTools
                 resolvedRoot));
     }
 
-    /// <summary>Runs one compact ranking query across every case in a capture manifest.</summary>
+    /// <summary>
+    ///  Runs one compact ranking query across every case in a capture manifest.
+    /// </summary>
     /// <param name="store">The trace cache.</param>
     /// <param name="manifestPath">Path to capture-helper manifest.json.</param>
     /// <param name="metric">Provider metric selector.</param>
@@ -739,7 +773,9 @@ public sealed class TraceTools
     ///  the aggregate pause and heap summary plus the hottest per-collection records.
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
-    /// <param name="top">Maximum per-collection records to return, ranked by pause time, or 0 for the summary alone.</param>
+    /// <param name="top">
+    ///  Maximum per-collection records to return, ranked by pause time, or 0 for the summary alone.
+    /// </param>
     /// <returns>The GC-report envelope.</returns>
     [McpServerTool(Name = "trace_gc", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
@@ -774,9 +810,13 @@ public sealed class TraceTools
     /// <param name="path">Path to the trace file.</param>
     /// <param name="mode">The timeline representation: <c>buckets</c> or <c>snapshot</c>.</param>
     /// <param name="at">Snapshot center in 0.01 millisecond increments from trace start.</param>
-    /// <param name="window">Snapshot half-window in 0.01 millisecond increments, or <see langword="null"/> to use the default.</param>
+    /// <param name="window">
+    ///  Snapshot half-window in 0.01 millisecond increments, or <see langword="null"/> to use the default.
+    /// </param>
     /// <param name="lanes">Comma-separated lanes to include; empty means every lane.</param>
-    /// <param name="buckets">Number of equal time buckets to divide the window into, or <see langword="null"/> to use the default.</param>
+    /// <param name="buckets">
+    ///  Number of equal time buckets to divide the window into, or <see langword="null"/> to use the default.
+    /// </param>
     /// <param name="time">Optional time window (<c>start,end</c> ms) scoping the timeline.</param>
     /// <returns>The timeline envelope.</returns>
     [McpServerTool(Name = "trace_timeline", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
@@ -1145,10 +1185,16 @@ public sealed class TraceTools
     /// <param name="format">The flame-graph format: <c>speedscope</c> or <c>chromium</c>.</param>
     /// <param name="name">The profile name embedded in the flame graph, shown in the viewer.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
-    /// <param name="process">Optional process-name substring scoping a multi-process <c>.etl</c> to one process tree.</param>
+    /// <param name="process">
+    ///  Optional process-name substring scoping a multi-process <c>.etl</c> to one process tree.
+    /// </param>
     /// <param name="root">Optional substring of a frame name to scope the export to its subtree.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
-    /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); .etl captures only.</param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.
+    /// </param>
+    /// <param name="nativeSymbols">
+    ///  Resolve native runtime frames from the public symbol server (opt-in, network); .etl captures only.
+    /// </param>
     /// <returns>The export-confirmation envelope.</returns>
     [McpServerTool(Name = "trace_export", ReadOnly = false, Idempotent = true, OpenWorld = true, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
@@ -1252,8 +1298,12 @@ public sealed class TraceTools
     /// <param name="minPercent">Minimum share of the scoped total, in percent, a node must have to appear.</param>
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
-    /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
+    /// <param name="process">
+    ///  Optional process-name substring scoping a multi-process .etl capture to one process tree.
+    /// </param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.
+    /// </param>
     /// <returns>The call-tree envelope.</returns>
     [McpServerTool(Name = "trace_tree", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
@@ -1315,9 +1365,15 @@ public sealed class TraceTools
     /// <param name="path">Path to the trace file.</param>
     /// <param name="root">Optional substring scoping the classification to a subtree.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
-    /// <param name="process">Optional process-name substring scoping a multi-process .etl capture to one process tree.</param>
-    /// <param name="nativeSymbols">Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.</param>
+    /// <param name="process">
+    ///  Optional process-name substring scoping a multi-process .etl capture to one process tree.
+    /// </param>
+    /// <param name="nativeSymbols">
+    ///  Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.
+    /// </param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.
+    /// </param>
     /// <returns>The classification envelope.</returns>
     [McpServerTool(Name = "trace_classify", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
@@ -1370,7 +1426,9 @@ public sealed class TraceTools
     ///  the aggregate compile summary plus the costliest per-method records.
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
-    /// <param name="top">Maximum per-method records to return, ranked by compile time, or 0 for the summary alone.</param>
+    /// <param name="top">
+    ///  Maximum per-method records to return, ranked by compile time, or 0 for the summary alone.
+    /// </param>
     /// <returns>The JIT-report envelope.</returns>
     [McpServerTool(Name = "trace_jit", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(

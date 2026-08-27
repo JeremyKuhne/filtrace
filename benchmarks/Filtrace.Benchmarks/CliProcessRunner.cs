@@ -9,15 +9,6 @@ using System.Text;
 
 namespace Filtrace.Benchmarks;
 
-/// <summary>The observable result of one child CLI invocation.</summary>
-/// <param name="ExitCode">The child process exit code.</param>
-/// <param name="StandardOutputLength">The captured standard-output character count.</param>
-/// <param name="StandardErrorLength">The captured standard-error character count.</param>
-public readonly record struct CliProcessResult(
-    int ExitCode,
-    int StandardOutputLength,
-    int StandardErrorLength);
-
 internal static class CliProcessRunner
 {
     public const string FiltracePathEnvironmentVariable = "FILTRACE_BENCHMARK_CLI_PATH";
@@ -42,7 +33,7 @@ internal static class CliProcessRunner
         }
 
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "filtrace.slnx")))
+        while (directory is not null && !File.Exists(Path.Join(directory.FullName, "filtrace.slnx")))
         {
             directory = directory.Parent;
         }
@@ -53,7 +44,7 @@ internal static class CliProcessRunner
                 $"Could not find the repository root above '{AppContext.BaseDirectory}'.");
         }
 
-        string executable = Path.Combine(
+        string executable = Path.Join(
             directory.FullName,
             "src",
             "Filtrace",
