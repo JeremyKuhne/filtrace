@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Diagnostics;
 using System.Globalization;
+using Filtrace.Output;
+using Filtrace.Tracing.Providers;
+using Filtrace.Tracing.Readers;
+using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing;
 
@@ -19,6 +24,290 @@ public sealed class ProcessScopeValidationTests
         Action act = () => _ = new ProcessNameSelector(name!);
 
         act.Should().Throw<ArgumentException>().WithParameterName("nameSubstring");
+    }
+
+    [TestMethod]
+    public void NameSelector_NameAtLimit_Succeeds()
+    {
+        ProcessNameSelector selector = new(new string('x', ProcessNameSelector.MaxNameSubstringLength));
+
+        selector.NameSubstring.Should().HaveLength(ProcessNameSelector.MaxNameSubstringLength);
+        selector.DisplayName.Should().Be(selector.NameSubstring);
+        selector.DisplayNameChanged.Should().BeFalse();
+    }
+
+    // An automatic scope takes its name from the trace, which never passes selector validation.
+    [TestMethod]
+    public void ScopeContext_AutomaticTraceDerivedName_IsBoundedAndEscaped()
+    {
+        AppliedProcessScope scope = new(
+            "automatic",
+            $"App\r\n\u001b[31m{new string('x', TimelineProvider.MaxSnapshotNameChars)}",
+            [],
+            [42],
+            [],
+            IncludeChildren: true);
+
+        AnalysisScopeContext context = AnalysisScopeContext.Create("", scope, null, null, null)!;
+
+        context.Process.Should().NotBeNull();
+        context.Process!.Length.Should().BeLessThanOrEqualTo(TimelineProvider.MaxSnapshotNameChars);
+        context.Process.Any(char.IsControl).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void ScopeContext_ValidatedSelectorName_IsUnchanged()
+    {
+        AppliedProcessScope scope = new("name", "HotLoopBench", [], [42], [], IncludeChildren: true);
+
+        AnalysisScopeContext context = AnalysisScopeContext.Create("", scope, null, null, null)!;
+
+        context.Process.Should().Be("HotLoopBench");
+    }
+
+    [TestMethod]
+    public void TraceDerivedName_OutputPathsUseBoundedDisplayName()
+    {
+        string rawName = $"App\r\n\u001b[31m{new string('x', TimelineProvider.MaxSnapshotNameChars)}";
+        ProcessNameSelector selector = ProcessNameSelector.FromTraceName(rawName);
+
+        selector.NameSubstring.Should().Be(rawName);
+        selector.DisplayName.Length.Should().BeLessThanOrEqualTo(TimelineProvider.MaxSnapshotNameChars);
+        selector.DisplayName.Any(char.IsControl).Should().BeFalse();
+        selector.DisplayNameChanged.Should().BeTrue();
+        ProcessTree.Label(selector).Should().Be(selector.DisplayName);
+        ProcessTree.Phrase(selector, includeChildren: true).Should().Contain(selector.DisplayName);
+        ProcessTree.Phrase(selector, includeChildren: true).Any(char.IsControl).Should().BeFalse();
+        ProcessTree.AppliedProcessName(selector).Should().Be(rawName);
+        LifecycleProvider.Describe(selector).Should().Be(selector.DisplayName);
+    }
+
+    [TestMethod]
+    public void CreateAppliedScope_ReusedRootProcessId_IsNotReplayableById()
+    {
+        AppliedProcessScope scope = ProcessTree.CreateAppliedScope(
+            automatic: true,
+            ProcessNameSelector.FromTraceName("App"),
+            roots: [42, 99],
+            included: [42, 99],
+            includeChildren: true,
+            traceProcessIds: [42, 7, 99, 42]);
+
+        scope.RootProcessIdsReplayable.Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void CreateAppliedScope_UniqueRootProcessId_IsReplayableById()
+    {
+        AppliedProcessScope scope = ProcessTree.CreateAppliedScope(
+            automatic: true,
+            ProcessNameSelector.FromTraceName("App"),
+            roots: [42, 99],
+            included: [42, 99],
+            includeChildren: true,
+            traceProcessIds: [7, 42, 99]);
+
+        scope.RootProcessIdsReplayable.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void CreateAppliedScope_EmptyRoots_IgnoreUnrelatedPidReuse()
+    {
+        AppliedProcessScope scope = ProcessTree.CreateAppliedScope(
+            automatic: false,
+            new ProcessNameSelector("missing"),
+            roots: [],
+            included: [],
+            includeChildren: true,
+            traceProcessIds: [42, 42]);
+
+        scope.RootProcessIdsReplayable.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void ResolveProcessInstanceIndexes_NameScopeExcludesLaterPidReuseAndKeepsDescendants()
+    {
+        ProcessTree.ProcessInstanceDescriptor[] processes =
+        [
+            new(1, 42, "App", null),
+            new(2, 43, "Worker", 1),
+            new(3, 42, "Unrelated", null)
+        ];
+
+        ProcessTree.ProcessInstanceSelection selection = ProcessTree.ResolveProcessInstanceIndexes(
+            processes,
+            new ProcessNameSelector("App"),
+            includeChildren: true);
+
+        selection.RootIndexes.Should().Equal(1);
+        selection.IncludedIndexes.Should().BeEquivalentTo([1, 2]);
+        selection.IncludedIndexes.Should().NotContain(3);
+    }
+
+    [TestMethod]
+    public void ResolveProcessInstanceIndexes_NameScopeExcludesIdleProcess()
+    {
+        ProcessTree.ProcessInstanceDescriptor[] processes =
+        [
+            new(1, 0, "App", null),
+            new(2, 42, "App", null)
+        ];
+
+        ProcessTree.ProcessInstanceSelection selection = ProcessTree.ResolveProcessInstanceIndexes(
+            processes,
+            new ProcessNameSelector("App"),
+            includeChildren: true);
+
+        selection.RootIndexes.Should().Equal(2);
+        selection.IncludedIndexes.Should().Equal(2);
+    }
+
+    [TestMethod]
+    public void ResolveProcessInstanceIndexes_LargeExactIdScope_CompletesPromptly()
+    {
+        const int count = 20_000;
+        ProcessTree.ProcessInstanceDescriptor[] processes = [.. Enumerable.Range(1, count)
+            .Select(static processId => new ProcessTree.ProcessInstanceDescriptor(
+                processId,
+                processId,
+                $"Process{processId}",
+                ParentIndex: null))];
+        ProcessIdSelector selector = new(Enumerable.Range(1, count));
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        ProcessTree.ProcessInstanceSelection selection = ProcessTree.ResolveProcessInstanceIndexes(
+            processes,
+            selector,
+            includeChildren: false);
+        stopwatch.Stop();
+
+        selection.RootIndexes.Should().HaveCount(count);
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+    }
+
+    [TestMethod]
+    public void ResolveProcessInstanceIndexes_DeepDescendantChain_CompletesPromptly()
+    {
+        const int count = 20_000;
+        ProcessTree.ProcessInstanceDescriptor[] processes = [.. Enumerable.Range(1, count)
+            .Select(static index => new ProcessTree.ProcessInstanceDescriptor(
+                index,
+                index,
+                index == 1 ? "Root" : $"Child{index}",
+                ParentIndex: index == 1 ? null : index - 1))];
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        ProcessTree.ProcessInstanceSelection selection = ProcessTree.ResolveProcessInstanceIndexes(
+            processes,
+            new ProcessNameSelector("Root"),
+            includeChildren: true);
+        stopwatch.Stop();
+
+        selection.IncludedIndexes.Should().HaveCount(count);
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+    }
+
+    [TestMethod]
+    public void CountIndependentRoots_SameNameAndReusedPid_CountsBothInstances()
+    {
+        ProcessTree.ProcessInstanceDescriptor[] processes =
+        [
+            new(1, 42, "App", null),
+            new(2, 43, "Worker", 1),
+            new(3, 44, "App.Helper", 2),
+            new(4, 42, "App", null)
+        ];
+
+        ProcessTree.CountIndependentRoots(processes, matchedIndexes: [1, 3, 4]).Should().Be(2);
+        ProcessTree.NameScopeWarningGuidance([42, 44, 42]).Should()
+            .Contain("narrow the capture")
+            .And.NotContain("--pid");
+        ProcessTree.NameScopeWarningGuidance([42, 44]).Should().Contain("--pid");
+    }
+
+    [TestMethod]
+    public void CountIndependentRoots_DeepComb_CompletesPromptly()
+    {
+        const int depth = 10_000;
+        List<ProcessTree.ProcessInstanceDescriptor> processes = new(depth * 2);
+        HashSet<int> matchedIndexes = [];
+        for (int index = 1; index <= depth; index++)
+        {
+            processes.Add(new(index, index, $"Host{index}", index == 1 ? null : index - 1));
+            int leafIndex = depth + index;
+            processes.Add(new(leafIndex, leafIndex, "App", index));
+            matchedIndexes.Add(leafIndex);
+        }
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        int independentRoots = ProcessTree.CountIndependentRoots(processes, matchedIndexes);
+        stopwatch.Stop();
+
+        independentRoots.Should().Be(depth);
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+    }
+
+    [TestMethod]
+    public void NarrowsTheCapture_ExcludedZeroCpuInstanceStillNarrows()
+    {
+        ProcessTree.ProcessInstanceDescriptor[] processes =
+        [
+            new(1, 42, "App", null),
+            new(2, 43, "EventsOnly", null),
+            new(3, 0, "Idle", null)
+        ];
+
+        ProcessTree.NarrowsTheCapture(processes, includedIndexes: [1]).Should().BeTrue();
+        ProcessTree.NarrowsTheCapture(processes, includedIndexes: [1, 2]).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void ScopeResolution_IncludesOnlySelectedProcessInstances()
+    {
+        ScopeResolution resolution = new(
+            processIds: [42, 43],
+            processInstanceIndexes: [(ProcessIndex)1, (ProcessIndex)2],
+            label: "App",
+            phrase: "the 'App' process tree",
+            warnings: [],
+            appliedScope: new AppliedProcessScope("name", "App", [], [42], [43], true),
+            processNameBounded: false);
+
+        resolution.Includes((ProcessIndex)1).Should().BeTrue();
+        resolution.Includes((ProcessIndex)2).Should().BeTrue();
+        resolution.Includes((ProcessIndex)3).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void NameSelector_NameAboveLimit_ThrowsArgument()
+    {
+        Action act = () => _ = new ProcessNameSelector(new string('x', ProcessNameSelector.MaxNameSubstringLength + 1));
+
+        act.Should().Throw<ArgumentException>().WithParameterName("nameSubstring");
+    }
+
+    [TestMethod]
+    public void NameSelector_OversizedNameWithTrailingControl_RejectsByLengthFirst()
+    {
+        string name = $"{new string('x', 1_000_000)}\n";
+
+        Action act = () => _ = new ProcessNameSelector(name);
+
+        act.Should().Throw<ArgumentException>()
+            .WithParameterName("nameSubstring")
+            .WithMessage("*may not exceed*");
+    }
+
+    [TestMethod]
+    [DataRow("line\nbreak")]
+    [DataRow("escape\u001b")]
+    public void NameSelector_ControlCharacter_ThrowsArgument(string name)
+    {
+        Action act = () => _ = new ProcessNameSelector(name);
+
+        act.Should().Throw<ArgumentException>()
+            .WithParameterName("nameSubstring")
+            .WithMessage("*control characters*");
     }
 
     [TestMethod]

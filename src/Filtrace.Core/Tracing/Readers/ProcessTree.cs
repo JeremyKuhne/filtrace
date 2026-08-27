@@ -12,7 +12,7 @@ namespace Filtrace.Tracing.Readers;
 
 /// <summary>
 ///  Resolves a <see cref="ProcessScope"/> against a trace's process table into the
-///  set of process IDs that make up the scoped workload tree.
+///  process instances that make up the scoped workload tree.
 /// </summary>
 /// <remarks>
 ///  <para>
@@ -26,16 +26,15 @@ internal static class ProcessTree
 {
     /// <summary>
     ///  Resolves a high-level <see cref="ScopeRequest"/> against a trace's process
-    ///  table into the set of process IDs to keep, applying the automatic
+    ///  table into the process instances to keep, applying the automatic
     ///  busiest-process default when neither an explicit selector nor the all-processes
     ///  opt-out was given.
     /// </summary>
     /// <param name="traceLog">The opened trace whose process table is queried.</param>
     /// <param name="request">The scope intent to resolve.</param>
     /// <returns>
-    ///  What the request resolved to: the process IDs to keep (<see langword="null"/>
-    ///  when every process is read), how to name the scope, and any advisories about
-    ///  how the selector matched.
+    ///  What the request resolved to: exact process instances plus PID summaries, how
+    ///  to name the scope, and any advisories about how the selector matched.
     /// </returns>
     /// <exception cref="ArgumentException">
     ///  A requested process id was reused by more than one process in the trace.
@@ -59,44 +58,66 @@ internal static class ProcessTree
                 return ScopeResolution.Unscoped;
             }
 
-            selector = new ProcessNameSelector(busiest);
+            selector = ProcessNameSelector.FromTraceName(busiest);
         }
 
         List<string> warnings = [];
         HashSet<int> roots = ResolveRoots(traceLog, selector, warnings);
-        HashSet<int> keep = request.IncludeChildren
-            ? IncludeDescendants(traceLog, roots)
-            : roots;
+        ProcessInstanceDescriptor[] processInstances = [.. traceLog.Processes.Select(static process =>
+            new ProcessInstanceDescriptor(
+                (int)process.ProcessIndex,
+                process.ProcessID,
+                process.Name,
+                process.Parent is null ? null : (int)process.Parent.ProcessIndex))];
+        ProcessInstanceSelection instanceSelection = ResolveProcessInstanceIndexes(
+            processInstances,
+            selector,
+            request.IncludeChildren);
+        HashSet<ProcessIndex> processInstanceIndexes = [.. instanceSelection.IncludedIndexes.Select(
+            static index => (ProcessIndex)index)];
+        HashSet<int> keep = [.. processInstances
+            .Where(process => instanceSelection.IncludedIndexes.Contains(process.Index))
+            .Select(static process => process.ProcessId)];
         AppliedProcessScope appliedScope = CreateAppliedScope(
             automatic,
             selector,
             roots,
             keep,
-            request.IncludeChildren);
+            request.IncludeChildren,
+            traceLog.Processes.Select(static process => process.ProcessID));
 
         // An explicit selector always reports (the caller asked to scope, even if it
         // happens to match every process). The automatic scope only reports when it
         // actually narrowed - a capture that is already a single tree (a trimmed
         // fixture, say) is not "scoped" in any meaningful sense, so it stays silent
         // rather than emit a notice, and its advisories with it, for a no-op.
-        return !automatic || NarrowsTheCapture(traceLog, keep)
+        return !automatic || NarrowsTheCapture(processInstances, instanceSelection.IncludedIndexes)
             ? new ScopeResolution(
                 keep,
+            processInstanceIndexes,
                 Label(selector),
                 Phrase(selector, request.IncludeChildren),
                 warnings,
-                appliedScope)
-            : new ScopeResolution(keep, null, null, [], appliedScope);
+                appliedScope,
+                selector is ProcessNameSelector { DisplayNameChanged: true })
+            : new ScopeResolution(
+                keep,
+                processInstanceIndexes,
+                null,
+                null,
+                [],
+                appliedScope,
+                processNameBounded: false);
     }
 
     // A short identity for the scope, for structured output and terse rendering.
-    private static string Label(ProcessSelector selector) => selector is ProcessIdSelector ids
+    internal static string Label(ProcessSelector selector) => selector is ProcessIdSelector ids
         ? FormatIds(ids.ProcessIds)
-        : ((ProcessNameSelector)selector).NameSubstring;
+        : ((ProcessNameSelector)selector).DisplayName;
 
     // The scope as a prose phrase, so a warning reads the same whichever selector and
     // descendant mode produced it.
-    private static string Phrase(ProcessSelector selector, bool includeChildren)
+    internal static string Phrase(ProcessSelector selector, bool includeChildren)
     {
         if (selector is ProcessIdSelector ids)
         {
@@ -105,7 +126,7 @@ internal static class ProcessTree
                 : $"{FormatIds(ids.ProcessIds)} (no children)";
         }
 
-        string name = ((ProcessNameSelector)selector).NameSubstring;
+        string name = ((ProcessNameSelector)selector).DisplayName;
         return includeChildren
             ? $"the '{name}' process tree"
             : $"the '{name}' process itself (no children)";
@@ -128,17 +149,61 @@ internal static class ProcessTree
 
     // Whether the kept set excludes at least one process that carried activity, i.e.
     // scoping actually dropped something rather than matching the whole capture.
-    private static bool NarrowsTheCapture(TraceLog traceLog, HashSet<int> keep)
+    internal static bool NarrowsTheCapture(
+        IEnumerable<ProcessInstanceDescriptor> processes,
+        HashSet<int> includedIndexes) =>
+        processes.Any(process => process.ProcessId > 0 && !includedIndexes.Contains(process.Index));
+
+    internal static ProcessInstanceSelection ResolveProcessInstanceIndexes(
+        IReadOnlyList<ProcessInstanceDescriptor> processes,
+        ProcessSelector selector,
+        bool includeChildren)
     {
-        foreach (TraceProcess process in traceLog.Processes)
+        HashSet<int> rootIndexes = [];
+        HashSet<int>? requestedProcessIds = selector is ProcessIdSelector ids
+            ? [.. ids.ProcessIds]
+            : null;
+        foreach (ProcessInstanceDescriptor process in processes)
         {
-            if (process.CPUMSec > 0.0f && process.ProcessID != 0 && !keep.Contains(process.ProcessID))
+            bool matches = selector switch
             {
-                return true;
+                ProcessNameSelector name => process.ProcessId > 0
+                    && process.Name is not null
+                    && process.Name.Contains(name.NameSubstring, StringComparison.OrdinalIgnoreCase),
+                ProcessIdSelector => requestedProcessIds!.Contains(process.ProcessId),
+                _ => false
+            };
+            if (matches)
+            {
+                rootIndexes.Add(process.Index);
             }
         }
 
-        return false;
+        if (!includeChildren || rootIndexes.Count == 0)
+        {
+            return new ProcessInstanceSelection(rootIndexes, [.. rootIndexes]);
+        }
+
+        HashSet<int> includedIndexes = [.. rootIndexes];
+        Dictionary<int, List<int>> childrenByParent = BuildChildrenByParent(processes);
+        Queue<int> pending = new(rootIndexes);
+        while (pending.TryDequeue(out int parentIndex))
+        {
+            if (!childrenByParent.TryGetValue(parentIndex, out List<int>? children))
+            {
+                continue;
+            }
+
+            foreach (int childIndex in children)
+            {
+                if (includedIndexes.Add(childIndex))
+                {
+                    pending.Enqueue(childIndex);
+                }
+            }
+        }
+
+        return new ProcessInstanceSelection(rootIndexes, includedIndexes);
     }
 
     /// <summary>
@@ -173,11 +238,11 @@ internal static class ProcessTree
     /// </remarks>
     public static string? FindBusiestProcessName(TraceLog traceLog)
     {
-        // Count CPU samples per process id. The predicate mirrors the CPU-sample
+        // Count CPU samples per process instance. The predicate mirrors the CPU-sample
         // selection in TraceLogReader exactly (ETW SampledProfileTraceData, EventPipe
         // ClrThreadSampleTraceData excluding error samples) so the busiest process is
         // chosen by the same events the rankings are built from.
-        Dictionary<int, int> samplesByProcess = [];
+        Dictionary<ProcessIndex, int> samplesByProcess = [];
         foreach (TraceEvent data in traceLog.Events)
         {
             if (data is ClrThreadSampleTraceData clrSample)
@@ -192,10 +257,11 @@ internal static class ProcessTree
                 continue;
             }
 
-            int pid = data.ProcessID;
-            if (pid > 0)
+            TraceProcess? process = data.ProcessID <= 0 ? null : TraceLogExtensions.Process(data);
+            if (process is not null)
             {
-                samplesByProcess[pid] = samplesByProcess.GetValueOrDefault(pid) + 1;
+                samplesByProcess[process.ProcessIndex] =
+                    samplesByProcess.GetValueOrDefault(process.ProcessIndex) + 1;
             }
         }
 
@@ -215,7 +281,7 @@ internal static class ProcessTree
                 continue;
             }
 
-            int count = samplesByProcess.GetValueOrDefault(process.ProcessID);
+            int count = samplesByProcess.GetValueOrDefault(process.ProcessIndex);
             if (count > maxSamples)
             {
                 maxSamples = count;
@@ -289,32 +355,48 @@ internal static class ProcessTree
         return keep;
     }
 
-    private static AppliedProcessScope CreateAppliedScope(
+    internal static AppliedProcessScope CreateAppliedScope(
         bool automatic,
         ProcessSelector selector,
         HashSet<int> roots,
         HashSet<int> included,
-        bool includeChildren)
+        bool includeChildren,
+        IEnumerable<int> traceProcessIds)
     {
         string mode = automatic
             ? "automatic"
             : selector is ProcessIdSelector ? "ids" : "name";
-        string? process = selector is ProcessNameSelector nameSelector
-            ? nameSelector.NameSubstring
-            : null;
+        string? process = AppliedProcessName(selector);
         IReadOnlyList<int> requestedIds = selector is ProcessIdSelector idSelector
             ? idSelector.ProcessIds
             : [];
         int[] rootIds = [.. roots.Order()];
         int[] descendantIds = [.. included.Except(roots).Order()];
+        HashSet<int> observedRootIds = [];
+        bool rootProcessIdsReplayable = true;
+        foreach (int processId in traceProcessIds)
+        {
+            if (roots.Contains(processId) && !observedRootIds.Add(processId))
+            {
+                rootProcessIdsReplayable = false;
+                break;
+            }
+        }
+
         return new AppliedProcessScope(
             mode,
             process,
             requestedIds,
             rootIds,
             descendantIds,
-            includeChildren);
+            includeChildren)
+        {
+            RootProcessIdsReplayable = rootProcessIdsReplayable
+        };
     }
+
+    internal static string? AppliedProcessName(ProcessSelector selector) =>
+        selector is ProcessNameSelector nameSelector ? nameSelector.NameSubstring : null;
 
     private static void ResolveNameRoots(
         TraceLog traceLog,
@@ -322,14 +404,24 @@ internal static class ProcessTree
         HashSet<int> roots,
         List<string>? warnings)
     {
-        List<TraceProcess> matched = [];
+        List<ProcessInstanceDescriptor> processes = [];
+        HashSet<int> matchedIndexes = [];
+        List<int> matchedProcessIds = [];
         foreach (TraceProcess process in traceLog.Processes)
         {
-            if (process.Name is not null
-                && process.Name.IndexOf(selector.NameSubstring, StringComparison.OrdinalIgnoreCase) >= 0
-                && roots.Add(process.ProcessID))
+            ProcessInstanceDescriptor descriptor = new(
+                (int)process.ProcessIndex,
+                process.ProcessID,
+                process.Name,
+                process.Parent is null ? null : (int)process.Parent.ProcessIndex);
+            processes.Add(descriptor);
+            if (process.ProcessID > 0
+                && process.Name is not null
+                && process.Name.IndexOf(selector.NameSubstring, StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                matched.Add(process);
+                roots.Add(process.ProcessID);
+                matchedIndexes.Add(descriptor.Index);
+                matchedProcessIds.Add(descriptor.ProcessId);
             }
         }
 
@@ -343,32 +435,103 @@ internal static class ProcessTree
             return;
         }
 
-        int independentRoots = 0;
-        foreach (TraceProcess process in matched)
-        {
-            bool nested = false;
-            for (TraceProcess? ancestor = process.Parent; ancestor is not null; ancestor = ancestor.Parent)
-            {
-                if (roots.Contains(ancestor.ProcessID))
-                {
-                    nested = true;
-                    break;
-                }
-            }
-
-            if (!nested)
-            {
-                independentRoots++;
-            }
-        }
+        int independentRoots = CountIndependentRoots(processes, matchedIndexes);
 
         if (independentRoots > 1)
         {
+            string guidance = NameScopeWarningGuidance(matchedProcessIds);
             warnings.Add(
-                $"The name '{selector.NameSubstring}' matched {independentRoots} unrelated process trees "
-                + $"({FormatIds([.. matched.Select(static process => process.ProcessID).Order()])}); "
-                + "they are ranked together. Pass --pid to scope to exact processes.");
+                $"The name '{selector.DisplayName}' matched {independentRoots} unrelated process trees "
+                + $"({FormatIds([.. matchedProcessIds.Order()])}); "
+                + $"they are ranked together. {guidance}");
         }
+    }
+
+    internal static string NameScopeWarningGuidance(IReadOnlyList<int> matchedProcessIds) =>
+        matchedProcessIds.Count != matchedProcessIds.Distinct().Count()
+            ? "Inspect the process instances and narrow the capture or use a selector that distinguishes them."
+            : "Pass --pid to scope to exact processes.";
+
+    internal static int CountIndependentRoots(
+        IReadOnlyList<ProcessInstanceDescriptor> processes,
+        HashSet<int> matchedIndexes)
+    {
+        HashSet<int> allIndexes = [.. processes.Select(static process => process.Index)];
+        Dictionary<int, List<int>> childrenByParent = BuildChildrenByParent(processes);
+        Queue<(int Index, bool HasMatchedAncestor)> pending = [];
+        foreach (ProcessInstanceDescriptor process in processes)
+        {
+            if (process.ParentIndex is not int parentIndex || !allIndexes.Contains(parentIndex))
+            {
+                pending.Enqueue((process.Index, false));
+            }
+        }
+
+        HashSet<int> visited = [];
+        int independentRoots = 0;
+        int nextUnvisited = 0;
+        while (true)
+        {
+            while (pending.TryDequeue(out (int Index, bool HasMatchedAncestor) item))
+            {
+                if (!visited.Add(item.Index))
+                {
+                    continue;
+                }
+
+                bool matched = matchedIndexes.Contains(item.Index);
+                if (matched && !item.HasMatchedAncestor)
+                {
+                    independentRoots++;
+                }
+
+                if (childrenByParent.TryGetValue(item.Index, out List<int>? children))
+                {
+                    bool childHasMatchedAncestor = item.HasMatchedAncestor || matched;
+                    foreach (int childIndex in children)
+                    {
+                        pending.Enqueue((childIndex, childHasMatchedAncestor));
+                    }
+                }
+            }
+
+            while (nextUnvisited < processes.Count && visited.Contains(processes[nextUnvisited].Index))
+            {
+                nextUnvisited++;
+            }
+
+            if (nextUnvisited == processes.Count)
+            {
+                break;
+            }
+
+            pending.Enqueue((processes[nextUnvisited].Index, false));
+        }
+
+        return independentRoots;
+    }
+
+    private static Dictionary<int, List<int>> BuildChildrenByParent(
+        IReadOnlyList<ProcessInstanceDescriptor> processes)
+    {
+        Dictionary<int, List<int>> childrenByParent = [];
+        foreach (ProcessInstanceDescriptor process in processes)
+        {
+            if (process.ParentIndex is not int parentIndex)
+            {
+                continue;
+            }
+
+            if (!childrenByParent.TryGetValue(parentIndex, out List<int>? children))
+            {
+                children = [];
+                childrenByParent[parentIndex] = children;
+            }
+
+            children.Add(process.Index);
+        }
+
+        return childrenByParent;
     }
 
     private static void ResolveIdRoots(
@@ -431,4 +594,14 @@ internal static class ProcessTree
                 + "contributed nothing to the scope.");
         }
     }
+
+    internal readonly record struct ProcessInstanceDescriptor(
+        int Index,
+        int ProcessId,
+        string? Name,
+        int? ParentIndex);
+
+    internal sealed record ProcessInstanceSelection(
+        HashSet<int> RootIndexes,
+        HashSet<int> IncludedIndexes);
 }

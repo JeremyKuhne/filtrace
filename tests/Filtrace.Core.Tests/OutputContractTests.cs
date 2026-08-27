@@ -354,8 +354,7 @@ public sealed class OutputContractTests
         callers.GetProperty("callers").GetArrayLength().Should().Be(0);
         callers.GetProperty("targetWeight").GetDouble().Should().Be(0.0);
 
-        AnalysisResult<TimelineResult> timelineEnvelope = new(
-            new TimelineResult(
+        TimelineResult timelineResult = new(
                 0.0,
                 1.0,
                 1.0,
@@ -365,7 +364,11 @@ public sealed class OutputContractTests
                 Cpu: [],
                 Exceptions: null,
                 Alloc: null,
-                Jit: null));
+                Jit: null)
+        {
+            ScopeWarnings = ["scope warning"]
+        };
+        AnalysisResult<TimelineResult> timelineEnvelope = new(timelineResult);
         using JsonDocument timelineDocument = JsonDocument.Parse(OutputJson.Serialize(timelineEnvelope));
         JsonElement timeline = timelineDocument.RootElement.GetProperty("result");
         timeline.TryGetProperty("process", out _).Should().BeFalse();
@@ -373,6 +376,10 @@ public sealed class OutputContractTests
         timeline.TryGetProperty("exceptions", out _).Should().BeFalse();
         timeline.TryGetProperty("alloc", out _).Should().BeFalse();
         timeline.TryGetProperty("jit", out _).Should().BeFalse();
+        timeline.TryGetProperty("mode", out _).Should().BeFalse();
+        timeline.TryGetProperty("snapshot", out _).Should().BeFalse();
+        timeline.TryGetProperty("appliedProcessScope", out _).Should().BeFalse();
+        timeline.TryGetProperty("scopeWarnings", out _).Should().BeFalse();
         timeline.GetProperty("cpu").GetArrayLength().Should().Be(0);
         timeline.GetProperty("fromMs").GetDouble().Should().Be(0.0);
     }

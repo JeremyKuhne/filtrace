@@ -307,16 +307,16 @@ public sealed class LifecycleProvider
 
         if (ProcessTree.FindBusiestProcessName(traceLog) is string busiest)
         {
-            selector = new ProcessNameSelector(busiest);
+            selector = ProcessNameSelector.FromTraceName(busiest);
             return true;
         }
 
         return false;
     }
 
-    private static string Describe(ProcessSelector selector) => selector is ProcessIdSelector ids
+    internal static string Describe(ProcessSelector selector) => selector is ProcessIdSelector ids
         ? $"pids {string.Join(", ", ids.ProcessIds)}"
-        : ((ProcessNameSelector)selector).NameSubstring;
+        : ((ProcessNameSelector)selector).DisplayName;
 
     // Whether a process instance satisfies the selector in its own right. An id selector
     // needs no test: ProcessTree refuses a requested id that more than one process in the

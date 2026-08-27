@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Microsoft.Diagnostics.Tracing;
+using Microsoft.Diagnostics.Tracing.Etlx;
+
 namespace Filtrace.Tracing.Readers;
 
 /// <summary>
-///  What a <see cref="ScopeRequest"/> resolved to against one trace: the process ids
-///  to keep, how to name that scope, and anything the caller should be told about how
-///  the selector matched.
+///  What a <see cref="ScopeRequest"/> resolved to against one trace: exact process
+///  instances, PID summaries, how to name that scope, and selector advisories.
 /// </summary>
 internal sealed class ScopeResolution
 {
@@ -15,26 +17,57 @@ internal sealed class ScopeResolution
     ///  The resolution for a read that keeps every process.
     /// </summary>
     public static ScopeResolution Unscoped { get; } =
-        new(null, null, null, [], AppliedProcessScope.AllProcesses);
+        new(null, null, null, null, [], AppliedProcessScope.AllProcesses, processNameBounded: false);
 
     public ScopeResolution(
         HashSet<int>? processIds,
+        HashSet<ProcessIndex>? processInstanceIndexes,
         string? label,
         string? phrase,
         IReadOnlyList<string> warnings,
-        AppliedProcessScope appliedScope)
+        AppliedProcessScope appliedScope,
+        bool processNameBounded)
     {
         ProcessIds = processIds;
+        ProcessInstanceIndexes = processInstanceIndexes;
         Label = label;
         Phrase = phrase;
         Warnings = warnings;
         AppliedScope = appliedScope;
+        ProcessNameBounded = processNameBounded;
     }
 
     /// <summary>
-    ///  The process ids to keep, or <see langword="null"/> when every process is read.
+    ///  The process-id summary, or <see langword="null"/> when every process is read.
     /// </summary>
     public HashSet<int>? ProcessIds { get; }
+
+    /// <summary>
+    ///  The exact process instances to keep, or <see langword="null"/> when every
+    ///  process is read.
+    /// </summary>
+    public HashSet<ProcessIndex>? ProcessInstanceIndexes { get; }
+
+    /// <summary>Whether the process instance associated with an event is in scope.</summary>
+    public bool Includes(TraceEvent data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (ProcessInstanceIndexes is null)
+        {
+            return true;
+        }
+
+        TraceProcess? process = data.ProcessID <= 0 ? null : TraceLogExtensions.Process(data);
+        return process is not null && ProcessInstanceIndexes.Contains(process.ProcessIndex);
+    }
+
+    /// <summary>Whether one resolved ETLX process instance is in scope.</summary>
+    public bool Includes(TraceProcess? process) =>
+        ProcessInstanceIndexes is null
+        || (process is not null && ProcessInstanceIndexes.Contains(process.ProcessIndex));
+
+    internal bool Includes(ProcessIndex processIndex) =>
+        ProcessInstanceIndexes is null || ProcessInstanceIndexes.Contains(processIndex);
 
     /// <summary>
     ///  A short identity for the scope - the matched process name, or <c>pid 1234</c> /
@@ -57,4 +90,7 @@ internal sealed class ScopeResolution
 
     /// <summary>The machine-readable process scope the read applied.</summary>
     public AppliedProcessScope AppliedScope { get; }
+
+    /// <summary>Whether the reported trace-derived process name was bounded or escaped.</summary>
+    public bool ProcessNameBounded { get; }
 }

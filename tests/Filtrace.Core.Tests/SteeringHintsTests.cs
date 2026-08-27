@@ -670,13 +670,16 @@ public sealed class SteeringHintsTests
                 new CpuBucket(1, null),
                 new CpuBucket(0, null)
             ],
-            Exceptions: null, Alloc: null, Jit: null);
+            Exceptions: null, Alloc: null, Jit: null)
+        {
+            AppliedProcessScope = new AppliedProcessScope("name", "HotLoopBench", [], [123], [], true)
+        };
 
         IReadOnlyList<string> hints = SteeringHints.ForTimeline(timeline);
 
         // A scoped timeline propagates its process into the drill so the follow-up
         // ranking stays on the same tree rather than re-auto-scoping.
-        hints.Should().ContainSingle().Which.Should().EndWith("--time 40,60 --process HotLoopBench");
+        hints.Should().ContainSingle().Which.Should().EndWith("--time 40,60 --process 'HotLoopBench'");
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: hints);
         envelope.NextSteps.Should().ContainSingle();
@@ -687,6 +690,84 @@ public sealed class SteeringHintsTests
         next.Arguments.Process.Should().Be("HotLoopBench");
         next.Arguments.FromMs.Should().Be(40.0);
         next.Arguments.ToMs.Should().Be(60.0);
+    }
+
+    [TestMethod]
+    public void ForTimeline_BucketWithPidScope_PreservesIdsAndChildrenMode()
+    {
+        TimelineResult timeline = CpuBucketTimeline() with
+        {
+            AppliedProcessScope = new AppliedProcessScope("ids", null, [123, 456], [123, 456], [], false)
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--pid 123,456 --children exclude");
+        AnalysisNextStepArguments arguments = envelope.NextSteps.Single().Arguments!;
+        arguments.Process.Should().BeNull();
+        arguments.ProcessIds.Should().Equal(123, 456);
+        arguments.ProcessIdCount.Should().Be(2);
+        arguments.IncludeChildren.Should().BeFalse();
+        arguments.FromMs.Should().Be(40.0);
+        arguments.ToMs.Should().Be(60.0);
+    }
+
+    [TestMethod]
+    public void ForTimeline_BucketWithAllProcesses_PreservesOptOut()
+    {
+        TimelineResult timeline = CpuBucketTimeline() with
+        {
+            AppliedProcessScope = AppliedProcessScope.AllProcesses
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--all-processes");
+        AnalysisNextStepArguments arguments = envelope.NextSteps.Single().Arguments!;
+        arguments.AllProcesses.Should().BeTrue();
+        arguments.Process.Should().BeNull();
+        arguments.ProcessIds.Should().BeNull();
+        arguments.IncludeChildren.Should().BeNull();
+        arguments.FromMs.Should().Be(40.0);
+        arguments.ToMs.Should().Be(60.0);
+    }
+
+    [TestMethod]
+    public void ForTimeline_BucketWithAutomaticScope_PreservesResolvedRootIds()
+    {
+        TimelineResult timeline = CpuBucketTimeline() with
+        {
+            AppliedProcessScope = new AppliedProcessScope("automatic", "App", [], [789], [790], true)
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--pid 789");
+        AnalysisNextStepArguments arguments = envelope.NextSteps.Single().Arguments!;
+        arguments.Process.Should().BeNull();
+        arguments.ProcessIds.Should().Equal(789);
+        arguments.IncludeChildren.Should().BeTrue();
+        arguments.FromMs.Should().Be(40.0);
+        arguments.ToMs.Should().Be(60.0);
+    }
+
+    [TestMethod]
+    public void ForTimeline_BucketWithReusedAutomaticRootId_EmitsNoRunnableFollowUp()
+    {
+        AppliedProcessScope scope = new("automatic", "App", [], [789], [], true)
+        {
+            RootProcessIdsReplayable = false
+        };
+        TimelineResult timeline = CpuBucketTimeline() with { AppliedProcessScope = scope };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should()
+            .Contain("root pid reused by multiple process instances")
+            .And.Contain("choose an explicit selector")
+            .And.NotContain("--pid 789");
+        envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+        envelope.NextSteps[0].Arguments.Should().BeNull();
     }
 
     [TestMethod]
@@ -726,6 +807,217 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForTimeline_Snapshot_PreservesWindowAndProcessInCpuDrill()
+    {
+        const string process = "My App's $(Get-Item)";
+        TimelineSnapshot snapshot = new(
+            50.0,
+            new SnapshotGcSummary(0, 0.0, 0.0, []),
+            new SnapshotCpuSummary(10, 1, [new SnapshotCpuMethod("App.Hot", 10, 100.0)]),
+            new SnapshotExceptionSummary(0, 0, []),
+            new SnapshotAllocationSummary(0, 0, 0, []),
+            new SnapshotJitSummary(0, 0, []),
+            new SnapshotEventSummary(10, 1, [new SnapshotEventType("SampleProfiler", "ThreadSample", 10)]),
+            false);
+        TimelineResult timeline = new(
+            40.0, 60.0, 20.0, 1, process, null, null, null, null, null)
+        {
+            Mode = "snapshot",
+            Snapshot = snapshot,
+            AppliedProcessScope = new AppliedProcessScope("name", process, [], [123], [], true)
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should()
+            .EndWith("--time 40,60 --process 'My App''s $(Get-Item)'");
+        AnalysisNextStep next = envelope.NextSteps.Should().ContainSingle().Subject;
+        next.Operation.Should().Be("rank");
+        next.Arguments!.Metric.Should().Be("cpu");
+        next.Arguments.Process.Should().Be(process);
+        next.Arguments.FromMs.Should().Be(40.0);
+        next.Arguments.ToMs.Should().Be(60.0);
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithPidScope_PreservesIdsAndChildrenMode()
+    {
+        TimelineResult timeline = SnapshotTimeline() with
+        {
+            AppliedProcessScope = new AppliedProcessScope("ids", null, [123, 456], [123, 456], [], false)
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--pid 123,456 --children exclude");
+        AnalysisNextStepArguments arguments = envelope.NextSteps.Single().Arguments!;
+        arguments.Process.Should().BeNull();
+        arguments.ProcessIds.Should().Equal(123, 456);
+        arguments.ProcessIdCount.Should().Be(2);
+        arguments.IncludeChildren.Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithAllProcesses_PreservesOptOut()
+    {
+        TimelineResult timeline = SnapshotTimeline() with
+        {
+            AppliedProcessScope = AppliedProcessScope.AllProcesses
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--all-processes");
+        AnalysisNextStepArguments arguments = envelope.NextSteps.Single().Arguments!;
+        arguments.AllProcesses.Should().BeTrue();
+        arguments.Process.Should().BeNull();
+        arguments.ProcessIds.Should().BeNull();
+        arguments.IncludeChildren.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithAutomaticScope_PreservesResolvedRootIds()
+    {
+        TimelineResult timeline = SnapshotTimeline() with
+        {
+            AppliedProcessScope = new AppliedProcessScope("automatic", "App", [], [789], [790], true)
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--pid 789");
+        AnalysisNextStepArguments arguments = envelope.NextSteps.Single().Arguments!;
+        arguments.ProcessIds.Should().Equal(789);
+        arguments.IncludeChildren.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithTooManyAutomaticRootIds_AsksForNarrowerSelector()
+    {
+        int[] processIds = [.. Enumerable.Range(1, AnalysisScopeContext.MaxReportedProcessIds + 1)];
+        TimelineResult timeline = SnapshotTimeline() with
+        {
+            AppliedProcessScope = new AppliedProcessScope("automatic", "App", [], processIds, [], true)
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should()
+            .Contain($"exact process scope has {processIds.Length} ids")
+            .And.Contain("choose a narrower --process or --pid selector")
+            .And.NotContain("original process selector");
+        envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+        envelope.NextSteps[0].Arguments.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithReusedAutomaticRootId_EmitsNoRunnableFollowUp()
+    {
+        AppliedProcessScope scope = new("automatic", "App", [], [789], [], true)
+        {
+            RootProcessIdsReplayable = false
+        };
+        TimelineResult timeline = SnapshotTimeline() with { AppliedProcessScope = scope };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should()
+            .Contain("root pid reused by multiple process instances")
+            .And.Contain("choose an explicit selector")
+            .And.NotContain("--pid 789");
+        envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+        envelope.NextSteps[0].Arguments.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithNameScopeAndReusedRootId_PreservesNameFollowUp()
+    {
+        AppliedProcessScope scope = new("name", "App", [], [789], [], true)
+        {
+            RootProcessIdsReplayable = false
+        };
+        TimelineResult timeline = SnapshotTimeline() with { AppliedProcessScope = scope };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--process 'App'");
+        envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().Be("rank");
+        envelope.NextSteps[0].Arguments!.Process.Should().Be("App");
+        envelope.NextSteps[0].Arguments!.ProcessIds.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithTooManyExactIds_EmitsNoRunnableFollowUp()
+    {
+        int[] processIds = [.. Enumerable.Range(1, AnalysisScopeContext.MaxReportedProcessIds + 1)];
+        TimelineResult timeline = SnapshotTimeline() with
+        {
+            AppliedProcessScope = new AppliedProcessScope("ids", null, processIds, processIds, [], true)
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should()
+            .Contain($"exact process scope has {processIds.Length} ids")
+            .And.Contain("original process selector");
+        envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+        envelope.NextSteps[0].Arguments.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithOnlyExceptions_DrillsExceptionPaths()
+    {
+        TimelineSnapshot snapshot = new(
+            50.0,
+            new SnapshotGcSummary(0, 0.0, 0.0, []),
+            new SnapshotCpuSummary(0, 0, []),
+            new SnapshotExceptionSummary(3, 1, [new SnapshotCountRow("System.InvalidOperationException", 3)]),
+            new SnapshotAllocationSummary(0, 0, 0, []),
+            new SnapshotJitSummary(0, 0, []),
+            new SnapshotEventSummary(3, 1, [new SnapshotEventType("Runtime", "Exception", 3)]),
+            false);
+        TimelineResult timeline = new(
+            40.0, 60.0, 20.0, 1, null, null, null, null, null, null)
+        {
+            Mode = "snapshot",
+            Snapshot = snapshot
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().Contain("top exception paths");
+        AnalysisNextStep next = envelope.NextSteps.Should().ContainSingle().Subject;
+        next.Operation.Should().Be("rank");
+        next.Arguments!.Metric.Should().Be("exceptions");
+        next.Arguments.FromMs.Should().Be(40.0);
+        next.Arguments.ToMs.Should().Be(60.0);
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithUnresolvedCpuSamples_DrillsCpuRanking()
+    {
+        TimelineSnapshot snapshot = new(
+            50.0,
+            new SnapshotGcSummary(0, 0.0, 0.0, []),
+            new SnapshotCpuSummary(10, 0, []),
+            new SnapshotExceptionSummary(0, 0, []),
+            new SnapshotAllocationSummary(0, 0, 0, []),
+            new SnapshotJitSummary(0, 0, []),
+            new SnapshotEventSummary(10, 1, [new SnapshotEventType("SampleProfiler", "ThreadSample", 10)]),
+            false);
+        TimelineResult timeline = new(40.0, 60.0, 20.0, 1, null, null, null, null, null, null)
+        {
+            Mode = "snapshot",
+            Snapshot = snapshot
+        };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().Contain("top CPU work");
+        envelope.NextSteps.Single().Arguments!.Metric.Should().Be("cpu");
+    }
+
+    [TestMethod]
     public void ForRanking_Null_ThrowsArgumentNull()
     {
         Action act = () => SteeringHints.ForRanking(null!);
@@ -756,4 +1048,42 @@ public sealed class SteeringHintsTests
 
         act.Should().Throw<ArgumentNullException>();
     }
+
+    private static TimelineResult SnapshotTimeline()
+    {
+        TimelineSnapshot snapshot = new(
+            50.0,
+            new SnapshotGcSummary(0, 0.0, 0.0, []),
+            new SnapshotCpuSummary(10, 1, [new SnapshotCpuMethod("App.Hot", 10, 100.0)]),
+            new SnapshotExceptionSummary(0, 0, []),
+            new SnapshotAllocationSummary(0, 0, 0, []),
+            new SnapshotJitSummary(0, 0, []),
+            new SnapshotEventSummary(10, 1, [new SnapshotEventType("Runtime", "Sample", 10)]),
+            false);
+        return new TimelineResult(40.0, 60.0, 20.0, 1, null, null, null, null, null, null)
+        {
+            Mode = "snapshot",
+            Snapshot = snapshot
+        };
+    }
+
+    private static TimelineResult CpuBucketTimeline() =>
+        new(
+            0.0,
+            100.0,
+            20.0,
+            5,
+            null,
+            Gc: null,
+            Cpu:
+            [
+                new CpuBucket(0, null),
+                new CpuBucket(0, null),
+                new CpuBucket(50, "App.Hot"),
+                new CpuBucket(1, null),
+                new CpuBucket(0, null)
+            ],
+            Exceptions: null,
+            Alloc: null,
+            Jit: null);
 }

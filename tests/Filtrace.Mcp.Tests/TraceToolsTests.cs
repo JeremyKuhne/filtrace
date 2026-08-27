@@ -1038,6 +1038,175 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Timeline_Snapshot_ReturnsBoundedCrossLaneEvidence()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: "snapshot",
+            at: 10.0,
+            window: 2.0);
+
+        AssertEnvelope(envelope);
+        envelope.Result.Mode.Should().Be("snapshot");
+        envelope.Result.FromMs.Should().Be(8.0);
+        envelope.Result.ToMs.Should().Be(12.0);
+        envelope.Result.Snapshot.Should().NotBeNull();
+        envelope.Result.Snapshot!.Events.Types.Should().HaveCountLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
+    }
+
+    [TestMethod]
+    public void Timeline_SnapshotWithOmittedWindow_UsesDefault()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: "snapshot",
+            at: 10.0);
+
+        envelope.Result.Mode.Should().Be("snapshot");
+        envelope.Result.Snapshot.Should().NotBeNull();
+    }
+
+    [TestMethod]
+    public void Timeline_SnapshotWithoutAt_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(FixturePath(Alloc), mode: "snapshot");
+
+        act.Should().Throw<McpException>().WithMessage("*at is required*");
+    }
+
+    [TestMethod]
+    public void Timeline_BucketsWithExplicitDefaultWindow_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            window: TimelineProvider.DefaultSnapshotHalfWindowMs);
+
+        act.Should().Throw<McpException>().WithMessage("*window require mode=snapshot*");
+    }
+
+    [TestMethod]
+    public void Timeline_SnapshotWithExplicitDefaultBuckets_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: "snapshot",
+            at: 10.0,
+            buckets: TimelineProvider.DefaultBucketCount);
+
+        act.Should().Throw<McpException>().WithMessage("*buckets apply only to buckets mode*");
+    }
+
+    [TestMethod]
+    public void Timeline_SnapshotWindowBelowMinimum_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: "snapshot",
+            at: 10.0,
+            window: 0.001);
+
+        act.Should().Throw<McpException>().WithMessage("*0.01*");
+    }
+
+    [TestMethod]
+    public void Timeline_SnapshotCenterBeyondWirePrecision_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: "snapshot",
+            at: 10.005,
+            window: 2.0);
+
+        act.Should().Throw<McpException>().WithMessage("*0.01 millisecond increments*");
+    }
+
+    [TestMethod]
+    public void Timeline_SnapshotWindowBeyondWirePrecision_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: "snapshot",
+            at: 10.0,
+            window: 0.015);
+
+        act.Should().Throw<McpException>().WithMessage("*0.01 millisecond increments*");
+    }
+
+    [TestMethod]
+    public void Timeline_OversizedUnknownMode_ThrowsBoundedMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: new string('x', 1_000_000));
+
+        act.Should().Throw<McpException>()
+            .WithMessage("Unknown timeline mode. Valid modes: buckets, snapshot.");
+    }
+
+    [TestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow("unknown")]
+    public void Timeline_UnknownMode_ThrowsBoundedMcpException(string? mode)
+    {
+        Action act = () => TraceTools.Timeline(FixturePath(Alloc), mode: mode!);
+
+        act.Should().Throw<McpException>()
+            .WithMessage("Unknown timeline mode. Valid modes: buckets, snapshot.");
+    }
+
+    [TestMethod]
+    public void Timeline_ModeIgnoresWhitespaceAndCase()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(
+            FixturePath(Alloc),
+            mode: " SNAPSHOT ",
+            at: 10.0,
+            window: 2.0);
+
+        envelope.Result.Mode.Should().Be("snapshot");
+    }
+
+    [TestMethod]
+    public void Timeline_ProcessSelectorAboveLimit_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(
+            FixturePath(Alloc),
+            process: new string('x', ProcessNameSelector.MaxNameSubstringLength + 1));
+
+        act.Should().Throw<McpException>().WithMessage("*process may not exceed 256 characters*");
+    }
+
+    [TestMethod]
+    public void Timeline_OversizedProcessSelectorWithTrailingControl_RejectsByLengthFirst()
+    {
+        string process = $"{new string('x', 1_000_000)}\n";
+
+        Action act = () => TraceTools.Timeline(FixturePath(Alloc), process: process);
+
+        act.Should().Throw<McpException>().WithMessage("*process may not exceed 256 characters*");
+    }
+
+    [TestMethod]
+    public void Timeline_ProcessSelectorWithControlCharacter_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.Timeline(FixturePath(Alloc), process: "App\nInjected");
+
+        act.Should().Throw<McpException>().WithMessage("*process may not contain control characters*");
+    }
+
+    [TestMethod]
+    public void Timeline_UnknownProcessId_EmitsScopeWarning()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(
+            FixturePath(Alloc),
+            pid: [999_999]);
+
+        envelope.Warnings.Should().Contain(warning =>
+            warning.Contains("not found in this trace", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void Timeline_UnknownLane_ThrowsMcpException()
     {
         Action act = () => TraceTools.Timeline(FixturePath(Alloc), lanes: "bogus");
@@ -1070,6 +1239,16 @@ public sealed class TraceToolsTests
         Action act = () => TraceTools.Timeline(FixturePath(Speedscope));
 
         act.Should().Throw<McpException>().WithMessage("*requires a .nettrace*");
+    }
+
+    [TestMethod]
+    public void TimelineSnapshot_InvalidData_ThrowsCleanMcpException()
+    {
+        Action act = () => TraceTools.ReadTimelineSnapshot(
+            FixturePath(Alloc),
+            static () => throw new InvalidDataException("malformed snapshot trace"));
+
+        act.Should().Throw<McpException>().WithMessage("malformed snapshot trace");
     }
 
     [TestMethod]

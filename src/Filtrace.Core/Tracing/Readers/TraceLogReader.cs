@@ -113,11 +113,11 @@ internal abstract class TraceLogReader : ITraceReader
             }
 
             // Resolve the scope intent (an explicit selector, the busiest process under
-            // the automatic default, or every process when opted out) to the set of
-            // process IDs to keep. A null request means "unspecified", which is the
+            // the automatic default, or every process when opted out) to exact process
+            // instances. A null request means "unspecified", which is the
             // automatic default - the same as ScopeRequest.Auto - so a caller that passes
-            // nothing still gets scenario scope. A null pid set means no scoping (every
-            // process, the all-processes opt-out). This is lossless: the trace is fully
+            // nothing still gets scenario scope. Null instance membership means no
+            // scoping (the all-processes opt-out). This is lossless: the trace is fully
             // symbol-resolved by TraceLog before any sample is dropped.
             ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
 
@@ -254,8 +254,8 @@ internal abstract class TraceLogReader : ITraceReader
         SourceResolutionTracker sourceResolution,
         NativeSymbolInfo? nativeSymbols)
     {
-        HashSet<int>? scopePids = resolvedScope.ProcessIds;
         string? appliedScope = resolvedScope.Phrase;
+        bool processScopeDroppedSample = false;
         IReadOnlyList<string> scopeWarnings = resolvedScope.Warnings;
         AnalysisEventCounter analysisEvents = new();
         Dictionary<int, string> locationCache = [];
@@ -284,13 +284,6 @@ internal abstract class TraceLogReader : ITraceReader
                 continue;
             }
 
-            // When scoped to a process tree, drop samples from any process outside it.
-            // The trace is already fully resolved, so this is a lossless narrowing.
-            if (scopePids is not null && !scopePids.Contains(data.ProcessID))
-            {
-                continue;
-            }
-
             // When scoped to a time window, drop samples taken outside it; every sample
             // carries a trace-relative timestamp, so the same guard scopes every metric.
             if (window is TimeWindow timeScope && !timeScope.Contains(data.TimeStampRelativeMSec))
@@ -302,6 +295,15 @@ internal abstract class TraceLogReader : ITraceReader
             // matching set was computed by the activity pre-pass above).
             if (activitySamples is not null && !activitySamples.Contains(data.EventIndex))
             {
+                continue;
+            }
+
+            // When scoped to a process tree, drop samples from any process outside it.
+            // Track whether this changed CPU evidence so an automatic event-only scope
+            // does not produce a misleading CPU scope notice.
+            if (!resolvedScope.Includes(data))
+            {
+                processScopeDroppedSample = true;
                 continue;
             }
 
@@ -367,6 +369,10 @@ internal abstract class TraceLogReader : ITraceReader
         }
 
         double resolutionRate = totalFrames > 0 ? (double)resolvedFrames / totalFrames : 0.0;
+        if (resolvedScope.AppliedScope.Mode == "automatic" && !processScopeDroppedSample)
+        {
+            appliedScope = null;
+        }
 
         List<string> warnings = [.. scopeWarnings];
         if (samples.Count == 0)

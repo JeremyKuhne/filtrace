@@ -190,13 +190,15 @@ public sealed partial class TimelineProvider
 
         using Etlx.TraceLog traceLog = OpenTrace(fullPath);
 
-        // Scope to a process tree: an explicit --process name or --pid set, or the
-        // automatic busiest process on a multi-process .etl. A null pid set means every
-        // process (a single-process .nettrace, or the all-processes opt-out), so the
-        // lanes cover the whole capture.
+        // Scope to exact process instances: an explicit name or PID set, or the
+        // automatic busiest process on a multi-process ETL. The all-processes opt-out
+        // leaves instance membership null, so the lanes cover the whole capture.
         ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
-        HashSet<int>? scopePids = resolved.ProcessIds;
         string? appliedProcessName = resolved.Label;
+        if (appliedProcessName is not null)
+        {
+            appliedProcessName = BoundSnapshotName(appliedProcessName, out _);
+        }
 
         // Resolve the window against the trace: an open bound is filled from the trace,
         // and a start at or past the end degenerates to a single bucket's width rather
@@ -216,7 +218,7 @@ public sealed partial class TimelineProvider
         // the raw event stream, both driven off one Process() so a gc+cpu timeline scans
         // the trace once rather than once per mechanism.
         (IReadOnlyList<GcBucket>? gc, EventLanes eventLanes) = BuildLanes(
-            traceLog, scopePids, requested, startMs, endMs, bucketSizeMs, buckets);
+            traceLog, resolved, requested, startMs, endMs, bucketSizeMs, buckets);
 
         return new TimelineResult(
             Math.Round(startMs, 2),
@@ -228,13 +230,20 @@ public sealed partial class TimelineProvider
             eventLanes.Cpu,
             eventLanes.Exceptions,
             eventLanes.Alloc,
-            eventLanes.Jit);
+            eventLanes.Jit)
+        {
+            AppliedProcessScope = FollowUpProcessScope(resolved),
+            ScopeWarnings = resolved.Warnings
+        };
     }
 
     // Maps a trace-relative time to its bucket index, clamped into range so a sample
     // exactly on the upper bound lands in the last bucket rather than one past it.
     private static int BucketIndex(double timeMs, double startMs, double bucketSizeMs, int buckets) =>
         Math.Clamp((int)((timeMs - startMs) / bucketSizeMs), 0, buckets - 1);
+
+    internal static bool IsTimelineTimestampInWindow(double timestamp, double startMs, double endMs) =>
+        double.IsFinite(timestamp) && timestamp >= startMs && timestamp <= endMs;
 
     // Builds every requested lane in a single pass over the trace. The GC lane is
     // reconstructed from the .NET runtime analysis (NeedLoadedDotNetRuntimes) and the
@@ -243,7 +252,7 @@ public sealed partial class TimelineProvider
     // scan instead of one pass per mechanism.
     private static (IReadOnlyList<GcBucket>? Gc, EventLanes Events) BuildLanes(
         Etlx.TraceLog traceLog,
-        HashSet<int>? scopePids,
+        ScopeResolution resolvedScope,
         HashSet<string> requested,
         double startMs,
         double endMs,
@@ -269,6 +278,9 @@ public sealed partial class TimelineProvider
         long[]? allocCount = wantAlloc ? new long[buckets] : null;
         long[]? allocBytes = wantAlloc ? new long[buckets] : null;
         int[]? jitCount = wantJit ? new int[buckets] : null;
+        HashSet<int>? scopedAnalysisProcessIndexes = wantGc && resolvedScope.ProcessInstanceIndexes is not null
+            ? []
+            : null;
 
         using Etlx.TraceLogEventSource source = traceLog.Events.GetSource();
 
@@ -279,8 +291,9 @@ public sealed partial class TimelineProvider
             source.NeedLoadedDotNetRuntimes();
         }
 
-        // The raw-event lanes are tallied as the same pass dispatches every event.
-        if (wantEvents)
+        // Raw lanes are tallied during dispatch. A scoped GC-only request still observes
+        // events to bridge exact ETLX instances to the analysis process model.
+        if (wantEvents || (wantGc && scopedAnalysisProcessIndexes is not null))
         {
             source.AllEvents += Accumulate;
         }
@@ -288,7 +301,7 @@ public sealed partial class TimelineProvider
         source.Process();
 
         IReadOnlyList<GcBucket>? gc = wantGc
-            ? BuildGcLane(source, scopePids, startMs, endMs, bucketSizeMs, buckets)
+            ? BuildGcLane(source, scopedAnalysisProcessIndexes, startMs, endMs, bucketSizeMs, buckets)
             : null;
 
         EventLanes events = wantEvents
@@ -305,13 +318,21 @@ public sealed partial class TimelineProvider
         // events outside the window or the process scope.
         void Accumulate(TraceEvent data)
         {
-            double time = data.TimeStampRelativeMSec;
-            if (time < startMs || time > endMs)
+            if (!resolvedScope.Includes(data))
             {
                 return;
             }
 
-            if (scopePids is not null && !scopePids.Contains(data.ProcessID))
+            if (scopedAnalysisProcessIndexes is not null
+                && TraceProcessesExtensions.Process(data) is TraceProcess scopedProcess)
+            {
+                // Includes() admitted the exact ETLX instance; this second process model
+                // owns TraceGC, so retain its corresponding index for reconstruction.
+                scopedAnalysisProcessIndexes.Add((int)scopedProcess.ProcessIndex);
+            }
+
+            double time = data.TimeStampRelativeMSec;
+            if (!wantEvents || !IsTimelineTimestampInWindow(time, startMs, endMs))
             {
                 return;
             }
@@ -382,7 +403,12 @@ public sealed partial class TimelineProvider
     // runtime analysis gathered during the shared pass. The source must already have
     // been processed (with NeedLoadedDotNetRuntimes registered) before this reads it.
     private static GcBucket[] BuildGcLane(
-        Etlx.TraceLogEventSource source, HashSet<int>? scopePids, double startMs, double endMs, double bucketSizeMs, int buckets)
+        Etlx.TraceLogEventSource source,
+        HashSet<int>? scopedProcessInstanceIndexes,
+        double startMs,
+        double endMs,
+        double bucketSizeMs,
+        int buckets)
     {
         int[] count = new int[buckets];
         double[] totalPause = new double[buckets];
@@ -391,7 +417,8 @@ public sealed partial class TimelineProvider
 
         foreach (TraceProcess process in source.Processes())
         {
-            if (scopePids is not null && !scopePids.Contains(process.ProcessID))
+            if (scopedProcessInstanceIndexes is not null
+                && !scopedProcessInstanceIndexes.Contains((int)process.ProcessIndex))
             {
                 continue;
             }
@@ -405,7 +432,7 @@ public sealed partial class TimelineProvider
             foreach (TraceGC collection in runtime.GC.GCs)
             {
                 double time = collection.StartRelativeMSec;
-                if (time < startMs || time > endMs)
+                if (!IsTimelineTimestampInWindow(time, startMs, endMs))
                 {
                     continue;
                 }
@@ -471,22 +498,24 @@ public sealed partial class TimelineProvider
         return lane;
     }
 
-    // Resolves the shortened innermost resolved method of a CPU sample's stack: the
-    // leaf if it resolved, else the first caller up the stack that did. Null when no
-    // frame resolved to a managed method (an all-native or broken stack), so an
-    // unresolved leaf does not drown the top-method tally in "?".
-    private static string? LeafMethod(TraceCallStack callStack)
+    // An unresolved leaf falls back to the first resolved caller so "?" does not dominate tallies.
+    private static TraceCodeAddress? LeafCodeAddress(TraceCallStack callStack)
     {
         for (TraceCallStack? frame = callStack; frame is not null; frame = frame.Caller)
         {
             if (!string.IsNullOrEmpty(frame.CodeAddress.FullMethodName))
             {
-                return FrameNames.Short(QualifyFrame(frame.CodeAddress));
+                return frame.CodeAddress;
             }
         }
 
         return null;
     }
+
+    private static string? LeafMethod(TraceCallStack callStack) =>
+        LeafCodeAddress(callStack) is TraceCodeAddress address
+            ? FrameNames.Short(QualifyFrame(address))
+            : null;
 
     // Builds the "module!Method(sig)" frame name FrameNames.Short expects, matching the
     // CPU reader's naming so the shortened leaf reads the same as a ranking's rows.

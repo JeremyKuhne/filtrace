@@ -1080,6 +1080,105 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_TimelineSnapshot_ParsesModeAtAndWindow()
+    {
+        (int exit, string output, string error) = Run(
+            "timeline", Alloc,
+            "--mode", "snapshot",
+            "--at", "0",
+            "--window", "60000",
+            "--format", "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        error.Should().BeEmpty();
+        output.Should().Contain("\"mode\":\"snapshot\"")
+            .And.Contain("\"snapshot\"");
+    }
+
+    [TestMethod]
+    public void Run_TimelineSnapshot_OmittedWindowUsesDefault()
+    {
+        (int exit, string output, string error) = Run(
+            "timeline", Alloc,
+            "--mode", "snapshot",
+            "--at", "0",
+            "--format", "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        error.Should().BeEmpty();
+        output.Should().Contain("\"mode\":\"snapshot\"");
+    }
+
+    [TestMethod]
+    public void Run_TimelineBucketsWithExplicitDefaultWindow_ReturnsUsageError()
+    {
+        (int exit, string output, string error) = Run(
+            "timeline", Alloc,
+            "--window", "100");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("--window require --mode snapshot");
+    }
+
+    [TestMethod]
+    public void Run_TimelineSnapshotWithExplicitDefaultBuckets_ReturnsUsageError()
+    {
+        (int exit, string output, string error) = Run(
+            "timeline", Alloc,
+            "--mode", "snapshot",
+            "--at", "0",
+            "--buckets", "50");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("--buckets apply only to --mode buckets");
+    }
+
+    [TestMethod]
+    [DataRow("--at", "10.005")]
+    [DataRow("--window", "0.015")]
+    public void Run_TimelineSnapshotWithGeometryBeyondWirePrecision_ReturnsUsageError(
+        string option,
+        string value)
+    {
+        string[] arguments = option == "--at"
+            ? ["timeline", Alloc, "--mode", "snapshot", "--at", value]
+            : ["timeline", Alloc, "--mode", "snapshot", "--at", "10", "--window", value];
+
+        (int exit, string output, string error) = Run(arguments);
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("0.01 millisecond increments");
+    }
+
+    [TestMethod]
+    public void Run_TimelineHelp_DescribesSnapshotSelectors()
+    {
+        (int exit, string output, _) = Run("timeline", "--help");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("--mode")
+            .And.Contain("--at")
+            .And.Contain("--window")
+            .And.Contain("snapshot");
+    }
+
+    [TestMethod]
+    [DataRow("999")]
+    [DataRow("-1")]
+    public void Run_TimelineUndefinedNumericMode_ReturnsUsageError(string mode)
+    {
+        (int exit, string output, string error) = Run(
+            "timeline", Alloc, "--mode", mode, "--at", "0");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("Unknown timeline mode").And.NotContain("Exception");
+    }
+
+    [TestMethod]
     public void Run_Tree_RendersIndentedHierarchy()
     {
         (int exit, string output, _) = Run("tree", Speedscope);

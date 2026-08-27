@@ -103,7 +103,7 @@ public static class SteeringHints
             Metric = metric,
             Frame = frame,
             Root = string.IsNullOrEmpty(root) ? null : root,
-            Process = (scope?.Selector as ProcessNameSelector)?.NameSubstring,
+            Process = (scope?.Selector as ProcessNameSelector)?.DisplayName,
             ProcessIds = processIds,
             ProcessIdCount = processIdCount,
             ProcessIdsTruncated = processIdsTruncated,
@@ -372,7 +372,7 @@ public static class SteeringHints
 
         hint = scope?.Selector switch
         {
-            ProcessNameSelector name => $"{hint} --process {QuotePowerShellArgument(name.NameSubstring)}",
+            ProcessNameSelector name => $"{hint} --process {QuotePowerShellArgument(name.DisplayName)}",
             // Comma-separated, not repeated: a repeated --pid keeps only the last value.
             ProcessIdSelector ids => $"{hint} --pid {string.Join(",", ids.ProcessIds)}",
             _ => scope?.IncludeAll == true ? $"{hint} --all-processes" : hint
@@ -534,6 +534,27 @@ public static class SteeringHints
     {
         ArgumentNullException.ThrowIfNull(timeline);
 
+        if (timeline.Snapshot is TimelineSnapshot snapshot)
+        {
+            string window = $"{FormatMs(timeline.FromMs)}-{FormatMs(timeline.ToMs)} ms";
+            if (snapshot.Cpu.SampleCount > 0)
+            {
+                return SnapshotDrillGuidance("CPU work", "cpu", timeline, window);
+            }
+
+            if (snapshot.Alloc.Types.Count > 0)
+            {
+                return SnapshotDrillGuidance("allocation sites", "alloc", timeline, window);
+            }
+
+            if (snapshot.Exceptions.Types.Count > 0)
+            {
+                return SnapshotDrillGuidance("exception paths", "exceptions", timeline, window);
+            }
+
+            return Guidance($"snapshot covers {window}; widen --window if the bounded evidence is too thin");
+        }
+
         // Prefer the CPU lane - the canonical "find the window, then rank it" loop - then
         // the other rankable lanes, and finally GC activity. A null or all-zero lane has
         // nothing to point at, so it is skipped.
@@ -671,32 +692,143 @@ public static class SteeringHints
         int index)
     {
         (double start, double end) = WindowOf(timeline, index);
+        if (!CanRepresentTimelineScope(timeline, out int processIdCount))
+        {
+            return UnrepresentableTimelineScopeGuidance(timeline, start, end, processIdCount);
+        }
+
         string reason = DrillWindowHint(laneLabel, metric, timeline, index);
         return Guidance(
             reason,
             "rank",
-            new AnalysisNextStepArguments
+            TimelineScopeArguments(metric, timeline) with
             {
-                Metric = metric,
-                Process = timeline.Process,
                 FromMs = start,
                 ToMs = end
             });
     }
 
-    // The " --process <name>" suffix a scoped timeline's drill hint carries so the
-    // follow-up ranking stays on the same process tree, or empty when the timeline
-    // spanned every process. A name with whitespace is quoted so it survives as one
-    // argument.
+    private static IReadOnlyList<string> SnapshotDrillGuidance(
+        string subject,
+        string metric,
+        TimelineResult timeline,
+        string window)
+    {
+        if (!CanRepresentTimelineScope(timeline, out int processIdCount))
+        {
+            return UnrepresentableTimelineScopeGuidance(
+                timeline,
+                timeline.FromMs,
+                timeline.ToMs,
+                processIdCount);
+        }
+
+        string reason = $"snapshot covers {window}; drill the top {subject} with: "
+            + $"rank --metric {metric} --time {FormatMs(timeline.FromMs)},{FormatMs(timeline.ToMs)}{ProcessScope(timeline)}";
+        return Guidance(
+            reason,
+            "rank",
+            TimelineScopeArguments(metric, timeline));
+    }
+
+    private static AnalysisNextStepArguments TimelineScopeArguments(string metric, TimelineResult timeline)
+    {
+        AppliedProcessScope? scope = timeline.AppliedProcessScope;
+        IReadOnlyList<int>? sourceIds = scope?.Mode switch
+        {
+            "ids" => scope.RequestedProcessIds,
+            "automatic" => scope.RootProcessIds,
+            _ => null
+        };
+        int? processIdCount = sourceIds?.Count;
+        bool processIdsTruncated = sourceIds is { Count: > AnalysisScopeContext.MaxReportedProcessIds };
+        IReadOnlyList<int>? processIds = processIdsTruncated
+            ? [.. sourceIds!.Take(AnalysisScopeContext.MaxReportedProcessIds)]
+            : sourceIds;
+
+        return new AnalysisNextStepArguments
+        {
+            Metric = metric,
+            Process = scope is { Mode: "name" } ? scope.Process : null,
+            ProcessIds = processIds,
+            ProcessIdCount = processIdCount,
+            ProcessIdsTruncated = processIdsTruncated,
+            IncludeChildren = scope is null or { Mode: "all" } ? null : scope.IncludeChildren,
+            AllProcesses = scope is { Mode: "all" } ? true : null,
+            FromMs = timeline.FromMs,
+            ToMs = timeline.ToMs
+        };
+    }
+
+    // The safely quoted " --process <name>" suffix a scoped timeline's drill hint
+    // carries so the follow-up ranking stays on the same process tree, or empty when
+    // the timeline spanned every process.
     private static string ProcessScope(TimelineResult timeline)
     {
-        if (timeline.Process is not { Length: > 0 } process)
+        AppliedProcessScope? scope = timeline.AppliedProcessScope;
+        if (scope is null)
         {
             return string.Empty;
         }
 
-        return process.Contains(' ') || process.Contains('\t')
-            ? $" --process \"{process}\""
-            : $" --process {process}";
+        string suffix = scope.Mode switch
+        {
+            "all" => " --all-processes",
+            "name" when scope.Process is { Length: > 0 } process => $" --process {QuotePowerShellArgument(process)}",
+            "ids" => ProcessIdScope(scope.RequestedProcessIds),
+            "automatic" => ProcessIdScope(scope.RootProcessIds),
+            _ => string.Empty
+        };
+        return suffix.Length > 0 && scope.Mode != "all" && !scope.IncludeChildren
+            ? $"{suffix} --children exclude"
+            : suffix;
+    }
+
+    private static string ProcessIdScope(IReadOnlyList<int> processIds)
+    {
+        if (processIds.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return $" --pid {string.Join(",", processIds)}";
+    }
+
+    private static bool CanRepresentTimelineScope(TimelineResult timeline, out int processIdCount)
+    {
+        AppliedProcessScope? scope = timeline.AppliedProcessScope;
+        IReadOnlyList<int>? processIds = scope?.Mode switch
+        {
+            "ids" => scope.RequestedProcessIds,
+            "automatic" => scope.RootProcessIds,
+            _ => null
+        };
+        processIdCount = processIds?.Count ?? 0;
+        return processIdCount <= AnalysisScopeContext.MaxReportedProcessIds
+            && scope is not { Mode: "automatic", RootProcessIdsReplayable: false };
+    }
+
+    private static IReadOnlyList<string> UnrepresentableTimelineScopeGuidance(
+        TimelineResult timeline,
+        double startMs,
+        double endMs,
+        int processIdCount)
+    {
+        // Reuse makes every exact-id replay unrunnable regardless of how many roots
+        // fit in the bounded argument list, so report it before the count limit.
+        if (timeline.AppliedProcessScope is { Mode: "automatic", RootProcessIdsReplayable: false })
+        {
+            return Guidance(
+                "the automatic process scope includes a root pid reused by multiple process instances, so no exact "
+                + $"--pid follow-up can be generated; inspect processes, choose an explicit selector, and rerun rank "
+                + $"with --time {FormatMs(startMs)},{FormatMs(endMs)}");
+        }
+
+        string selectorGuidance = timeline.AppliedProcessScope?.Mode == "automatic"
+            ? "choose a narrower --process or --pid selector"
+            : "reuse the original process selector";
+        return Guidance(
+            $"the exact process scope has {processIdCount} ids, exceeding the bounded follow-up limit; "
+            + $"{selectorGuidance} and rerun rank with --time {FormatMs(startMs)},{FormatMs(endMs)}");
     }
 }

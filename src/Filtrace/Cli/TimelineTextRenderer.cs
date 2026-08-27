@@ -40,6 +40,12 @@ internal static class TimelineTextRenderer
     {
         TimelineResult timeline = envelope.Result;
 
+        if (timeline.Snapshot is TimelineSnapshot snapshot)
+        {
+            RenderSnapshot(envelope, path, timeline, snapshot, output);
+            return;
+        }
+
         output.WriteLine($"timeline  -  {path}");
         output.WriteLine();
         if (timeline.Process is not null)
@@ -96,6 +102,74 @@ internal static class TimelineTextRenderer
         if (!anyLane)
         {
             output.WriteLine("  (no lanes requested)");
+        }
+
+        output.WriteLine();
+        foreach (string hint in envelope.Hints)
+        {
+            output.WriteLine($"> {hint}");
+        }
+
+        foreach (string warning in envelope.Warnings)
+        {
+            output.WriteLine($"! {warning}");
+        }
+    }
+
+    private static void RenderSnapshot(
+        AnalysisResult<TimelineResult> envelope,
+        string path,
+        TimelineResult timeline,
+        TimelineSnapshot snapshot,
+        TextWriter output)
+    {
+        output.WriteLine($"timeline snapshot  -  {path}");
+        output.WriteLine();
+        if (timeline.Process is not null)
+        {
+            output.WriteLine($"  process {timeline.Process}");
+        }
+
+        output.WriteLine($"  at {snapshot.AtMs:N2} ms   window [{timeline.FromMs:N2}, {timeline.ToMs:N2}] ms");
+        output.WriteLine();
+        output.WriteLine($"  events       {snapshot.Events.EventCount:N0} total, {snapshot.Events.TypeCount:N0} types");
+        foreach (SnapshotEventType type in snapshot.Events.Types)
+        {
+            output.WriteLine($"    {type.Count,8:N0}  {type.Provider}/{type.Name}");
+        }
+
+        output.WriteLine($"  cpu          {snapshot.Cpu.SampleCount:N0} samples, {snapshot.Cpu.MethodCount:N0} resolved leaf methods");
+        foreach (SnapshotCpuMethod method in snapshot.Cpu.Methods)
+        {
+            output.WriteLine($"    {method.Percent,7:N2}%  {method.Name}");
+        }
+
+        output.WriteLine(
+            $"  gc           {snapshot.Gc.CollectionCount:N0} collections, {snapshot.Gc.TotalPauseMs:N2} ms total pause, "
+            + $"{snapshot.Gc.MaxPauseMs:N2} ms max merged pause in window");
+        foreach (SnapshotGcRecord collection in snapshot.Gc.Collections)
+        {
+            output.WriteLine(
+                $"    {collection.StartMs,8:N2} ms  gen{collection.Generation}  {collection.PauseMs:N2} ms  {collection.Kind}/{collection.Reason}");
+        }
+
+        output.WriteLine($"  exceptions   {snapshot.Exceptions.ExceptionCount:N0} thrown, {snapshot.Exceptions.TypeCount:N0} types");
+        foreach (SnapshotCountRow type in snapshot.Exceptions.Types)
+        {
+            output.WriteLine($"    {type.Count,8:N0}  {type.Name}");
+        }
+
+        output.WriteLine(
+            $"  alloc        {snapshot.Alloc.Bytes / (1024.0 * 1024.0):N2} MB in {snapshot.Alloc.TickCount:N0} ticks, {snapshot.Alloc.TypeCount:N0} types");
+        foreach (SnapshotAllocationType type in snapshot.Alloc.Types)
+        {
+            output.WriteLine($"    {type.Bytes / (1024.0 * 1024.0),8:N2} MB  {type.Name}");
+        }
+
+        output.WriteLine($"  jit          {snapshot.Jit.CompilationCount:N0} compilations, {snapshot.Jit.MethodCount:N0} methods");
+        foreach (SnapshotCountRow method in snapshot.Jit.Methods)
+        {
+            output.WriteLine($"    {method.Count,8:N0}  {method.Name}");
         }
 
         output.WriteLine();

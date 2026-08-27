@@ -104,6 +104,10 @@
     "diskio-report": {
       "calls": 1,
       "tokens": 433
+    },
+    "point-in-time-snapshot": {
+      "calls": 1,
+      "tokens": 507
     }
   }
 }

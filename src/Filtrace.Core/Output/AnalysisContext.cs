@@ -4,6 +4,7 @@
 
 using System.Text.Json.Serialization;
 using Filtrace.Tracing;
+using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Output;
 
@@ -123,7 +124,10 @@ public sealed record AnalysisScopeContext
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ProcessMode { get; init; }
 
-    /// <summary>The applied process-name selector, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  A bounded display label for name or automatic process scope, or
+    ///  <see langword="null"/>. This display value is not a reusable selector.
+    /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Process { get; init; }
 
@@ -131,7 +135,10 @@ public sealed record AnalysisScopeContext
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<int>? RequestedProcessIds { get; init; }
 
-    /// <summary>The process ids the selector matched, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  The process ids the selector matched, or <see langword="null"/>. These describe
+    ///  the effective scope but may not be replayable when the trace reused an OS id.
+    /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<int>? RootProcessIds { get; init; }
 
@@ -195,7 +202,11 @@ public sealed record AnalysisScopeContext
             RootKind = hasRoot ? StackAncestryRootKind : null,
             RootCoverage = hasRoot ? rootCoverage : null,
             ProcessMode = hasProcessSelector ? processScope?.Mode : null,
-            Process = processScope?.Process,
+            // An automatic scope names the busiest process from the trace itself, so this
+            // is untrusted text on every surface that renders the context.
+            Process = processScope?.Process is string scopeProcess
+                ? TimelineProvider.BoundSnapshotName(scopeProcess, out _)
+                : null,
             RequestedProcessIds = hasRequestedIds ? Bounded(processScope!.RequestedProcessIds) : null,
             RootProcessIds = hasProcessSelector ? Bounded(processScope!.RootProcessIds) : null,
             DescendantProcessIds = hasDescendants ? Bounded(processScope!.DescendantProcessIds) : null,
