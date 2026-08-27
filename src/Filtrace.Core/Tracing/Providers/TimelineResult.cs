@@ -57,4 +57,11 @@ public sealed record TimelineResult(
     /// </summary>
     [JsonIgnore]
     public AppliedProcessScope? AppliedProcessScope { get; init; }
+
+    /// <summary>
+    ///  Advisories produced while resolving the process scope, retained for the CLI
+    ///  and MCP envelopes and omitted from result JSON.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> ScopeWarnings { get; init; } = [];
 }

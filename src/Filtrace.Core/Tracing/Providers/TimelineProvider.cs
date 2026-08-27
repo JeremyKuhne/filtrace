@@ -234,7 +234,8 @@ public sealed partial class TimelineProvider
             eventLanes.Alloc,
             eventLanes.Jit)
         {
-            AppliedProcessScope = FollowUpProcessScope(resolved)
+            AppliedProcessScope = FollowUpProcessScope(resolved),
+            ScopeWarnings = resolved.Warnings
         };
     }
 

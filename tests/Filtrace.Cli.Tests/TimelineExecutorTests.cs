@@ -224,6 +224,19 @@ public sealed class TimelineExecutorTests
     }
 
     [TestMethod]
+    public void Run_UnknownProcessId_EmitsScopeWarning()
+    {
+        (int exit, string output, string error) = Run(Request(
+            Alloc,
+            pid: [999_999],
+            format: OutputFormat.Json));
+
+        exit.Should().Be(ExitCodes.Success);
+        error.Should().BeEmpty();
+        output.Should().Contain("not found in this trace");
+    }
+
+    [TestMethod]
     public void Render_SnapshotText_WritesEverySummaryHintAndWarning()
     {
         TimelineSnapshot snapshot = new(

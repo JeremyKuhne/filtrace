@@ -1186,6 +1186,17 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Timeline_UnknownProcessId_EmitsScopeWarning()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(
+            FixturePath(Alloc),
+            pid: [999_999]);
+
+        envelope.Warnings.Should().Contain(warning =>
+            warning.Contains("not found in this trace", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void Timeline_UnknownLane_ThrowsMcpException()
     {
         Action act = () => TraceTools.Timeline(FixturePath(Alloc), lanes: "bogus");

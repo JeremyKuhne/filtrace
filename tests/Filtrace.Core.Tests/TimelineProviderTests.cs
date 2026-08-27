@@ -185,6 +185,24 @@ public sealed class TimelineProviderTests
     }
 
     [TestMethod]
+    public void Read_UnknownProcessId_CarriesScopeWarningInBothModes()
+    {
+        ScopeRequest scope = ScopeRequest.ForProcessIds([999_999]);
+
+        TimelineResult buckets = new TimelineProvider().Read(Alloc, scope: scope);
+        TimelineResult snapshot = new TimelineProvider().ReadSnapshot(
+            Alloc,
+            atMs: 0.0,
+            halfWindowMs: TimelineProvider.MaxSnapshotHalfWindowMs,
+            scope: scope);
+
+        buckets.ScopeWarnings.Should().ContainSingle(warning =>
+            warning.Contains("not found in this trace", StringComparison.Ordinal));
+        snapshot.ScopeWarnings.Should().ContainSingle(warning =>
+            warning.Contains("not found in this trace", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void ReadSnapshot_PauseStartedBeforeWindow_IncludesCollectionAndClipsTotal()
     {
         TimelineResult result = new TimelineProvider().ReadSnapshot(Alloc, atMs: 20.65, halfWindowMs: 0.02);

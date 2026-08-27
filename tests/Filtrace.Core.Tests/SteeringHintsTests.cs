@@ -744,6 +744,7 @@ public sealed class SteeringHintsTests
 
         envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--pid 789");
         AnalysisNextStepArguments arguments = envelope.NextSteps.Single().Arguments!;
+        arguments.Process.Should().BeNull();
         arguments.ProcessIds.Should().Equal(789);
         arguments.IncludeChildren.Should().BeTrue();
         arguments.FromMs.Should().Be(40.0);

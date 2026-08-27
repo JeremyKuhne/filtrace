@@ -300,9 +300,7 @@ internal static class ProcessTree
         string mode = automatic
             ? "automatic"
             : selector is ProcessIdSelector ? "ids" : "name";
-        string? process = selector is ProcessNameSelector nameSelector
-            ? nameSelector.DisplayName
-            : null;
+        string? process = AppliedProcessName(selector);
         IReadOnlyList<int> requestedIds = selector is ProcessIdSelector idSelector
             ? idSelector.ProcessIds
             : [];
@@ -316,6 +314,9 @@ internal static class ProcessTree
             descendantIds,
             includeChildren);
     }
+
+    internal static string? AppliedProcessName(ProcessSelector selector) =>
+        selector is ProcessNameSelector nameSelector ? nameSelector.NameSubstring : null;
 
     private static void ResolveNameRoots(
         TraceLog traceLog,

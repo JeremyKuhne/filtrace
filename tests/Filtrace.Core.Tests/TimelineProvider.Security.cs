@@ -140,6 +140,36 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void TryGetBoundedEventNames_DistinctTemplateIdentities_KeepDistinctNames()
+    {
+        Dictionary<object, (string Provider, string Name, bool Truncated)> cache =
+            new(ReferenceEqualityComparer.Instance);
+        object firstTemplate = new();
+        object secondTemplate = new();
+
+        TimelineProvider.TryGetBoundedEventNames(
+            cache,
+            firstTemplate,
+            "provider",
+            "first",
+            out _,
+            out string firstName,
+            out _).Should().BeTrue();
+        TimelineProvider.TryGetBoundedEventNames(
+            cache,
+            secondTemplate,
+            "provider",
+            "second",
+            out _,
+            out string secondName,
+            out _).Should().BeTrue();
+
+        cache.Should().HaveCount(2);
+        firstName.Should().Be("first");
+        secondName.Should().Be("second");
+    }
+
+    [TestMethod]
     public void TryGetBoundedCpuMethod_RepeatedLongMethod_CompletesPromptlyAndResolvesOnce()
     {
         Dictionary<int, (string Name, bool Truncated)> cache = [];

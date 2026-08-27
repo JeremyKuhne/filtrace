@@ -76,6 +76,7 @@ public sealed class ProcessScopeValidationTests
         ProcessTree.Label(selector).Should().Be(selector.DisplayName);
         ProcessTree.Phrase(selector, includeChildren: true).Should().Contain(selector.DisplayName);
         ProcessTree.Phrase(selector, includeChildren: true).Any(char.IsControl).Should().BeFalse();
+        ProcessTree.AppliedProcessName(selector).Should().Be(rawName);
         LifecycleProvider.Describe(selector).Should().Be(selector.DisplayName);
     }
 

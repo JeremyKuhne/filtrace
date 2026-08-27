@@ -123,7 +123,8 @@ public sealed partial class TimelineProvider
         Dictionary<string, (long Count, long Bytes)> allocationTypes = new(StringComparer.Ordinal);
         Dictionary<string, long> jitMethods = new(StringComparer.Ordinal);
         Dictionary<(string Provider, string Name), long> eventTypes = [];
-        Dictionary<EventMetadataIdentity, (string Provider, string Name, bool Truncated)> eventNameCache = [];
+        Dictionary<TraceEvent, (string Provider, string Name, bool Truncated)> eventNameCache =
+            new(ReferenceEqualityComparer.Instance);
         Dictionary<(int ProcessId, int ThreadId), PendingPauseStart> pauseStarts = [];
         List<GcPauseInterval> pauseIntervals = [];
         bool detailTruncated = false;
@@ -213,7 +214,8 @@ public sealed partial class TimelineProvider
         {
             Mode = "snapshot",
             Snapshot = snapshot,
-            AppliedProcessScope = FollowUpProcessScope(resolved)
+            AppliedProcessScope = FollowUpProcessScope(resolved),
+            ScopeWarnings = resolved.Warnings
         };
 
         void Accumulate(TraceEvent data)
@@ -283,17 +285,9 @@ public sealed partial class TimelineProvider
             }
 
             eventCount++;
-            // Provider/event identity is stable across occurrences; classic events
-            // add task/opcode because their provider-scoped ID is always zero.
-            EventMetadataIdentity metadataIdentity = new(
-                data.ProviderGuid,
-                data.ID,
-                data.TaskGuid,
-                data.Opcode,
-                data.Version);
             if (TryGetBoundedEventNames(
                 eventNameCache,
-                metadataIdentity,
+                data,
                 data.ProviderName,
                 data.EventName,
                 out string provider,
@@ -946,13 +940,6 @@ public sealed partial class TimelineProvider
         resolved.AppliedScope.Mode == "automatic" && resolved.Label is null
             ? null
             : resolved.AppliedScope;
-
-    private readonly record struct EventMetadataIdentity(
-        Guid ProviderGuid,
-        TraceEventID Id,
-        Guid TaskGuid,
-        TraceEventOpcode Opcode,
-        int Version);
 
     internal readonly record struct GcPauseInterval(int ProcessId, double StartMs, double EndMs)
     {
