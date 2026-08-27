@@ -215,6 +215,17 @@ public sealed class TimelineExecutorTests
     }
 
     [TestMethod]
+    public void Run_OversizedProcessSelectorWithTrailingControl_RejectsByLengthFirst()
+    {
+        string process = $"{new string('x', 1_000_000)}\n";
+
+        (int exit, _, string error) = Run(Request(Alloc, process: process));
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--process may not exceed");
+    }
+
+    [TestMethod]
     public void Run_ProcessSelectorWithControlCharacter_ReturnsUsageError()
     {
         (int exit, _, string error) = Run(Request(Alloc, process: "App\nInjected"));

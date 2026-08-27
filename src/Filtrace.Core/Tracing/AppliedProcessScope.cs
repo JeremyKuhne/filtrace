@@ -19,7 +19,10 @@ namespace Filtrace.Tracing;
 ///  The exact ids requested in <c>ids</c> mode, deduplicated and ascending; empty
 ///  for the other modes.
 /// </param>
-/// <param name="RootProcessIds">The process ids the selector matched.</param>
+/// <param name="RootProcessIds">
+///  The process ids the selector matched. These ids may not be replayable when the
+///  trace contains multiple process instances with one OS id.
+/// </param>
 /// <param name="DescendantProcessIds">
 ///  The additional descendant ids included under those roots.
 /// </param>

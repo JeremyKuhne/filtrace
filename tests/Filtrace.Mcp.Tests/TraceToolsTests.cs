@@ -1178,6 +1178,16 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Timeline_OversizedProcessSelectorWithTrailingControl_RejectsByLengthFirst()
+    {
+        string process = $"{new string('x', 1_000_000)}\n";
+
+        Action act = () => TraceTools.Timeline(FixturePath(Alloc), process: process);
+
+        act.Should().Throw<McpException>().WithMessage("*process may not exceed 256 characters*");
+    }
+
+    [TestMethod]
     public void Timeline_ProcessSelectorWithControlCharacter_ThrowsMcpException()
     {
         Action act = () => TraceTools.Timeline(FixturePath(Alloc), process: "App\nInjected");

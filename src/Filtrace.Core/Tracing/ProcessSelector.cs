@@ -59,17 +59,17 @@ public sealed record ProcessNameSelector : ProcessSelector
     public ProcessNameSelector(string nameSubstring)
     {
         ArgumentException.ThrowIfNullOrEmpty(nameSubstring);
-        if (nameSubstring.Any(char.IsControl))
-        {
-            throw new ArgumentException(
-                "Process-name selectors may not contain control characters.",
-                nameof(nameSubstring));
-        }
-
         if (nameSubstring.Length > MaxNameSubstringLength)
         {
             throw new ArgumentException(
-                $"Process-name selectors may not exceed {MaxNameSubstringLength} characters.",
+            $"Process-name selectors may not exceed {MaxNameSubstringLength} characters.",
+                nameof(nameSubstring));
+        }
+
+        if (nameSubstring.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+            "Process-name selectors may not contain control characters.",
                 nameof(nameSubstring));
         }
 

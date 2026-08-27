@@ -125,7 +125,7 @@ public sealed partial class TimelineProvider
         Dictionary<(string Provider, string Name), long> eventTypes = [];
         Dictionary<TraceEvent, (string Provider, string Name, bool Truncated)> eventNameCache =
             new(ReferenceEqualityComparer.Instance);
-        Dictionary<(int ProcessId, int ThreadId), PendingPauseStart> pauseStarts = [];
+        Dictionary<PauseIdentity, PendingPauseStart> pauseStarts = [];
         List<GcPauseInterval> pauseIntervals = [];
         bool detailTruncated = false;
         bool gcPauseDataIncomplete = false;
@@ -226,55 +226,73 @@ public sealed partial class TimelineProvider
                 return;
             }
 
-            // TraceEvent's GC analysis relies on the runtime guarantee that matching
-            // RestartEE events occur on the same thread as their suspend start.
-            (int ProcessId, int ThreadId) pauseKey = (data.ProcessID, data.ThreadID);
             if (data is GCSuspendEETraceData suspend)
             {
-                BoundedPauseStartResult addResult = AddPauseStartBounded(
-                    pauseStarts,
-                    pauseKey,
-                    timestamp,
-                    endMs,
-                    suspend.Reason,
-                    out bool gcStateIncomplete);
-                gcPauseDataIncomplete |= gcStateIncomplete;
-                if (addResult == BoundedPauseStartResult.CapacityExceeded && gcStateIncomplete)
+                if (TryGetPauseIdentity(data, out PauseIdentity pauseIdentity))
                 {
-                    detailTruncated = true;
+                    BoundedPauseStartResult addResult = AddPauseStartBounded(
+                        pauseStarts,
+                        pauseIdentity,
+                        timestamp,
+                        endMs,
+                        suspend.Reason,
+                        out bool gcStateIncomplete);
+                    gcPauseDataIncomplete |= gcStateIncomplete;
+                    if (addResult == BoundedPauseStartResult.CapacityExceeded && gcStateIncomplete)
+                    {
+                        detailTruncated = true;
+                    }
+                }
+                else
+                {
+                    gcPauseDataIncomplete |= IsGcPauseReason(suspend.Reason);
                 }
             }
             else if (IsEeRestartEvent(data))
             {
-                PauseRestartResult restartResult = MatchPauseRestart(
-                    pauseStarts,
-                    pauseKey,
-                    timestamp,
-                    startMs,
-                    endMs,
-                    out PendingPauseStart pauseStart);
-                if (restartResult == PauseRestartResult.MissingStart)
+                if (!TryGetPauseIdentity(data, out PauseIdentity pauseIdentity))
                 {
                     unknownPauseDataIncomplete |= IsUnknownPauseEvidence(
-                        restartResult,
+                        PauseRestartResult.MissingStart,
                         timestamp,
                         startMs,
                         endMs);
                 }
-                else if (restartResult == PauseRestartResult.InvalidPair && pauseStart.IsGc)
+                else
                 {
-                    gcPauseDataIncomplete = true;
-                }
-                else if (restartResult == PauseRestartResult.CompletedGc)
-                {
-                    GcPauseInterval interval = new(data.ProcessID, pauseStart.TimestampMs, timestamp);
-                    if (pauseIntervals.Count < MaxSnapshotRetainedKeysPerFamily)
+                    PauseRestartResult restartResult = MatchPauseRestart(
+                        pauseStarts,
+                        pauseIdentity,
+                        timestamp,
+                        startMs,
+                        endMs,
+                        out PendingPauseStart pauseStart);
+                    if (restartResult == PauseRestartResult.MissingStart)
                     {
-                        pauseIntervals.Add(interval);
+                        unknownPauseDataIncomplete |= IsUnknownPauseEvidence(
+                            restartResult,
+                            timestamp,
+                            startMs,
+                            endMs);
                     }
-                    else
+                    else if (restartResult == PauseRestartResult.InvalidPair && pauseStart.IsGc)
                     {
-                        detailTruncated = true;
+                        gcPauseDataIncomplete = true;
+                    }
+                    else if (restartResult == PauseRestartResult.CompletedGc)
+                    {
+                        GcPauseInterval interval = new(
+                            pauseIdentity.ProcessInstanceIndex,
+                            pauseStart.TimestampMs,
+                            timestamp);
+                        if (pauseIntervals.Count < MaxSnapshotRetainedKeysPerFamily)
+                        {
+                            pauseIntervals.Add(interval);
+                        }
+                        else
+                        {
+                            detailTruncated = true;
+                        }
                     }
                 }
             }
@@ -475,7 +493,8 @@ public sealed partial class TimelineProvider
         List<SnapshotGcRecord> longest = [];
         namesTruncated = false;
         GcPauseAggregate pauseAggregate = AggregateGcPauses(pauseIntervals, startMs, endMs);
-        IReadOnlyDictionary<int, GcPauseInterval[]> intervalsByProcess = pauseAggregate.IntervalsByProcess;
+        IReadOnlyDictionary<int, GcPauseInterval[]> intervalsByProcessInstance =
+            pauseAggregate.IntervalsByProcessInstance;
 
         foreach (TraceProcess process in source.Processes())
         {
@@ -490,7 +509,9 @@ public sealed partial class TimelineProvider
                 continue;
             }
 
-            intervalsByProcess.TryGetValue(process.ProcessID, out GcPauseInterval[]? processIntervals);
+            intervalsByProcessInstance.TryGetValue(
+                (int)process.ProcessIndex,
+                out GcPauseInterval[]? processIntervals);
             processIntervals ??= [];
             foreach (TraceGC collection in runtime.GC.GCs)
             {
@@ -540,14 +561,14 @@ public sealed partial class TimelineProvider
         double windowStartMs,
         double windowEndMs)
     {
-        Dictionary<int, GcPauseInterval[]> intervalsByProcess = intervals
-            .GroupBy(static interval => interval.ProcessId)
+        Dictionary<int, GcPauseInterval[]> intervalsByProcessInstance = intervals
+            .GroupBy(static interval => interval.ProcessInstanceIndex)
             .ToDictionary(
                 static group => group.Key,
                 static group => MergeOverlapping(group));
         double totalPauseMs = 0.0;
         double maxPauseMs = 0.0;
-        foreach (GcPauseInterval[] processIntervals in intervalsByProcess.Values)
+        foreach (GcPauseInterval[] processIntervals in intervalsByProcessInstance.Values)
         {
             foreach (GcPauseInterval interval in processIntervals)
             {
@@ -557,7 +578,7 @@ public sealed partial class TimelineProvider
             }
         }
 
-        return new GcPauseAggregate(intervalsByProcess, totalPauseMs, maxPauseMs);
+        return new GcPauseAggregate(intervalsByProcessInstance, totalPauseMs, maxPauseMs);
     }
 
     // ContainsTimestamp binary-searches a single candidate, so the intervals it reads must
@@ -853,15 +874,15 @@ public sealed partial class TimelineProvider
     }
 
     internal static BoundedPauseStartResult AddPauseStartBounded(
-        Dictionary<(int ProcessId, int ThreadId), PendingPauseStart> pauseStarts,
-        (int ProcessId, int ThreadId) key,
+        Dictionary<PauseIdentity, PendingPauseStart> pauseStarts,
+        PauseIdentity key,
         double timestamp,
         double windowEndMs,
         GCSuspendEEReason reason,
         out bool gcStateIncomplete)
     {
         gcStateIncomplete = false;
-        bool isGc = reason is GCSuspendEEReason.SuspendForGC or GCSuspendEEReason.SuspendForGCPrep;
+        bool isGc = IsGcPauseReason(reason);
         if (!double.IsFinite(timestamp))
         {
             gcStateIncomplete = isGc;
@@ -891,8 +912,8 @@ public sealed partial class TimelineProvider
     }
 
     internal static PauseRestartResult MatchPauseRestart(
-        Dictionary<(int ProcessId, int ThreadId), PendingPauseStart> pauseStarts,
-        (int ProcessId, int ThreadId) key,
+        Dictionary<PauseIdentity, PendingPauseStart> pauseStarts,
+        PauseIdentity key,
         double timestamp,
         double windowStartMs,
         double windowEndMs,
@@ -936,12 +957,33 @@ public sealed partial class TimelineProvider
         && providerGuid == ClrTraceEventParser.ProviderGuid
         && string.Equals(eventName, "GC/RestartEEStop", StringComparison.Ordinal);
 
+    private static bool TryGetPauseIdentity(TraceEvent data, out PauseIdentity identity)
+    {
+        // The analysis ProcessIndex matches the process model that owns TraceGC;
+        // ETLX ThreadIndex distinguishes OS thread-id reuse within that instance.
+        TraceProcess? process = TraceProcessesExtensions.Process(data);
+        Etlx.TraceThread? thread = data.Thread();
+        if (process is null || thread is null)
+        {
+            identity = default;
+            return false;
+        }
+
+        identity = new PauseIdentity((int)process.ProcessIndex, (int)thread.ThreadIndex);
+        return true;
+    }
+
+    private static bool IsGcPauseReason(GCSuspendEEReason reason) =>
+        reason is GCSuspendEEReason.SuspendForGC or GCSuspendEEReason.SuspendForGCPrep;
+
     private static AppliedProcessScope? FollowUpProcessScope(ScopeResolution resolved) =>
         resolved.AppliedScope.Mode == "automatic" && resolved.Label is null
             ? null
             : resolved.AppliedScope;
 
-    internal readonly record struct GcPauseInterval(int ProcessId, double StartMs, double EndMs)
+    internal readonly record struct PauseIdentity(int ProcessInstanceIndex, int ThreadInstanceIndex);
+
+    internal readonly record struct GcPauseInterval(int ProcessInstanceIndex, double StartMs, double EndMs)
     {
         public bool Contains(double timestampMs) => timestampMs >= StartMs && timestampMs <= EndMs;
 
@@ -949,10 +991,10 @@ public sealed partial class TimelineProvider
             Math.Max(0.0, Math.Min(EndMs, windowEndMs) - Math.Max(StartMs, windowStartMs));
     }
 
-            internal readonly record struct PendingPauseStart(double TimestampMs, bool IsGc);
+    internal readonly record struct PendingPauseStart(double TimestampMs, bool IsGc);
 
     internal sealed record GcPauseAggregate(
-        IReadOnlyDictionary<int, GcPauseInterval[]> IntervalsByProcess,
+        IReadOnlyDictionary<int, GcPauseInterval[]> IntervalsByProcessInstance,
         double TotalPauseMs,
         double MaxPauseMs);
 

@@ -1978,14 +1978,14 @@ public sealed class TraceTools
     {
         bool hasProcess = !string.IsNullOrEmpty(process);
         bool hasProcessIds = processIds is { Length: > 0 };
-        if (hasProcess && process.Any(char.IsControl))
-        {
-            throw new McpException("process may not contain control characters.");
-        }
-
         if (hasProcess && process.Length > ProcessNameSelector.MaxNameSubstringLength)
         {
             throw new McpException($"process may not exceed {ProcessNameSelector.MaxNameSubstringLength} characters.");
+        }
+
+        if (hasProcess && process.Any(char.IsControl))
+        {
+            throw new McpException("process may not contain control characters.");
         }
 
         if (hasProcess && hasProcessIds && !allProcesses)

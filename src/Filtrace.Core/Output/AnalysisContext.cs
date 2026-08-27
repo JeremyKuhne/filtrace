@@ -126,8 +126,7 @@ public sealed record AnalysisScopeContext
 
     /// <summary>
     ///  A bounded display label for name or automatic process scope, or
-    ///  <see langword="null"/>. Use <see cref="RootProcessIds"/> rather than this
-    ///  label for replay when <see cref="ProcessIdsTruncated"/> is false.
+    ///  <see langword="null"/>. This display value is not a reusable selector.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Process { get; init; }
@@ -136,7 +135,10 @@ public sealed record AnalysisScopeContext
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<int>? RequestedProcessIds { get; init; }
 
-    /// <summary>The process ids the selector matched, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  The process ids the selector matched, or <see langword="null"/>. These describe
+    ///  the effective scope but may not be replayable when the trace reused an OS id.
+    /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<int>? RootProcessIds { get; init; }
 

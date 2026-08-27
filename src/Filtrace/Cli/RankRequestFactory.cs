@@ -201,15 +201,15 @@ internal static class RankRequestFactory
 
         bool hasProcess = !string.IsNullOrEmpty(process);
         bool hasIds = processIds is { Length: > 0 };
-        if (hasProcess && process.Any(char.IsControl))
-        {
-            errorMessage = "--process may not contain control characters.";
-            return false;
-        }
-
         if (hasProcess && process.Length > ProcessNameSelector.MaxNameSubstringLength)
         {
             errorMessage = $"--process may not exceed {ProcessNameSelector.MaxNameSubstringLength} characters.";
+            return false;
+        }
+
+        if (hasProcess && process.Any(char.IsControl))
+        {
+            errorMessage = "--process may not contain control characters.";
             return false;
         }
 

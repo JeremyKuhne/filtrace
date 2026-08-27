@@ -131,6 +131,18 @@ public sealed class ProcessScopeValidationTests
     }
 
     [TestMethod]
+    public void NameSelector_OversizedNameWithTrailingControl_RejectsByLengthFirst()
+    {
+        string name = $"{new string('x', 1_000_000)}\n";
+
+        Action act = () => _ = new ProcessNameSelector(name);
+
+        act.Should().Throw<ArgumentException>()
+            .WithParameterName("nameSubstring")
+            .WithMessage("*may not exceed*");
+    }
+
+    [TestMethod]
     [DataRow("line\nbreak")]
     [DataRow("escape\u001b")]
     public void NameSelector_ControlCharacter_ThrowsArgument(string name)
