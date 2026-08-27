@@ -197,6 +197,13 @@ function Get-StateLockPath([string] $StatePath) {
     return Join-Path $lockRoot "$(Get-StableHash (Get-PathIdentity $StatePath)).lock"
 }
 
+function Get-ResourceLockPath([string] $ResourcePath) {
+    [string] $lockRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'filtrace-local-testing-resource-locks'
+    $null = [System.IO.Directory]::CreateDirectory($lockRoot)
+    [string] $resourceKey = "path:$(Get-PathIdentity $ResourcePath)"
+    return Join-Path $lockRoot "$(Get-StableHash $resourceKey).lock"
+}
+
 function Invoke-Dotnet([string[]] $Arguments, [switch] $Capture) {
     if ($Capture) {
         [string[]] $output = @(& dotnet @Arguments)
@@ -273,7 +280,8 @@ function Invoke-Workflow(
     [string] $StatePath,
     [string] $CliToolPath = '',
     [switch] $ManageCli,
-    [string] $WorkflowPath = $workflow) {
+    [string] $WorkflowPath = $workflow,
+    [string] $TargetRepository = '') {
     [System.Collections.Generic.List[string]] $arguments = @(
         '-NoProfile',
         '-File', $WorkflowPath,
@@ -288,6 +296,10 @@ function Invoke-Workflow(
     if ($CliToolPath) {
         $arguments.Add('-CliToolPath')
         $arguments.Add($CliToolPath)
+    }
+    if ($TargetRepository) {
+        $arguments.Add('-TargetRepository')
+        $arguments.Add($TargetRepository)
     }
     if (-not $ManageCli) {
         $arguments.Add('-SkipCli')
@@ -304,7 +316,8 @@ function Invoke-WorkflowFailure(
     [string] $StatePath,
     [string] $CliToolPath = '',
     [switch] $SkipCli,
-    [string] $WorkflowPath = $workflow) {
+    [string] $WorkflowPath = $workflow,
+    [string] $TargetRepository = '') {
     [System.Collections.Generic.List[string]] $arguments = @(
         '-NoProfile',
         '-File', $WorkflowPath,
@@ -319,6 +332,10 @@ function Invoke-WorkflowFailure(
     if ($CliToolPath) {
         $arguments.Add('-CliToolPath')
         $arguments.Add($CliToolPath)
+    }
+    if ($TargetRepository) {
+        $arguments.Add('-TargetRepository')
+        $arguments.Add($TargetRepository)
     }
     if ($SkipCli) {
         $arguments.Add('-SkipCli')
@@ -512,7 +529,7 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $consumerSkill 'SKILL.md') -PathType Leaf) `
         'Default install did not vendor the skill into the consumer repository.'
     [object] $consumerLocalState = Read-Json $consumerState
-    Assert-True ($consumerLocalState.schemaVersion -eq 4) 'Default install did not write schema version 4 state.'
+    Assert-True ($consumerLocalState.schemaVersion -eq 5) 'Default install did not write schema version 5 state.'
     Assert-True ([string] $consumerLocalState.targetRepository -ceq $consumerRoot) `
         'Default install did not record the consumer repository.'
     Assert-True ([string] $consumerLocalState.mcp.path -ceq $consumerMcp) `
@@ -610,6 +627,76 @@ try {
     Invoke-Workflow 'Install' $lockedConfig $lockedSkill $lockedState
     Invoke-Workflow 'Restore' $lockedConfig $lockedSkill $lockedState
     Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+
+    # Resource ownership: different StatePath values cannot concurrently or
+    # sequentially claim the same MCP and skill resources.
+    [string] $ownershipRoot = Join-Path $temporaryRoot 'resource ownership'
+    [string] $ownershipConfig = Join-Path $ownershipRoot 'mcp.json'
+    [string] $ownershipSkill = Join-Path $ownershipRoot 'skill/filtrace'
+    [string] $firstOwnershipState = Join-Path $ownershipRoot 'first-state.json'
+    [string] $secondOwnershipState = Join-Path $ownershipRoot 'second-state.json'
+    Write-Json $ownershipConfig ([ordered] @{
+            servers = [ordered] @{
+                docs = [ordered] @{ type = 'http'; url = 'https://ownership.invalid/mcp' }
+            }
+            inputs = @()
+        })
+
+    [string] $resourceLockPath = Get-ResourceLockPath $ownershipConfig
+    [System.IO.FileStream] $heldResourceLock = [System.IO.File]::Open(
+        $resourceLockPath,
+        [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::ReadWrite,
+        [System.IO.FileShare]::None)
+    try {
+        [string] $resourceLockFailure = Invoke-WorkflowFailure -Action Install `
+            -McpConfigPath $ownershipConfig -SkillDestination $ownershipSkill `
+            -StatePath $secondOwnershipState -SkipCli
+    }
+    finally {
+        $heldResourceLock.Dispose()
+    }
+    Assert-True ($resourceLockFailure -match 'Another local Filtrace action is mutating resource') `
+        'A different StatePath did not respect the active resource lock.'
+    Assert-True (-not (Test-Path -LiteralPath $secondOwnershipState)) `
+        'Resource-lock rejection wrote the second rollback manifest.'
+
+    Invoke-Workflow 'Install' $ownershipConfig $ownershipSkill $firstOwnershipState
+    [byte[]] $firstOwnershipStateBytes = [System.IO.File]::ReadAllBytes($firstOwnershipState)
+    [string] $ownershipFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $ownershipConfig -SkillDestination $ownershipSkill `
+        -StatePath $secondOwnershipState -SkipCli
+    Assert-True ($ownershipFailure -match 'owned by') `
+        'A second StatePath was not rejected by durable resource ownership.'
+    Assert-True (-not (Test-Path -LiteralPath $secondOwnershipState)) `
+        'Resource ownership rejection wrote the second rollback manifest.'
+    Assert-True (
+        [System.Linq.Enumerable]::SequenceEqual(
+            $firstOwnershipStateBytes,
+            [System.IO.File]::ReadAllBytes($firstOwnershipState))) `
+        'A rejected second owner changed the first rollback manifest.'
+    Assert-True ((Read-Json $ownershipConfig).servers.filtrace.command -ceq 'dotnet') `
+        'A rejected second owner changed the active MCP entry.'
+
+    [string] $overlapOwnershipConfig = Join-Path $ownershipRoot 'overlap-mcp.json'
+    [string] $overlapOwnershipSkill = Join-Path $ownershipSkill 'nested'
+    [string] $overlapOwnershipState = Join-Path $ownershipRoot 'overlap-state.json'
+    Write-Json $overlapOwnershipConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [string] $overlapOwnershipFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $overlapOwnershipConfig -SkillDestination $overlapOwnershipSkill `
+        -StatePath $overlapOwnershipState -SkipCli
+    Assert-True ($overlapOwnershipFailure -match 'owned by') `
+        'A descendant resource path was not rejected by durable ownership.'
+    Assert-True (-not (Test-Path -LiteralPath $overlapOwnershipState)) `
+        'Overlapping resource ownership wrote another rollback manifest.'
+
+    Invoke-Workflow 'Restore' $ownershipConfig $ownershipSkill $firstOwnershipState
+    Invoke-Workflow 'Install' $ownershipConfig $ownershipSkill $secondOwnershipState
+    Invoke-Workflow 'Restore' $ownershipConfig $ownershipSkill $secondOwnershipState
+    Assert-True ((Read-Json $ownershipConfig).servers.docs.url -ceq 'https://ownership.invalid/mcp') `
+        'Sequential ownership changed an unrelated MCP entry.'
+    Assert-True ($null -eq (Get-Property (Read-Json $ownershipConfig).servers 'filtrace')) `
+        'Sequential ownership left local mode active after both restores.'
 
     # Legacy migration: schema version 2 can be restored, but cannot refresh the
     # old broad setup, and custom manifest siblings are no longer treated as owned.
@@ -721,6 +808,16 @@ try {
     Assert-True ($legacyScopedInstallFailure -match 'Legacy repository-scoped local-testing state must be restored') `
         'Legacy scoped state refresh was not rejected with migration guidance.'
 
+    [string] $legacyScopedConfigJson = [System.IO.File]::ReadAllText($legacyScopedConfig, $utf8)
+    [System.IO.File]::WriteAllText($legacyScopedConfig, '{', $utf8)
+    [string] $legacyScopedRestoreFailure = Invoke-WorkflowFailure -Action Restore `
+        -McpConfigPath $legacyScopedConfig -SkillDestination $legacyScopedSkill `
+        -StatePath $legacyScopedState -SkipCli
+    Assert-True ($legacyScopedRestoreFailure -match 'not valid JSON') `
+        'Legacy scoped Restore failure was not actionable.'
+    Assert-True ((Read-Json $legacyScopedState).status -ceq 'restore-in-progress') `
+        'Legacy scoped Restore failure did not retain retryable state.'
+    [System.IO.File]::WriteAllText($legacyScopedConfig, $legacyScopedConfigJson, $utf8)
     Invoke-Workflow 'Restore' $legacyScopedConfig $legacyScopedSkill $legacyScopedState
     [object] $legacyScopedRestoredConfig = Read-Json $legacyScopedConfig
     Assert-True ($null -eq (Get-Property $legacyScopedRestoredConfig.servers 'filtrace')) `
@@ -746,6 +843,27 @@ try {
     Copy-Item -LiteralPath $workflow -Destination $copiedWorkflow
     Copy-Item -LiteralPath $skillSource -Destination $copiedSkillSource -Recurse
     [System.IO.File]::WriteAllText($copiedMcpDll, 'test MCP assembly placeholder', $utf8)
+
+    [string] $targetGuardRoot = Join-Path $copiedRoot 'target-guard'
+    [string] $targetGuardRepository = Join-Path $targetGuardRoot 'consumer'
+    [string] $targetGuardSentinel = Join-Path $targetGuardRepository 'keep.txt'
+    [string] $targetGuardConfig = Join-Path $copiedRoot 'target-guard-mcp.json'
+    $null = New-Item -ItemType Directory -Path $targetGuardRepository -Force
+    [System.IO.File]::WriteAllText($targetGuardSentinel, 'consumer repository', $utf8)
+    Write-Json $targetGuardConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    foreach ($dangerousSkill in @($targetGuardRepository, $targetGuardRoot)) {
+        [string] $targetGuardState = Join-Path $copiedRoot "target-guard-$([guid]::NewGuid().ToString('N')).json"
+        [string] $targetGuardFailure = Invoke-WorkflowFailure -Action Install `
+            -McpConfigPath $targetGuardConfig -SkillDestination $dangerousSkill `
+            -StatePath $targetGuardState -SkipCli -WorkflowPath $copiedWorkflow `
+            -TargetRepository $targetGuardRepository
+        Assert-True ($targetGuardFailure -match 'SkillDestination must not contain TargetRepository') `
+            "Dangerous SkillDestination '$dangerousSkill' was not rejected."
+        Assert-True ([System.IO.File]::ReadAllText($targetGuardSentinel, $utf8) -ceq 'consumer repository') `
+            "Dangerous SkillDestination '$dangerousSkill' changed the target repository."
+        Assert-True (-not (Test-Path -LiteralPath $targetGuardState)) `
+            "Dangerous SkillDestination '$dangerousSkill' wrote rollback state."
+    }
 
     [string[]] $overlapDestinations = @(
         $copiedSkillSource,
@@ -1186,5 +1304,27 @@ try {
     Write-Host 'Local Filtrace setup contract passed (repository scope, path safety, locking, exact CLI package restore, and failed-restore retry).'
 }
 finally {
+    [string] $ownersRoot = Join-Path $root 'artifacts/local-testing/owners'
+    if (Test-Path -LiteralPath $ownersRoot -PathType Container) {
+        [System.StringComparison] $temporaryComparison = if (Test-WindowsPlatform) {
+            [System.StringComparison]::OrdinalIgnoreCase
+        }
+        else {
+            [System.StringComparison]::Ordinal
+        }
+        [string] $temporaryPrefix = "$([System.IO.Path]::GetFullPath($temporaryRoot))$([System.IO.Path]::DirectorySeparatorChar)"
+        foreach ($ownerFile in Get-ChildItem -LiteralPath $ownersRoot -File -Filter '*.json') {
+            try {
+                [object] $owner = Read-Json $ownerFile.FullName
+                [string] $ownerStatePath = [System.IO.Path]::GetFullPath([string] $owner.statePath)
+                if ($ownerStatePath.StartsWith($temporaryPrefix, $temporaryComparison)) {
+                    Remove-Item -LiteralPath $ownerFile.FullName -Force
+                }
+            }
+            catch {
+                Write-Warning "Could not inspect test resource owner '$($ownerFile.FullName)': $($_.Exception.Message)"
+            }
+        }
+    }
     Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

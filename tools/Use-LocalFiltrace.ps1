@@ -337,6 +337,186 @@ function Enter-StateLock([string] $ManifestPath) {
     }
 }
 
+function Get-ResourceKeys(
+    [string] $McpPath,
+    [string] $SkillPath,
+    [bool] $CliManaged,
+    [string] $CliPath) {
+    [System.Collections.Generic.SortedSet[string]] $keys =
+        [System.Collections.Generic.SortedSet[string]]::new(
+            [System.StringComparer]::Ordinal)
+    [void] $keys.Add("path:$(Get-PathIdentity $McpPath)")
+    [void] $keys.Add("path:$(Get-PathIdentity $SkillPath)")
+    if ($CliManaged) {
+        [void] $keys.Add($(if ([string]::IsNullOrWhiteSpace($CliPath)) {
+                    'cli:global'
+                }
+                else {
+                    "path:$(Get-PathIdentity $CliPath)"
+                }))
+    }
+
+    return ,([string[]] $keys)
+}
+
+function Enter-ResourceLocks([string[]] $ResourceKeys) {
+    [string] $lockRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'filtrace-local-testing-resource-locks'
+    $null = [System.IO.Directory]::CreateDirectory($lockRoot)
+    [System.Collections.Generic.List[System.IO.FileStream]] $locks =
+        [System.Collections.Generic.List[System.IO.FileStream]]::new()
+    try {
+        foreach ($resourceKey in $ResourceKeys | Sort-Object -CaseSensitive -Unique) {
+            [string] $lockPath = Join-Path $lockRoot "$(Get-StableHash $resourceKey).lock"
+            try {
+                [System.IO.FileStream] $lock = [System.IO.File]::Open(
+                    $lockPath,
+                    [System.IO.FileMode]::OpenOrCreate,
+                    [System.IO.FileAccess]::ReadWrite,
+                    [System.IO.FileShare]::None)
+                $locks.Add($lock)
+            }
+            catch [System.IO.IOException] {
+                throw "Another local Filtrace action is mutating resource '$resourceKey'."
+            }
+        }
+
+        return ,$locks.ToArray()
+    }
+    catch {
+        foreach ($lock in $locks) { $lock.Dispose() }
+        throw
+    }
+}
+
+function Get-ResourceOwnerPath([string] $ResourceKey) {
+    return Join-Path $root "artifacts/local-testing/owners/$(Get-StableHash $ResourceKey).json"
+}
+
+function Enter-ResourceRegistryLock {
+    [string] $lockRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'filtrace-local-testing-resource-locks'
+    $null = [System.IO.Directory]::CreateDirectory($lockRoot)
+    [string] $lockPath = Join-Path $lockRoot 'registry.lock'
+    try {
+        return [System.IO.File]::Open(
+            $lockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None)
+    }
+    catch [System.IO.IOException] {
+        throw 'Another local Filtrace action is updating resource ownership.'
+    }
+}
+
+function Test-ResourceKeysOverlap([string] $First, [string] $Second) {
+    if ($First -ceq $Second) { return $true }
+    if (-not $First.StartsWith('path:', [System.StringComparison]::Ordinal) -or
+        -not $Second.StartsWith('path:', [System.StringComparison]::Ordinal)) {
+        return $false
+    }
+
+    [string] $firstPath = $First.Substring('path:'.Length)
+    [string] $secondPath = $Second.Substring('path:'.Length)
+    return (Test-PathWithin $firstPath $secondPath (Get-PathComparison $secondPath)) -or
+        (Test-PathWithin $secondPath $firstPath (Get-PathComparison $firstPath))
+}
+
+function Get-ResourceOwners {
+    [string] $ownersRoot = Join-Path $root 'artifacts/local-testing/owners'
+    if (-not (Test-Path -LiteralPath $ownersRoot -PathType Container)) { return @() }
+
+    [object[]] $owners = @(
+        Get-ChildItem -LiteralPath $ownersRoot -File -Filter '*.json' |
+            ForEach-Object {
+                Read-JsonFile $_.FullName 'Local-testing resource ownership'
+            })
+    return $owners
+}
+
+function Claim-ResourceOwnership([string[]] $ResourceKeys, [string] $ManifestPath) {
+    [System.IO.FileStream] $registryLock = Enter-ResourceRegistryLock
+    [System.Collections.Generic.List[string]] $created =
+        [System.Collections.Generic.List[string]]::new()
+    try {
+        [object[]] $owners = @(Get-ResourceOwners)
+        foreach ($resourceKey in $ResourceKeys) {
+            foreach ($owner in $owners) {
+                if ((Test-ResourceKeysOverlap $resourceKey ([string] $owner.resourceKey)) -and
+                    -not (Test-PathsEqual ([string] $owner.statePath) $ManifestPath)) {
+                    throw "Local-testing resource '$resourceKey' overlaps '$($owner.resourceKey)', owned by state '$($owner.statePath)'."
+                }
+            }
+
+            [string] $ownerPath = Get-ResourceOwnerPath $resourceKey
+            if (Test-Path -LiteralPath $ownerPath -PathType Leaf) {
+                [object] $owner = Read-JsonFile $ownerPath 'Local-testing resource ownership'
+                if ($owner.schemaVersion -ne 1 -or
+                    -not (Test-PathsEqual ([string] $owner.statePath) $ManifestPath)) {
+                    throw "Local-testing resource '$resourceKey' is owned by state '$($owner.statePath)'."
+                }
+                continue
+            }
+
+            Write-JsonFile $ownerPath ([ordered] @{
+                    schemaVersion = 1
+                    resourceKey = $resourceKey
+                    statePath = $ManifestPath
+                })
+            $created.Add($ownerPath)
+        }
+
+        return ,$created.ToArray()
+    }
+    catch {
+        foreach ($ownerPath in $created) {
+            Remove-Item -LiteralPath $ownerPath -Force -ErrorAction SilentlyContinue
+        }
+        throw
+    }
+    finally {
+        $registryLock.Dispose()
+    }
+}
+
+function Assert-ResourceOwnership([string[]] $ResourceKeys, [string] $ManifestPath) {
+    [System.IO.FileStream] $registryLock = Enter-ResourceRegistryLock
+    try {
+        foreach ($resourceKey in $ResourceKeys) {
+            [string] $ownerPath = Get-ResourceOwnerPath $resourceKey
+            if (-not (Test-Path -LiteralPath $ownerPath -PathType Leaf)) {
+                throw "Local-testing resource ownership is missing for '$resourceKey'."
+            }
+            [object] $owner = Read-JsonFile $ownerPath 'Local-testing resource ownership'
+            if ($owner.schemaVersion -ne 1 -or
+                -not (Test-PathsEqual ([string] $owner.statePath) $ManifestPath)) {
+                throw "Local-testing resource '$resourceKey' is owned by state '$($owner.statePath)'."
+            }
+        }
+    }
+    finally {
+        $registryLock.Dispose()
+    }
+}
+
+function Remove-ResourceOwnership([string[]] $ResourceKeys, [string] $ManifestPath) {
+    [System.IO.FileStream] $registryLock = Enter-ResourceRegistryLock
+    try {
+        foreach ($resourceKey in $ResourceKeys) {
+            [string] $ownerPath = Get-ResourceOwnerPath $resourceKey
+            if (-not (Test-Path -LiteralPath $ownerPath -PathType Leaf)) { continue }
+            [object] $owner = Read-JsonFile $ownerPath 'Local-testing resource ownership'
+            if ($owner.schemaVersion -ne 1 -or
+                -not (Test-PathsEqual ([string] $owner.statePath) $ManifestPath)) {
+                throw "Local-testing resource '$resourceKey' is owned by state '$($owner.statePath)'."
+            }
+            Remove-Item -LiteralPath $ownerPath -Force
+        }
+    }
+    finally {
+        $registryLock.Dispose()
+    }
+}
+
 function Read-JsonFile([string] $Path, [string] $Description) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "$Description does not exist: '$Path'."
@@ -971,7 +1151,7 @@ try {
     else {
         $null
     }
-    if ($null -ne $state -and $state.schemaVersion -notin @(2, 3, 4)) {
+    if ($null -ne $state -and $state.schemaVersion -notin @(2, 3, 4, 5)) {
         throw "Local-testing state has unsupported schema version '$($state.schemaVersion)': '$StatePath'."
     }
 
@@ -987,7 +1167,7 @@ try {
 
     [string] $ownedStateWorkspace = Get-StateWorkspacePath $StatePath
     [bool] $legacyState = $null -ne $state -and $state.schemaVersion -eq 2
-    [bool] $legacyScopedState = $null -ne $state -and $state.schemaVersion -eq 3
+    [bool] $legacyScopedState = $null -ne $state -and $state.schemaVersion -in @(3, 4)
     if ($legacyState -and $normalizedAction -ceq 'Install') {
         throw "Legacy global local-testing state must be restored before starting a repository-scoped install: '$StatePath'."
     }
@@ -1004,24 +1184,9 @@ try {
         if (-not (Test-PathsEqual ([string] $state.workspace) $ownedStateWorkspace)) {
             throw "Recorded local-testing workspace does not match '$StatePath'."
         }
-        if ($state.status -ceq 'cleanup-in-progress') {
-            if (Test-Path -LiteralPath $stateWorkspace -PathType Container) {
-                [string] $cleanupMarker = Get-StateWorkspaceMarkerPath $stateWorkspace
-                if (Test-Path -LiteralPath $cleanupMarker -PathType Leaf) {
-                    Remove-StateWorkspace $stateWorkspace $StatePath
-                }
-                elseif (@(Get-ChildItem -LiteralPath $stateWorkspace -Force).Count -eq 0) {
-                    Remove-Item -LiteralPath $stateWorkspace -Force
-                }
-                else {
-                    throw "Cleanup workspace is nonempty but its ownership marker is missing: '$stateWorkspace'."
-                }
-            }
-            Remove-Item -LiteralPath $StatePath -Force
-            Write-Host "Filtrace local-mode cleanup completed for '$TargetRepository'."
-            return
+        if ($state.status -cne 'cleanup-in-progress') {
+            Assert-StateWorkspace $stateWorkspace $StatePath
         }
-        Assert-StateWorkspace $stateWorkspace $StatePath
     }
 
     $McpConfigPath = Get-FullPath $(if ($PSBoundParameters.ContainsKey('McpConfigPath')) {
@@ -1042,6 +1207,15 @@ try {
         else {
             Join-Path $TargetRepository '.agents/skills/filtrace'
         }) 'Skill destination'
+
+    [string] $targetRepositoryPhysical = Resolve-PhysicalPath $TargetRepository
+    [string] $skillDestinationPhysical = Resolve-PhysicalPath $SkillDestination
+    if (Test-PathWithin `
+        $targetRepositoryPhysical `
+        $skillDestinationPhysical `
+        (Get-PathComparison $skillDestinationPhysical)) {
+        throw "SkillDestination must not contain TargetRepository: '$SkillDestination'."
+    }
 
     [bool] $cliManaged = if ($null -ne $state -and
         -not $PSBoundParameters.ContainsKey('SkipCli')) {
@@ -1162,7 +1336,47 @@ try {
     [string] $stateDirectory = Split-Path -Parent $StatePath
     [string] $mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
 
-    if ($null -ne $state -and (
+    [string[]] $resourceKeys = if ($null -ne $state -and $state.schemaVersion -eq 5) {
+        [string[]] $state.resourceKeys
+    }
+    else {
+        Get-ResourceKeys $McpConfigPath $SkillDestination $cliManaged $CliToolPath
+    }
+    [System.IO.FileStream[]] $resourceLocks = Enter-ResourceLocks $resourceKeys
+    [bool] $statePersisted = $null -ne $state
+    [bool] $ownershipClaimed = $false
+    [bool] $workspaceInitialized = $false
+    try {
+        if ($null -ne $state -and $state.schemaVersion -eq 5 -and
+            $state.status -cne 'cleanup-in-progress') {
+            Assert-ResourceOwnership $resourceKeys $StatePath
+        }
+        elseif ($null -ne $state -and $state.schemaVersion -ne 5) {
+            $null = Claim-ResourceOwnership $resourceKeys $StatePath
+            $ownershipClaimed = $true
+        }
+        if ($null -ne $state -and $state.status -ceq 'cleanup-in-progress') {
+            if (Test-Path -LiteralPath $stateWorkspace -PathType Container) {
+                [string] $cleanupMarker = Get-StateWorkspaceMarkerPath $stateWorkspace
+                if (Test-Path -LiteralPath $cleanupMarker -PathType Leaf) {
+                    Remove-StateWorkspace $stateWorkspace $StatePath
+                }
+                elseif (@(Get-ChildItem -LiteralPath $stateWorkspace -Force).Count -eq 0) {
+                    Remove-Item -LiteralPath $stateWorkspace -Force
+                }
+                else {
+                    throw "Cleanup workspace is nonempty but its ownership marker is missing: '$stateWorkspace'."
+                }
+            }
+            if ($state.schemaVersion -eq 5) {
+                Remove-ResourceOwnership $resourceKeys $StatePath
+            }
+            Remove-Item -LiteralPath $StatePath -Force
+            Write-Host "Filtrace local-mode cleanup completed for '$TargetRepository'."
+            return
+        }
+
+        if ($null -ne $state -and (
             ($state.schemaVersion -ge 3 -and
                 -not (Test-PathsEqual ([string] $state.targetRepository) $TargetRepository)) -or
             -not (Test-PathsEqual ([string] $state.mcp.path) $McpConfigPath) -or
@@ -1171,14 +1385,17 @@ try {
             [bool] $state.cliManaged -ne $cliManaged)) {
         throw "Existing local-testing state does not match this invocation: '$StatePath'."
     }
-    if ($null -ne $state -and $normalizedAction -ceq 'Install' -and
+        if ($null -ne $state -and $normalizedAction -ceq 'Install' -and
         $state.status -ceq 'restore-in-progress') {
         throw "Restore is already in progress for '$StatePath'. Run -Action Restore."
     }
 
-    if ($normalizedAction -ceq 'Install') {
+        if ($normalizedAction -ceq 'Install') {
         if ($null -eq $state) {
+            $null = Claim-ResourceOwnership $resourceKeys $StatePath
+            $ownershipClaimed = $true
             Initialize-StateWorkspace $stateWorkspace $StatePath
+            $workspaceInitialized = $true
         }
 
         if (-not $SkipBuild) {
@@ -1250,7 +1467,7 @@ try {
                 Backup-CliPackage $priorCli $cliBackup
             }
             $state = [pscustomobject] [ordered] @{
-                schemaVersion = 4
+                schemaVersion = 5
                 createdUtc = [System.DateTimeOffset]::UtcNow.ToString('O')
                 status = 'baseline-recorded'
                 targetRepository = $TargetRepository
@@ -1258,6 +1475,7 @@ try {
                 cliManaged = $cliManaged
                 cliToolPath = $CliToolPath
                 cli = $priorCli
+                resourceKeys = $resourceKeys
                 mcp = [pscustomobject] [ordered] @{
                     path = $McpConfigPath
                     fileExisted = $mcpFileExisted
@@ -1273,6 +1491,7 @@ try {
                 }
             }
             Write-JsonFile $StatePath $state
+            $statePersisted = $true
         }
 
         if ($cliManaged) {
@@ -1327,17 +1546,17 @@ try {
         Write-Host "  MCP: $McpConfigPath -> $mcpDll"
         Write-Host "  Skill: $SkillDestination"
         Write-Host "  Restore from target repository: $PSScriptRoot/Use-LocalFiltrace.ps1 -Action Restore"
-        return
-    }
+            return
+        }
 
-    if ($null -eq $state) {
+        if ($null -eq $state) {
         throw "No local-testing state was found at '$StatePath'. Nothing can be restored automatically."
     }
-    if ([bool] $state.skill.existed -and
+        if ([bool] $state.skill.existed -and
         -not (Test-Path -LiteralPath $skillBackup -PathType Container)) {
         throw "Recorded skill backup is missing: '$skillBackup'."
     }
-    if ([bool] $state.skill.existed -and $state.schemaVersion -eq 4) {
+        if ([bool] $state.skill.existed -and $state.schemaVersion -in @(4, 5)) {
         [string] $expectedSkillBackupSha256 = [string] $state.skill.backupSha256
         if ([string]::IsNullOrWhiteSpace($expectedSkillBackupSha256)) {
             throw "Recorded skill backup hash is missing: '$skillBackup'."
@@ -1349,14 +1568,14 @@ try {
             throw "Recorded skill backup hash changed: '$skillBackup'."
         }
     }
-    if ($cliManaged) {
+        if ($cliManaged) {
         Assert-CliPackage $state.cli
     }
 
-    $state.status = 'restore-in-progress'
-    Write-JsonFile $StatePath $state
+        $state.status = 'restore-in-progress'
+        Write-JsonFile $StatePath $state
 
-    if ($cliManaged) {
+        if ($cliManaged) {
         Remove-CliIfInstalled
         if ([bool] $state.cli.installed) {
             [string] $backupPackageDirectory = Split-Path -Parent ([string] $state.cli.backupPackage)
@@ -1369,7 +1588,7 @@ try {
         }
     }
 
-    Set-McpServer $McpConfigPath ([bool] $state.mcp.serverExisted) $state.mcp.server
+        Set-McpServer $McpConfigPath ([bool] $state.mcp.serverExisted) $state.mcp.server
     if ($state.schemaVersion -ge 3 -and -not [bool] $state.mcp.fileExisted -and
         (Remove-EmptyMcpConfig $McpConfigPath)) {
         Remove-EmptyCreatedAncestors `
@@ -1378,7 +1597,7 @@ try {
             $pathComparison
     }
 
-    [byte[]] $currentOverlay = Get-OverlayBytes $SkillDestination
+        [byte[]] $currentOverlay = Get-OverlayBytes $SkillDestination
     if ([bool] $state.skill.existed) {
         Copy-Skill $skillBackup $SkillDestination $currentOverlay
     }
@@ -1396,8 +1615,7 @@ try {
             $pathComparison
     }
 
-    if ($legacyState) {
-        Remove-Item -LiteralPath $StatePath -Force
+        if ($legacyState) {
         if (Test-PathsEqual $StatePath $legacyStatePath) {
             Remove-Item -LiteralPath $skillBackup -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $cliBackup -Recurse -Force -ErrorAction SilentlyContinue
@@ -1413,15 +1631,41 @@ try {
                 Remove-Item -LiteralPath $cliBackup -Recurse -Force -ErrorAction SilentlyContinue
             }
         }
-    }
-    else {
-        $state.status = 'cleanup-in-progress'
-        Write-JsonFile $StatePath $state
-        Remove-StateWorkspace $stateWorkspace $StatePath
+        if ($ownershipClaimed) {
+            Remove-ResourceOwnership $resourceKeys $StatePath
+            $ownershipClaimed = $false
+        }
         Remove-Item -LiteralPath $StatePath -Force
     }
+        else {
+            $state.status = 'cleanup-in-progress'
+            Write-JsonFile $StatePath $state
+            Remove-StateWorkspace $stateWorkspace $StatePath
+            if ($state.schemaVersion -eq 5 -or $ownershipClaimed) {
+                Remove-ResourceOwnership $resourceKeys $StatePath
+                $ownershipClaimed = $false
+            }
+            Remove-Item -LiteralPath $StatePath -Force
+        }
 
-    Write-Host "Filtrace local mode was removed from '$TargetRepository' and the recorded setup was restored."
+        Write-Host "Filtrace local mode was removed from '$TargetRepository' and the recorded setup was restored."
+    }
+    catch {
+        # Existing manifests retain ownership after failure so only their retry can continue.
+        if (-not $statePersisted) {
+            if ($ownershipClaimed) {
+                Remove-ResourceOwnership $resourceKeys $StatePath
+            }
+            if ($workspaceInitialized -and
+                (Test-Path -LiteralPath $stateWorkspace -PathType Container)) {
+                Remove-StateWorkspace $stateWorkspace $StatePath
+            }
+        }
+        throw
+    }
+    finally {
+        foreach ($resourceLock in $resourceLocks) { $resourceLock.Dispose() }
+    }
 }
 finally {
     $stateLock.Dispose()
