@@ -184,22 +184,22 @@ internal static class ProcessTree
             return new ProcessInstanceSelection(rootIndexes, [.. rootIndexes]);
         }
 
-        Dictionary<int, int?> parents = processes.ToDictionary(
-            static process => process.Index,
-            static process => process.ParentIndex);
         HashSet<int> includedIndexes = [.. rootIndexes];
-        foreach (ProcessInstanceDescriptor process in processes)
+        Dictionary<int, List<int>> childrenByParent = BuildChildrenByParent(processes);
+        Queue<int> pending = new(rootIndexes);
+        while (pending.TryDequeue(out int parentIndex))
         {
-            int? parentIndex = process.ParentIndex;
-            for (int depth = 0; parentIndex is int ancestorIndex && depth < processes.Count; depth++)
+            if (!childrenByParent.TryGetValue(parentIndex, out List<int>? children))
             {
-                if (rootIndexes.Contains(ancestorIndex))
-                {
-                    includedIndexes.Add(process.Index);
-                    break;
-                }
+                continue;
+            }
 
-                parentIndex = parents.GetValueOrDefault(ancestorIndex);
+            foreach (int childIndex in children)
+            {
+                if (includedIndexes.Add(childIndex))
+                {
+                    pending.Enqueue(childIndex);
+                }
             }
         }
 
@@ -456,37 +456,82 @@ internal static class ProcessTree
         IReadOnlyList<ProcessInstanceDescriptor> processes,
         HashSet<int> matchedIndexes)
     {
-        Dictionary<int, int?> parents = processes.ToDictionary(
-            static process => process.Index,
-            static process => process.ParentIndex);
-        int independentRoots = 0;
+        HashSet<int> allIndexes = [.. processes.Select(static process => process.Index)];
+        Dictionary<int, List<int>> childrenByParent = BuildChildrenByParent(processes);
+        Queue<(int Index, bool HasMatchedAncestor)> pending = [];
         foreach (ProcessInstanceDescriptor process in processes)
         {
-            if (!matchedIndexes.Contains(process.Index))
+            if (process.ParentIndex is not int parentIndex || !allIndexes.Contains(parentIndex))
+            {
+                pending.Enqueue((process.Index, false));
+            }
+        }
+
+        HashSet<int> visited = [];
+        int independentRoots = 0;
+        int nextUnvisited = 0;
+        while (true)
+        {
+            while (pending.TryDequeue(out (int Index, bool HasMatchedAncestor) item))
+            {
+                if (!visited.Add(item.Index))
+                {
+                    continue;
+                }
+
+                bool matched = matchedIndexes.Contains(item.Index);
+                if (matched && !item.HasMatchedAncestor)
+                {
+                    independentRoots++;
+                }
+
+                if (childrenByParent.TryGetValue(item.Index, out List<int>? children))
+                {
+                    bool childHasMatchedAncestor = item.HasMatchedAncestor || matched;
+                    foreach (int childIndex in children)
+                    {
+                        pending.Enqueue((childIndex, childHasMatchedAncestor));
+                    }
+                }
+            }
+
+            while (nextUnvisited < processes.Count && visited.Contains(processes[nextUnvisited].Index))
+            {
+                nextUnvisited++;
+            }
+
+            if (nextUnvisited == processes.Count)
+            {
+                break;
+            }
+
+            pending.Enqueue((processes[nextUnvisited].Index, false));
+        }
+
+        return independentRoots;
+    }
+
+    private static Dictionary<int, List<int>> BuildChildrenByParent(
+        IReadOnlyList<ProcessInstanceDescriptor> processes)
+    {
+        Dictionary<int, List<int>> childrenByParent = [];
+        foreach (ProcessInstanceDescriptor process in processes)
+        {
+            if (process.ParentIndex is not int parentIndex)
             {
                 continue;
             }
 
-            int? parentIndex = process.ParentIndex;
-            bool nested = false;
-            for (int depth = 0; parentIndex is int ancestorIndex && depth < processes.Count; depth++)
+            if (!childrenByParent.TryGetValue(parentIndex, out List<int>? children))
             {
-                if (matchedIndexes.Contains(ancestorIndex))
-                {
-                    nested = true;
-                    break;
-                }
-
-                parentIndex = parents.GetValueOrDefault(ancestorIndex);
+                children = [];
+                childrenByParent[parentIndex] = children;
             }
 
-            if (!nested)
-            {
-                independentRoots++;
-            }
+            children.Add(process.Index);
         }
 
-        return independentRoots;
+        return childrenByParent;
     }
 
     private static void ResolveIdRoots(

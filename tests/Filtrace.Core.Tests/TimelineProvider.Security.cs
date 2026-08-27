@@ -915,7 +915,8 @@ public sealed class TimelineProviderSecurityTests
         OutputBudget.EstimateTokens(json).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
         json.Should().Contain("\"detailTruncated\":true");
         warning.Should().Contain("1024-key-per-family")
-            .And.Contain("Aggregate event, CPU-sample, exception, allocation-tick/byte, and JIT-compilation totals remain complete");
+            .And.Contain("Aggregate event, CPU-sample, exception, allocation-tick/byte, and JIT-compilation totals remain complete")
+            .And.Contain("CPU-method and raw-event-type row counts and percentages may be undercounted");
         AnalysisDiagnostic.FromWarning(warning).Code.Should().Be(AnalysisDiagnosticCodes.TruncatedOutput);
     }
 }

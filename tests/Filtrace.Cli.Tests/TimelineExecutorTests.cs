@@ -252,7 +252,7 @@ public sealed class TimelineExecutorTests
     {
         TimelineSnapshot snapshot = new(
             50.0,
-            new SnapshotGcSummary(1, 0.25, 0.25, [new SnapshotGcRecord(1, 49.9, 2, "Blocking", "Induced", 0.5)]),
+            new SnapshotGcSummary(1, 0.25, 0.15, [new SnapshotGcRecord(1, 49.9, 2, "Blocking", "Induced", 0.5)]),
             new SnapshotCpuSummary(10, 1, [new SnapshotCpuMethod("App.Hot", 10, 100.0)]),
             new SnapshotExceptionSummary(2, 1, [new SnapshotCountRow("System.InvalidOperationException", 2)]),
             new SnapshotAllocationSummary(1, 1_048_576, 1, [new SnapshotAllocationType("System.Byte[]", 1, 1_048_576)]),
@@ -280,6 +280,8 @@ public sealed class TimelineExecutorTests
             .And.Contain("cpu")
             .And.Contain("App.Hot")
             .And.Contain("gc")
+            .And.Contain("0.25 ms total pause")
+            .And.Contain("0.15 ms max merged pause")
             .And.Contain("Blocking/Induced")
             .And.Contain("exceptions")
             .And.Contain("System.InvalidOperationException")

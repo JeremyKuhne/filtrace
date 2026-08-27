@@ -186,6 +186,28 @@ public sealed class ProcessScopeValidationTests
     }
 
     [TestMethod]
+    public void ResolveProcessInstanceIndexes_DeepDescendantChain_CompletesPromptly()
+    {
+        const int count = 20_000;
+        ProcessTree.ProcessInstanceDescriptor[] processes = [.. Enumerable.Range(1, count)
+            .Select(static index => new ProcessTree.ProcessInstanceDescriptor(
+                index,
+                index,
+                index == 1 ? "Root" : $"Child{index}",
+                ParentIndex: index == 1 ? null : index - 1))];
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        ProcessTree.ProcessInstanceSelection selection = ProcessTree.ResolveProcessInstanceIndexes(
+            processes,
+            new ProcessNameSelector("Root"),
+            includeChildren: true);
+        stopwatch.Stop();
+
+        selection.IncludedIndexes.Should().HaveCount(count);
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+    }
+
+    [TestMethod]
     public void CountIndependentRoots_SameNameAndReusedPid_CountsBothInstances()
     {
         ProcessTree.ProcessInstanceDescriptor[] processes =
@@ -201,6 +223,28 @@ public sealed class ProcessScopeValidationTests
             .Contain("narrow the capture")
             .And.NotContain("--pid");
         ProcessTree.NameScopeWarningGuidance([42, 44]).Should().Contain("--pid");
+    }
+
+    [TestMethod]
+    public void CountIndependentRoots_DeepComb_CompletesPromptly()
+    {
+        const int depth = 10_000;
+        List<ProcessTree.ProcessInstanceDescriptor> processes = new(depth * 2);
+        HashSet<int> matchedIndexes = [];
+        for (int index = 1; index <= depth; index++)
+        {
+            processes.Add(new(index, index, $"Host{index}", index == 1 ? null : index - 1));
+            int leafIndex = depth + index;
+            processes.Add(new(leafIndex, leafIndex, "App", index));
+            matchedIndexes.Add(leafIndex);
+        }
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        int independentRoots = ProcessTree.CountIndependentRoots(processes, matchedIndexes);
+        stopwatch.Stop();
+
+        independentRoots.Should().Be(depth);
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
     }
 
     [TestMethod]
