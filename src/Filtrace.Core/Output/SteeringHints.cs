@@ -796,14 +796,16 @@ public static class SteeringHints
 
     private static bool CanRepresentTimelineScope(TimelineResult timeline, out int processIdCount)
     {
-        IReadOnlyList<int>? processIds = timeline.AppliedProcessScope?.Mode switch
+        AppliedProcessScope? scope = timeline.AppliedProcessScope;
+        IReadOnlyList<int>? processIds = scope?.Mode switch
         {
-            "ids" => timeline.AppliedProcessScope.RequestedProcessIds,
-            "automatic" => timeline.AppliedProcessScope.RootProcessIds,
+            "ids" => scope.RequestedProcessIds,
+            "automatic" => scope.RootProcessIds,
             _ => null
         };
         processIdCount = processIds?.Count ?? 0;
-        return processIdCount <= AnalysisScopeContext.MaxReportedProcessIds;
+        return processIdCount <= AnalysisScopeContext.MaxReportedProcessIds
+            && scope is not { Mode: "automatic", RootProcessIdsReplayable: false };
     }
 
     private static IReadOnlyList<string> UnrepresentableTimelineScopeGuidance(
@@ -812,6 +814,16 @@ public static class SteeringHints
         double endMs,
         int processIdCount)
     {
+        // Reuse makes every exact-id replay unrunnable regardless of how many roots
+        // fit in the bounded argument list, so report it before the count limit.
+        if (timeline.AppliedProcessScope is { Mode: "automatic", RootProcessIdsReplayable: false })
+        {
+            return Guidance(
+                "the automatic process scope includes a root pid reused by multiple process instances, so no exact "
+                + $"--pid follow-up can be generated; inspect processes, choose an explicit selector, and rerun rank "
+                + $"with --time {FormatMs(startMs)},{FormatMs(endMs)}");
+        }
+
         string selectorGuidance = timeline.AppliedProcessScope?.Mode == "automatic"
             ? "choose a narrower --process or --pid selector"
             : "reuse the original process selector";

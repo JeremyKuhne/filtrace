@@ -35,4 +35,6 @@ public sealed record AppliedProcessScope(
     /// <summary>The all-processes opt-out from process scoping.</summary>
     public static AppliedProcessScope AllProcesses { get; } =
         new("all", null, [], [], [], true);
+
+    internal bool RootProcessIdsReplayable { get; init; } = true;
 }

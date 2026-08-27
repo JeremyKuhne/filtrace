@@ -752,6 +752,25 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForTimeline_BucketWithReusedAutomaticRootId_EmitsNoRunnableFollowUp()
+    {
+        AppliedProcessScope scope = new("automatic", "App", [], [789], [], true)
+        {
+            RootProcessIdsReplayable = false
+        };
+        TimelineResult timeline = CpuBucketTimeline() with { AppliedProcessScope = scope };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should()
+            .Contain("root pid reused by multiple process instances")
+            .And.Contain("choose an explicit selector")
+            .And.NotContain("--pid 789");
+        envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+        envelope.NextSteps[0].Arguments.Should().BeNull();
+    }
+
+    [TestMethod]
     public void ForTimeline_SubMillisecondBuckets_KeepsPreciseDrillWindow()
     {
         // A short capture divided into many buckets yields sub-millisecond bucket widths;
@@ -889,6 +908,42 @@ public sealed class SteeringHintsTests
             .And.NotContain("original process selector");
         envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
         envelope.NextSteps[0].Arguments.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithReusedAutomaticRootId_EmitsNoRunnableFollowUp()
+    {
+        AppliedProcessScope scope = new("automatic", "App", [], [789], [], true)
+        {
+            RootProcessIdsReplayable = false
+        };
+        TimelineResult timeline = SnapshotTimeline() with { AppliedProcessScope = scope };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should()
+            .Contain("root pid reused by multiple process instances")
+            .And.Contain("choose an explicit selector")
+            .And.NotContain("--pid 789");
+        envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+        envelope.NextSteps[0].Arguments.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForTimeline_SnapshotWithNameScopeAndReusedRootId_PreservesNameFollowUp()
+    {
+        AppliedProcessScope scope = new("name", "App", [], [789], [], true)
+        {
+            RootProcessIdsReplayable = false
+        };
+        TimelineResult timeline = SnapshotTimeline() with { AppliedProcessScope = scope };
+
+        AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
+
+        envelope.Hints.Should().ContainSingle().Which.Should().EndWith("--process 'App'");
+        envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().Be("rank");
+        envelope.NextSteps[0].Arguments!.Process.Should().Be("App");
+        envelope.NextSteps[0].Arguments!.ProcessIds.Should().BeNull();
     }
 
     [TestMethod]

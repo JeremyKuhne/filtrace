@@ -81,6 +81,48 @@ public sealed class ProcessScopeValidationTests
     }
 
     [TestMethod]
+    public void CreateAppliedScope_ReusedRootProcessId_IsNotReplayableById()
+    {
+        AppliedProcessScope scope = ProcessTree.CreateAppliedScope(
+            automatic: true,
+            ProcessNameSelector.FromTraceName("App"),
+            roots: [42, 99],
+            included: [42, 99],
+            includeChildren: true,
+            traceProcessIds: [42, 7, 99, 42]);
+
+        scope.RootProcessIdsReplayable.Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void CreateAppliedScope_UniqueRootProcessId_IsReplayableById()
+    {
+        AppliedProcessScope scope = ProcessTree.CreateAppliedScope(
+            automatic: true,
+            ProcessNameSelector.FromTraceName("App"),
+            roots: [42, 99],
+            included: [42, 99],
+            includeChildren: true,
+            traceProcessIds: [7, 42, 99]);
+
+        scope.RootProcessIdsReplayable.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void CreateAppliedScope_EmptyRoots_IgnoreUnrelatedPidReuse()
+    {
+        AppliedProcessScope scope = ProcessTree.CreateAppliedScope(
+            automatic: false,
+            new ProcessNameSelector("missing"),
+            roots: [],
+            included: [],
+            includeChildren: true,
+            traceProcessIds: [42, 42]);
+
+        scope.RootProcessIdsReplayable.Should().BeTrue();
+    }
+
+    [TestMethod]
     public void NameSelector_NameAboveLimit_ThrowsArgument()
     {
         Action act = () => _ = new ProcessNameSelector(new string('x', ProcessNameSelector.MaxNameSubstringLength + 1));

@@ -72,7 +72,8 @@ internal static class ProcessTree
             selector,
             roots,
             keep,
-            request.IncludeChildren);
+            request.IncludeChildren,
+            traceLog.Processes.Select(static process => process.ProcessID));
 
         // An explicit selector always reports (the caller asked to scope, even if it
         // happens to match every process). The automatic scope only reports when it
@@ -290,12 +291,13 @@ internal static class ProcessTree
         return keep;
     }
 
-    private static AppliedProcessScope CreateAppliedScope(
+    internal static AppliedProcessScope CreateAppliedScope(
         bool automatic,
         ProcessSelector selector,
         HashSet<int> roots,
         HashSet<int> included,
-        bool includeChildren)
+        bool includeChildren,
+        IEnumerable<int> traceProcessIds)
     {
         string mode = automatic
             ? "automatic"
@@ -306,13 +308,27 @@ internal static class ProcessTree
             : [];
         int[] rootIds = [.. roots.Order()];
         int[] descendantIds = [.. included.Except(roots).Order()];
+        HashSet<int> observedRootIds = [];
+        bool rootProcessIdsReplayable = true;
+        foreach (int processId in traceProcessIds)
+        {
+            if (roots.Contains(processId) && !observedRootIds.Add(processId))
+            {
+                rootProcessIdsReplayable = false;
+                break;
+            }
+        }
+
         return new AppliedProcessScope(
             mode,
             process,
             requestedIds,
             rootIds,
             descendantIds,
-            includeChildren);
+            includeChildren)
+        {
+            RootProcessIdsReplayable = rootProcessIdsReplayable
+        };
     }
 
     internal static string? AppliedProcessName(ProcessSelector selector) =>
