@@ -242,6 +242,9 @@ public sealed partial class TimelineProvider
     private static int BucketIndex(double timeMs, double startMs, double bucketSizeMs, int buckets) =>
         Math.Clamp((int)((timeMs - startMs) / bucketSizeMs), 0, buckets - 1);
 
+    internal static bool IsTimelineTimestampInWindow(double timestamp, double startMs, double endMs) =>
+        double.IsFinite(timestamp) && timestamp >= startMs && timestamp <= endMs;
+
     // Builds every requested lane in a single pass over the trace. The GC lane is
     // reconstructed from the .NET runtime analysis (NeedLoadedDotNetRuntimes) and the
     // CPU, exception, allocation, and JIT lanes from the raw event stream; registering
@@ -329,7 +332,7 @@ public sealed partial class TimelineProvider
             }
 
             double time = data.TimeStampRelativeMSec;
-            if (!wantEvents || time < startMs || time > endMs)
+            if (!wantEvents || !IsTimelineTimestampInWindow(time, startMs, endMs))
             {
                 return;
             }
@@ -429,7 +432,7 @@ public sealed partial class TimelineProvider
             foreach (TraceGC collection in runtime.GC.GCs)
             {
                 double time = collection.StartRelativeMSec;
-                if (time < startMs || time > endMs)
+                if (!IsTimelineTimestampInWindow(time, startMs, endMs))
                 {
                     continue;
                 }

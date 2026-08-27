@@ -308,7 +308,7 @@ public sealed partial class TimelineProvider
                 }
             }
 
-            if (timestamp < startMs || timestamp > endMs)
+            if (!IsTimelineTimestampInWindow(timestamp, startMs, endMs))
             {
                 return;
             }
@@ -528,7 +528,7 @@ public sealed partial class TimelineProvider
             processIntervals ??= [];
             foreach (TraceGC collection in runtime.GC.GCs)
             {
-                bool startsInWindow = collection.StartRelativeMSec >= startMs && collection.StartRelativeMSec <= endMs;
+                bool startsInWindow = IsTimelineTimestampInWindow(collection.StartRelativeMSec, startMs, endMs);
                 bool pauseOverlaps = PauseBelongsToCollection(processIntervals, collection);
                 if (!startsInWindow && !pauseOverlaps)
                 {

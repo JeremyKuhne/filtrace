@@ -18,6 +18,21 @@ public sealed class TimelineProviderSecurityTests
         new(processInstanceIndex, threadInstanceIndex);
 
     [TestMethod]
+    [DataRow(5.0, true)]
+    [DataRow(10.0, true)]
+    [DataRow(15.0, true)]
+    [DataRow(4.99, false)]
+    [DataRow(15.01, false)]
+    [DataRow(double.NaN, false)]
+    [DataRow(double.PositiveInfinity, false)]
+    [DataRow(double.NegativeInfinity, false)]
+    public void IsTimelineEventInWindow_RequiresFiniteInclusiveTimestamp(double timestamp, bool expected)
+    {
+        TimelineProvider.IsTimelineTimestampInWindow(timestamp, startMs: 5.0, endMs: 15.0)
+            .Should().Be(expected);
+    }
+
+    [TestMethod]
     [DataRow(TimelineProvider.MaxSnapshotNameChars, false)]
     [DataRow(TimelineProvider.MaxSnapshotNameChars + 1, true)]
     public void BoundSnapshotName_AtAndAboveLimit_IsBounded(int length, bool expectedTruncated)
@@ -702,7 +717,9 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
-    public void MatchPauseRestart_NonFiniteRestartWithGcStart_IsInvalidAndPreservesStart()
+    [DataRow(double.NaN)]
+    [DataRow(double.PositiveInfinity)]
+    public void MatchPauseRestart_NonFiniteRestartWithGcStart_IsInvalidAndPreservesStart(double timestamp)
     {
         Dictionary<TimelineProvider.PauseIdentity, TimelineProvider.PendingPauseStart> starts = new()
         {
@@ -712,7 +729,7 @@ public sealed class TimelineProviderSecurityTests
         TimelineProvider.MatchPauseRestart(
             starts,
             Pause(1, 2),
-            double.PositiveInfinity,
+            timestamp,
             5.0,
             15.0,
             out TimelineProvider.PendingPauseStart start)
