@@ -160,6 +160,9 @@ internal static class ProcessTree
         bool includeChildren)
     {
         HashSet<int> rootIndexes = [];
+        HashSet<int>? requestedProcessIds = selector is ProcessIdSelector ids
+            ? [.. ids.ProcessIds]
+            : null;
         foreach (ProcessInstanceDescriptor process in processes)
         {
             bool matches = selector switch
@@ -167,7 +170,7 @@ internal static class ProcessTree
                 ProcessNameSelector name => process.ProcessId > 0
                     && process.Name is not null
                     && process.Name.Contains(name.NameSubstring, StringComparison.OrdinalIgnoreCase),
-                ProcessIdSelector ids => ids.ProcessIds.Contains(process.ProcessId),
+                ProcessIdSelector => requestedProcessIds!.Contains(process.ProcessId),
                 _ => false
             };
             if (matches)

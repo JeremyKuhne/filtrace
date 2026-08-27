@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Diagnostics;
 using System.Globalization;
 using Filtrace.Output;
 using Filtrace.Tracing.Providers;
@@ -159,6 +160,29 @@ public sealed class ProcessScopeValidationTests
 
         selection.RootIndexes.Should().Equal(2);
         selection.IncludedIndexes.Should().Equal(2);
+    }
+
+    [TestMethod]
+    public void ResolveProcessInstanceIndexes_LargeExactIdScope_CompletesPromptly()
+    {
+        const int count = 20_000;
+        ProcessTree.ProcessInstanceDescriptor[] processes = [.. Enumerable.Range(1, count)
+            .Select(static processId => new ProcessTree.ProcessInstanceDescriptor(
+                processId,
+                processId,
+                $"Process{processId}",
+                ParentIndex: null))];
+        ProcessIdSelector selector = new(Enumerable.Range(1, count));
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        ProcessTree.ProcessInstanceSelection selection = ProcessTree.ResolveProcessInstanceIndexes(
+            processes,
+            selector,
+            includeChildren: false);
+        stopwatch.Stop();
+
+        selection.RootIndexes.Should().HaveCount(count);
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
     }
 
     [TestMethod]
