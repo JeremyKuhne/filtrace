@@ -125,7 +125,7 @@ public sealed partial class TimelineProvider
         Dictionary<string, long> jitMethods = new(StringComparer.Ordinal);
         Dictionary<(string Provider, string Name), long> eventTypes = [];
         Dictionary<EventMetadataIdentity, (string Provider, string Name, bool Truncated)> eventNameCache = [];
-        Dictionary<(int ProcessId, int ThreadId), double> pauseStarts = [];
+        Dictionary<(int ProcessId, int ThreadId), PendingPauseStart> pauseStarts = [];
         List<GcPauseInterval> pauseIntervals = [];
         bool detailTruncated = false;
         bool gcPauseDataIncomplete = false;
@@ -134,7 +134,7 @@ public sealed partial class TimelineProvider
         source.NeedLoadedDotNetRuntimes();
         source.AllEvents += Accumulate;
         source.Process();
-        gcPauseDataIncomplete |= pauseStarts.Count > 0;
+        gcPauseDataIncomplete |= pauseStarts.Values.Any(static start => start.IsGc);
 
         SnapshotGcSummary gc = BuildSnapshotGc(
             source,
@@ -226,32 +226,37 @@ public sealed partial class TimelineProvider
             // TraceEvent's GC analysis relies on the runtime guarantee that matching
             // RestartEE events occur on the same thread as their suspend start.
             (int ProcessId, int ThreadId) pauseKey = (data.ProcessID, data.ThreadID);
-            if (data is GCSuspendEETraceData suspend
-                && suspend.Reason is GCSuspendEEReason.SuspendForGC or GCSuspendEEReason.SuspendForGCPrep)
+            if (data is GCSuspendEETraceData suspend)
             {
-                BoundedPauseStartResult addResult = AddPauseStartBounded(pauseStarts, pauseKey, timestamp, endMs);
-                if (addResult is BoundedPauseStartResult.Duplicate or BoundedPauseStartResult.CapacityExceeded)
+                BoundedPauseStartResult addResult = AddPauseStartBounded(
+                    pauseStarts,
+                    pauseKey,
+                    timestamp,
+                    endMs,
+                    suspend.Reason,
+                    out bool gcStateIncomplete);
+                gcPauseDataIncomplete |= gcStateIncomplete;
+                if (addResult == BoundedPauseStartResult.CapacityExceeded && gcStateIncomplete)
                 {
-                    gcPauseDataIncomplete = true;
-                    detailTruncated |= addResult == BoundedPauseStartResult.CapacityExceeded;
+                    detailTruncated = true;
                 }
             }
-            else if (IsGcRestartEvent(data))
+            else if (IsEeRestartEvent(data))
             {
-                GcRestartResult restartResult = MatchGcPauseRestart(
+                PauseRestartResult restartResult = MatchPauseRestart(
                     pauseStarts,
                     pauseKey,
                     timestamp,
                     startMs,
                     endMs,
-                    out double pauseStart);
-                if (restartResult is GcRestartResult.MissingStart or GcRestartResult.InvalidPair)
+                    out PendingPauseStart pauseStart);
+                if (restartResult == PauseRestartResult.InvalidPair && pauseStart.IsGc)
                 {
                     gcPauseDataIncomplete = true;
                 }
-                else if (restartResult == GcRestartResult.Completed)
+                else if (restartResult == PauseRestartResult.CompletedGc)
                 {
-                    GcPauseInterval interval = new(data.ProcessID, pauseStart, timestamp);
+                    GcPauseInterval interval = new(data.ProcessID, pauseStart.TimestampMs, timestamp);
                     if (pauseIntervals.Count < MaxSnapshotRetainedKeysPerFamily)
                     {
                         pauseIntervals.Add(interval);
@@ -400,7 +405,7 @@ public sealed partial class TimelineProvider
         ArgumentNullException.ThrowIfNull(result);
 
         return result.Snapshot?.GcPauseDataIncomplete == true
-            ? "Snapshot GC pause evidence is incomplete because the trace contained unmatched or duplicate "
+            ? "Snapshot GC pause evidence is incomplete because the trace contained unmatched, duplicate, or malformed "
                 + "GC suspend/restart state; pause totals and overlap-based collection detail may be inaccurate."
             : null;
     }
@@ -795,69 +800,85 @@ public sealed partial class TimelineProvider
     }
 
     internal static BoundedPauseStartResult AddPauseStartBounded(
-        Dictionary<(int ProcessId, int ThreadId), double> pauseStarts,
+        Dictionary<(int ProcessId, int ThreadId), PendingPauseStart> pauseStarts,
         (int ProcessId, int ThreadId) key,
         double timestamp,
-        double windowEndMs)
+        double windowEndMs,
+        GCSuspendEEReason reason,
+        out bool gcStateIncomplete)
     {
+        gcStateIncomplete = false;
+        bool isGc = reason is GCSuspendEEReason.SuspendForGC or GCSuspendEEReason.SuspendForGCPrep;
+        if (!double.IsFinite(timestamp))
+        {
+            gcStateIncomplete = isGc;
+            return BoundedPauseStartResult.InvalidTimestamp;
+        }
+
         if (timestamp > windowEndMs)
         {
             return BoundedPauseStartResult.AfterWindow;
         }
 
-        if (pauseStarts.ContainsKey(key))
+        if (pauseStarts.TryGetValue(key, out PendingPauseStart existing))
         {
+            gcStateIncomplete = existing.IsGc || isGc;
             return BoundedPauseStartResult.Duplicate;
         }
 
         if (pauseStarts.Count >= MaxSnapshotRetainedKeysPerFamily)
         {
+            // Only dropped GC state can make this report's pause evidence incomplete.
+            gcStateIncomplete = isGc;
             return BoundedPauseStartResult.CapacityExceeded;
         }
 
-        pauseStarts.Add(key, timestamp);
+        pauseStarts.Add(key, new PendingPauseStart(timestamp, isGc));
         return BoundedPauseStartResult.Added;
     }
 
-    internal static GcRestartResult MatchGcPauseRestart(
-        Dictionary<(int ProcessId, int ThreadId), double> pauseStarts,
+    internal static PauseRestartResult MatchPauseRestart(
+        Dictionary<(int ProcessId, int ThreadId), PendingPauseStart> pauseStarts,
         (int ProcessId, int ThreadId) key,
         double timestamp,
         double windowStartMs,
         double windowEndMs,
-        out double pauseStart)
+        out PendingPauseStart pauseStart)
     {
         if (!double.IsFinite(timestamp))
         {
             pauseStarts.TryGetValue(key, out pauseStart);
-            return GcRestartResult.InvalidPair;
+            return PauseRestartResult.InvalidPair;
         }
 
         if (!pauseStarts.TryGetValue(key, out pauseStart))
         {
-            return timestamp >= windowStartMs && timestamp <= windowEndMs
-                ? GcRestartResult.MissingStart
-                : GcRestartResult.OutsideWindow;
+            return PauseRestartResult.MissingStart;
         }
 
-        if (!double.IsFinite(pauseStart) || timestamp < pauseStart)
+        if (!double.IsFinite(pauseStart.TimestampMs) || timestamp < pauseStart.TimestampMs)
         {
-            return GcRestartResult.InvalidPair;
+            return PauseRestartResult.InvalidPair;
         }
 
         pauseStarts.Remove(key);
-        return timestamp >= windowStartMs && pauseStart <= windowEndMs
-            ? GcRestartResult.Completed
-            : GcRestartResult.OutsideWindow;
+        if (!pauseStart.IsGc)
+        {
+            return PauseRestartResult.CompletedNonGc;
+        }
+
+        return timestamp >= windowStartMs && pauseStart.TimestampMs <= windowEndMs
+            ? PauseRestartResult.CompletedGc
+            : PauseRestartResult.OutsideWindow;
     }
 
-    private static bool IsGcRestartEvent(TraceEvent data) =>
-        IsGcRestartEventIdentity(
+    private static bool IsEeRestartEvent(TraceEvent data) =>
+        IsEeRestartEventIdentity(
             data is GCNoUserDataTraceData,
             data.ProviderGuid,
             data.EventName);
 
-    internal static bool IsGcRestartEventIdentity(bool expectedType, Guid providerGuid, string eventName) =>
+    internal static bool IsEeRestartEventIdentity(bool expectedType, Guid providerGuid, string eventName) =>
         expectedType
         && providerGuid == ClrTraceEventParser.ProviderGuid
         && string.Equals(eventName, "GC/RestartEEStop", StringComparison.Ordinal);
@@ -882,6 +903,8 @@ public sealed partial class TimelineProvider
             Math.Max(0.0, Math.Min(EndMs, windowEndMs) - Math.Max(StartMs, windowStartMs));
     }
 
+            internal readonly record struct PendingPauseStart(double TimestampMs, bool IsGc);
+
     internal sealed record GcPauseAggregate(
         IReadOnlyDictionary<int, GcPauseInterval[]> IntervalsByProcess,
         double TotalPauseMs,
@@ -900,16 +923,22 @@ public sealed partial class TimelineProvider
         CapacityExceeded,
 
         /// <summary>The start occurred after the selected window.</summary>
-        AfterWindow
+        AfterWindow,
+
+        /// <summary>The start carried a non-finite timestamp and was not retained.</summary>
+        InvalidTimestamp
     }
 
-    /// <summary>The outcome of matching one GC restart to pending pause state.</summary>
-    internal enum GcRestartResult
+    /// <summary>The outcome of matching one EE restart to pending suspension state.</summary>
+    internal enum PauseRestartResult
     {
-        /// <summary>A valid pair overlaps the selected window.</summary>
-        Completed,
+        /// <summary>A valid GC pair overlaps the selected window.</summary>
+        CompletedGc,
 
-        /// <summary>No pending start exists for a restart inside the selected window.</summary>
+        /// <summary>A valid non-GC pair was consumed without contributing pause evidence.</summary>
+        CompletedNonGc,
+
+        /// <summary>No pending start exists, so the reason for this restart is unknown.</summary>
         MissingStart,
 
         /// <summary>The retained pair contains a non-finite or non-monotonic timestamp.</summary>

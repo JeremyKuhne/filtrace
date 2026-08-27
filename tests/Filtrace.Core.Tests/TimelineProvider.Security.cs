@@ -5,6 +5,7 @@
 using System.Diagnostics;
 using Filtrace.Output;
 using Microsoft.Diagnostics.Tracing.Parsers;
+using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -349,94 +350,218 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
-    public void AddPauseStartBounded_DuplicateDoesNotOverwrite()
+    public void AddPauseStartBounded_DuplicateGcStateDoesNotOverwriteAndMarksIncomplete()
     {
-        Dictionary<(int ProcessId, int ThreadId), double> starts = new()
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = new()
         {
-            [(1, 2)] = 10.0
+            [(1, 2)] = new(10.0, IsGc: true)
         };
 
-        TimelineProvider.AddPauseStartBounded(starts, (1, 2), 15.0, 20.0)
+        TimelineProvider.AddPauseStartBounded(
+            starts,
+            (1, 2),
+            15.0,
+            20.0,
+            GCSuspendEEReason.SuspendForShutdown,
+            out bool gcStateIncomplete)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.Duplicate);
-        starts[(1, 2)].Should().Be(10.0);
+        starts[(1, 2)].Should().Be(new TimelineProvider.PendingPauseStart(10.0, IsGc: true));
+        gcStateIncomplete.Should().BeTrue();
     }
 
     [TestMethod]
-    public void AddPauseStartBounded_AtCapacity_RejectsNewStart()
+    public void AddPauseStartBounded_DuplicateNonGcStateDoesNotMarkGcIncomplete()
     {
-        Dictionary<(int ProcessId, int ThreadId), double> starts = [];
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = new()
+        {
+            [(1, 2)] = new(10.0, IsGc: false)
+        };
+
+        TimelineProvider.AddPauseStartBounded(
+            starts,
+            (1, 2),
+            15.0,
+            20.0,
+            GCSuspendEEReason.SuspendForDebugger,
+            out bool gcStateIncomplete)
+            .Should().Be(TimelineProvider.BoundedPauseStartResult.Duplicate);
+        gcStateIncomplete.Should().BeFalse();
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    public void AddPauseStartBounded_AtCapacity_RejectsNewStartAndMarksOnlyGcIncomplete(
+        bool isGc,
+        bool expectedIncomplete)
+    {
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = [];
         for (int i = 0; i < TimelineProvider.MaxSnapshotRetainedKeysPerFamily; i++)
         {
-            starts[(1, i)] = i;
+            starts[(1, i)] = new(i, IsGc: false);
         }
 
-        TimelineProvider.AddPauseStartBounded(starts, (2, 1), 10.0, 20.0)
+        TimelineProvider.AddPauseStartBounded(
+            starts,
+            (2, 1),
+            10.0,
+            20.0,
+            isGc ? GCSuspendEEReason.SuspendForGC : GCSuspendEEReason.SuspendForCodePitching,
+            out bool gcStateIncomplete)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.CapacityExceeded);
+        gcStateIncomplete.Should().Be(expectedIncomplete);
         starts.Should().HaveCount(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
     }
 
     [TestMethod]
     public void AddPauseStartBounded_AtWindowEnd_RetainsStart()
     {
-        Dictionary<(int ProcessId, int ThreadId), double> starts = [];
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = [];
 
-        TimelineProvider.AddPauseStartBounded(starts, (1, 2), 10.0, 10.0)
+        TimelineProvider.AddPauseStartBounded(
+            starts,
+            (1, 2),
+            10.0,
+            10.0,
+            GCSuspendEEReason.SuspendForGCPrep,
+            out _)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.Added);
-        starts.Should().ContainKey((1, 2)).WhoseValue.Should().Be(10.0);
+        starts.Should().ContainKey((1, 2)).WhoseValue
+            .Should().Be(new TimelineProvider.PendingPauseStart(10.0, IsGc: true));
     }
 
     [TestMethod]
     public void AddPauseStartBounded_AfterWindowEnd_DoesNotRetainStart()
     {
-        Dictionary<(int ProcessId, int ThreadId), double> starts = [];
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = [];
 
-        TimelineProvider.AddPauseStartBounded(starts, (1, 2), 10.0001, 10.0)
+        TimelineProvider.AddPauseStartBounded(
+            starts,
+            (1, 2),
+            10.0001,
+            10.0,
+            GCSuspendEEReason.SuspendForGC,
+            out _)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.AfterWindow);
         starts.Should().BeEmpty();
     }
 
     [TestMethod]
-    public void MatchGcPauseRestart_MissingStartInsideWindow_ReturnsMissingStart()
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    public void AddPauseStartBounded_NonFiniteTimestampRejectsAndMarksOnlyGcIncomplete(
+        bool isGc,
+        bool expectedIncomplete)
     {
-        Dictionary<(int ProcessId, int ThreadId), double> starts = [];
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = [];
+        GCSuspendEEReason reason = isGc
+            ? GCSuspendEEReason.SuspendForGC
+            : GCSuspendEEReason.SuspendForShutdown;
 
-        TimelineProvider.MatchGcPauseRestart(starts, (1, 2), 10.0, 5.0, 15.0, out _)
-            .Should().Be(TimelineProvider.GcRestartResult.MissingStart);
+        TimelineProvider.AddPauseStartBounded(
+            starts,
+            (1, 2),
+            double.NaN,
+            10.0,
+            reason,
+            out bool gcStateIncomplete)
+            .Should().Be(TimelineProvider.BoundedPauseStartResult.InvalidTimestamp);
+
+        gcStateIncomplete.Should().Be(expectedIncomplete);
+        starts.Should().BeEmpty();
     }
 
     [TestMethod]
-    public void MatchGcPauseRestart_MissingStartAfterWindow_IsOutsideWindow()
+    public void MatchPauseRestart_MissingStartDoesNotClaimGcProvenance()
     {
-        Dictionary<(int ProcessId, int ThreadId), double> starts = [];
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = [];
 
-        TimelineProvider.MatchGcPauseRestart(starts, (1, 2), 20.0, 5.0, 15.0, out _)
-            .Should().Be(TimelineProvider.GcRestartResult.OutsideWindow);
+        TimelineProvider.MatchPauseRestart(starts, (1, 2), 10.0, 5.0, 15.0, out TimelineProvider.PendingPauseStart start)
+            .Should().Be(TimelineProvider.PauseRestartResult.MissingStart);
+        start.IsGc.Should().BeFalse();
     }
 
     [TestMethod]
-    public void MatchGcPauseRestart_NonMonotonicPair_IsInvalidAndPreservesStart()
+    public void MatchPauseRestart_NonGcPair_IsConsumedWithoutGcEvidence()
     {
-        Dictionary<(int ProcessId, int ThreadId), double> starts = new()
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = new()
         {
-            [(1, 2)] = 10.0
+            [(1, 2)] = new(8.0, IsGc: false)
         };
 
-        TimelineProvider.MatchGcPauseRestart(starts, (1, 2), 9.0, 5.0, 15.0, out _)
-            .Should().Be(TimelineProvider.GcRestartResult.InvalidPair);
-        starts.Should().ContainKey((1, 2)).WhoseValue.Should().Be(10.0);
+        TimelineProvider.MatchPauseRestart(starts, (1, 2), 10.0, 5.0, 15.0, out TimelineProvider.PendingPauseStart start)
+            .Should().Be(TimelineProvider.PauseRestartResult.CompletedNonGc);
+        start.IsGc.Should().BeFalse();
+        starts.Should().BeEmpty();
     }
 
     [TestMethod]
-    public void MatchGcPauseRestart_StartBeforeWindowAndRestartAfterWindow_Completes()
+    public void MatchPauseRestart_NonMonotonicGcPair_IsInvalidAndPreservesStart()
     {
-        Dictionary<(int ProcessId, int ThreadId), double> starts = new()
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = new()
         {
-            [(1, 2)] = 4.0
+            [(1, 2)] = new(10.0, IsGc: true)
         };
 
-        TimelineProvider.MatchGcPauseRestart(starts, (1, 2), 16.0, 5.0, 15.0, out double pauseStart)
-            .Should().Be(TimelineProvider.GcRestartResult.Completed);
-        pauseStart.Should().Be(4.0);
+        TimelineProvider.MatchPauseRestart(starts, (1, 2), 9.0, 5.0, 15.0, out TimelineProvider.PendingPauseStart start)
+            .Should().Be(TimelineProvider.PauseRestartResult.InvalidPair);
+        start.IsGc.Should().BeTrue();
+        starts.Should().ContainKey((1, 2));
+    }
+
+    [TestMethod]
+    public void MatchPauseRestart_NonFiniteRestartWithGcStart_IsInvalidAndPreservesStart()
+    {
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = new()
+        {
+            [(1, 2)] = new(10.0, IsGc: true)
+        };
+
+        TimelineProvider.MatchPauseRestart(
+            starts,
+            (1, 2),
+            double.PositiveInfinity,
+            5.0,
+            15.0,
+            out TimelineProvider.PendingPauseStart start)
+            .Should().Be(TimelineProvider.PauseRestartResult.InvalidPair);
+
+        start.IsGc.Should().BeTrue();
+        starts.Should().ContainKey((1, 2));
+    }
+
+    [TestMethod]
+    public void MatchPauseRestart_GcStartBeforeWindowAndRestartAfterWindow_Completes()
+    {
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = new()
+        {
+            [(1, 2)] = new(4.0, IsGc: true)
+        };
+
+        TimelineProvider.MatchPauseRestart(starts, (1, 2), 16.0, 5.0, 15.0, out TimelineProvider.PendingPauseStart pauseStart)
+            .Should().Be(TimelineProvider.PauseRestartResult.CompletedGc);
+        pauseStart.TimestampMs.Should().Be(4.0);
+        starts.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void MatchPauseRestart_GcPairBeforeWindow_IsOutsideWindow()
+    {
+        Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = new()
+        {
+            [(1, 2)] = new(3.0, IsGc: true)
+        };
+
+        TimelineProvider.MatchPauseRestart(
+            starts,
+            (1, 2),
+            4.0,
+            5.0,
+            15.0,
+            out TimelineProvider.PendingPauseStart pauseStart)
+            .Should().Be(TimelineProvider.PauseRestartResult.OutsideWindow);
+
+        pauseStart.IsGc.Should().BeTrue();
         starts.Should().BeEmpty();
     }
 
@@ -528,26 +653,26 @@ public sealed class TimelineProviderSecurityTests
 
         string warning = TimelineProvider.GetSnapshotGcPauseWarning(result)!;
 
-        warning.Should().Contain("incomplete").And.Contain("may be inaccurate");
+        warning.Should().Contain("incomplete").And.Contain("malformed").And.Contain("may be inaccurate");
         AnalysisDiagnostic.FromWarning(warning).Severity.Should().Be("warning");
     }
 
     [TestMethod]
-    public void IsGcRestartEventIdentity_RequiresTypeProviderAndExactName()
+    public void IsEeRestartEventIdentity_RequiresTypeProviderAndExactName()
     {
-        TimelineProvider.IsGcRestartEventIdentity(
+        TimelineProvider.IsEeRestartEventIdentity(
             expectedType: true,
             ClrTraceEventParser.ProviderGuid,
             "GC/RestartEEStop").Should().BeTrue();
-        TimelineProvider.IsGcRestartEventIdentity(
+        TimelineProvider.IsEeRestartEventIdentity(
             expectedType: false,
             ClrTraceEventParser.ProviderGuid,
             "GC/RestartEEStop").Should().BeFalse();
-        TimelineProvider.IsGcRestartEventIdentity(
+        TimelineProvider.IsEeRestartEventIdentity(
             expectedType: true,
             Guid.Empty,
             "GC/RestartEEStop").Should().BeFalse();
-        TimelineProvider.IsGcRestartEventIdentity(
+        TimelineProvider.IsEeRestartEventIdentity(
             expectedType: true,
             ClrTraceEventParser.ProviderGuid,
             "Custom/RestartEEStop").Should().BeFalse();
