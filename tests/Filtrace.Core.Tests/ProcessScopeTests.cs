@@ -6,6 +6,7 @@ using System.Globalization;
 using Filtrace.Output;
 using Filtrace.Tracing.Providers;
 using Filtrace.Tracing.Readers;
+using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing;
 
@@ -120,6 +121,61 @@ public sealed class ProcessScopeValidationTests
             traceProcessIds: [42, 42]);
 
         scope.RootProcessIdsReplayable.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void ResolveProcessInstanceIndexes_NameScopeExcludesLaterPidReuseAndKeepsDescendants()
+    {
+        ProcessTree.ProcessInstanceDescriptor[] processes =
+        [
+            new(1, 42, "App", null),
+            new(2, 43, "Worker", 1),
+            new(3, 42, "Unrelated", null)
+        ];
+
+        ProcessTree.ProcessInstanceSelection selection = ProcessTree.ResolveProcessInstanceIndexes(
+            processes,
+            new ProcessNameSelector("App"),
+            includeChildren: true);
+
+        selection.RootIndexes.Should().Equal(1);
+        selection.IncludedIndexes.Should().BeEquivalentTo([1, 2]);
+        selection.IncludedIndexes.Should().NotContain(3);
+    }
+
+    [TestMethod]
+    public void ResolveProcessInstanceIndexes_NameScopeExcludesIdleProcess()
+    {
+        ProcessTree.ProcessInstanceDescriptor[] processes =
+        [
+            new(1, 0, "App", null),
+            new(2, 42, "App", null)
+        ];
+
+        ProcessTree.ProcessInstanceSelection selection = ProcessTree.ResolveProcessInstanceIndexes(
+            processes,
+            new ProcessNameSelector("App"),
+            includeChildren: true);
+
+        selection.RootIndexes.Should().Equal(2);
+        selection.IncludedIndexes.Should().Equal(2);
+    }
+
+    [TestMethod]
+    public void ScopeResolution_IncludesOnlySelectedProcessInstances()
+    {
+        ScopeResolution resolution = new(
+            processIds: [42, 43],
+            processInstanceIndexes: [(ProcessIndex)1, (ProcessIndex)2],
+            label: "App",
+            phrase: "the 'App' process tree",
+            warnings: [],
+            appliedScope: new AppliedProcessScope("name", "App", [], [42], [43], true),
+            processNameBounded: false);
+
+        resolution.Includes((ProcessIndex)1).Should().BeTrue();
+        resolution.Includes((ProcessIndex)2).Should().BeTrue();
+        resolution.Includes((ProcessIndex)3).Should().BeFalse();
     }
 
     [TestMethod]

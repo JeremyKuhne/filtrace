@@ -113,11 +113,11 @@ internal abstract class TraceLogReader : ITraceReader
             }
 
             // Resolve the scope intent (an explicit selector, the busiest process under
-            // the automatic default, or every process when opted out) to the set of
-            // process IDs to keep. A null request means "unspecified", which is the
+            // the automatic default, or every process when opted out) to exact process
+            // instances. A null request means "unspecified", which is the
             // automatic default - the same as ScopeRequest.Auto - so a caller that passes
-            // nothing still gets scenario scope. A null pid set means no scoping (every
-            // process, the all-processes opt-out). This is lossless: the trace is fully
+            // nothing still gets scenario scope. Null instance membership means no
+            // scoping (the all-processes opt-out). This is lossless: the trace is fully
             // symbol-resolved by TraceLog before any sample is dropped.
             ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
 
@@ -254,7 +254,6 @@ internal abstract class TraceLogReader : ITraceReader
         SourceResolutionTracker sourceResolution,
         NativeSymbolInfo? nativeSymbols)
     {
-        HashSet<int>? scopePids = resolvedScope.ProcessIds;
         string? appliedScope = resolvedScope.Phrase;
         IReadOnlyList<string> scopeWarnings = resolvedScope.Warnings;
         AnalysisEventCounter analysisEvents = new();
@@ -286,7 +285,7 @@ internal abstract class TraceLogReader : ITraceReader
 
             // When scoped to a process tree, drop samples from any process outside it.
             // The trace is already fully resolved, so this is a lossless narrowing.
-            if (scopePids is not null && !scopePids.Contains(data.ProcessID))
+            if (!resolvedScope.Includes(data))
             {
                 continue;
             }

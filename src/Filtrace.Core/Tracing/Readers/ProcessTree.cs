@@ -12,7 +12,7 @@ namespace Filtrace.Tracing.Readers;
 
 /// <summary>
 ///  Resolves a <see cref="ProcessScope"/> against a trace's process table into the
-///  set of process IDs that make up the scoped workload tree.
+///  process instances that make up the scoped workload tree.
 /// </summary>
 /// <remarks>
 ///  <para>
@@ -26,16 +26,15 @@ internal static class ProcessTree
 {
     /// <summary>
     ///  Resolves a high-level <see cref="ScopeRequest"/> against a trace's process
-    ///  table into the set of process IDs to keep, applying the automatic
+    ///  table into the process instances to keep, applying the automatic
     ///  busiest-process default when neither an explicit selector nor the all-processes
     ///  opt-out was given.
     /// </summary>
     /// <param name="traceLog">The opened trace whose process table is queried.</param>
     /// <param name="request">The scope intent to resolve.</param>
     /// <returns>
-    ///  What the request resolved to: the process IDs to keep (<see langword="null"/>
-    ///  when every process is read), how to name the scope, and any advisories about
-    ///  how the selector matched.
+    ///  What the request resolved to: exact process instances plus PID summaries, how
+    ///  to name the scope, and any advisories about how the selector matched.
     /// </returns>
     /// <exception cref="ArgumentException">
     ///  A requested process id was reused by more than one process in the trace.
@@ -64,9 +63,21 @@ internal static class ProcessTree
 
         List<string> warnings = [];
         HashSet<int> roots = ResolveRoots(traceLog, selector, warnings);
-        HashSet<int> keep = request.IncludeChildren
-            ? IncludeDescendants(traceLog, roots)
-            : roots;
+        ProcessInstanceDescriptor[] processInstances = [.. traceLog.Processes.Select(static process =>
+            new ProcessInstanceDescriptor(
+                (int)process.ProcessIndex,
+                process.ProcessID,
+                process.Name,
+                process.Parent is null ? null : (int)process.Parent.ProcessIndex))];
+        ProcessInstanceSelection instanceSelection = ResolveProcessInstanceIndexes(
+            processInstances,
+            selector,
+            request.IncludeChildren);
+        HashSet<ProcessIndex> processInstanceIndexes = [.. instanceSelection.IncludedIndexes.Select(
+            static index => (ProcessIndex)index)];
+        HashSet<int> keep = [.. processInstances
+            .Where(process => instanceSelection.IncludedIndexes.Contains(process.Index))
+            .Select(static process => process.ProcessId)];
         AppliedProcessScope appliedScope = CreateAppliedScope(
             automatic,
             selector,
@@ -80,15 +91,23 @@ internal static class ProcessTree
         // actually narrowed - a capture that is already a single tree (a trimmed
         // fixture, say) is not "scoped" in any meaningful sense, so it stays silent
         // rather than emit a notice, and its advisories with it, for a no-op.
-        return !automatic || NarrowsTheCapture(traceLog, keep)
+        return !automatic || NarrowsTheCapture(traceLog, processInstanceIndexes)
             ? new ScopeResolution(
                 keep,
+            processInstanceIndexes,
                 Label(selector),
                 Phrase(selector, request.IncludeChildren),
                 warnings,
                 appliedScope,
                 selector is ProcessNameSelector { DisplayNameChanged: true })
-            : new ScopeResolution(keep, null, null, [], appliedScope, processNameBounded: false);
+            : new ScopeResolution(
+                keep,
+                processInstanceIndexes,
+                null,
+                null,
+                [],
+                appliedScope,
+                processNameBounded: false);
     }
 
     // A short identity for the scope, for structured output and terse rendering.
@@ -130,17 +149,66 @@ internal static class ProcessTree
 
     // Whether the kept set excludes at least one process that carried activity, i.e.
     // scoping actually dropped something rather than matching the whole capture.
-    private static bool NarrowsTheCapture(TraceLog traceLog, HashSet<int> keep)
+    private static bool NarrowsTheCapture(TraceLog traceLog, HashSet<ProcessIndex> keep)
     {
         foreach (TraceProcess process in traceLog.Processes)
         {
-            if (process.CPUMSec > 0.0f && process.ProcessID != 0 && !keep.Contains(process.ProcessID))
+            if (process.CPUMSec > 0.0f && process.ProcessID != 0 && !keep.Contains(process.ProcessIndex))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    internal static ProcessInstanceSelection ResolveProcessInstanceIndexes(
+        IReadOnlyList<ProcessInstanceDescriptor> processes,
+        ProcessSelector selector,
+        bool includeChildren)
+    {
+        HashSet<int> rootIndexes = [];
+        foreach (ProcessInstanceDescriptor process in processes)
+        {
+            bool matches = selector switch
+            {
+                ProcessNameSelector name => process.ProcessId > 0
+                    && process.Name is not null
+                    && process.Name.Contains(name.NameSubstring, StringComparison.OrdinalIgnoreCase),
+                ProcessIdSelector ids => ids.ProcessIds.Contains(process.ProcessId),
+                _ => false
+            };
+            if (matches)
+            {
+                rootIndexes.Add(process.Index);
+            }
+        }
+
+        if (!includeChildren || rootIndexes.Count == 0)
+        {
+            return new ProcessInstanceSelection(rootIndexes, [.. rootIndexes]);
+        }
+
+        Dictionary<int, int?> parents = processes.ToDictionary(
+            static process => process.Index,
+            static process => process.ParentIndex);
+        HashSet<int> includedIndexes = [.. rootIndexes];
+        foreach (ProcessInstanceDescriptor process in processes)
+        {
+            int? parentIndex = process.ParentIndex;
+            for (int depth = 0; parentIndex is int ancestorIndex && depth < processes.Count; depth++)
+            {
+                if (rootIndexes.Contains(ancestorIndex))
+                {
+                    includedIndexes.Add(process.Index);
+                    break;
+                }
+
+                parentIndex = parents.GetValueOrDefault(ancestorIndex);
+            }
+        }
+
+        return new ProcessInstanceSelection(rootIndexes, includedIndexes);
     }
 
     /// <summary>
@@ -175,11 +243,11 @@ internal static class ProcessTree
     /// </remarks>
     public static string? FindBusiestProcessName(TraceLog traceLog)
     {
-        // Count CPU samples per process id. The predicate mirrors the CPU-sample
+        // Count CPU samples per process instance. The predicate mirrors the CPU-sample
         // selection in TraceLogReader exactly (ETW SampledProfileTraceData, EventPipe
         // ClrThreadSampleTraceData excluding error samples) so the busiest process is
         // chosen by the same events the rankings are built from.
-        Dictionary<int, int> samplesByProcess = [];
+        Dictionary<ProcessIndex, int> samplesByProcess = [];
         foreach (TraceEvent data in traceLog.Events)
         {
             if (data is ClrThreadSampleTraceData clrSample)
@@ -194,10 +262,11 @@ internal static class ProcessTree
                 continue;
             }
 
-            int pid = data.ProcessID;
-            if (pid > 0)
+            TraceProcess? process = data.ProcessID <= 0 ? null : TraceLogExtensions.Process(data);
+            if (process is not null)
             {
-                samplesByProcess[pid] = samplesByProcess.GetValueOrDefault(pid) + 1;
+                samplesByProcess[process.ProcessIndex] =
+                    samplesByProcess.GetValueOrDefault(process.ProcessIndex) + 1;
             }
         }
 
@@ -217,7 +286,7 @@ internal static class ProcessTree
                 continue;
             }
 
-            int count = samplesByProcess.GetValueOrDefault(process.ProcessID);
+            int count = samplesByProcess.GetValueOrDefault(process.ProcessIndex);
             if (count > maxSamples)
             {
                 maxSamples = count;
@@ -343,7 +412,8 @@ internal static class ProcessTree
         List<TraceProcess> matched = [];
         foreach (TraceProcess process in traceLog.Processes)
         {
-            if (process.Name is not null
+            if (process.ProcessID > 0
+                && process.Name is not null
                 && process.Name.IndexOf(selector.NameSubstring, StringComparison.OrdinalIgnoreCase) >= 0
                 && roots.Add(process.ProcessID))
             {
@@ -449,4 +519,14 @@ internal static class ProcessTree
                 + "contributed nothing to the scope.");
         }
     }
+
+    internal readonly record struct ProcessInstanceDescriptor(
+        int Index,
+        int ProcessId,
+        string? Name,
+        int? ParentIndex);
+
+    internal sealed record ProcessInstanceSelection(
+        HashSet<int> RootIndexes,
+        HashSet<int> IncludedIndexes);
 }

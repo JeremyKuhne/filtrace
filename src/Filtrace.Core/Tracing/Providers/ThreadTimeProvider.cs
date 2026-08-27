@@ -96,9 +96,9 @@ public sealed class ThreadTimeProvider
 
         // A null request is "unspecified", which is the automatic default (the same as
         // ScopeRequest.Auto): a caller that passes nothing still gets scenario scope. A
-        // null pid set means no scoping (every process, the all-processes opt-out).
+        // Null instance membership means no scoping (the all-processes opt-out).
         scopeResolution = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
-        HashSet<int>? scopePids = scopeResolution.ProcessIds;
+        ScopeResolution resolvedScope = scopeResolution;
 
         MutableTraceEventStackSource stackSource = new(traceLog);
 
@@ -151,7 +151,10 @@ public sealed class ThreadTimeProvider
             string rootFrame = leafToRoot[^1];
             string process = NormalizeProcessFrame(rootFrame, out int pid);
 
-            if (scopePids is not null && (pid < 0 || !scopePids.Contains(pid)))
+            TraceProcess? processInstance = pid < 0
+                ? null
+                : traceLog.Processes.GetProcess(pid, sample.TimeRelativeMSec);
+            if (!resolvedScope.Includes(processInstance))
             {
                 return;
             }

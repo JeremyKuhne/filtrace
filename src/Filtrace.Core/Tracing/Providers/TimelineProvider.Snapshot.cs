@@ -102,7 +102,7 @@ public sealed partial class TimelineProvider
         (double startMs, double endMs) = ResolveSnapshotBounds(atMs, halfWindowMs, traceEnd);
 
         ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
-        HashSet<int>? scopePids = resolved.ProcessIds;
+        HashSet<int>? scopedAnalysisProcessIndexes = resolved.ProcessInstanceIndexes is null ? null : [];
         bool namesTruncated = resolved.ProcessNameBounded;
         string? appliedProcessName = resolved.Label;
         if (appliedProcessName is not null)
@@ -139,7 +139,7 @@ public sealed partial class TimelineProvider
 
         SnapshotGcSummary gc = BuildSnapshotGc(
             source,
-            scopePids,
+            scopedAnalysisProcessIndexes,
             pauseIntervals,
             startMs,
             endMs,
@@ -221,9 +221,17 @@ public sealed partial class TimelineProvider
         void Accumulate(TraceEvent data)
         {
             double timestamp = data.TimeStampRelativeMSec;
-            if (scopePids is not null && !scopePids.Contains(data.ProcessID))
+            if (!resolved.Includes(data))
             {
                 return;
+            }
+
+            if (scopedAnalysisProcessIndexes is not null
+                && TraceProcessesExtensions.Process(data) is TraceProcess scopedProcess)
+            {
+                // Includes() admitted the exact ETLX instance; this second process model
+                // owns TraceGC, so retain its corresponding index for reconstruction.
+                scopedAnalysisProcessIndexes.Add((int)scopedProcess.ProcessIndex);
             }
 
             if (data is GCSuspendEETraceData suspend)
@@ -486,7 +494,7 @@ public sealed partial class TimelineProvider
 
     private static SnapshotGcSummary BuildSnapshotGc(
         Etlx.TraceLogEventSource source,
-        HashSet<int>? scopePids,
+        HashSet<int>? scopedProcessInstanceIndexes,
         IReadOnlyList<GcPauseInterval> pauseIntervals,
         double startMs,
         double endMs,
@@ -501,7 +509,8 @@ public sealed partial class TimelineProvider
 
         foreach (TraceProcess process in source.Processes())
         {
-            if (scopePids is not null && !scopePids.Contains(process.ProcessID))
+            if (scopedProcessInstanceIndexes is not null
+                && !scopedProcessInstanceIndexes.Contains((int)process.ProcessIndex))
             {
                 continue;
             }
