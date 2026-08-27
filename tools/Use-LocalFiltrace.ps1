@@ -1216,6 +1216,11 @@ try {
         (Get-PathComparison $skillDestinationPhysical)) {
         throw "SkillDestination must not contain TargetRepository: '$SkillDestination'."
     }
+    [string] $localTestingRoot = Join-Path $root 'artifacts/local-testing'
+    Assert-PathsDoNotOverlap `
+        $SkillDestination 'SkillDestination' `
+        $localTestingRoot 'Shared local-testing root' `
+        $pathComparison
 
     [bool] $cliManaged = if ($null -ne $state -and
         -not $PSBoundParameters.ContainsKey('SkipCli')) {
@@ -1368,8 +1373,9 @@ try {
                     throw "Cleanup workspace is nonempty but its ownership marker is missing: '$stateWorkspace'."
                 }
             }
-            if ($state.schemaVersion -eq 5) {
+            if ($state.schemaVersion -eq 5 -or $ownershipClaimed) {
                 Remove-ResourceOwnership $resourceKeys $StatePath
+                $ownershipClaimed = $false
             }
             Remove-Item -LiteralPath $StatePath -Force
             Write-Host "Filtrace local-mode cleanup completed for '$TargetRepository'."

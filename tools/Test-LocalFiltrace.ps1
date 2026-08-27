@@ -865,6 +865,23 @@ try {
             "Dangerous SkillDestination '$dangerousSkill' wrote rollback state."
     }
 
+    [string] $sharedRootSkill = Join-Path $copiedRoot 'artifacts/local-testing/owners'
+    [string] $sharedRootSentinel = Join-Path $sharedRootSkill 'keep.txt'
+    [string] $sharedRootConfig = Join-Path $copiedRoot 'shared-root-mcp.json'
+    [string] $sharedRootState = Join-Path $copiedRoot 'custom-state/state.json'
+    $null = New-Item -ItemType Directory -Path $sharedRootSkill -Force
+    [System.IO.File]::WriteAllText($sharedRootSentinel, 'shared registry', $utf8)
+    Write-Json $sharedRootConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [string] $sharedRootFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $sharedRootConfig -SkillDestination $sharedRootSkill `
+        -StatePath $sharedRootState -SkipCli -WorkflowPath $copiedWorkflow
+    Assert-True ($sharedRootFailure -match 'SkillDestination and Shared local-testing root must not overlap') `
+        'SkillDestination inside the shared local-testing root was not rejected.'
+    Assert-True ([System.IO.File]::ReadAllText($sharedRootSentinel, $utf8) -ceq 'shared registry') `
+        'Shared local-testing root rejection changed existing registry content.'
+    Assert-True (-not (Test-Path -LiteralPath $sharedRootState)) `
+        'Shared local-testing root rejection wrote rollback state.'
+
     [string[]] $overlapDestinations = @(
         $copiedSkillSource,
         (Split-Path -Parent $copiedSkillSource),
@@ -1211,6 +1228,14 @@ try {
             "Cleanup retry left state when workspacePresent=$workspacePresent."
         Assert-True (-not (Test-Path -LiteralPath $cleanupWorkspace)) `
             "Cleanup retry left the workspace when workspacePresent=$workspacePresent."
+        [object[]] $cleanupOwners = @(
+            Get-ChildItem -LiteralPath (Join-Path $root 'artifacts/local-testing/owners') `
+                -File -Filter '*.json' -ErrorAction SilentlyContinue |
+                Where-Object {
+                    [string] (Read-Json $_.FullName).statePath -ceq $cleanupState
+                })
+        Assert-True ($cleanupOwners.Count -eq 0) `
+            "Cleanup retry left resource ownership when workspacePresent=$workspacePresent."
     }
 
     # CLI package installation and restoration use exact feed bytes when the
