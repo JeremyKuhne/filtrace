@@ -396,6 +396,7 @@ function Assert-LocalSkill([string] $Destination, [string] $ExpectedOverlay) {
         'The consumer-owned overlay was not preserved while vendoring the local skill.'
 }
 
+[string] $consumerStateForCleanup = ''
 $null = New-Item -ItemType Directory -Path $temporaryRoot
 try {
     $tokens = $null
@@ -505,6 +506,7 @@ try {
     [string] $consumerMcp = Join-Path $consumerRoot '.vscode/mcp.json'
     [string] $consumerSkill = Join-Path $consumerRoot '.agents/skills/filtrace'
     [string] $consumerState = Get-DefaultStatePath $consumerRoot
+    $consumerStateForCleanup = $consumerState
     [string] $consumerCli = Join-Path "$consumerState.workspace" $(if (
         [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
             [System.Runtime.InteropServices.OSPlatform]::Windows)) {
@@ -826,6 +828,24 @@ try {
     Assert-True ($legacyScopedInstallFailure -match 'Legacy repository-scoped local-testing state must be restored') `
         'Legacy scoped state refresh was not rejected with migration guidance.'
 
+    [string] $legacyScopedWrongConfig = Join-Path $legacyScopedRoot 'wrong-mcp.json'
+    Write-Json $legacyScopedWrongConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [string] $legacyScopedMismatch = Invoke-WorkflowFailure -Action Restore `
+        -McpConfigPath $legacyScopedWrongConfig -SkillDestination $legacyScopedSkill `
+        -StatePath $legacyScopedState -SkipCli
+    Assert-True ($legacyScopedMismatch -match 'state does not match this invocation') `
+        'Legacy scoped path mismatch was not rejected before Restore.'
+    [object[]] $legacyMismatchOwners = @(
+        Get-ChildItem -LiteralPath (Join-Path $root 'artifacts/local-testing/owners') `
+            -File -Filter '*.json' -ErrorAction SilentlyContinue |
+            Where-Object {
+                [string] (Read-Json $_.FullName).statePath -ceq $legacyScopedState
+            })
+    Assert-True ($legacyMismatchOwners.Count -eq 0) `
+        'Legacy scoped path mismatch created resource ownership records.'
+    Assert-True ((Read-Json $legacyScopedState).status -ceq 'local-active') `
+        'Legacy scoped path mismatch changed active state.'
+
     [string] $legacyScopedConfigJson = [System.IO.File]::ReadAllText($legacyScopedConfig, $utf8)
     [System.IO.File]::WriteAllText($legacyScopedConfig, '{', $utf8)
     [string] $legacyScopedRestoreFailure = Invoke-WorkflowFailure -Action Restore `
@@ -848,6 +868,72 @@ try {
         'Legacy scoped restore left the rollback manifest active.'
     Assert-True (-not (Test-Path -LiteralPath $legacyScopedWorkspace)) `
         'Legacy scoped restore left the owned workspace active.'
+
+    [string] $schemaFiveRoot = Join-Path $temporaryRoot 'schema five state'
+    [string] $schemaFiveConfig = Join-Path $schemaFiveRoot 'mcp.json'
+    [string] $schemaFiveSkill = Join-Path $schemaFiveRoot 'skill/filtrace'
+    [string] $schemaFiveState = Join-Path $schemaFiveRoot 'state.json'
+    [string] $schemaFiveWorkspace = "$schemaFiveState.workspace"
+    $null = New-Item -ItemType Directory -Path $schemaFiveSkill -Force
+    $null = New-Item -ItemType Directory -Path $schemaFiveWorkspace -Force
+    [System.IO.File]::WriteAllText((Join-Path $schemaFiveSkill 'SKILL.md'), 'schema five local skill', $utf8)
+    Write-Json $schemaFiveConfig ([ordered] @{
+            servers = [ordered] @{
+                docs = [ordered] @{ type = 'http'; url = 'https://schema-five.invalid/mcp' }
+                filtrace = [ordered] @{ type = 'stdio'; command = 'dotnet'; args = @('local.dll') }
+            }
+            inputs = @()
+        })
+    Write-Json (Join-Path $schemaFiveWorkspace '.filtrace-local-testing.json') ([ordered] @{
+            schemaVersion = 1
+            statePath = $schemaFiveState
+        })
+    Write-Json $schemaFiveState ([ordered] @{
+            schemaVersion = 5
+            createdUtc = [System.DateTimeOffset]::UtcNow.ToString('O')
+            status = 'local-active'
+            targetRepository = $schemaFiveRoot
+            workspace = $schemaFiveWorkspace
+            cliManaged = $false
+            cliToolPath = $null
+            cli = $null
+            resourceKeys = @(
+                "path:$(Get-PathIdentity $schemaFiveConfig)",
+                "path:$(Get-PathIdentity $schemaFiveSkill)")
+            mcp = [ordered] @{
+                path = $schemaFiveConfig
+                fileExisted = $true
+                existingAncestor = $schemaFiveRoot
+                serverExisted = $false
+                server = $null
+            }
+            skill = [ordered] @{
+                destination = $schemaFiveSkill
+                existingAncestor = $schemaFiveRoot
+                existed = $false
+                backupSha256 = $null
+            }
+        })
+    [string] $schemaFiveInstallFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $schemaFiveConfig -SkillDestination $schemaFiveSkill `
+        -StatePath $schemaFiveState -SkipCli
+    Assert-True ($schemaFiveInstallFailure -match 'Legacy repository-scoped local-testing state must be restored') `
+        'Schema-5 Install was not rejected with migration guidance.'
+    Invoke-Workflow 'Restore' $schemaFiveConfig $schemaFiveSkill $schemaFiveState
+    Assert-True (-not (Test-Path -LiteralPath $schemaFiveState)) `
+        'Schema-5 Restore left the manifest active.'
+    Assert-True (-not (Test-Path -LiteralPath $schemaFiveWorkspace)) `
+        'Schema-5 Restore left the workspace active.'
+    Assert-True (-not (Test-Path -LiteralPath $schemaFiveSkill)) `
+        'Schema-5 Restore left the local skill active.'
+    [object[]] $schemaFiveOwners = @(
+        Get-ChildItem -LiteralPath (Join-Path $root 'artifacts/local-testing/owners') `
+            -File -Filter '*.json' -ErrorAction SilentlyContinue |
+            Where-Object {
+                [string] (Read-Json $_.FullName).statePath -ceq $schemaFiveState
+            })
+    Assert-True ($schemaFiveOwners.Count -eq 0) `
+        'Schema-5 Restore left migrated resource ownership active.'
 
     # Path containment: exercise destructive overlap cases against a disposable
     # workflow copy, then prove a sibling-prefix destination is not over-rejected.
@@ -1011,7 +1097,53 @@ try {
             'Linked MCP rejection changed the link target.'
         Assert-True (-not (Test-Path -LiteralPath $linkedMcpState)) `
             'Linked MCP rejection wrote rollback state.'
+
+        [string] $linkedStateRoot = Join-Path $copiedRoot 'linked-state'
+        [string] $linkedStateTarget = Join-Path $linkedStateRoot 'actual-state.json'
+        [string] $linkedStatePath = Join-Path $linkedStateRoot 'state.json'
+        [string] $linkedStateConfig = Join-Path $linkedStateRoot 'mcp.json'
+        [string] $linkedStateSkill = Join-Path $linkedStateRoot 'skill/filtrace'
+        Write-Json $linkedStateTarget ([ordered] @{ schemaVersion = 6 })
+        Write-Json $linkedStateConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+        $null = New-Item -ItemType SymbolicLink -Path $linkedStatePath -Target $linkedStateTarget
+        [byte[]] $linkedStateTargetBytes = [System.IO.File]::ReadAllBytes($linkedStateTarget)
+        [string] $linkedStateFailure = Invoke-WorkflowFailure -Action Restore `
+            -McpConfigPath $linkedStateConfig -SkillDestination $linkedStateSkill `
+            -StatePath $linkedStatePath -SkipCli -WorkflowPath $copiedWorkflow
+        Assert-True ($linkedStateFailure -match 'state must not be a symbolic link') `
+            'A linked StatePath was not rejected before reading state.'
+        Assert-True ((Get-Item -LiteralPath $linkedStatePath -Force).LinkType -ceq 'SymbolicLink') `
+            'Linked StatePath rejection replaced the symbolic link.'
+        Assert-True (
+            [System.Linq.Enumerable]::SequenceEqual(
+                $linkedStateTargetBytes,
+                [System.IO.File]::ReadAllBytes($linkedStateTarget))) `
+            'Linked StatePath rejection changed the link target.'
     }
+
+    [string] $linkedSkillRoot = Join-Path $copiedRoot 'linked-skill'
+    [string] $linkedSkillTarget = Join-Path $linkedSkillRoot 'actual-skill'
+    [string] $linkedSkillDestination = Join-Path $linkedSkillRoot 'skill-link'
+    [string] $linkedSkillConfig = Join-Path $linkedSkillRoot 'mcp.json'
+    [string] $linkedSkillState = Join-Path $linkedSkillRoot 'state.json'
+    $null = New-Item -ItemType Directory -Path $linkedSkillTarget -Force
+    [string] $linkedSkillSentinel = Join-Path $linkedSkillTarget 'keep.txt'
+    [System.IO.File]::WriteAllText($linkedSkillSentinel, 'linked skill target', $utf8)
+    Write-Json $linkedSkillConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+    [string] $linkedSkillType = if (Test-WindowsPlatform) { 'Junction' } else { 'SymbolicLink' }
+    $null = New-Item `
+        -ItemType $linkedSkillType `
+        -Path $linkedSkillDestination `
+        -Target $linkedSkillTarget
+    [string] $linkedSkillFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $linkedSkillConfig -SkillDestination $linkedSkillDestination `
+        -StatePath $linkedSkillState -SkipCli -WorkflowPath $copiedWorkflow
+    Assert-True ($linkedSkillFailure -match 'SkillDestination must not be a symbolic link') `
+        'A linked SkillDestination was not rejected before baseline capture.'
+    Assert-True ([System.IO.File]::ReadAllText($linkedSkillSentinel, $utf8) -ceq 'linked skill target') `
+        'Linked SkillDestination rejection changed its target.'
+    Assert-True (-not (Test-Path -LiteralPath $linkedSkillState)) `
+        'Linked SkillDestination rejection wrote rollback state.'
 
     foreach ($reservedName in @('skill-backup', 'cli-backup', 'packages')) {
         [string] $reservedCliRoot = Join-Path $copiedRoot "reserved-cli-$reservedName"
@@ -1386,6 +1518,19 @@ try {
     Write-Host 'Local Filtrace setup contract passed (repository scope, path safety, locking, exact CLI package restore, and failed-restore retry).'
 }
 finally {
+    if (-not [string]::IsNullOrWhiteSpace($consumerStateForCleanup) -and
+        (Test-Path -LiteralPath $consumerStateForCleanup -PathType Leaf)) {
+        [string[]] $cleanupArguments = @(
+            '-NoProfile',
+            '-File', $workflow,
+            '-Action', 'Restore',
+            '-StatePath', $consumerStateForCleanup,
+            '-SkipValidation')
+        & (Get-Process -Id $PID).Path @cleanupArguments 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Could not restore test-owned state '$consumerStateForCleanup'; removing its isolated artifacts."
+        }
+    }
     [string] $ownersRoot = Join-Path $root 'artifacts/local-testing/owners'
     if (Test-Path -LiteralPath $ownersRoot -PathType Container) {
         [System.StringComparison] $temporaryComparison = if (Test-WindowsPlatform) {
@@ -1399,7 +1544,13 @@ finally {
             try {
                 [object] $owner = Read-Json $ownerFile.FullName
                 [string] $ownerStatePath = [System.IO.Path]::GetFullPath([string] $owner.statePath)
-                if ($ownerStatePath.StartsWith($temporaryPrefix, $temporaryComparison)) {
+                [bool] $isDefaultTestState = -not [string]::IsNullOrWhiteSpace($consumerStateForCleanup) -and
+                    [string]::Equals(
+                        $ownerStatePath,
+                        [System.IO.Path]::GetFullPath($consumerStateForCleanup),
+                        $temporaryComparison)
+                if ($ownerStatePath.StartsWith($temporaryPrefix, $temporaryComparison) -or
+                    $isDefaultTestState) {
                     Remove-Item -LiteralPath $ownerFile.FullName -Force
                 }
             }
@@ -1407,6 +1558,10 @@ finally {
                 Write-Warning "Could not inspect test resource owner '$($ownerFile.FullName)': $($_.Exception.Message)"
             }
         }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($consumerStateForCleanup)) {
+        Remove-Item -LiteralPath "$consumerStateForCleanup.workspace" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $consumerStateForCleanup -Force -ErrorAction SilentlyContinue
     }
     Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

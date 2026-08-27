@@ -218,6 +218,23 @@ function Test-PathsEqual([string] $First, [string] $Second) {
         (Get-PathComparison $firstPhysical))
 }
 
+function Assert-PathIsNotLink([string] $Path, [string] $Description) {
+    [System.IO.FileSystemInfo] $item = $null
+    try {
+        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    }
+    catch [System.Management.Automation.ItemNotFoundException] {
+        return
+    }
+    catch {
+        throw "$Description could not be inspected: '$Path'. $($_.Exception.Message)"
+    }
+
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "$Description must not be a symbolic link or junction: '$Path'."
+    }
+}
+
 function Get-PathIdentity([string] $Path) {
     [string] $identity = Resolve-PhysicalPath $Path
     if ((Get-PathComparison $identity) -eq [System.StringComparison]::OrdinalIgnoreCase) {
@@ -1149,6 +1166,7 @@ $StatePath = Get-FullPath $(if ($PSBoundParameters.ContainsKey('StatePath')) {
 
 [System.IO.FileStream] $stateLock = Enter-StateLock $StatePath
 try {
+    Assert-PathIsNotLink $StatePath 'Local-testing state'
     [object] $state = if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
         Read-JsonFile $StatePath 'Local-testing state'
     }
@@ -1211,6 +1229,9 @@ try {
         else {
             Join-Path $TargetRepository '.agents/skills/filtrace'
         }) 'Skill destination'
+
+    Assert-PathIsNotLink $McpConfigPath 'VS Code MCP configuration'
+    Assert-PathIsNotLink $SkillDestination 'SkillDestination'
 
     [string] $targetRepositoryPhysical = Resolve-PhysicalPath $TargetRepository
     [string] $skillDestinationPhysical = Resolve-PhysicalPath $SkillDestination
@@ -1362,6 +1383,16 @@ try {
     [string] $stateDirectory = Split-Path -Parent $StatePath
     [string] $mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
 
+    if ($null -ne $state -and $state.status -cne 'cleanup-in-progress' -and (
+            ($state.schemaVersion -ge 3 -and
+                -not (Test-PathsEqual ([string] $state.targetRepository) $TargetRepository)) -or
+            -not (Test-PathsEqual ([string] $state.mcp.path) $McpConfigPath) -or
+            -not (Test-PathsEqual ([string] $state.skill.destination) $SkillDestination) -or
+            -not (Test-PathsEqual ([string] $state.cliToolPath) ([string] $CliToolPath)) -or
+            [bool] $state.cliManaged -ne $cliManaged)) {
+        throw "Existing local-testing state does not match this invocation: '$StatePath'."
+    }
+
     [string[]] $resourceKeys = if ($null -ne $state -and $state.schemaVersion -eq 6) {
         [string[]] $state.resourceKeys
     }
@@ -1418,15 +1449,6 @@ try {
             return
         }
 
-        if ($null -ne $state -and (
-            ($state.schemaVersion -ge 3 -and
-                -not (Test-PathsEqual ([string] $state.targetRepository) $TargetRepository)) -or
-            -not (Test-PathsEqual ([string] $state.mcp.path) $McpConfigPath) -or
-            -not (Test-PathsEqual ([string] $state.skill.destination) $SkillDestination) -or
-            -not (Test-PathsEqual ([string] $state.cliToolPath) ([string] $CliToolPath)) -or
-            [bool] $state.cliManaged -ne $cliManaged)) {
-        throw "Existing local-testing state does not match this invocation: '$StatePath'."
-    }
         if ($null -ne $state -and $normalizedAction -ceq 'Install' -and
         $state.status -ceq 'restore-in-progress') {
         throw "Restore is already in progress for '$StatePath'. Run -Action Restore."
