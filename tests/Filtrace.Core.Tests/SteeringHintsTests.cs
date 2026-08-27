@@ -213,7 +213,7 @@ public sealed class SteeringHintsTests
 
         AnalysisResult<TraceInfo> envelope = new(info, hints: hints);
         envelope.NextSteps.Should().HaveSameCount(hints);
-        envelope.NextSteps.Should().OnlyContain(step => step.Operation is null);
+        envelope.NextSteps.Should().AllSatisfy(step => step.Operation.Should().BeNull());
     }
 
     [TestMethod]
