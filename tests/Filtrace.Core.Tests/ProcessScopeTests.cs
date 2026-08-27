@@ -435,7 +435,7 @@ public sealed class ScopeRequestTests
 [OSCondition(OperatingSystems.Windows)]
 public sealed class ProcessScopeTests
 {
-    private static string EtwFixture => Path.Combine(AppContext.BaseDirectory, "Fixtures", "etw.etl");
+    private static string EtwFixture => Path.Join(AppContext.BaseDirectory, "Fixtures", "etw.etl");
 
     // The load path treats a null request as the automatic busiest-process default,
     // so tests that want the whole capture pass ScopeRequest.AllProcesses explicitly.

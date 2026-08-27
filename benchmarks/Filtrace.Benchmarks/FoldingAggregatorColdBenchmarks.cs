@@ -4,7 +4,9 @@
 
 namespace Filtrace.Benchmarks;
 
-/// <summary>Measures first-query aggregation with an empty short-frame cache.</summary>
+/// <summary>
+///  Measures first-query aggregation with an empty short-frame cache.
+/// </summary>
 [MemoryDiagnoser]
 public class FoldingAggregatorColdBenchmarks
 {
@@ -12,14 +14,20 @@ public class FoldingAggregatorColdBenchmarks
     private const string SourceFile = "Pipeline.cs";
     private StackSampleSource _source = null!;
 
-    /// <summary>The sample-count, stack-depth, and frame-cardinality scenario.</summary>
+    /// <summary>
+    ///  The sample-count, stack-depth, and frame-cardinality scenario.
+    /// </summary>
     [ParamsSource(nameof(Scenarios))]
     public string Scenario { get; set; } = null!;
 
-    /// <summary>The valid synthetic scenarios.</summary>
+    /// <summary>
+    ///  The valid synthetic scenarios.
+    /// </summary>
     public static IEnumerable<string> Scenarios => FoldingBenchmarkCorpus.ScenarioNames;
 
-    /// <summary>Builds the immutable sample source outside the measured operation.</summary>
+    /// <summary>
+    ///  Builds the immutable sample source outside the measured operation.
+    /// </summary>
     [GlobalSetup]
     public void Setup()
     {
@@ -41,22 +49,30 @@ public class FoldingAggregatorColdBenchmarks
         }
     }
 
-    /// <summary>Constructs an aggregator and ranks folded leaf weight.</summary>
+    /// <summary>
+    ///  Constructs an aggregator and ranks folded leaf weight.
+    /// </summary>
     [Benchmark]
     public RankingResult SelfTime() =>
         new FoldingAggregator(_source).SelfTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
 
-    /// <summary>Constructs an aggregator and ranks every frame by inclusive weight.</summary>
+    /// <summary>
+    ///  Constructs an aggregator and ranks every frame by inclusive weight.
+    /// </summary>
     [Benchmark]
     public RankingResult InclusiveTime() =>
         new FoldingAggregator(_source).InclusiveTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
 
-    /// <summary>Constructs an aggregator and finds callers of a stable focus frame.</summary>
+    /// <summary>
+    ///  Constructs an aggregator and finds callers of a stable focus frame.
+    /// </summary>
     [Benchmark]
     public CallersResult CallersOf() =>
         new FoldingAggregator(_source).CallersOf(FocusFrame, string.Empty, top: 25);
 
-    /// <summary>Constructs an aggregator and ranks synthetic source lines.</summary>
+    /// <summary>
+    ///  Constructs an aggregator and ranks synthetic source lines.
+    /// </summary>
     [Benchmark]
     public LineRankingResult HotLines() =>
         new FoldingAggregator(_source).HotLines(
@@ -64,12 +80,16 @@ public class FoldingAggregatorColdBenchmarks
             FrameNames.DefaultFoldPatterns,
             top: 25);
 
-    /// <summary>Constructs an aggregator and builds a synthetic source heatmap.</summary>
+    /// <summary>
+    ///  Constructs an aggregator and builds a synthetic source heatmap.
+    /// </summary>
     [Benchmark]
     public SourceHeatmapResult SourceHeatmap() =>
         new FoldingAggregator(_source).SourceHeatmap(SourceFile, FrameNames.DefaultFoldPatterns);
 
-    /// <summary>Constructs an aggregator and builds a bounded call tree.</summary>
+    /// <summary>
+    ///  Constructs an aggregator and builds a bounded call tree.
+    /// </summary>
     [Benchmark]
     public CallTreeResult CallTree() =>
         new FoldingAggregator(_source).CallTree(
@@ -78,7 +98,9 @@ public class FoldingAggregatorColdBenchmarks
             maxDepth: 20,
             minPercentOfScope: 0.0);
 
-    /// <summary>Constructs an aggregator and classifies synthetic self-time.</summary>
+    /// <summary>
+    ///  Constructs an aggregator and classifies synthetic self-time.
+    /// </summary>
     [Benchmark]
     public ClassifyResult Classify() =>
         new FoldingAggregator(_source).Classify(string.Empty);

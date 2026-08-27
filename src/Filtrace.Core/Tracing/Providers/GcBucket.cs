@@ -4,7 +4,9 @@
 
 namespace Filtrace.Tracing.Providers;
 
-/// <summary>A garbage-collection time bucket: collection count, summed and longest pause, and whether any was gen-2.</summary>
+/// <summary>
+///  A garbage-collection time bucket: collection count, summed and longest pause, and whether any was gen-2.
+/// </summary>
 /// <param name="Count">Collections started in the bucket.</param>
 /// <param name="TotalPauseMs">Summed managed-thread pause time, in milliseconds.</param>
 /// <param name="MaxPauseMs">Longest single pause, in milliseconds.</param>

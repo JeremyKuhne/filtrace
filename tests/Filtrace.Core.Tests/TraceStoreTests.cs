@@ -12,13 +12,13 @@ public sealed class TraceStoreTests
     private static readonly TimeSpan SynchronizationTimeout = TimeSpan.FromSeconds(10);
 
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static string CopyToTemp(string fixture, out string tempDirectory)
     {
-        tempDirectory = Path.Combine(Path.GetTempPath(), $"filtrace-store-{Guid.NewGuid():N}");
+        tempDirectory = Path.Join(Path.GetTempPath(), $"filtrace-store-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDirectory);
-        string destination = Path.Combine(tempDirectory, fixture);
+        string destination = Path.Join(tempDirectory, fixture);
         File.Copy(FixturePath(fixture), destination);
         return destination;
     }

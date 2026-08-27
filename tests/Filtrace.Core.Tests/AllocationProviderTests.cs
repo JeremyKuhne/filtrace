@@ -10,7 +10,7 @@ namespace Filtrace.Tracing.Providers;
 public sealed class AllocationProviderTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static StackSampleSource LoadAlloc() =>
         new AllocationProvider().Read(FixturePath("alloc.nettrace"));

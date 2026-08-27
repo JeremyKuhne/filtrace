@@ -4,13 +4,19 @@
 
 namespace Filtrace.Tracing;
 
-/// <summary>Runs one compact ranking query across a bounded capture manifest.</summary>
+/// <summary>
+///  Runs one compact ranking query across a bounded capture manifest.
+/// </summary>
 public static class CaptureManifestBatchAnalyzer
 {
-    /// <summary>Maximum cases analyzed in one batch.</summary>
+    /// <summary>
+    ///  Maximum cases analyzed in one batch.
+    /// </summary>
     public const int MaxAnalyzedCases = 24;
 
-    /// <summary>Runs a self or inclusive ranking summary for every manifest case.</summary>
+    /// <summary>
+    ///  Runs a self or inclusive ranking summary for every manifest case.
+    /// </summary>
     /// <param name="manifest">Capture manifest.</param>
     /// <param name="metric">Canonical metric selector.</param>
     /// <param name="inclusive">Whether to rank inclusive rather than self weight.</param>
@@ -145,8 +151,12 @@ public static class CaptureManifestBatchAnalyzer
     /// <param name="inclusive">Whether to rank inclusive rather than self weight.</param>
     /// <param name="root">Optional root-frame selector.</param>
     /// <param name="foldPatterns">Leaf-fold patterns.</param>
-    /// <param name="maxDegreeOfParallelism">Maximum concurrent case loads. Must be in [1, <see cref="MaxAnalyzedCases"/>].</param>
-    /// <param name="load">Loads a case with the owning head's cache and scope policy; it must be safe for concurrent calls.</param>
+    /// <param name="maxDegreeOfParallelism">
+    ///  Maximum concurrent case loads. Must be in [1, <see cref="MaxAnalyzedCases"/>].
+    /// </param>
+    /// <param name="load">
+    ///  Loads a case with the owning head's cache and scope policy; it must be safe for concurrent calls.
+    /// </param>
     /// <returns>The compact case-keyed batch result.</returns>
     /// <remarks>
     ///  The current implementation preserves sequential execution for every degree.

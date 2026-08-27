@@ -10,7 +10,7 @@ namespace Filtrace.Tracing.Providers;
 public sealed class GcStatsProviderTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     // The allocation smoke trace is captured under the GC-verbose profile, so it
     // carries the GC events this provider reads - no separate fixture is needed.

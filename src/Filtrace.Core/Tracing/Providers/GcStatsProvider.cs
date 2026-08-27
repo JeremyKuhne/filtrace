@@ -95,9 +95,7 @@ public sealed class GcStatsProvider
     ///  The warning naming what was dropped, or <see langword="null"/> when the whole
     ///  collection list was kept.
     /// </param>
-    /// <returns>
-    ///  The limited report, or <paramref name="report"/> itself when every collection fit.
-    /// </returns>
+    /// <returns>The limited report, or <paramref name="report"/> itself when every collection fit.</returns>
     /// <remarks>
     ///  <para>
     ///   Shared by both heads so they bound and word the result identically. Collections

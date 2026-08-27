@@ -12,16 +12,16 @@ public sealed class TraceConverterTests
     private static readonly TimeSpan SynchronizationTimeout = TimeSpan.FromSeconds(10);
 
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     // convert / clean mutate the filesystem (they write and delete the ETLX sidecar),
     // so each test works on a private temp copy of the fixture rather than the shared
     // committed one.
     private static string CopyToTemp(string fixture, out string tempDir)
     {
-        tempDir = Path.Combine(Path.GetTempPath(), $"filtrace-conv-{Guid.NewGuid():N}");
+        tempDir = Path.Join(Path.GetTempPath(), $"filtrace-conv-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
-        string dest = Path.Combine(tempDir, fixture);
+        string dest = Path.Join(tempDir, fixture);
         File.Copy(FixturePath(fixture), dest);
         return dest;
     }

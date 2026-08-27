@@ -11,7 +11,7 @@ namespace Filtrace.Cli;
 public sealed class LifecycleExecutorTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     // The ETW fixture captured a job process that launched a console host, with both
     // process edges recorded, so it is a fully observed parent-and-child invocation.

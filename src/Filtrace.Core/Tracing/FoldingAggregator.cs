@@ -326,13 +326,11 @@ public sealed partial class FoldingAggregator
     ///  <see cref="OutputBudget.DefaultRowBudgetTokens"/>, leaving the scope totals
     ///  untouched.
     /// </summary>
-    /// <param name="ranking">The ranking to bound, as returned by <see cref="SelfTime"/> or <see cref="InclusiveTime"/>.</param>
-    /// <param name="warning">
-    ///  The warning naming what was dropped, or <see langword="null"/> when every row fit.
+    /// <param name="ranking">
+    ///  The ranking to bound, as returned by <see cref="SelfTime"/> or <see cref="InclusiveTime"/>.
     /// </param>
-    /// <returns>
-    ///  The limited ranking, or <paramref name="ranking"/> itself when every row fit.
-    /// </returns>
+    /// <param name="warning">The warning naming what was dropped, or <see langword="null"/> when every row fit.</param>
+    /// <returns>The limited ranking, or <paramref name="ranking"/> itself when every row fit.</returns>
     /// <remarks>
     ///  <para>
     ///   Shared by both heads so they bound and word the result identically. The row cap
@@ -380,12 +378,8 @@ public sealed partial class FoldingAggregator
     ///  untouched.
     /// </summary>
     /// <param name="callers">The breakdown to bound, as returned by <see cref="CallersOf"/>.</param>
-    /// <param name="warning">
-    ///  The warning naming what was dropped, or <see langword="null"/> when every row fit.
-    /// </param>
-    /// <returns>
-    ///  The limited breakdown, or <paramref name="callers"/> itself when every row fit.
-    /// </returns>
+    /// <param name="warning">The warning naming what was dropped, or <see langword="null"/> when every row fit.</param>
+    /// <returns>The limited breakdown, or <paramref name="callers"/> itself when every row fit.</returns>
     /// <remarks>
     ///  <para>
     ///   Both lists share one response, so the callers are filled first and the callees
@@ -446,12 +440,8 @@ public sealed partial class FoldingAggregator
     ///  untouched.
     /// </summary>
     /// <param name="lines">The ranking to bound, as returned by <see cref="HotLines"/>.</param>
-    /// <param name="warning">
-    ///  The warning naming what was dropped, or <see langword="null"/> when every row fit.
-    /// </param>
-    /// <returns>
-    ///  The limited ranking, or <paramref name="lines"/> itself when every row fit.
-    /// </returns>
+    /// <param name="warning">The warning naming what was dropped, or <see langword="null"/> when every row fit.</param>
+    /// <returns>The limited ranking, or <paramref name="lines"/> itself when every row fit.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="lines"/> is <see langword="null"/>.</exception>
     public static LineRankingResult LimitRows(LineRankingResult lines, out string? warning)
     {
@@ -486,9 +476,7 @@ public sealed partial class FoldingAggregator
     /// <param name="warning">
     ///  The warning naming what was dropped, or <see langword="null"/> when every line fit.
     /// </param>
-    /// <returns>
-    ///  The limited heat map, or <paramref name="heatmap"/> itself when every line fit.
-    /// </returns>
+    /// <returns>The limited heat map, or <paramref name="heatmap"/> itself when every line fit.</returns>
     /// <remarks>
     ///  <para>
     ///   A heat map takes no row cap - its size follows the source file - so the budget
@@ -886,8 +874,12 @@ public sealed partial class FoldingAggregator
     /// </remarks>
     /// <param name="rootFrame">Substring scoping the tree to a subtree, or empty for the whole trace.</param>
     /// <param name="foldPatterns">Frame fold patterns; folded frames are skipped.</param>
-    /// <param name="maxDepth">The maximum number of frame levels below the root to descend. Must be in <c>[0, <see cref="MaxTreeDepth"/>]</c>.</param>
-    /// <param name="minPercentOfScope">The minimum share of the scoped total, in percent, a node must have to appear. Must be non-negative.</param>
+    /// <param name="maxDepth">
+    ///  The maximum number of frame levels below the root to descend. Must be in <c>[0, <see cref="MaxTreeDepth"/>]</c>.
+    /// </param>
+    /// <param name="minPercentOfScope">
+    ///  The minimum share of the scoped total, in percent, a node must have to appear. Must be non-negative.
+    /// </param>
     /// <returns>The call tree.</returns>
     /// <exception cref="ArgumentOutOfRangeException">
     ///  <paramref name="maxDepth"/> is negative or greater than <see cref="MaxTreeDepth"/>, or
@@ -1034,4 +1026,3 @@ public sealed partial class FoldingAggregator
     private int? AvailableRecordCount(int count) =>
         _source.RecordSemantics == StackRecordSemantics.Unavailable ? null : count;
 }
-

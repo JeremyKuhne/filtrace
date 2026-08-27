@@ -29,7 +29,9 @@ namespace Filtrace.Cli;
 /// <param name="Symbols">Optional build-output directory whose PDBs map managed code to source lines.</param>
 /// <param name="Strict">Whether to trip the strict symbol-resolution exit gate.</param>
 /// <param name="Scope">The process scope (explicit name, automatic default, or all processes).</param>
-/// <param name="SymbolOptions">Native-symbol resolution, or <see langword="null"/> for managed-only (the offline default).</param>
+/// <param name="SymbolOptions">
+///  Native-symbol resolution, or <see langword="null"/> for managed-only (the offline default).
+/// </param>
 internal sealed record RankRequest(
     string Path,
     TraceMetric Metric,
@@ -43,6 +45,8 @@ internal sealed record RankRequest(
     ScopeRequest? Scope = null,
     SymbolOptions? SymbolOptions = null)
 {
-    /// <summary>The manifest case id when <see cref="Path"/> names a capture manifest.</summary>
+    /// <summary>
+    ///  The manifest case id when <see cref="Path"/> names a capture manifest.
+    /// </summary>
     public string? CaseId { get; init; }
 }

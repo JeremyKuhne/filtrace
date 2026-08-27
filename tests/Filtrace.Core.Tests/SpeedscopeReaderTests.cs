@@ -140,7 +140,7 @@ public sealed class SpeedscopeReaderTests
 
     private static LoadedTrace Read(string json)
     {
-        string path = Path.Combine(Path.GetTempPath(), $"filtrace-{Guid.NewGuid():N}.speedscope.json");
+        string path = Path.Join(Path.GetTempPath(), $"filtrace-{Guid.NewGuid():N}.speedscope.json");
         File.WriteAllText(path, json);
         try
         {

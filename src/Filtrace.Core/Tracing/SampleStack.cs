@@ -23,7 +23,9 @@ public sealed class SampleStack
     ///  Initializes a new <see cref="SampleStack"/>.
     /// </summary>
     /// <param name="frames">Frames ordered outermost-first.</param>
-    /// <param name="weight">Weight attributed to the sample, in the source metric's unit (milliseconds for CPU, bytes for allocations).</param>
+    /// <param name="weight">
+    ///  Weight attributed to the sample, in the source metric's unit (milliseconds for CPU, bytes for allocations).
+    /// </param>
     /// <param name="thread">A label identifying the thread the sample came from.</param>
     /// <param name="frameLocations">
     ///  Optional per-frame source locations (<c>file:line</c>), parallel to

@@ -15,3 +15,23 @@ indent_size = 2
 
 [*.{csproj,props,targets,slnx}]
 indent_size = 2
+
+[*.cs]
+# Touki's house-style analyzers ship disabled so consuming repositories opt in
+# deliberately. Filtrace enables the complete analyzer set.
+# Derive disposable classes from DisposableBase (TOUKI0012)
+dotnet_diagnostic.TOUKI0012.severity = warning
+
+# Avoid tab characters (TOUKI0022)
+dotnet_diagnostic.TOUKI0022.severity = warning
+
+# Format XML documentation as nested XML (TOUKI0024)
+dotnet_diagnostic.TOUKI0024.severity = warning
+
+# Naming rule violation (TOUKI0041)
+dotnet_diagnostic.TOUKI0041.severity = warning
+
+# Declare one type per file (TOUKI0020)
+# Nested private implementation types stay with their owning abstraction; top-level
+# declarations remain one per file.
+dotnet_code_quality.TOUKI0020.exclude_nested_types = true

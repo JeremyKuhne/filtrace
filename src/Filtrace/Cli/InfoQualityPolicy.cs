@@ -23,10 +23,14 @@ internal sealed record InfoQualityPolicy(
     private static readonly string s_knownAnalysisDisplay =
         string.Join(", ", s_knownAnalyses.Order(StringComparer.Ordinal));
 
-    /// <summary>An acceptance policy with no gates enabled.</summary>
+    /// <summary>
+    ///  An acceptance policy with no gates enabled.
+    /// </summary>
     public static InfoQualityPolicy None { get; } = new(false, [], []);
 
-    /// <summary>Validates and normalizes CLI policy options.</summary>
+    /// <summary>
+    ///  Validates and normalizes CLI policy options.
+    /// </summary>
     public static bool TryCreate(
         bool strict,
         string[]? requireEnabled,
@@ -45,7 +49,9 @@ internal sealed record InfoQualityPolicy(
         return true;
     }
 
-    /// <summary>Evaluates the policy against one loaded trace.</summary>
+    /// <summary>
+    ///  Evaluates the policy against one loaded trace.
+    /// </summary>
     public InfoQualityPolicyResult Evaluate(TraceInfo info)
     {
         ArgumentNullException.ThrowIfNull(info);
@@ -141,8 +147,3 @@ internal sealed record InfoQualityPolicy(
         return true;
     }
 }
-
-/// <summary>The outcome of applying an <see cref="InfoQualityPolicy"/>.</summary>
-internal sealed record InfoQualityPolicyResult(
-    bool Failed,
-    IReadOnlyList<string> Warnings);

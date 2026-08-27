@@ -11,7 +11,7 @@ namespace Filtrace.Tracing.Providers;
 public sealed class DiskIoProviderTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     // The disk I/O fixture is a trimmed ETW capture of a workload that writes several
     // files with write-through, so the trace carries the physical DiskIO write events

@@ -10,7 +10,7 @@ namespace Filtrace.Tracing;
 public sealed class GroupTransformTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     [TestMethod]
     public void Apply_EmptyTransform_ReturnsSameInstance()

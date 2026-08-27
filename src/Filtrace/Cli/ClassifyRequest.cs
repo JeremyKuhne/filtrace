@@ -25,7 +25,9 @@ namespace Filtrace.Cli;
 /// <param name="Format">The render format.</param>
 /// <param name="Strict">Whether to trip the strict symbol-resolution exit gate.</param>
 /// <param name="Scope">The process scope, or <see langword="null"/> for the automatic default.</param>
-/// <param name="SymbolOptions">Native-symbol resolution, or <see langword="null"/> for managed-only (the offline default).</param>
+/// <param name="SymbolOptions">
+///  Native-symbol resolution, or <see langword="null"/> for managed-only (the offline default).
+/// </param>
 internal sealed record ClassifyRequest(
     string Path,
     string Root,

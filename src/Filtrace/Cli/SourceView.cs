@@ -4,12 +4,18 @@
 
 namespace Filtrace.Cli;
 
-/// <summary>The source-attribution view selected by the <c>source</c> command.</summary>
+/// <summary>
+///  The source-attribution view selected by the <c>source</c> command.
+/// </summary>
 internal enum SourceView
 {
-    /// <summary>Rank hottest source lines across matching methods.</summary>
+    /// <summary>
+    ///  Rank hottest source lines across matching methods.
+    /// </summary>
     Lines,
 
-    /// <summary>Build per-line heat for one source file.</summary>
+    /// <summary>
+    ///  Build per-line heat for one source file.
+    /// </summary>
     Heatmap
 }

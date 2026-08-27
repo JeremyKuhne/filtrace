@@ -4,16 +4,24 @@
 
 namespace Filtrace.Tracing;
 
-/// <summary>Runs bounded normalized diffs across paired capture manifests.</summary>
+/// <summary>
+///  Runs bounded normalized diffs across paired capture manifests.
+/// </summary>
 public static class CaptureManifestDiffAnalyzer
 {
-    /// <summary>Maximum paired cases analyzed in one request.</summary>
+    /// <summary>
+    ///  Maximum paired cases analyzed in one request.
+    /// </summary>
     public const int MaxAnalyzedCases = 24;
 
-    /// <summary>Maximum changed rows returned per case.</summary>
+    /// <summary>
+    ///  Maximum changed rows returned per case.
+    /// </summary>
     public const int MaxRowsPerCase = 5;
 
-    /// <summary>Diffs cases paired by benchmark and parameters.</summary>
+    /// <summary>
+    ///  Diffs cases paired by benchmark and parameters.
+    /// </summary>
     /// <param name="before">Baseline manifest.</param>
     /// <param name="after">Current manifest.</param>
     /// <param name="inclusive">Whether to rank inclusive rather than self weight.</param>
@@ -119,8 +127,12 @@ public static class CaptureManifestDiffAnalyzer
     /// <param name="root">Optional root-frame selector.</param>
     /// <param name="foldPatterns">Leaf-fold patterns.</param>
     /// <param name="top">Requested changed rows per case.</param>
-    /// <param name="maxDegreeOfParallelism">Maximum concurrent case loads. Must be in [1, <see cref="MaxAnalyzedCases"/>].</param>
-    /// <param name="load">Loads one case with the owning head's cache and scope policy; it must be safe for concurrent calls.</param>
+    /// <param name="maxDegreeOfParallelism">
+    ///  Maximum concurrent case loads. Must be in [1, <see cref="MaxAnalyzedCases"/>].
+    /// </param>
+    /// <param name="load">
+    ///  Loads one case with the owning head's cache and scope policy; it must be safe for concurrent calls.
+    /// </param>
     /// <returns>The case-keyed diff plus bounded pairing warnings.</returns>
     /// <remarks>
     ///  The current implementation preserves sequential execution for every degree.
@@ -266,10 +278,3 @@ public static class CaptureManifestDiffAnalyzer
         or FormatException
         or ArgumentException;
 }
-
-/// <summary>Manifest diff payload plus cross-manifest pairing warnings.</summary>
-/// <param name="Result">Case-keyed ranking diff result.</param>
-/// <param name="Warnings">Bounded pairing and output-cap warnings.</param>
-public sealed record CaptureManifestDiffAnalysis(
-    RankingDiffResult Result,
-    IReadOnlyList<string> Warnings);

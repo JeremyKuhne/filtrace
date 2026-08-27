@@ -11,7 +11,7 @@ namespace Filtrace.Tracing;
 /// <remarks>
 ///  <para>
 ///   Managed frames (including NGEN and ReadyToRun framework methods) resolve for
-///   free from the CLR rundown baked into every trace, so the default - 
+///   free from the CLR rundown baked into every trace, so the default -
 ///   <see cref="None"/> - needs no symbol server and stays fully offline and
 ///   deterministic. The unmanaged runtime frames (the GC, the JIT, <c>memset</c> /
 ///   <c>memcpy</c>, write barriers) live in native modules - <c>coreclr</c>,
@@ -86,15 +86,13 @@ public sealed class SymbolOptions
     ///  The default symbol-cache directory used when the caller does not supply one:
     ///  <c>filtrace-symbols</c> under the system temp path.
     /// </summary>
-    public static string DefaultCacheDirectory => Path.Combine(Path.GetTempPath(), "filtrace-symbols");
+    public static string DefaultCacheDirectory => Path.Join(Path.GetTempPath(), "filtrace-symbols");
 
     /// <summary>
     ///  A stable cache-key fragment for this options value, so a trace read with native
     ///  symbols is cached separately from one without.
     /// </summary>
-    /// <returns>
-    ///  <c>native:&lt;cache&gt;</c> when native resolution is on, otherwise <c>managed</c>.
-    /// </returns>
+    /// <returns><c>native:&lt;cache&gt;</c> when native resolution is on, otherwise <c>managed</c>.</returns>
     public string CacheKeyFragment() =>
         ResolveNativeRuntime ? $"native:{CacheDirectory ?? DefaultCacheDirectory}" : "managed";
 }

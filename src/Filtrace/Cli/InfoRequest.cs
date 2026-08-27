@@ -26,6 +26,8 @@ internal sealed record InfoRequest(
     OutputFormat Format,
     ScopeRequest? Scope = null)
 {
-    /// <summary>The optional shell acceptance policy applied after analysis.</summary>
+    /// <summary>
+    ///  The optional shell acceptance policy applied after analysis.
+    /// </summary>
     public InfoQualityPolicy Policy { get; init; } = InfoQualityPolicy.None;
 }

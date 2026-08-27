@@ -10,7 +10,7 @@ namespace Filtrace.Cli;
 public sealed class ExportExecutorTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static string Speedscope => FixturePath("folding.speedscope.json");
 
@@ -56,7 +56,7 @@ public sealed class ExportExecutorTests
     [TestMethod]
     public void Run_WithOutputFile_WritesFileAndConfirms()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"filtrace-export-{Guid.NewGuid():N}.json");
+        string path = Path.Join(Path.GetTempPath(), $"filtrace-export-{Guid.NewGuid():N}.json");
         try
         {
             (int exit, string output, _) = Run(Request(Speedscope, output: path));
@@ -78,7 +78,7 @@ public sealed class ExportExecutorTests
         // Exporting to stdout must produce exactly the bytes the --output file gets - no
         // trailing newline - so a redirect (filtrace export ... > out.json) yields a file a
         // viewer reads identically.
-        string path = Path.Combine(Path.GetTempPath(), $"filtrace-export-{Guid.NewGuid():N}.json");
+        string path = Path.Join(Path.GetTempPath(), $"filtrace-export-{Guid.NewGuid():N}.json");
         try
         {
             (int fileExit, _, _) = Run(Request(Speedscope, output: path));
@@ -127,7 +127,7 @@ public sealed class ExportExecutorTests
         string file = Path.GetTempFileName();
         try
         {
-            string unwritable = Path.Combine(file, "child.json");
+            string unwritable = Path.Join(file, "child.json");
 
             (int exit, _, string error) = Run(Request(Speedscope, output: unwritable));
 

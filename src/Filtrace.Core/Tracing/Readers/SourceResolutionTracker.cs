@@ -427,7 +427,7 @@ internal sealed class SourceResolutionTracker
         {
             string fileName = GetPdbFileName(pdbName);
             return !string.IsNullOrEmpty(fileName)
-                && File.Exists(Path.Combine(candidateDirectory, fileName));
+                && File.Exists(Path.Join(candidateDirectory, fileName));
         }
         catch (Exception)
         {

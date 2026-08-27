@@ -5,6 +5,7 @@
 using System.Globalization;
 using Filtrace.Caching;
 using Filtrace.Tracing;
+using Touki;
 
 namespace Filtrace.Server;
 
@@ -305,12 +306,11 @@ public sealed class TraceStore
         public int References { get; set; }
     }
 
-    private sealed class ConversionGateLease : IDisposable
+    private sealed class ConversionGateLease : DisposableBase
     {
         private readonly TraceStore _owner;
         private readonly string _fullPath;
         private readonly ConversionGate _gate;
-        private bool _disposed;
 
         public ConversionGateLease(
             TraceStore owner,
@@ -326,15 +326,12 @@ public sealed class TraceStore
 
         public bool Waited { get; }
 
-        public void Dispose()
+        protected override void Dispose(bool disposing)
         {
-            if (_disposed)
+            if (disposing)
             {
-                return;
+                _owner.ReleaseConversionGate(_fullPath, _gate);
             }
-
-            _disposed = true;
-            _owner.ReleaseConversionGate(_fullPath, _gate);
         }
     }
 }

@@ -86,8 +86,12 @@ public sealed class EventQueryProvider
     ///  past <paramref name="maxPayloadChars"/> is not missed, and the scan runs only when a
     ///  filter is set, so an unfiltered query never materializes payload values.
     /// </param>
-    /// <param name="processId">Keep only events emitted from this OS process id; <see langword="null"/> keeps every process.</param>
-    /// <param name="threadId">Keep only events emitted on this OS thread id; <see langword="null"/> keeps every thread.</param>
+    /// <param name="processId">
+    ///  Keep only events emitted from this OS process id; <see langword="null"/> keeps every process.
+    /// </param>
+    /// <param name="threadId">
+    ///  Keep only events emitted on this OS thread id; <see langword="null"/> keeps every thread.
+    /// </param>
     /// <returns>The page of matching events, plus the total matched.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="ArgumentOutOfRangeException">A paging or cap argument is negative.</exception>

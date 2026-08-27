@@ -5,6 +5,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using Filtrace.Tracing.Readers;
+using Touki;
 
 namespace Filtrace.Core.Tests;
 
@@ -12,23 +13,23 @@ namespace Filtrace.Core.Tests;
 public sealed partial class EmbeddedPdbExtractorTests
 {
     private static string EmbeddedAssembly =>
-        Path.Combine(AppContext.BaseDirectory, "touki.dll");
+        Path.Join(AppContext.BaseDirectory, "touki.dll");
 
     private static string PortableAssembly =>
-        Path.Combine(AppContext.BaseDirectory, "Filtrace.Core.dll");
+        Path.Join(AppContext.BaseDirectory, "Filtrace.Core.dll");
 
     [TestMethod]
     public void Extract_EmbeddedPdb_WritesPortablePdb()
     {
         using TemporaryDirectory input = new();
-        File.Copy(EmbeddedAssembly, Path.Combine(input.Path, "embedded.dll"));
+        File.Copy(EmbeddedAssembly, Path.Join(input.Path, "embedded.dll"));
 
         string? output = EmbeddedPdbExtractor.Extract(input.Path);
 
         try
         {
             output.Should().NotBeNull();
-            string pdb = Path.Combine(output!, "embedded.pdb");
+            string pdb = Path.Join(output!, "embedded.pdb");
             File.Exists(pdb).Should().BeTrue();
             using FileStream stream = File.OpenRead(pdb);
             using MetadataReaderProvider provider = MetadataReaderProvider.FromPortablePdbStream(stream);
@@ -44,7 +45,7 @@ public sealed partial class EmbeddedPdbExtractorTests
     public void Extract_NoEmbeddedPdb_ReturnsNull()
     {
         using TemporaryDirectory input = new();
-        File.Copy(PortableAssembly, Path.Combine(input.Path, "portable.dll"));
+        File.Copy(PortableAssembly, Path.Join(input.Path, "portable.dll"));
 
         EmbeddedPdbExtractor.Extract(input.Path).Should().BeNull();
     }
@@ -53,7 +54,7 @@ public sealed partial class EmbeddedPdbExtractorTests
     public void Extract_CorruptDll_ReturnsNull()
     {
         using TemporaryDirectory input = new();
-        File.WriteAllText(Path.Combine(input.Path, "corrupt.dll"), "not a PE image");
+        File.WriteAllText(Path.Join(input.Path, "corrupt.dll"), "not a PE image");
 
         EmbeddedPdbExtractor.Extract(input.Path).Should().BeNull();
     }
@@ -62,7 +63,7 @@ public sealed partial class EmbeddedPdbExtractorTests
     public void Extract_TruncatedEmbeddedPdb_ReturnsNull()
     {
         using TemporaryDirectory input = new();
-        string path = Path.Combine(input.Path, "truncated.dll");
+        string path = Path.Join(input.Path, "truncated.dll");
         CopyTruncatedEmbeddedAssembly(path);
 
         EmbeddedPdbExtractor.Extract(input.Path).Should().BeNull();
@@ -72,7 +73,7 @@ public sealed partial class EmbeddedPdbExtractorTests
     public void Extract_LockedDll_ReturnsNull()
     {
         using TemporaryDirectory input = new();
-        string path = Path.Combine(input.Path, "locked.dll");
+        string path = Path.Join(input.Path, "locked.dll");
         File.Copy(EmbeddedAssembly, path);
         using FileStream locked = new(path, FileMode.Open, FileAccess.Read, FileShare.None);
 
@@ -83,8 +84,8 @@ public sealed partial class EmbeddedPdbExtractorTests
     public void Extract_DuplicateAssemblyCopies_UsesInputFileNames()
     {
         using TemporaryDirectory input = new();
-        File.Copy(EmbeddedAssembly, Path.Combine(input.Path, "first.dll"));
-        File.Copy(EmbeddedAssembly, Path.Combine(input.Path, "second.dll"));
+        File.Copy(EmbeddedAssembly, Path.Join(input.Path, "first.dll"));
+        File.Copy(EmbeddedAssembly, Path.Join(input.Path, "second.dll"));
 
         string? output = EmbeddedPdbExtractor.Extract(input.Path);
 
@@ -104,10 +105,10 @@ public sealed partial class EmbeddedPdbExtractorTests
     public void Extract_MixedDirectory_WritesOnlyEmbeddedPdbs()
     {
         using TemporaryDirectory input = new();
-        File.Copy(EmbeddedAssembly, Path.Combine(input.Path, "embedded.dll"));
-        File.Copy(PortableAssembly, Path.Combine(input.Path, "portable.dll"));
-        File.WriteAllText(Path.Combine(input.Path, "corrupt.dll"), "not a PE image");
-        CopyTruncatedEmbeddedAssembly(Path.Combine(input.Path, "truncated.dll"));
+        File.Copy(EmbeddedAssembly, Path.Join(input.Path, "embedded.dll"));
+        File.Copy(PortableAssembly, Path.Join(input.Path, "portable.dll"));
+        File.WriteAllText(Path.Join(input.Path, "corrupt.dll"), "not a PE image");
+        CopyTruncatedEmbeddedAssembly(Path.Join(input.Path, "truncated.dll"));
 
         string? output = EmbeddedPdbExtractor.Extract(input.Path);
 
@@ -152,11 +153,11 @@ public sealed partial class EmbeddedPdbExtractorTests
         }
     }
 
-    private sealed class TemporaryDirectory : IDisposable
+    private sealed class TemporaryDirectory : DisposableBase
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(
+            Path = System.IO.Path.Join(
                 System.IO.Path.GetTempPath(),
                 $"filtrace-embedded-pdb-test-{Guid.NewGuid():N}");
             Directory.CreateDirectory(Path);
@@ -164,6 +165,12 @@ public sealed partial class EmbeddedPdbExtractorTests
 
         public string Path { get; }
 
-        public void Dispose() => Directory.Delete(Path, recursive: true);
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
     }
 }

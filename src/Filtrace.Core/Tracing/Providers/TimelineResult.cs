@@ -17,10 +17,10 @@ namespace Filtrace.Tracing.Providers;
 /// <param name="BucketSizeMs">
 ///  Width of each aligned bucket in bucket mode; resolved window width in snapshot mode.
 /// </param>
-/// <param name="BucketCount">
-///  Number of aligned buckets in bucket mode; one in snapshot mode.
+/// <param name="BucketCount">Number of aligned buckets in bucket mode; one in snapshot mode.</param>
+/// <param name="Process">
+///  Process tree scoped to (explicit or auto-busiest), or <see langword="null"/> for every process.
 /// </param>
-/// <param name="Process">Process tree scoped to (explicit or auto-busiest), or <see langword="null"/> for every process.</param>
 /// <param name="Gc">GC lane, or <see langword="null"/> when not requested.</param>
 /// <param name="Cpu">CPU lane, or <see langword="null"/> when not requested.</param>
 /// <param name="Exceptions">Exceptions lane, or <see langword="null"/> when not requested.</param>

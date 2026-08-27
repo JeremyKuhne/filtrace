@@ -10,7 +10,7 @@ namespace Filtrace.Tracing;
 public sealed class FoldingAggregatorTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static LoadedTrace LoadFolding() =>
         new TraceLoader().Load(FixturePath("folding.speedscope.json"));

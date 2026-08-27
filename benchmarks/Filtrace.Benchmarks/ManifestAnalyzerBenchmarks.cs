@@ -4,7 +4,9 @@
 
 namespace Filtrace.Benchmarks;
 
-/// <summary>Measures manifest orchestration over preloaded independent case identities.</summary>
+/// <summary>
+///  Measures manifest orchestration over preloaded independent case identities.
+/// </summary>
 [MemoryDiagnoser]
 public class ManifestAnalyzerBenchmarks
 {
@@ -12,15 +14,21 @@ public class ManifestAnalyzerBenchmarks
     private CaptureManifest _before = null!;
     private LoadedTrace _trace = null!;
 
-    /// <summary>The number of manifest cases to analyze.</summary>
+    /// <summary>
+    ///  The number of manifest cases to analyze.
+    /// </summary>
     [Params(1, 8, 24)]
     public int CaseCount { get; set; }
 
-    /// <summary>The future bounded concurrency contract; Phase 0 remains sequential.</summary>
+    /// <summary>
+    ///  The future bounded concurrency contract; Phase 0 remains sequential.
+    /// </summary>
     [Params(1, 2, 4, 8)]
     public int MaxDegreeOfParallelism { get; set; }
 
-    /// <summary>Builds manifests and one preloaded immutable trace outside measurement.</summary>
+    /// <summary>
+    ///  Builds manifests and one preloaded immutable trace outside measurement.
+    /// </summary>
     [GlobalSetup]
     public void Setup()
     {
@@ -50,7 +58,9 @@ public class ManifestAnalyzerBenchmarks
         _after = new CaptureManifest("after-manifest.json", null, afterCases);
     }
 
-    /// <summary>Runs one self-time query across every preloaded case.</summary>
+    /// <summary>
+    ///  Runs one self-time query across every preloaded case.
+    /// </summary>
     [Benchmark]
     public BatchRankingResult BatchSelf() =>
         CaptureManifestBatchAnalyzer.Analyze(
@@ -62,7 +72,9 @@ public class ManifestAnalyzerBenchmarks
             MaxDegreeOfParallelism,
             (_, _) => _trace);
 
-    /// <summary>Diffs self-time rankings across every preloaded case pair.</summary>
+    /// <summary>
+    ///  Diffs self-time rankings across every preloaded case pair.
+    /// </summary>
     [Benchmark]
     public CaptureManifestDiffAnalysis DiffSelf() =>
         CaptureManifestDiffAnalyzer.Analyze(

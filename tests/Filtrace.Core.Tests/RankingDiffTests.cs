@@ -10,7 +10,7 @@ namespace Filtrace.Tracing;
 public sealed class RankingDiffTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static RankingResult Ranking(double scope, params (string Frame, double Weight)[] rows) =>
         new(scope, "", rows.Select(r => new RankRow(r.Frame, r.Weight, scope > 0 ? 100.0 * r.Weight / scope : 0.0)).ToArray());

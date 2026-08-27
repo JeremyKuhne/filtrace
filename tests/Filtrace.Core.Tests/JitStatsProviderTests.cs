@@ -11,7 +11,7 @@ namespace Filtrace.Tracing.Providers;
 public sealed class JitStatsProviderTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     // The JIT smoke trace is captured under the JIT profile, so it carries the
     // method-jitting events this provider reads.

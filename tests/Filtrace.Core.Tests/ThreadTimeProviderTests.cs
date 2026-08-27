@@ -13,9 +13,9 @@ namespace Filtrace.Tracing;
 [OSCondition(OperatingSystems.Windows)]
 public sealed class ThreadTimeProviderTests
 {
-    private static string EtwFixture => Path.Combine(AppContext.BaseDirectory, "Fixtures", "etw.etl");
+    private static string EtwFixture => Path.Join(AppContext.BaseDirectory, "Fixtures", "etw.etl");
 
-    private static string DiskIoFixture => Path.Combine(AppContext.BaseDirectory, "Fixtures", "diskio.etl");
+    private static string DiskIoFixture => Path.Join(AppContext.BaseDirectory, "Fixtures", "diskio.etl");
 
     // The load path treats null as the automatic busiest-process default; the tests
     // that want the whole capture pass ScopeRequest.AllProcesses explicitly. The
@@ -112,7 +112,7 @@ public sealed class ThreadTimeProviderTests
     public void Read_MissingFile_ThrowsFileNotFound()
     {
         Action act = () => new ThreadTimeProvider().Read(
-            Path.Combine(AppContext.BaseDirectory, "Fixtures", "does-not-exist.etl"), scope: null, out _);
+            Path.Join(AppContext.BaseDirectory, "Fixtures", "does-not-exist.etl"), scope: null, out _);
 
         act.Should().Throw<FileNotFoundException>();
     }

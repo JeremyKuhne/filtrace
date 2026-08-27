@@ -10,9 +10,13 @@ namespace Filtrace.Tracing.Providers;
 /// </summary>
 public enum TimelineMode
 {
-    /// <summary>Return aligned activity buckets over a time range.</summary>
+    /// <summary>
+    ///  Return aligned activity buckets over a time range.
+    /// </summary>
     Buckets,
 
-    /// <summary>Return bounded cross-lane evidence around one timestamp.</summary>
+    /// <summary>
+    ///  Return bounded cross-lane evidence around one timestamp.
+    /// </summary>
     Snapshot
 }

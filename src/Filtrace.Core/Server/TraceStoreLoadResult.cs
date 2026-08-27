@@ -10,5 +10,7 @@ namespace Filtrace.Server;
 ///  A loaded trace paired with the request-specific ETLX cache state.
 /// </summary>
 /// <param name="Trace">The loaded trace.</param>
-/// <param name="EtlxCacheState">How this request obtained ETLX, or <see langword="null"/> when ETLX is not used.</param>
+/// <param name="EtlxCacheState">
+///  How this request obtained ETLX, or <see langword="null"/> when ETLX is not used.
+/// </param>
 public sealed record TraceStoreLoadResult(LoadedTrace Trace, EtlxCacheState? EtlxCacheState);

@@ -4,6 +4,8 @@
 
 namespace Filtrace.Tracing.Providers;
 
-/// <summary>A JIT time bucket: methods that began compiling.</summary>
+/// <summary>
+///  A JIT time bucket: methods that began compiling.
+/// </summary>
 /// <param name="MethodCount">Methods that started JIT compilation in the bucket.</param>
 public sealed record JitBucket(int MethodCount);

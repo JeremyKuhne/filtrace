@@ -9,7 +9,9 @@ namespace Filtrace.Tracing.Providers;
 ///  bytes were read from and written to it, the operation counts, and the total time
 ///  the physical disk spent servicing them.
 /// </summary>
-/// <param name="FileName">The file the disk I/O resolved to, or <c>(unknown)</c> when the event carried no file name.</param>
+/// <param name="FileName">
+///  The file the disk I/O resolved to, or <c>(unknown)</c> when the event carried no file name.
+/// </param>
 /// <param name="ReadBytes">Total bytes read from the file.</param>
 /// <param name="WriteBytes">Total bytes written to the file.</param>
 /// <param name="ReadCount">Number of physical read operations.</param>

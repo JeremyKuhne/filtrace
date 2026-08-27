@@ -6,7 +6,9 @@ using Filtrace.Tracing;
 
 namespace Filtrace.Cli;
 
-/// <summary>Validated inputs for one ranking query across a capture manifest.</summary>
+/// <summary>
+///  Validated inputs for one ranking query across a capture manifest.
+/// </summary>
 internal sealed record BatchRequest(
     string ManifestPath,
     TraceMetric Metric,

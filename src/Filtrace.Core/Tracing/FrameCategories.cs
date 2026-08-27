@@ -27,22 +27,34 @@ namespace Filtrace.Tracing;
 /// </remarks>
 public static class FrameCategories
 {
-    /// <summary>Memory zeroing: <c>memset</c>, <c>RtlZeroMemory</c>, <c>JIT_MemSet</c>.</summary>
+    /// <summary>
+    ///  Memory zeroing: <c>memset</c>, <c>RtlZeroMemory</c>, <c>JIT_MemSet</c>.
+    /// </summary>
     public const string Zeroing = "zeroing";
 
-    /// <summary>Memory copying: <c>memcpy</c>, <c>memmove</c>, <c>JIT_MemCpy</c>.</summary>
+    /// <summary>
+    ///  Memory copying: <c>memcpy</c>, <c>memmove</c>, <c>JIT_MemCpy</c>.
+    /// </summary>
     public const string Copying = "copying";
 
-    /// <summary>GC write barriers: <c>JIT_WriteBarrier</c>, <c>BulkMoveWithWriteBarrier</c>.</summary>
+    /// <summary>
+    ///  GC write barriers: <c>JIT_WriteBarrier</c>, <c>BulkMoveWithWriteBarrier</c>.
+    /// </summary>
     public const string WriteBarrier = "write-barrier";
 
-    /// <summary>Garbage collection: <c>gc_heap</c>, <c>WKS::</c> / <c>SVR::</c>, <c>JIT_New</c>.</summary>
+    /// <summary>
+    ///  Garbage collection: <c>gc_heap</c>, <c>WKS::</c> / <c>SVR::</c>, <c>JIT_New</c>.
+    /// </summary>
     public const string Gc = "gc";
 
-    /// <summary>Just-in-time compilation: <c>clrjit</c>, <c>CompileMethod</c>, other <c>JIT_</c> helpers.</summary>
+    /// <summary>
+    ///  Just-in-time compilation: <c>clrjit</c>, <c>CompileMethod</c>, other <c>JIT_</c> helpers.
+    /// </summary>
     public const string Jit = "jit";
 
-    /// <summary>Anything not matching a runtime work pattern: managed methods, unresolved frames.</summary>
+    /// <summary>
+    ///  Anything not matching a runtime work pattern: managed methods, unresolved frames.
+    /// </summary>
     public const string Other = "other";
 
     // Each category is a set of case-insensitive substrings. Order is significant:

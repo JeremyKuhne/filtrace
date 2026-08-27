@@ -25,13 +25,13 @@ public sealed class TraceToolsTests
     private static readonly TimeSpan SynchronizationTimeout = TimeSpan.FromSeconds(10);
 
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static string CopyToTemp(string fixture, out string tempDirectory)
     {
-        tempDirectory = Path.Combine(Path.GetTempPath(), $"filtrace-mcp-{Guid.NewGuid():N}");
+        tempDirectory = Path.Join(Path.GetTempPath(), $"filtrace-mcp-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDirectory);
-        string destination = Path.Combine(tempDirectory, fixture);
+        string destination = Path.Join(tempDirectory, fixture);
         File.Copy(FixturePath(fixture), destination);
         return destination;
     }
@@ -336,7 +336,7 @@ public sealed class TraceToolsTests
     public void Rank_AmbiguousRoot_CapsReportedDepths()
     {
         const int recursiveDepth = 12;
-        string tracePath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+        string tracePath = Path.Join(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
         JsonArray events = [];
         for (int depth = 0; depth < recursiveDepth; depth++)
         {
@@ -762,13 +762,13 @@ public sealed class TraceToolsTests
     public void Diff_PairedManifests_ReturnsCaseKeyedStructuredContent()
     {
         TraceStore store = new();
-        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-mcp-diff-{Guid.NewGuid():N}");
-        string beforeDirectory = Path.Combine(directory, "before");
-        string afterDirectory = Path.Combine(directory, "after");
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-mcp-diff-{Guid.NewGuid():N}");
+        string beforeDirectory = Path.Join(directory, "before");
+        string afterDirectory = Path.Join(directory, "after");
         Directory.CreateDirectory(beforeDirectory);
         Directory.CreateDirectory(afterDirectory);
-        string beforeManifest = Path.Combine(beforeDirectory, "manifest.json");
-        string afterManifest = Path.Combine(afterDirectory, "manifest.json");
+        string beforeManifest = Path.Join(beforeDirectory, "manifest.json");
+        string afterManifest = Path.Join(afterDirectory, "manifest.json");
         string trace = FixturePath(Speedscope).Replace("\\", "\\\\", StringComparison.Ordinal);
         try
         {
@@ -809,13 +809,13 @@ public sealed class TraceToolsTests
     public void Diff_CommandManifests_UseEachCaseInvocationProcessIds()
     {
         TraceStore store = new();
-        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-mcp-command-diff-{Guid.NewGuid():N}");
-        string beforeDirectory = Path.Combine(directory, "before");
-        string afterDirectory = Path.Combine(directory, "after");
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-mcp-command-diff-{Guid.NewGuid():N}");
+        string beforeDirectory = Path.Join(directory, "before");
+        string afterDirectory = Path.Join(directory, "after");
         Directory.CreateDirectory(beforeDirectory);
         Directory.CreateDirectory(afterDirectory);
-        string beforeManifest = Path.Combine(beforeDirectory, "manifest.json");
-        string afterManifest = Path.Combine(afterDirectory, "manifest.json");
+        string beforeManifest = Path.Join(beforeDirectory, "manifest.json");
+        string afterManifest = Path.Join(afterDirectory, "manifest.json");
         string trace = FixturePath(Etw).Replace("\\", "\\\\", StringComparison.Ordinal);
         try
         {
@@ -850,9 +850,9 @@ public sealed class TraceToolsTests
     public void Batch_Manifest_ReturnsTypedCaseSummary()
     {
         TraceStore store = new();
-        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-mcp-batch-{Guid.NewGuid():N}");
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-mcp-batch-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        string manifest = Path.Combine(directory, "manifest.json");
+        string manifest = Path.Join(directory, "manifest.json");
         string trace = FixturePath(Speedscope).Replace("\\", "\\\\", StringComparison.Ordinal);
         try
         {
@@ -928,9 +928,9 @@ public sealed class TraceToolsTests
     public void Batch_CommandManifest_UsesTheCaseInvocationProcessIds()
     {
         TraceStore store = new();
-        string directory = Path.Combine(Path.GetTempPath(), $"filtrace-mcp-command-batch-{Guid.NewGuid():N}");
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-mcp-command-batch-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
-        string manifest = Path.Combine(directory, "manifest.json");
+        string manifest = Path.Join(directory, "manifest.json");
         string trace = FixturePath(Etw).Replace("\\", "\\\\", StringComparison.Ordinal);
         try
         {
@@ -1551,7 +1551,7 @@ public sealed class TraceToolsTests
     public void Export_Speedscope_WritesFileAndConfirms()
     {
         TraceStore store = new();
-        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+        string outputPath = Path.Join(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
 
         try
         {
@@ -1585,7 +1585,7 @@ public sealed class TraceToolsTests
     public void Export_Chromium_WritesChromeTraceFormat()
     {
         TraceStore store = new();
-        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.chrome.json");
+        string outputPath = Path.Join(Path.GetTempPath(), $"{Path.GetRandomFileName()}.chrome.json");
 
         try
         {
@@ -1618,7 +1618,7 @@ public sealed class TraceToolsTests
     public void Export_ProcessScope_OnMachineWideCapture_Warns()
     {
         TraceStore store = new();
-        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+        string outputPath = Path.Join(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
 
         try
         {
@@ -1645,7 +1645,7 @@ public sealed class TraceToolsTests
     public void Export_ProcessScope_OnSpeedscope_IsHarmlessNoOp()
     {
         TraceStore store = new();
-        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+        string outputPath = Path.Join(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
 
         try
         {
@@ -1671,7 +1671,7 @@ public sealed class TraceToolsTests
     public void Export_RootScoped_ExportsOnlySubtreeUnderRootFrame()
     {
         TraceStore store = new();
-        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+        string outputPath = Path.Join(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
 
         try
         {
@@ -1711,7 +1711,7 @@ public sealed class TraceToolsTests
     public void Export_AmbiguousRoot_ReportsDefinitionsAndSelection()
     {
         TraceStore store = new();
-        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+        string outputPath = Path.Join(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
 
         try
         {
@@ -1746,7 +1746,7 @@ public sealed class TraceToolsTests
         // dropped) rather than that it finds a match - RootScopeTests covers the actual
         // trimming behavior against a stack that does contain the frame.
         TraceStore store = new();
-        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+        string outputPath = Path.Join(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
 
         try
         {
@@ -1786,7 +1786,7 @@ public sealed class TraceToolsTests
         // speedscope carries no native frames, so it is a no-op that reaches no
         // symbol server (offline-safe) and still writes the flame graph.
         TraceStore store = new();
-        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
+        string outputPath = Path.Join(Path.GetTempPath(), $"{Path.GetRandomFileName()}.speedscope.json");
 
         try
         {
@@ -1810,7 +1810,7 @@ public sealed class TraceToolsTests
     public void Export_UnknownFormat_Throws()
     {
         TraceStore store = new();
-        string outputPath = Path.Combine(Path.GetTempPath(), $"{Path.GetRandomFileName()}.json");
+        string outputPath = Path.Join(Path.GetTempPath(), $"{Path.GetRandomFileName()}.json");
 
         Action act = () => TraceTools.Export(store, FixturePath(Speedscope), outputPath, format: "perfetto");
 
@@ -1835,7 +1835,7 @@ public sealed class TraceToolsTests
 
         // A path into a directory that does not exist is not writable; the failure
         // surfaces as a clean tool error rather than an unhandled exception.
-        string badPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "nested", "out.json");
+        string badPath = Path.Join(Path.GetTempPath(), Path.GetRandomFileName(), "nested", "out.json");
 
         Action act = () => TraceTools.Export(store, FixturePath(Speedscope), badPath);
 

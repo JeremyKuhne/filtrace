@@ -22,11 +22,17 @@ namespace Filtrace.Tracing.Providers;
 ///  </para>
 /// </remarks>
 /// <param name="AdjustmentCount">The total number of worker-thread adjustments.</param>
-/// <param name="StarvationCount">The number of adjustments the runtime made because it detected starvation - the headline signal.</param>
+/// <param name="StarvationCount">
+///  The number of adjustments the runtime made because it detected starvation - the headline signal.
+/// </param>
 /// <param name="MinWorkerThreadCount">The lowest worker-thread count the adjustments settled at.</param>
 /// <param name="MaxWorkerThreadCount">The highest worker-thread count the adjustments grew to.</param>
-/// <param name="ConfiguredMinWorkerThreads">The configured minimum worker threads (from the last <c>ThreadPoolMinMaxThreads</c> event), or 0 if the trace carried none.</param>
-/// <param name="ConfiguredMaxWorkerThreads">The configured maximum worker threads, or 0 if the trace carried none.</param>
+/// <param name="ConfiguredMinWorkerThreads">
+///  The configured minimum worker threads (from the last <c>ThreadPoolMinMaxThreads</c> event), or 0 if the trace carried none.
+/// </param>
+/// <param name="ConfiguredMaxWorkerThreads">
+///  The configured maximum worker threads, or 0 if the trace carried none.
+/// </param>
 /// <param name="AdjustmentsByReason">The adjustment counts broken down by reason, most frequent first.</param>
 public sealed record ThreadPoolResult(
     int AdjustmentCount,

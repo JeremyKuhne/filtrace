@@ -48,7 +48,9 @@ internal sealed class ScopeResolution
     /// </summary>
     public HashSet<ProcessIndex>? ProcessInstanceIndexes { get; }
 
-    /// <summary>Whether the process instance associated with an event is in scope.</summary>
+    /// <summary>
+    ///  Whether the process instance associated with an event is in scope.
+    /// </summary>
     public bool Includes(TraceEvent data)
     {
         ArgumentNullException.ThrowIfNull(data);
@@ -61,7 +63,9 @@ internal sealed class ScopeResolution
         return process is not null && ProcessInstanceIndexes.Contains(process.ProcessIndex);
     }
 
-    /// <summary>Whether one resolved ETLX process instance is in scope.</summary>
+    /// <summary>
+    ///  Whether one resolved ETLX process instance is in scope.
+    /// </summary>
     public bool Includes(TraceProcess? process) =>
         ProcessInstanceIndexes is null
         || (process is not null && ProcessInstanceIndexes.Contains(process.ProcessIndex));
@@ -88,9 +92,13 @@ internal sealed class ScopeResolution
     /// </summary>
     public IReadOnlyList<string> Warnings { get; }
 
-    /// <summary>The machine-readable process scope the read applied.</summary>
+    /// <summary>
+    ///  The machine-readable process scope the read applied.
+    /// </summary>
     public AppliedProcessScope AppliedScope { get; }
 
-    /// <summary>Whether the reported trace-derived process name was bounded or escaped.</summary>
+    /// <summary>
+    ///  Whether the reported trace-derived process name was bounded or escaped.
+    /// </summary>
     public bool ProcessNameBounded { get; }
 }

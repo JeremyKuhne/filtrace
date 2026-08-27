@@ -10,7 +10,7 @@ namespace Filtrace.Tracing;
 public sealed class ScopeFilterTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static StackSampleSource ThreeStacks() =>
         new(

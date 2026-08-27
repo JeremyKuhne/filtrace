@@ -29,8 +29,12 @@ public static class TraceMetricSelector
     /// <summary>
     ///  Resolves a <c>metric</c> selector string to the provider view it names.
     /// </summary>
-    /// <param name="selector">The requested provider metric (case-insensitive); <see langword="null"/> or empty is treated as an unknown metric.</param>
-    /// <param name="metric">The resolved provider view when recognized; otherwise <see cref="TraceMetric.Cpu"/>.</param>
+    /// <param name="selector">
+    ///  The requested provider metric (case-insensitive); <see langword="null"/> or empty is treated as an unknown metric.
+    /// </param>
+    /// <param name="metric">
+    ///  The resolved provider view when recognized; otherwise <see cref="TraceMetric.Cpu"/>.
+    /// </param>
     /// <returns>
     ///  <see langword="true"/> when <paramref name="selector"/> names a wired provider;
     ///  otherwise <see langword="false"/>, and the caller should report a usage error.
@@ -75,7 +79,9 @@ public static class TraceMetricSelector
         }
     }
 
-    /// <summary>Returns the metric semantics for a resolved provider view.</summary>
+    /// <summary>
+    ///  Returns the metric semantics for a resolved provider view.
+    /// </summary>
     /// <param name="metric">The resolved provider metric.</param>
     /// <returns>The metric's display name and weight unit.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="metric"/> is undefined.</exception>

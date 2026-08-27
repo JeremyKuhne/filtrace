@@ -8,7 +8,7 @@ namespace Filtrace.Tracing.Providers;
 public sealed class TimelineProviderTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     // The allocation smoke trace is captured under the GC-verbose profile, so it carries
     // the GC and allocation-tick events two of the lanes read.

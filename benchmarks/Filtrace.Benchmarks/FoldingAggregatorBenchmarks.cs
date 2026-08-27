@@ -14,14 +14,20 @@ public class FoldingAggregatorBenchmarks
     private const string SourceFile = "Pipeline.cs";
     private FoldingAggregator _aggregator = null!;
 
-    /// <summary>The sample-count, stack-depth, and frame-cardinality scenario.</summary>
+    /// <summary>
+    ///  The sample-count, stack-depth, and frame-cardinality scenario.
+    /// </summary>
     [ParamsSource(nameof(Scenarios))]
     public string Scenario { get; set; } = null!;
 
-    /// <summary>The valid synthetic scenarios.</summary>
+    /// <summary>
+    ///  The valid synthetic scenarios.
+    /// </summary>
     public static IEnumerable<string> Scenarios => FoldingBenchmarkCorpus.ScenarioNames;
 
-    /// <summary>Builds and primes the immutable synthetic source outside the measured operations.</summary>
+    /// <summary>
+    ///  Builds and primes the immutable synthetic source outside the measured operations.
+    /// </summary>
     [GlobalSetup]
     public void Setup()
     {
@@ -38,37 +44,51 @@ public class FoldingAggregatorBenchmarks
         }
     }
 
-    /// <summary>Ranks samples by folded leaf weight.</summary>
+    /// <summary>
+    ///  Ranks samples by folded leaf weight.
+    /// </summary>
     [Benchmark]
     public RankingResult SelfTime() =>
         _aggregator.SelfTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
 
-    /// <summary>Ranks every distinct frame by inclusive weight.</summary>
+    /// <summary>
+    ///  Ranks every distinct frame by inclusive weight.
+    /// </summary>
     [Benchmark]
     public RankingResult InclusiveTime() =>
         _aggregator.InclusiveTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
 
-    /// <summary>Finds immediate callers of a stable synthetic focus frame.</summary>
+    /// <summary>
+    ///  Finds immediate callers of a stable synthetic focus frame.
+    /// </summary>
     [Benchmark]
     public CallersResult CallersOf() =>
         _aggregator.CallersOf(FocusFrame, string.Empty, top: 25);
 
-    /// <summary>Ranks location-bearing synthetic leaf samples by source line.</summary>
+    /// <summary>
+    ///  Ranks location-bearing synthetic leaf samples by source line.
+    /// </summary>
     [Benchmark]
     public LineRankingResult HotLines() =>
         _aggregator.HotLines("Pipeline.Frame", FrameNames.DefaultFoldPatterns, top: 25);
 
-    /// <summary>Builds the per-line heatmap for the synthetic source file.</summary>
+    /// <summary>
+    ///  Builds the per-line heatmap for the synthetic source file.
+    /// </summary>
     [Benchmark]
     public SourceHeatmapResult SourceHeatmap() =>
         _aggregator.SourceHeatmap(SourceFile, FrameNames.DefaultFoldPatterns);
 
-    /// <summary>Builds a bounded top-down tree over the synthetic stacks.</summary>
+    /// <summary>
+    ///  Builds a bounded top-down tree over the synthetic stacks.
+    /// </summary>
     [Benchmark]
     public CallTreeResult CallTree() =>
         _aggregator.CallTree(string.Empty, FrameNames.DefaultFoldPatterns, maxDepth: 20, minPercentOfScope: 0.0);
 
-    /// <summary>Classifies synthetic self-time by runtime work category.</summary>
+    /// <summary>
+    ///  Classifies synthetic self-time by runtime work category.
+    /// </summary>
     [Benchmark]
     public ClassifyResult Classify() =>
         _aggregator.Classify(string.Empty);

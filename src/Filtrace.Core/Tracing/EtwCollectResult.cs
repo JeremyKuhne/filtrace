@@ -9,10 +9,14 @@ namespace Filtrace.Tracing;
 /// </summary>
 public sealed class EtwCollectResult
 {
-    /// <summary>The <c>.etl</c> file the capture was written to (absolute path).</summary>
+    /// <summary>
+    ///  The <c>.etl</c> file the capture was written to (absolute path).
+    /// </summary>
     public required string OutputPath { get; init; }
 
-    /// <summary>The process id of the launched process.</summary>
+    /// <summary>
+    ///  The process id of the launched process.
+    /// </summary>
     /// <remarks>
     ///  <para>
     ///   The first launch's id when the capture ran several; <see cref="Invocations"/>
@@ -45,10 +49,14 @@ public sealed class EtwCollectResult
     /// </summary>
     public required IReadOnlyList<EtwInvocation> Invocations { get; init; }
 
-    /// <summary>The size of the written <c>.etl</c> in bytes.</summary>
+    /// <summary>
+    ///  The size of the written <c>.etl</c> in bytes.
+    /// </summary>
     public required long FileSizeBytes { get; init; }
 
-    /// <summary>The profile the capture was recorded with.</summary>
+    /// <summary>
+    ///  The profile the capture was recorded with.
+    /// </summary>
     public required CollectProfile Profile { get; init; }
 
     /// <summary>

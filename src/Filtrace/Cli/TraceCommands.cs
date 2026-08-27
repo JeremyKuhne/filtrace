@@ -25,9 +25,15 @@ internal sealed class TraceCommands
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when frame-name resolution is below the trusted threshold.</param>
-    /// <param name="requireEnabled">Comma-separated analyses that must be supported with capture status enabled; enabled-zero passes.</param>
-    /// <param name="requireEvents">Comma-separated analyses that must be enabled with at least one observed event.</param>
-    /// <param name="process">Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.</param>
+    /// <param name="requireEnabled">
+    ///  Comma-separated analyses that must be supported with capture status enabled; enabled-zero passes.
+    /// </param>
+    /// <param name="requireEvents">
+    ///  Comma-separated analyses that must be enabled with at least one observed event.
+    /// </param>
+    /// <param name="process">
+    ///  Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.
+    /// </param>
     /// <param name="pid">Scope to these exact process ids (comma-separated); mutually exclusive with --process.</param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <returns>A process exit code.</returns>
@@ -93,16 +99,34 @@ internal sealed class TraceCommands
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
-    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
-    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="process">
+    ///  Scope to the process tree whose name contains this; omit to auto-scope to the busiest.
+    /// </param>
+    /// <param name="allProcesses">
+    ///  Read every process instead of auto-scoping to the busiest (multi-process captures).
+    /// </param>
+    /// <param name="pid">
+    ///  Scope to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
-    /// <param name="activity">Scope the ranking to one start-stop activity by task name - the CPU samples taken inside that request/job (cpu metric only); omit for the whole trace.</param>
-    /// <param name="time">Scope to a time window 'start,end' in ms relative to the trace start; either bound may be omitted (e.g. 1000,5000 or 1000, or ,5000). Applies to every metric on .nettrace/.etl; speedscope warns and ignores it.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
-    /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl CPU captures only.</param>
-    /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
-    /// <param name="noFold">Fold only the synthetic sample markers, not the JIT-helper thunks, so native runtime leaves rank on their own. Mutually exclusive with --fold.</param>
+    /// <param name="activity">
+    ///  Scope the ranking to one start-stop activity by task name - the CPU samples taken inside that request/job (cpu metric only); omit for the whole trace.
+    /// </param>
+    /// <param name="time">
+    ///  Scope to a time window 'start,end' in ms relative to the trace start; either bound may be omitted (e.g. 1000,5000 or 1000, or ,5000). Applies to every metric on .nettrace/.etl; speedscope warns and ignores it.
+    /// </param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.
+    /// </param>
+    /// <param name="nativeSymbols">
+    ///  Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl CPU captures only.
+    /// </param>
+    /// <param name="symbolCache">
+    ///  Local cache directory for downloaded native PDBs; omit for the default under the temp path.
+    /// </param>
+    /// <param name="noFold">
+    ///  Fold only the synthetic sample markers, not the JIT-helper thunks, so native runtime leaves rank on their own. Mutually exclusive with --fold.
+    /// </param>
     /// <param name="caseId">Select this exact case when <paramref name="trace"/> is a capture manifest.</param>
     /// <returns>A process exit code.</returns>
     [Command("rank")]
@@ -202,14 +226,28 @@ internal sealed class TraceCommands
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
-    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
-    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="process">
+    ///  Scope to the process tree whose name contains this; omit to auto-scope to the busiest.
+    /// </param>
+    /// <param name="allProcesses">
+    ///  Read every process instead of auto-scoping to the busiest (multi-process captures).
+    /// </param>
+    /// <param name="pid">
+    ///  Scope to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
-    /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl CPU captures only.</param>
-    /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
-    /// <param name="noFold">Fold only the synthetic sample markers, not the JIT-helper thunks, so native runtime leaves rank on their own. Mutually exclusive with --fold.</param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.
+    /// </param>
+    /// <param name="nativeSymbols">
+    ///  Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl CPU captures only.
+    /// </param>
+    /// <param name="symbolCache">
+    ///  Local cache directory for downloaded native PDBs; omit for the default under the temp path.
+    /// </param>
+    /// <param name="noFold">
+    ///  Fold only the synthetic sample markers, not the JIT-helper thunks, so native runtime leaves rank on their own. Mutually exclusive with --fold.
+    /// </param>
     /// <returns>A process exit code.</returns>
     [Hidden]
     [Command("cpu")]
@@ -265,12 +303,16 @@ internal sealed class TraceCommands
     ///  Rank allocation hotspots by bytes; the shortcut for 'rank --metric alloc'.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe file captured with allocation sampling.</param>
-    /// <param name="measure">-m, Which measure to report: self (the allocating site) or inclusive (its subtree).</param>
+    /// <param name="measure">
+    ///  -m, Which measure to report: self (the allocating site) or inclusive (its subtree).
+    /// </param>
     /// <param name="root">Substring scoping the ranking to the subtree under a frame.</param>
     /// <param name="top">-n, Maximum number of rows to return.</param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
     /// <param name="format">Render format: text or json.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.
+    /// </param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
     ///  Allocation frames resolve from the trace's own CLR rundown, so this verb has
@@ -306,12 +348,16 @@ internal sealed class TraceCommands
     ///  Rank exceptions by type (self) or throw path (inclusive) by count; the shortcut for 'rank --metric exceptions'.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe file carrying exception-throw events.</param>
-    /// <param name="measure">-m, Which measure to report: self (the exception type) or inclusive (the throw sites and their callers).</param>
+    /// <param name="measure">
+    ///  -m, Which measure to report: self (the exception type) or inclusive (the throw sites and their callers).
+    /// </param>
     /// <param name="root">Substring scoping the ranking to the subtree under a frame.</param>
     /// <param name="top">-n, Maximum number of rows to return.</param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
     /// <param name="format">Render format: text or json.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.
+    /// </param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
     ///  Throw-site frames resolve from the trace's own CLR rundown, so this verb has
@@ -353,11 +399,17 @@ internal sealed class TraceCommands
     /// <param name="top">-n, Maximum number of rows to return.</param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
     /// <param name="format">Render format: text or json.</param>
-    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
+    /// <param name="process">
+    ///  Scope to the process tree whose name contains this; omit to auto-scope to the busiest.
+    /// </param>
     /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest.</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="pid">
+    ///  Scope to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.
+    /// </param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
     ///  Unlike CPU sampling, thread time accounts for off-CPU (blocked) intervals, so
@@ -409,11 +461,19 @@ internal sealed class TraceCommands
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
-    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
-    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="process">
+    ///  Scope to the process tree whose name contains this; omit to auto-scope to the busiest.
+    /// </param>
+    /// <param name="allProcesses">
+    ///  Read every process instead of auto-scoping to the busiest (multi-process captures).
+    /// </param>
+    /// <param name="pid">
+    ///  Scope to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.
+    /// </param>
     /// <param name="callees">Also report the focus frame's immediate callees (a caller/callee view).</param>
     /// <returns>A process exit code.</returns>
     [Command("callers")]
@@ -448,7 +508,9 @@ internal sealed class TraceCommands
         return CallersExecutor.Run(request, Console.Out, Console.Error);
     }
 
-    /// <summary>Inspect CPU source attribution as ranked lines or a per-file heat map.</summary>
+    /// <summary>
+    ///  Inspect CPU source attribution as ranked lines or a per-file heat map.
+    /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl trace.</param>
     /// <param name="view">Source view: lines or heatmap.</param>
     /// <param name="method">For lines, keep methods whose name contains this; omit for every method.</param>
@@ -544,9 +606,15 @@ internal sealed class TraceCommands
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
-    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
-    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="process">
+    ///  Scope to the process tree whose name contains this; omit to auto-scope to the busiest.
+    /// </param>
+    /// <param name="allProcesses">
+    ///  Read every process instead of auto-scoping to the busiest (multi-process captures).
+    /// </param>
+    /// <param name="pid">
+    ///  Scope to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <returns>A process exit code.</returns>
     [Hidden]
@@ -580,9 +648,15 @@ internal sealed class TraceCommands
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
-    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
-    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="process">
+    ///  Scope to the process tree whose name contains this; omit to auto-scope to the busiest.
+    /// </param>
+    /// <param name="allProcesses">
+    ///  Read every process instead of auto-scoping to the busiest (multi-process captures).
+    /// </param>
+    /// <param name="pid">
+    ///  Scope to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <returns>A process exit code.</returns>
     [Hidden]
@@ -627,11 +701,19 @@ internal sealed class TraceCommands
     ///  Report where a command's wall clock went: per-invocation root lifetime, time to
     ///  the first child, child span, and teardown, with p50/min/max across invocations.
     /// </summary>
-    /// <param name="trace">Path to a Windows ETW .etl file captured with the Process (and ImageLoad, for --image) kernel keyword.</param>
+    /// <param name="trace">
+    ///  Path to a Windows ETW .etl file captured with the Process (and ImageLoad, for --image) kernel keyword.
+    /// </param>
     /// <param name="process">Root processes are those whose name contains this; omit to use the busiest.</param>
-    /// <param name="pid">Use these exact process ids as the invocation roots (comma-separated); excludes --process.</param>
-    /// <param name="image">Module-name substrings to time as loader milestones (comma-separated), such as hostfxr.</param>
-    /// <param name="top">-n, Maximum number of per-invocation rows to show, or 0 for the medians alone; medians always cover every invocation.</param>
+    /// <param name="pid">
+    ///  Use these exact process ids as the invocation roots (comma-separated); excludes --process.
+    /// </param>
+    /// <param name="image">
+    ///  Module-name substrings to time as loader milestones (comma-separated), such as hostfxr.
+    /// </param>
+    /// <param name="top">
+    ///  -n, Maximum number of per-invocation rows to show, or 0 for the medians alone; medians always cover every invocation.
+    /// </param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -671,13 +753,25 @@ internal sealed class TraceCommands
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
-    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
-    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="process">
+    ///  Scope to the process tree whose name contains this; omit to auto-scope to the busiest.
+    /// </param>
+    /// <param name="allProcesses">
+    ///  Read every process instead of auto-scoping to the busiest (multi-process captures).
+    /// </param>
+    /// <param name="pid">
+    ///  Scope to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
-    /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl captures only.</param>
-    /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.
+    /// </param>
+    /// <param name="nativeSymbols">
+    ///  Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl captures only.
+    /// </param>
+    /// <param name="symbolCache">
+    ///  Local cache directory for downloaded native PDBs; omit for the default under the temp path.
+    /// </param>
     /// <returns>A process exit code.</returns>
     [Command("classify")]
     public int Classify(
@@ -716,10 +810,16 @@ internal sealed class TraceCommands
         return ClassifyExecutor.Run(request, Console.Out, Console.Error);
     }
 
-    /// <summary>Run a bounded structured runtime or operating-system report.</summary>
-    /// <param name="trace">Path to a .nettrace EventPipe file for gc, jit, or threadpool; Windows ETW .etl for diskio.</param>
+    /// <summary>
+    ///  Run a bounded structured runtime or operating-system report.
+    /// </summary>
+    /// <param name="trace">
+    ///  Path to a .nettrace EventPipe file for gc, jit, or threadpool; Windows ETW .etl for diskio.
+    /// </param>
     /// <param name="kind">Report kind: gc, jit, threadpool, or diskio.</param>
-    /// <param name="top">-n, Maximum detail rows; omit for the selected report's default. Threadpool has no detail rows.</param>
+    /// <param name="top">
+    ///  -n, Maximum detail rows; omit for the selected report's default. Threadpool has no detail rows.
+    /// </param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     [Command("report")]
@@ -777,8 +877,12 @@ internal sealed class TraceCommands
     /// <summary>
     ///  Report physical disk I/O by file: bytes read and written to each file, and disk service time.
     /// </summary>
-    /// <param name="trace">Path to a Windows ETW .etl file captured with the DiskIO (and DiskFileIO, for file names) kernel keyword.</param>
-    /// <param name="top">-n, Maximum number of per-file rows to show, ranked by disk time, or 0 for the totals alone.</param>
+    /// <param name="trace">
+    ///  Path to a Windows ETW .etl file captured with the DiskIO (and DiskFileIO, for file names) kernel keyword.
+    /// </param>
+    /// <param name="top">
+    ///  -n, Maximum number of per-file rows to show, ranked by disk time, or 0 for the totals alone.
+    /// </param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -809,9 +913,13 @@ internal sealed class TraceCommands
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when either trace's symbol resolution is below the trusted threshold.</param>
-    /// <param name="process">Scope both traces to the process tree whose name contains this; omit to auto-scope.</param>
+    /// <param name="process">
+    ///  Scope both traces to the process tree whose name contains this; omit to auto-scope.
+    /// </param>
     /// <param name="allProcesses">Read every process in both traces instead of auto-scoping.</param>
-    /// <param name="pid">Scope both traces to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="pid">
+    ///  Scope both traces to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="benchmark">Scope both traces to the BenchmarkDotNet measured-workload subtree.</param>
     /// <returns>A process exit code.</returns>
@@ -863,7 +971,9 @@ internal sealed class TraceCommands
         return DiffExecutor.Run(request, Console.Out, Console.Error);
     }
 
-    /// <summary>Run one compact ranking query across up to 24 cases in a capture manifest.</summary>
+    /// <summary>
+    ///  Run one compact ranking query across up to 24 cases in a capture manifest.
+    /// </summary>
     /// <param name="manifest">Path to a capture helper manifest.json.</param>
     /// <param name="metric">Provider metric: cpu, threadtime, alloc, exceptions, contention, wait, or activity.</param>
     /// <param name="measure">-m, self or inclusive.</param>
@@ -874,7 +984,9 @@ internal sealed class TraceCommands
     /// <param name="strict">Exit 3 when any loaded case has poor symbol resolution.</param>
     /// <param name="process">Process substring overriding the manifest process.</param>
     /// <param name="allProcesses">Read every process rather than manifest/automatic scope.</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="pid">
+    ///  Scope to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="benchmark">Use the BenchmarkDotNet measured-workload root.</param>
     /// <returns>A process exit code.</returns>
@@ -935,16 +1047,26 @@ internal sealed class TraceCommands
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="root">Substring scoping the tree to the subtree under a frame.</param>
     /// <param name="maxDepth">-d, Maximum number of frame levels to expand below the root.</param>
-    /// <param name="minPct">Minimum share of the scoped total (percent) a node must have to appear; 0 shows all.</param>
+    /// <param name="minPct">
+    ///  Minimum share of the scoped total (percent) a node must have to appear; 0 shows all.
+    /// </param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <param name="strict">Exit 3 when symbol resolution is below the trusted threshold.</param>
-    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
-    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="process">
+    ///  Scope to the process tree whose name contains this; omit to auto-scope to the busiest.
+    /// </param>
+    /// <param name="allProcesses">
+    ///  Read every process instead of auto-scoping to the busiest (multi-process captures).
+    /// </param>
+    /// <param name="pid">
+    ///  Scope to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.
+    /// </param>
     /// <returns>A process exit code.</returns>
     [Command("tree")]
     public int Tree(
@@ -987,14 +1109,26 @@ internal sealed class TraceCommands
     /// <param name="output">-o, Output file path; omit to write to standard output.</param>
     /// <param name="symbols">-s, Build-output directory whose PDBs map managed code to source lines.</param>
     /// <param name="name">Profile name shown in the viewer.</param>
-    /// <param name="process">Scope to the process tree whose name contains this; omit to auto-scope to the busiest.</param>
-    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="process">
+    ///  Scope to the process tree whose name contains this; omit to auto-scope to the busiest.
+    /// </param>
+    /// <param name="allProcesses">
+    ///  Read every process instead of auto-scoping to the busiest (multi-process captures).
+    /// </param>
+    /// <param name="pid">
+    ///  Scope to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="root">Substring scoping the export to the subtree under a frame.</param>
-    /// <param name="benchmark">Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.</param>
-    /// <param name="nativeSymbols">Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl captures only.</param>
-    /// <param name="symbolCache">Local cache directory for downloaded native PDBs; omit for the default under the temp path.</param>
+    /// <param name="benchmark">
+    ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); for BDN captures.
+    /// </param>
+    /// <param name="nativeSymbols">
+    ///  Resolve native runtime frames (GC, JIT, memset/memcpy) from the Microsoft public symbol server; opt-in, fetches over the network. .etl captures only.
+    /// </param>
+    /// <param name="symbolCache">
+    ///  Local cache directory for downloaded native PDBs; omit for the default under the temp path.
+    /// </param>
     /// <returns>A process exit code.</returns>
     [Command("export")]
     public int Export(
@@ -1038,7 +1172,9 @@ internal sealed class TraceCommands
     ///  Report garbage-collection behavior: counts by generation, pause-time summary, and per-collection detail.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe file captured with GC events (GcVerbose).</param>
-    /// <param name="top">-n, Maximum number of per-collection rows to show, ranked by pause time, or 0 for the summary alone.</param>
+    /// <param name="top">
+    ///  -n, Maximum number of per-collection rows to show, ranked by pause time, or 0 for the summary alone.
+    /// </param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -1062,13 +1198,21 @@ internal sealed class TraceCommands
     /// <param name="trace">Path to a .nettrace EventPipe or .etl ETW file (a speedscope export is rejected).</param>
     /// <param name="mode">View to return: buckets (default) or snapshot.</param>
     /// <param name="at">Snapshot center in 0.01 ms increments relative to trace start; required for snapshot.</param>
-    /// <param name="window">Half-window in 0.01 ms increments on either side of --at; defaults to 100 (snapshot only).</param>
+    /// <param name="window">
+    ///  Half-window in 0.01 ms increments on either side of --at; defaults to 100 (snapshot only).
+    /// </param>
     /// <param name="lanes">Bucket-mode lanes: gc, cpu, exceptions, alloc, jit; omit for every lane.</param>
     /// <param name="buckets">-n, Bucket-mode slice count; defaults to 50 (clamped to 5-200).</param>
     /// <param name="time">Bucket-mode time window 'start,end' in ms; either bound may be omitted.</param>
-    /// <param name="process">Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.</param>
-    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest (multi-process captures).</param>
-    /// <param name="pid">Scope to these exact process ids (comma-separated); excludes --process and --all-processes.</param>
+    /// <param name="process">
+    ///  Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.
+    /// </param>
+    /// <param name="allProcesses">
+    ///  Read every process instead of auto-scoping to the busiest (multi-process captures).
+    /// </param>
+    /// <param name="pid">
+    ///  Scope to these exact process ids (comma-separated); excludes --process and --all-processes.
+    /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
@@ -1101,7 +1245,9 @@ internal sealed class TraceCommands
     ///  Report just-in-time compilation: method count, compile-time summary, and per-method detail.
     /// </summary>
     /// <param name="trace">Path to a .nettrace EventPipe file captured with JIT events.</param>
-    /// <param name="top">-n, Maximum number of per-method rows to show, ranked by compile time, or 0 for the summary alone.</param>
+    /// <param name="top">
+    ///  -n, Maximum number of per-method rows to show, ranked by compile time, or 0 for the summary alone.
+    /// </param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -1148,7 +1294,9 @@ internal sealed class TraceCommands
     /// <param name="skip">Number of matches to skip, for paging.</param>
     /// <param name="take">-n, Maximum matches to return; 0 returns only the total count.</param>
     /// <param name="maxPayload">Per-event payload character cap; 0 omits payloads.</param>
-    /// <param name="payload">Keep only events whose payload values contain this (case-insensitive); omit for no payload filter.</param>
+    /// <param name="payload">
+    ///  Keep only events whose payload values contain this (case-insensitive); omit for no payload filter.
+    /// </param>
     /// <param name="pid">Keep only events from this process id; omit for every process.</param>
     /// <param name="tid">Keep only events on this thread id; omit for every thread.</param>
     /// <param name="format">Render format: text or json.</param>
@@ -1175,7 +1323,9 @@ internal sealed class TraceCommands
         return EventsExecutor.Run(request, Console.Out, Console.Error);
     }
 
-    /// <summary>Build, reuse, or remove the ETLX conversion cache beside a trace.</summary>
+    /// <summary>
+    ///  Build, reuse, or remove the ETLX conversion cache beside a trace.
+    /// </summary>
     /// <param name="trace">Path to a .nettrace or .etl file.</param>
     /// <param name="action">Cache action: convert or clean.</param>
     /// <returns>A process exit code.</returns>
@@ -1238,12 +1388,22 @@ internal sealed class TraceCommands
     /// </summary>
     /// <param name="launch">Path to the executable to launch and trace (the built app, never 'dotnet run').</param>
     /// <param name="output">Path of the .etl file to write.</param>
-    /// <param name="profile">Providers to enable: cpu (default), threadtime (adds context switches for wall-clock time), or startup (low-perturbation; only the CLR keywords that name managed methods).</param>
+    /// <param name="profile">
+    ///  Providers to enable: cpu (default), threadtime (adds context switches for wall-clock time), or startup (low-perturbation; only the CLR keywords that name managed methods).
+    /// </param>
     /// <param name="launchArgs">Arguments passed to the launched executable, as one command-line string.</param>
-    /// <param name="cpuMs">CPU sample interval in milliseconds; sub-millisecond is what makes a 30-100 ms command rankable. Clamped to the range this machine reports as honored, and a clamp is reported with that range.</param>
-    /// <param name="duration">Optional cap on capture length in seconds, applied to each launch; 0 (default) waits for each to exit.</param>
-    /// <param name="iterations">How many times to launch the executable inside the one session. Amortizes session startup over a short command, which is otherwise mostly capture overhead.</param>
-    /// <param name="maxSizeMb">Optional cap on the capture's on-disk size in megabytes; 0 (default) writes an unbounded file. When set, a circular buffer keeps the last N MB - size it to hold the run, since a full ring overwrites the oldest events and can drop early JIT method names.</param>
+    /// <param name="cpuMs">
+    ///  CPU sample interval in milliseconds; sub-millisecond is what makes a 30-100 ms command rankable. Clamped to the range this machine reports as honored, and a clamp is reported with that range.
+    /// </param>
+    /// <param name="duration">
+    ///  Optional cap on capture length in seconds, applied to each launch; 0 (default) waits for each to exit.
+    /// </param>
+    /// <param name="iterations">
+    ///  How many times to launch the executable inside the one session. Amortizes session startup over a short command, which is otherwise mostly capture overhead.
+    /// </param>
+    /// <param name="maxSizeMb">
+    ///  Optional cap on the capture's on-disk size in megabytes; 0 (default) writes an unbounded file. When set, a circular buffer keeps the last N MB - size it to hold the run, since a full ring overwrites the oldest events and can drop early JIT method names.
+    /// </param>
     /// <param name="format">Render format: text or json.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>

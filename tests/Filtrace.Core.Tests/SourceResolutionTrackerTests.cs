@@ -54,7 +54,7 @@ public sealed class SourceResolutionTrackerTests
     [TestMethod]
     public void NormalizeSymbolsDirectory_CanonicalPathWithSeparator_Throws()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"filtrace;symbols-{Guid.NewGuid():N}");
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace;symbols-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         try
         {
@@ -71,7 +71,7 @@ public sealed class SourceResolutionTrackerTests
     [TestMethod]
     public void NormalizeSymbolsDirectory_MissingDirectory_Throws()
     {
-        string missing = Path.Combine(Path.GetTempPath(), $"filtrace-missing-{Guid.NewGuid():N}");
+        string missing = Path.Join(Path.GetTempPath(), $"filtrace-missing-{Guid.NewGuid():N}");
 
         Action act = () => TraceLogReader.NormalizeSymbolsDirectory(missing);
 
@@ -144,7 +144,7 @@ public sealed class SourceResolutionTrackerTests
             data.Age + 1,
             modulePath).Should().Be(SourceResolutionTracker.PdbMatchStatus.IdentityMismatch);
 
-        string emptyDirectory = Path.Combine(Path.GetTempPath(), $"filtrace-symbols-{Guid.NewGuid():N}");
+        string emptyDirectory = Path.Join(Path.GetTempPath(), $"filtrace-symbols-{Guid.NewGuid():N}");
         Directory.CreateDirectory(emptyDirectory);
         try
         {
@@ -235,7 +235,7 @@ public sealed class SourceResolutionTrackerTests
     [TestMethod]
     public void Read_OuterSymbolsDirectory_SeparatesNamesFromSourceQuality()
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
+        string path = Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
         NetTraceReader reader = new();
 
         TraceReadResult result = reader.Read(path, AppContext.BaseDirectory);
@@ -266,7 +266,7 @@ public sealed class SourceResolutionTrackerTests
     [TestMethod]
     public void Read_SameNamedWrongIdentityPdb_ReportsMismatch()
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
+        string path = Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
         string modulePath = typeof(SourceResolutionTrackerTests).Assembly.Location;
         string assemblyDirectory = Path.GetDirectoryName(modulePath)!;
         using FileStream stream = File.OpenRead(modulePath);
@@ -274,14 +274,14 @@ public sealed class SourceResolutionTrackerTests
         DebugDirectoryEntry codeView = peReader.ReadDebugDirectory()
             .Single(entry => entry.Type == DebugDirectoryEntryType.CodeView);
         CodeViewDebugDirectoryData data = peReader.ReadCodeViewDebugDirectoryData(codeView);
-        string sourcePdb = Path.Combine(assemblyDirectory, Path.GetFileName(data.Path));
-        string symbolsDirectory = Path.Combine(
+        string sourcePdb = Path.Join(assemblyDirectory, Path.GetFileName(data.Path));
+        string symbolsDirectory = Path.Join(
             Path.GetTempPath(),
             $"filtrace-wrong-pdb-{Guid.NewGuid():N}");
         Directory.CreateDirectory(symbolsDirectory);
         try
         {
-            File.Copy(sourcePdb, Path.Combine(symbolsDirectory, "HotLoopBench.pdb"));
+            File.Copy(sourcePdb, Path.Join(symbolsDirectory, "HotLoopBench.pdb"));
             NetTraceReader reader = new();
 
             TraceReadResult result = reader.Read(path, symbolsDirectory);

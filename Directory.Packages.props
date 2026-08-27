@@ -20,7 +20,7 @@
       reference, so the subtree stays self-contained and promotion remains a plain
       file copy: a standalone filtrace repo references the same package unchanged.
     -->
-    <PackageVersion Include="KlutzyNinja.Touki" Version="0.3.0-alpha.1" />
+    <PackageVersion Include="KlutzyNinja.Touki" Version="0.8.0" />
 
     <!-- Product benchmarks and fixture generation. -->
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />

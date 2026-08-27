@@ -37,7 +37,7 @@ public sealed class ParityTests
     private const double AbsoluteToleranceMs = 0.2;
 
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     private static LoadedTrace LoadHotLoop() =>
         new TraceLoader().Load(FixturePath("hotloop.speedscope.json"));

@@ -9,7 +9,7 @@ namespace Filtrace.Cli;
 public sealed class DiskIoExecutorTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     // The disk I/O fixture is a trimmed ETW capture of a write-through workload, so it
     // carries the physical DiskIO write events the report reads.

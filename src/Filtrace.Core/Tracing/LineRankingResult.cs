@@ -11,8 +11,12 @@ namespace Filtrace.Tracing;
 /// <param name="ScopeWeight">Total scoped weight, in the metric's unit.</param>
 /// <param name="MethodFilter">The substring the methods were matched on, or empty for every method.</param>
 /// <param name="Rows">The ranked source lines, highest first.</param>
-/// <param name="AttributedRecordCount">Matching records with a source location, or <see langword="null"/> when unavailable.</param>
-/// <param name="UnattributedRecordCount">Matching records without a source location, or <see langword="null"/> when unavailable.</param>
+/// <param name="AttributedRecordCount">
+///  Matching records with a source location, or <see langword="null"/> when unavailable.
+/// </param>
+/// <param name="UnattributedRecordCount">
+///  Matching records without a source location, or <see langword="null"/> when unavailable.
+/// </param>
 public sealed record LineRankingResult(
     double ScopeWeight,
     string MethodFilter,

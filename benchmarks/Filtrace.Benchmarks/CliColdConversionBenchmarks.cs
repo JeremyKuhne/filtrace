@@ -4,7 +4,9 @@
 
 namespace Filtrace.Benchmarks;
 
-/// <summary>Measures one filtrace process against a fresh trace with no ETLX cache.</summary>
+/// <summary>
+///  Measures one filtrace process against a fresh trace with no ETLX cache.
+/// </summary>
 [MemoryDiagnoser]
 public class CliColdConversionBenchmarks
 {
@@ -13,19 +15,23 @@ public class CliColdConversionBenchmarks
     private string _executable = null!;
     private string _sourceTrace = null!;
 
-    /// <summary>Locates the child executable and immutable source trace.</summary>
+    /// <summary>
+    ///  Locates the child executable and immutable source trace.
+    /// </summary>
     [GlobalSetup]
     public void Setup()
     {
         _executable = CliProcessRunner.FindFiltraceExecutable();
-        _sourceTrace = Path.Combine(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
+        _sourceTrace = Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
         if (!File.Exists(_sourceTrace))
         {
             throw new FileNotFoundException("The activity fixture was not copied.", _sourceTrace);
         }
     }
 
-    /// <summary>Creates one fresh trace identity with no adjacent ETLX cache.</summary>
+    /// <summary>
+    ///  Creates one fresh trace identity with no adjacent ETLX cache.
+    /// </summary>
     [IterationSetup]
     public void CreateFreshTrace()
     {
@@ -36,7 +42,9 @@ public class CliColdConversionBenchmarks
             _corpus.TracePath);
     }
 
-    /// <summary>Verifies conversion and removes the fresh trace identity.</summary>
+    /// <summary>
+    ///  Verifies conversion and removes the fresh trace identity.
+    /// </summary>
     [IterationCleanup]
     public void CleanupIteration()
     {
@@ -55,11 +63,15 @@ public class CliColdConversionBenchmarks
         }
     }
 
-    /// <summary>Removes files left by an interrupted benchmark iteration.</summary>
+    /// <summary>
+    ///  Removes files left by an interrupted benchmark iteration.
+    /// </summary>
     [GlobalCleanup]
     public void Cleanup() => DisposeCorpus();
 
-    /// <summary>Starts filtrace once against the fresh trace.</summary>
+    /// <summary>
+    ///  Starts filtrace once against the fresh trace.
+    /// </summary>
     [Benchmark]
     public Task<CliProcessResult> InfoCold() =>
         CliProcessRunner.RunAsync(_executable, _arguments);

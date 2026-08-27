@@ -16,12 +16,8 @@ namespace Filtrace.Tracing;
 ///   cause - no symbol file, or one whose identity does not match the traced binary.
 ///  </para>
 /// </remarks>
-/// <param name="ResolvedModules">
-///  Bounded highest-impact modules whose symbols were found locally and applied.
-/// </param>
-/// <param name="MissingSymbolModules">
-///  Bounded highest-impact modules for which no local symbol file was found.
-/// </param>
+/// <param name="ResolvedModules">Bounded highest-impact modules whose symbols were found locally and applied.</param>
+/// <param name="MissingSymbolModules">Bounded highest-impact modules for which no local symbol file was found.</param>
 public sealed record NativeSymbolInfo(
     IReadOnlyList<string> ResolvedModules,
     IReadOnlyList<string> MissingSymbolModules)

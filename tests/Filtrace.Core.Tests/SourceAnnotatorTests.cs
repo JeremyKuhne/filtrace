@@ -27,7 +27,7 @@ public sealed class SourceAnnotatorTests
     [TestMethod]
     public void TryReadSourceLines_MissingFile_ReturnsFalseAndEmpty()
     {
-        string missing = Path.Combine(Path.GetTempPath(), $"does-not-exist-{Guid.NewGuid():N}.cs");
+        string missing = Path.Join(Path.GetTempPath(), $"does-not-exist-{Guid.NewGuid():N}.cs");
 
         SourceAnnotator.TryReadSourceLines(missing, out string[] lines).Should().BeFalse();
         lines.Should().BeEmpty();

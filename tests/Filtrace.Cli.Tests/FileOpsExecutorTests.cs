@@ -11,15 +11,15 @@ namespace Filtrace.Cli;
 public sealed class FileOpsExecutorTests
 {
     private static string FixturePath(string name) =>
-        Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
+        Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     // convert / clean write and delete the ETLX sidecar, so each test works on a
     // private temp copy of the fixture rather than the shared committed one.
     private static string CopyToTemp(string fixture, out string tempDir)
     {
-        tempDir = Path.Combine(Path.GetTempPath(), $"filtrace-fileops-{Guid.NewGuid():N}");
+        tempDir = Path.Join(Path.GetTempPath(), $"filtrace-fileops-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
-        string dest = Path.Combine(tempDir, fixture);
+        string dest = Path.Join(tempDir, fixture);
         File.Copy(FixturePath(fixture), dest);
         return dest;
     }
@@ -42,7 +42,7 @@ public sealed class FileOpsExecutorTests
 
     private static Process StartConvertProcess(string path)
     {
-        string executable = Path.Combine(
+        string executable = Path.Join(
             AppContext.BaseDirectory,
             OperatingSystem.IsWindows() ? "filtrace.exe" : "filtrace");
         ProcessStartInfo startInfo = new(executable)

@@ -152,9 +152,13 @@ public sealed class TraceInfo
     /// </summary>
     public AppliedProcessScope? AppliedProcessScope { get; init; }
 
-    /// <summary>The activity scope that actually applied, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  The activity scope that actually applied, or <see langword="null"/>.
+    /// </summary>
     public string? AppliedActivityName { get; init; }
 
-    /// <summary>The time window that actually applied, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  The time window that actually applied, or <see langword="null"/>.
+    /// </summary>
     public TimeWindow? AppliedTimeWindow { get; init; }
 }
