@@ -542,6 +542,22 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    [DataRow(GCSuspendEEReason.SuspendForGC, 10.0, true)]
+    [DataRow(GCSuspendEEReason.SuspendForGCPrep, 10.0, true)]
+    [DataRow(GCSuspendEEReason.SuspendForGC, 10.0001, false)]
+    [DataRow(GCSuspendEEReason.SuspendForGC, double.NaN, true)]
+    [DataRow(GCSuspendEEReason.SuspendForGC, double.PositiveInfinity, true)]
+    [DataRow(GCSuspendEEReason.SuspendForShutdown, 10.0, false)]
+    public void IsMissingPauseIdentityGcIncomplete_AppliesWindowAndReasonGate(
+        GCSuspendEEReason reason,
+        double timestamp,
+        bool expected)
+    {
+        TimelineProvider.IsMissingPauseIdentityGcIncomplete(reason, timestamp, windowEndMs: 10.0)
+            .Should().Be(expected);
+    }
+
+    [TestMethod]
     public void MatchPauseRestart_MissingStartDoesNotClaimGcProvenance()
     {
         Dictionary<TimelineProvider.PauseIdentity, TimelineProvider.PendingPauseStart> starts = [];

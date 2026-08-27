@@ -245,7 +245,10 @@ public sealed partial class TimelineProvider
                 }
                 else
                 {
-                    gcPauseDataIncomplete |= IsGcPauseReason(suspend.Reason);
+                    gcPauseDataIncomplete |= IsMissingPauseIdentityGcIncomplete(
+                        suspend.Reason,
+                        timestamp,
+                        endMs);
                 }
             }
             else if (IsEeRestartEvent(data))
@@ -975,6 +978,13 @@ public sealed partial class TimelineProvider
 
     private static bool IsGcPauseReason(GCSuspendEEReason reason) =>
         reason is GCSuspendEEReason.SuspendForGC or GCSuspendEEReason.SuspendForGCPrep;
+
+    internal static bool IsMissingPauseIdentityGcIncomplete(
+        GCSuspendEEReason reason,
+        double timestamp,
+        double windowEndMs) =>
+        IsGcPauseReason(reason)
+        && (!double.IsFinite(timestamp) || timestamp <= windowEndMs);
 
     private static AppliedProcessScope? FollowUpProcessScope(ScopeResolution resolved) =>
         resolved.AppliedScope.Mode == "automatic" && resolved.Label is null
