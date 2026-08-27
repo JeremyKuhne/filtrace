@@ -255,6 +255,7 @@ internal abstract class TraceLogReader : ITraceReader
         NativeSymbolInfo? nativeSymbols)
     {
         string? appliedScope = resolvedScope.Phrase;
+        bool processScopeDroppedSample = false;
         IReadOnlyList<string> scopeWarnings = resolvedScope.Warnings;
         AnalysisEventCounter analysisEvents = new();
         Dictionary<int, string> locationCache = [];
@@ -283,13 +284,6 @@ internal abstract class TraceLogReader : ITraceReader
                 continue;
             }
 
-            // When scoped to a process tree, drop samples from any process outside it.
-            // The trace is already fully resolved, so this is a lossless narrowing.
-            if (!resolvedScope.Includes(data))
-            {
-                continue;
-            }
-
             // When scoped to a time window, drop samples taken outside it; every sample
             // carries a trace-relative timestamp, so the same guard scopes every metric.
             if (window is TimeWindow timeScope && !timeScope.Contains(data.TimeStampRelativeMSec))
@@ -301,6 +295,15 @@ internal abstract class TraceLogReader : ITraceReader
             // matching set was computed by the activity pre-pass above).
             if (activitySamples is not null && !activitySamples.Contains(data.EventIndex))
             {
+                continue;
+            }
+
+            // When scoped to a process tree, drop samples from any process outside it.
+            // Track whether this changed CPU evidence so an automatic event-only scope
+            // does not produce a misleading CPU scope notice.
+            if (!resolvedScope.Includes(data))
+            {
+                processScopeDroppedSample = true;
                 continue;
             }
 
@@ -366,6 +369,10 @@ internal abstract class TraceLogReader : ITraceReader
         }
 
         double resolutionRate = totalFrames > 0 ? (double)resolvedFrames / totalFrames : 0.0;
+        if (resolvedScope.AppliedScope.Mode == "automatic" && !processScopeDroppedSample)
+        {
+            appliedScope = null;
+        }
 
         List<string> warnings = [.. scopeWarnings];
         if (samples.Count == 0)

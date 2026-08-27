@@ -162,6 +162,38 @@ public sealed class ProcessScopeValidationTests
     }
 
     [TestMethod]
+    public void CountIndependentRoots_SameNameAndReusedPid_CountsBothInstances()
+    {
+        ProcessTree.ProcessInstanceDescriptor[] processes =
+        [
+            new(1, 42, "App", null),
+            new(2, 43, "Worker", 1),
+            new(3, 44, "App.Helper", 2),
+            new(4, 42, "App", null)
+        ];
+
+        ProcessTree.CountIndependentRoots(processes, matchedIndexes: [1, 3, 4]).Should().Be(2);
+        ProcessTree.NameScopeWarningGuidance([42, 44, 42]).Should()
+            .Contain("narrow the capture")
+            .And.NotContain("--pid");
+        ProcessTree.NameScopeWarningGuidance([42, 44]).Should().Contain("--pid");
+    }
+
+    [TestMethod]
+    public void NarrowsTheCapture_ExcludedZeroCpuInstanceStillNarrows()
+    {
+        ProcessTree.ProcessInstanceDescriptor[] processes =
+        [
+            new(1, 42, "App", null),
+            new(2, 43, "EventsOnly", null),
+            new(3, 0, "Idle", null)
+        ];
+
+        ProcessTree.NarrowsTheCapture(processes, includedIndexes: [1]).Should().BeTrue();
+        ProcessTree.NarrowsTheCapture(processes, includedIndexes: [1, 2]).Should().BeFalse();
+    }
+
+    [TestMethod]
     public void ScopeResolution_IncludesOnlySelectedProcessInstances()
     {
         ScopeResolution resolution = new(
