@@ -124,7 +124,11 @@ public sealed record AnalysisScopeContext
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ProcessMode { get; init; }
 
-    /// <summary>The applied process-name selector, or <see langword="null"/>.</summary>
+    /// <summary>
+    ///  A bounded display label for name or automatic process scope, or
+    ///  <see langword="null"/>. Use <see cref="RootProcessIds"/> rather than this
+    ///  label for replay when <see cref="ProcessIdsTruncated"/> is false.
+    /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Process { get; init; }
 

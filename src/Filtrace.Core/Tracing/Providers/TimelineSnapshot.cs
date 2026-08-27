@@ -43,6 +43,13 @@ public sealed record TimelineSnapshot(
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool GcPauseDataIncomplete { get; init; }
+
+    /// <summary>
+    ///  Whether an in-window EE restart lacked a retained suspension start, so its
+    ///  reason and any associated pause contribution are unknown.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool UnknownPauseDataIncomplete { get; init; }
 }
 
 /// <summary>Garbage-collection activity in a timeline snapshot.</summary>

@@ -890,6 +890,11 @@ public sealed class TraceTools
             warnings.Add(gcPauseWarning);
         }
 
+        if (TimelineProvider.GetSnapshotUnknownPauseWarning(result) is string unknownPauseWarning)
+        {
+            warnings.Add(unknownPauseWarning);
+        }
+
         return new AnalysisResult<TimelineResult>(
             result,
             warnings,

@@ -128,6 +128,7 @@ public sealed partial class TimelineProvider
         List<GcPauseInterval> pauseIntervals = [];
         bool detailTruncated = false;
         bool gcPauseDataIncomplete = false;
+        bool unknownPauseDataIncomplete = false;
 
         using Etlx.TraceLogEventSource source = traceLog.Events.GetSource();
         source.NeedLoadedDotNetRuntimes();
@@ -194,7 +195,8 @@ public sealed partial class TimelineProvider
             namesTruncated)
         {
             DetailTruncated = detailTruncated,
-            GcPauseDataIncomplete = gcPauseDataIncomplete
+            GcPauseDataIncomplete = gcPauseDataIncomplete,
+            UnknownPauseDataIncomplete = unknownPauseDataIncomplete
         };
 
         return new TimelineResult(
@@ -249,7 +251,15 @@ public sealed partial class TimelineProvider
                     startMs,
                     endMs,
                     out PendingPauseStart pauseStart);
-                if (restartResult == PauseRestartResult.InvalidPair && pauseStart.IsGc)
+                if (restartResult == PauseRestartResult.MissingStart)
+                {
+                    unknownPauseDataIncomplete |= IsUnknownPauseEvidence(
+                        restartResult,
+                        timestamp,
+                        startMs,
+                        endMs);
+                }
+                else if (restartResult == PauseRestartResult.InvalidPair && pauseStart.IsGc)
                 {
                     gcPauseDataIncomplete = true;
                 }
@@ -432,6 +442,32 @@ public sealed partial class TimelineProvider
                 + "GC suspend/restart state; pause totals and overlap-based collection detail may be inaccurate."
             : null;
     }
+
+    /// <summary>
+    ///  Returns the warning for reasonless in-window EE restart evidence, or
+    ///  <see langword="null"/> when every in-window restart had a retained start.
+    /// </summary>
+    /// <param name="result">The timeline result to inspect.</param>
+    /// <returns>The unknown-suspension warning, or <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="result"/> is <see langword="null"/>.</exception>
+    public static string? GetSnapshotUnknownPauseWarning(TimelineResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return result.Snapshot?.UnknownPauseDataIncomplete == true
+            ? "Snapshot pause evidence is incomplete because an in-window EE restart had no retained suspension start; "
+                + "its reason and pause contribution are unknown."
+            : null;
+    }
+
+    internal static bool IsUnknownPauseEvidence(
+        PauseRestartResult restartResult,
+        double timestamp,
+        double windowStartMs,
+        double windowEndMs) =>
+        restartResult == PauseRestartResult.MissingStart
+        && timestamp >= windowStartMs
+        && timestamp <= windowEndMs;
 
     private static SnapshotGcSummary BuildSnapshotGc(
         Etlx.TraceLogEventSource source,

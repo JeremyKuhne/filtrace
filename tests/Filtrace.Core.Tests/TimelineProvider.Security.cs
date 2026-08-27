@@ -519,6 +519,70 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void IsUnknownPauseEvidence_ClassifiesOnlyInWindowMissingStarts()
+    {
+        TimelineProvider.IsUnknownPauseEvidence(
+            TimelineProvider.PauseRestartResult.MissingStart,
+            5.0,
+            5.0,
+            15.0).Should().BeTrue();
+        TimelineProvider.IsUnknownPauseEvidence(
+            TimelineProvider.PauseRestartResult.MissingStart,
+            15.0,
+            5.0,
+            15.0).Should().BeTrue();
+        TimelineProvider.IsUnknownPauseEvidence(
+            TimelineProvider.PauseRestartResult.MissingStart,
+            4.99,
+            5.0,
+            15.0).Should().BeFalse();
+        TimelineProvider.IsUnknownPauseEvidence(
+            TimelineProvider.PauseRestartResult.MissingStart,
+            15.01,
+            5.0,
+            15.0).Should().BeFalse();
+        TimelineProvider.IsUnknownPauseEvidence(
+            TimelineProvider.PauseRestartResult.CompletedNonGc,
+            10.0,
+            5.0,
+            15.0).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void GetSnapshotUnknownPauseWarning_ReasonlessRestart_IsExplicit()
+    {
+        TimelineSnapshot snapshot = new(
+            0.0,
+            new SnapshotGcSummary(0, 0.0, 0.0, []),
+            new SnapshotCpuSummary(0, 0, []),
+            new SnapshotExceptionSummary(0, 0, []),
+            new SnapshotAllocationSummary(0, 0, 0, []),
+            new SnapshotJitSummary(0, 0, []),
+            new SnapshotEventSummary(0, 0, []),
+            false)
+        {
+            UnknownPauseDataIncomplete = true
+        };
+        TimelineResult result = new(0.0, 1.0, 1.0, 1, null, null, null, null, null, null)
+        {
+            Mode = "snapshot",
+            Snapshot = snapshot
+        };
+
+        string warning = TimelineProvider.GetSnapshotUnknownPauseWarning(result)!;
+
+        warning.Should().Contain("incomplete").And.Contain("reason").And.Contain("unknown");
+        AnalysisDiagnostic.FromWarning(warning).Severity.Should().Be("warning");
+        OutputJson.Serialize(new AnalysisResult<TimelineResult>(result))
+            .Should().Contain("\"unknownPauseDataIncomplete\":true");
+
+        TimelineSnapshot completeSnapshot = snapshot with { UnknownPauseDataIncomplete = false };
+        TimelineResult completeResult = result with { Snapshot = completeSnapshot };
+        OutputJson.Serialize(new AnalysisResult<TimelineResult>(completeResult))
+            .Should().NotContain("unknownPauseDataIncomplete");
+    }
+
+    [TestMethod]
     public void MatchPauseRestart_NonGcPair_IsConsumedWithoutGcEvidence()
     {
         Dictionary<(int ProcessId, int ThreadId), TimelineProvider.PendingPauseStart> starts = new()

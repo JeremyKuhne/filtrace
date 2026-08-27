@@ -133,6 +133,11 @@ internal static class TimelineExecutor
             warnings.Add(gcPauseWarning);
         }
 
+        if (TimelineProvider.GetSnapshotUnknownPauseWarning(result) is string unknownPauseWarning)
+        {
+            warnings.Add(unknownPauseWarning);
+        }
+
         AnalysisResult<TimelineResult> envelope = new(
             result,
             warnings,
