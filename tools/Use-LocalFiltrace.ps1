@@ -235,6 +235,16 @@ function Assert-PathIsNotLink([string] $Path, [string] $Description) {
     }
 }
 
+function Assert-DirectoryContainsNoLinks([string] $Path, [string] $Description) {
+    [System.IO.FileSystemInfo[]] $items = @(
+        Get-ChildItem -LiteralPath $Path -Force -Recurse)
+    foreach ($item in $items) {
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "$Description contains a symbolic link or junction: '$($item.FullName)'."
+        }
+    }
+}
+
 function Get-PathIdentity([string] $Path) {
     [string] $identity = Resolve-PhysicalPath $Path
     if ((Get-PathComparison $identity) -eq [System.StringComparison]::OrdinalIgnoreCase) {
@@ -327,8 +337,7 @@ function Assert-PathsDoNotOverlap(
     [string] $First,
     [string] $FirstDescription,
     [string] $Second,
-    [string] $SecondDescription,
-    [System.StringComparison] $Comparison) {
+    [string] $SecondDescription) {
     [string] $firstPhysical = Resolve-PhysicalPath $First
     [string] $secondPhysical = Resolve-PhysicalPath $Second
     if ((Test-PathWithin $firstPhysical $secondPhysical (Get-PathComparison $secondPhysical)) -or
@@ -409,8 +418,38 @@ function Enter-ResourceLocks([string[]] $ResourceKeys) {
     }
 }
 
+function Get-ResourceOwnersRoot {
+    if (-not [string]::IsNullOrWhiteSpace($env:FILTRACE_LOCAL_TESTING_OWNERS_ROOT)) {
+        return [System.IO.Path]::GetFullPath($env:FILTRACE_LOCAL_TESTING_OWNERS_ROOT)
+    }
+    if (Test-WindowsPlatform) {
+        if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+            throw 'LOCALAPPDATA is not set; resource ownership cannot be persisted.'
+        }
+        return Join-Path $env:LOCALAPPDATA 'Filtrace/local-testing/owners'
+    }
+    if ([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+            [System.Runtime.InteropServices.OSPlatform]::OSX)) {
+        if ([string]::IsNullOrWhiteSpace($HOME)) {
+            throw 'HOME is not set; resource ownership cannot be persisted.'
+        }
+        return Join-Path $HOME 'Library/Application Support/Filtrace/local-testing/owners'
+    }
+
+    [string] $stateRoot = if ([string]::IsNullOrWhiteSpace($env:XDG_STATE_HOME)) {
+        if ([string]::IsNullOrWhiteSpace($HOME)) {
+            throw 'HOME is not set; resource ownership cannot be persisted.'
+        }
+        Join-Path $HOME '.local/state'
+    }
+    else {
+        $env:XDG_STATE_HOME
+    }
+    return Join-Path $stateRoot 'filtrace/local-testing/owners'
+}
+
 function Get-ResourceOwnerPath([string] $ResourceKey) {
-    return Join-Path $root "artifacts/local-testing/owners/$(Get-StableHash $ResourceKey).json"
+    return Join-Path (Get-ResourceOwnersRoot) "$(Get-StableHash $ResourceKey).json"
 }
 
 function Enter-ResourceRegistryLock {
@@ -443,7 +482,7 @@ function Test-ResourceKeysOverlap([string] $First, [string] $Second) {
 }
 
 function Get-ResourceOwners {
-    [string] $ownersRoot = Join-Path $root 'artifacts/local-testing/owners'
+    [string] $ownersRoot = Get-ResourceOwnersRoot
     if (-not (Test-Path -LiteralPath $ownersRoot -PathType Container)) { return @() }
 
     [object[]] $owners = @(
@@ -1173,7 +1212,7 @@ try {
     else {
         $null
     }
-    if ($null -ne $state -and $state.schemaVersion -notin @(2, 3, 4, 5, 6)) {
+    if ($null -ne $state -and $state.schemaVersion -notin @(2, 3, 4, 5, 6, 7)) {
         throw "Local-testing state has unsupported schema version '$($state.schemaVersion)': '$StatePath'."
     }
 
@@ -1189,7 +1228,7 @@ try {
 
     [string] $ownedStateWorkspace = Get-StateWorkspacePath $StatePath
     [bool] $legacyState = $null -ne $state -and $state.schemaVersion -eq 2
-    [bool] $legacyScopedState = $null -ne $state -and $state.schemaVersion -in @(3, 4, 5)
+    [bool] $legacyScopedState = $null -ne $state -and $state.schemaVersion -in @(3, 4, 5, 6)
     if ($legacyState -and $normalizedAction -ceq 'Install') {
         throw "Legacy global local-testing state must be restored before starting a repository-scoped install: '$StatePath'."
     }
@@ -1242,23 +1281,19 @@ try {
         throw "SkillDestination must not contain TargetRepository: '$SkillDestination'."
     }
     [string] $localTestingRoot = Join-Path $root 'artifacts/local-testing'
-    [string] $resourceOwnersRoot = Join-Path $localTestingRoot 'owners'
+    [string] $resourceOwnersRoot = Get-ResourceOwnersRoot
     Assert-PathsDoNotOverlap `
         $SkillDestination 'SkillDestination' `
-        $localTestingRoot 'Shared local-testing root' `
-        $pathComparison
+        $localTestingRoot 'Shared local-testing root'
     Assert-PathsDoNotOverlap `
         $McpConfigPath 'McpConfigPath' `
-        $localTestingRoot 'Shared local-testing root' `
-        $pathComparison
+        $localTestingRoot 'Shared local-testing root'
     Assert-PathsDoNotOverlap `
         $StatePath 'StatePath' `
-        $resourceOwnersRoot 'Resource ownership registry' `
-        $pathComparison
+        $resourceOwnersRoot 'Resource ownership registry'
     Assert-PathsDoNotOverlap `
         $stateWorkspace 'Local-testing workspace' `
-        $resourceOwnersRoot 'Resource ownership registry' `
-        $pathComparison
+        $resourceOwnersRoot 'Resource ownership registry'
 
     [bool] $cliManaged = if ($null -ne $state -and
         -not $PSBoundParameters.ContainsKey('SkipCli')) {
@@ -1295,40 +1330,31 @@ try {
     [string] $skillSourceFull = [System.IO.Path]::GetFullPath($skillSource)
     Assert-PathsDoNotOverlap `
         $skillSourceFull 'Repository skill source' `
-        $SkillDestination 'SkillDestination' `
-        $pathComparison
+        $SkillDestination 'SkillDestination'
     Assert-PathsDoNotOverlap `
         $skillSourceFull 'Repository skill source' `
-        $StatePath 'StatePath' `
-        $pathComparison
+        $StatePath 'StatePath'
     Assert-PathsDoNotOverlap `
         $skillSourceFull 'Repository skill source' `
-        $stateWorkspace 'Local-testing workspace' `
-        $pathComparison
+        $stateWorkspace 'Local-testing workspace'
     Assert-PathsDoNotOverlap `
         $skillSourceFull 'Repository skill source' `
-        $McpConfigPath 'McpConfigPath' `
-        $pathComparison
+        $McpConfigPath 'McpConfigPath'
     Assert-PathsDoNotOverlap `
         $SkillDestination 'SkillDestination' `
-        $StatePath 'StatePath' `
-        $pathComparison
+        $StatePath 'StatePath'
     Assert-PathsDoNotOverlap `
         $SkillDestination 'SkillDestination' `
-        $stateWorkspace 'Local-testing workspace' `
-        $pathComparison
+        $stateWorkspace 'Local-testing workspace'
     Assert-PathsDoNotOverlap `
         $SkillDestination 'SkillDestination' `
-        $McpConfigPath 'McpConfigPath' `
-        $pathComparison
+        $McpConfigPath 'McpConfigPath'
     Assert-PathsDoNotOverlap `
         $StatePath 'StatePath' `
-        $McpConfigPath 'McpConfigPath' `
-        $pathComparison
+        $McpConfigPath 'McpConfigPath'
     Assert-PathsDoNotOverlap `
         $stateWorkspace 'Local-testing workspace' `
-        $McpConfigPath 'McpConfigPath' `
-        $pathComparison
+        $McpConfigPath 'McpConfigPath'
 
     [string] $workspaceMarker = Get-StateWorkspaceMarkerPath $stateWorkspace
     [string] $skillBackup = Join-Path $stateWorkspace 'skill-backup'
@@ -1343,16 +1369,13 @@ try {
     if ($CliToolPath) {
         Assert-PathsDoNotOverlap `
             $skillSourceFull 'Repository skill source' `
-            $CliToolPath 'CliToolPath' `
-            $pathComparison
+            $CliToolPath 'CliToolPath'
         Assert-PathsDoNotOverlap `
             $SkillDestination 'SkillDestination' `
-            $CliToolPath 'CliToolPath' `
-            $pathComparison
+            $CliToolPath 'CliToolPath'
         Assert-PathsDoNotOverlap `
             $McpConfigPath 'McpConfigPath' `
-            $CliToolPath 'CliToolPath' `
-            $pathComparison
+            $CliToolPath 'CliToolPath'
         foreach ($reservedPath in ([ordered] @{
                 'Workspace marker' = $workspaceMarker
                 'Skill backup' = $skillBackup
@@ -1361,22 +1384,18 @@ try {
             }).GetEnumerator()) {
             Assert-PathsDoNotOverlap `
                 $CliToolPath 'CliToolPath' `
-                ([string] $reservedPath.Value) ([string] $reservedPath.Key) `
-                $pathComparison
+                ([string] $reservedPath.Value) ([string] $reservedPath.Key)
         }
         if (-not $cliOwnedByWorkspace) {
             Assert-PathsDoNotOverlap `
                 $CliToolPath 'CliToolPath' `
-                $localTestingRoot 'Shared local-testing root' `
-                $pathComparison
+                $localTestingRoot 'Shared local-testing root'
             Assert-PathsDoNotOverlap `
                 $StatePath 'StatePath' `
-                $CliToolPath 'CliToolPath' `
-                $pathComparison
+                $CliToolPath 'CliToolPath'
             Assert-PathsDoNotOverlap `
                 $stateWorkspace 'Local-testing workspace' `
-                $CliToolPath 'CliToolPath' `
-                $pathComparison
+                $CliToolPath 'CliToolPath'
         }
     }
 
@@ -1393,7 +1412,7 @@ try {
         throw "Existing local-testing state does not match this invocation: '$StatePath'."
     }
 
-    [string[]] $resourceKeys = if ($null -ne $state -and $state.schemaVersion -eq 6) {
+    [string[]] $resourceKeys = if ($null -ne $state -and $state.schemaVersion -in @(6, 7)) {
         [string[]] $state.resourceKeys
     }
     elseif ($null -ne $state -and $state.schemaVersion -eq 5) {
@@ -1419,11 +1438,11 @@ try {
     [bool] $ownershipClaimed = $false
     [bool] $workspaceInitialized = $false
     try {
-        if ($null -ne $state -and $state.schemaVersion -eq 6 -and
+        if ($null -ne $state -and $state.schemaVersion -eq 7 -and
             $state.status -cne 'cleanup-in-progress') {
             Assert-ResourceOwnership $resourceKeys $StatePath
         }
-        elseif ($null -ne $state -and $state.schemaVersion -ne 6) {
+        elseif ($null -ne $state -and $state.schemaVersion -ne 7) {
             $null = Claim-ResourceOwnership $resourceKeys $StatePath
             $ownershipClaimed = $true
         }
@@ -1440,7 +1459,7 @@ try {
                     throw "Cleanup workspace is nonempty but its ownership marker is missing: '$stateWorkspace'."
                 }
             }
-            if ($state.schemaVersion -in @(5, 6) -or $ownershipClaimed) {
+            if ($state.schemaVersion -in @(5, 6, 7) -or $ownershipClaimed) {
                 Remove-ResourceOwnership $resourceKeys $StatePath
                 $ownershipClaimed = $false
             }
@@ -1517,6 +1536,7 @@ try {
             [bool] $priorSkillExists = Test-Path -LiteralPath $SkillDestination -PathType Container
             [string] $skillBackupSha256 = $null
             if ($priorSkillExists) {
+                Assert-DirectoryContainsNoLinks $SkillDestination 'Skill destination'
                 Copy-Item -LiteralPath $SkillDestination -Destination $skillBackup -Recurse -Force
                 $skillBackupSha256 = Get-DirectoryFingerprint `
                     $skillBackup `
@@ -1531,7 +1551,7 @@ try {
                 Backup-CliPackage $priorCli $cliBackup
             }
             $state = [pscustomobject] [ordered] @{
-                schemaVersion = 6
+                schemaVersion = 7
                 createdUtc = [System.DateTimeOffset]::UtcNow.ToString('O')
                 status = 'baseline-recorded'
                 targetRepository = $TargetRepository
@@ -1620,7 +1640,7 @@ try {
         -not (Test-Path -LiteralPath $skillBackup -PathType Container)) {
         throw "Recorded skill backup is missing: '$skillBackup'."
     }
-        if ([bool] $state.skill.existed -and $state.schemaVersion -in @(4, 5, 6)) {
+        if ([bool] $state.skill.existed -and $state.schemaVersion -in @(4, 5, 6, 7)) {
         [string] $expectedSkillBackupSha256 = [string] $state.skill.backupSha256
         if ([string]::IsNullOrWhiteSpace($expectedSkillBackupSha256)) {
             throw "Recorded skill backup hash is missing: '$skillBackup'."
@@ -1705,7 +1725,7 @@ try {
             $state.status = 'cleanup-in-progress'
             Write-JsonFile $StatePath $state
             Remove-StateWorkspace $stateWorkspace $StatePath
-            if ($state.schemaVersion -in @(5, 6) -or $ownershipClaimed) {
+            if ($state.schemaVersion -in @(5, 6, 7) -or $ownershipClaimed) {
                 Remove-ResourceOwnership $resourceKeys $StatePath
                 $ownershipClaimed = $false
             }

@@ -21,6 +21,10 @@ $workflow = Join-Path $root 'tools/Use-LocalFiltrace.ps1'
 $skillSource = Join-Path $root '.agents/skills/filtrace'
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace local setup $([guid]::NewGuid().ToString('N'))"
 $utf8 = [System.Text.UTF8Encoding]::new($false)
+[bool] $hadOwnersRootOverride = Test-Path Env:FILTRACE_LOCAL_TESTING_OWNERS_ROOT
+[string] $priorOwnersRootOverride = $env:FILTRACE_LOCAL_TESTING_OWNERS_ROOT
+[string] $resourceOwnersRoot = Join-Path $temporaryRoot 'resource owners'
+$env:FILTRACE_LOCAL_TESTING_OWNERS_ROOT = $resourceOwnersRoot
 
 function Assert-True([bool] $Condition, [string] $Message) {
     if (-not $Condition) { throw $Message }
@@ -531,7 +535,7 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $consumerSkill 'SKILL.md') -PathType Leaf) `
         'Default install did not vendor the skill into the consumer repository.'
     [object] $consumerLocalState = Read-Json $consumerState
-    Assert-True ($consumerLocalState.schemaVersion -eq 6) 'Default install did not write schema version 6 state.'
+    Assert-True ($consumerLocalState.schemaVersion -eq 7) 'Default install did not write schema version 7 state.'
     Assert-True ([string] $consumerLocalState.targetRepository -ceq $consumerRoot) `
         'Default install did not record the consumer repository.'
     Assert-True ([string] $consumerLocalState.mcp.path -ceq $consumerMcp) `
@@ -666,6 +670,25 @@ try {
 
     Invoke-Workflow 'Install' $ownershipConfig $ownershipSkill $firstOwnershipState
     [byte[]] $firstOwnershipStateBytes = [System.IO.File]::ReadAllBytes($firstOwnershipState)
+
+    [string] $secondCheckoutRoot = Join-Path $ownershipRoot 'second checkout'
+    [string] $secondCheckoutWorkflow = Join-Path $secondCheckoutRoot 'tools/Use-LocalFiltrace.ps1'
+    [string] $secondCheckoutSkill = Join-Path $secondCheckoutRoot '.agents/skills/filtrace'
+    [string] $secondCheckoutMcpDll = Join-Path $secondCheckoutRoot "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
+    $null = New-Item -ItemType Directory -Path (Split-Path -Parent $secondCheckoutWorkflow) -Force
+    $null = New-Item -ItemType Directory -Path (Split-Path -Parent $secondCheckoutSkill) -Force
+    $null = New-Item -ItemType Directory -Path (Split-Path -Parent $secondCheckoutMcpDll) -Force
+    Copy-Item -LiteralPath $workflow -Destination $secondCheckoutWorkflow
+    Copy-Item -LiteralPath $skillSource -Destination $secondCheckoutSkill -Recurse
+    [System.IO.File]::WriteAllText($secondCheckoutMcpDll, 'second checkout MCP placeholder', $utf8)
+    [string] $crossCheckoutFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $ownershipConfig -SkillDestination $ownershipSkill `
+        -StatePath $secondOwnershipState -SkipCli -WorkflowPath $secondCheckoutWorkflow
+    Assert-True ($crossCheckoutFailure -match 'owned by') `
+        'A second Filtrace checkout bypassed durable resource ownership.'
+    Assert-True (-not (Test-Path -LiteralPath $secondOwnershipState)) `
+        'Cross-checkout ownership rejection wrote another rollback manifest.'
+
     [string] $ownershipFailure = Invoke-WorkflowFailure -Action Install `
         -McpConfigPath $ownershipConfig -SkillDestination $ownershipSkill `
         -StatePath $secondOwnershipState -SkipCli
@@ -836,7 +859,7 @@ try {
     Assert-True ($legacyScopedMismatch -match 'state does not match this invocation') `
         'Legacy scoped path mismatch was not rejected before Restore.'
     [object[]] $legacyMismatchOwners = @(
-        Get-ChildItem -LiteralPath (Join-Path $root 'artifacts/local-testing/owners') `
+        Get-ChildItem -LiteralPath $resourceOwnersRoot `
             -File -Filter '*.json' -ErrorAction SilentlyContinue |
             Where-Object {
                 [string] (Read-Json $_.FullName).statePath -ceq $legacyScopedState
@@ -927,7 +950,7 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $schemaFiveSkill)) `
         'Schema-5 Restore left the local skill active.'
     [object[]] $schemaFiveOwners = @(
-        Get-ChildItem -LiteralPath (Join-Path $root 'artifacts/local-testing/owners') `
+        Get-ChildItem -LiteralPath $resourceOwnersRoot `
             -File -Filter '*.json' -ErrorAction SilentlyContinue |
             Where-Object {
                 [string] (Read-Json $_.FullName).statePath -ceq $schemaFiveState
@@ -997,7 +1020,10 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $sharedMcpState)) `
         'Shared-root MCP rejection wrote rollback state.'
 
-    [string] $sharedStatePath = Join-Path $sharedRootSkill 'state.json'
+    [string] $ownerRegistrySentinel = Join-Path $resourceOwnersRoot 'keep.txt'
+    $null = New-Item -ItemType Directory -Path $resourceOwnersRoot -Force
+    [System.IO.File]::WriteAllText($ownerRegistrySentinel, 'machine-wide registry', $utf8)
+    [string] $sharedStatePath = Join-Path $resourceOwnersRoot 'state.json'
     [string] $sharedStateConfig = Join-Path $copiedRoot 'shared-state-mcp.json'
     [string] $sharedStateSkill = Join-Path $copiedRoot 'shared-state-skill/filtrace'
     Write-Json $sharedStateConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
@@ -1008,6 +1034,8 @@ try {
         'StatePath inside the resource ownership registry was not rejected.'
     Assert-True (-not (Test-Path -LiteralPath $sharedStatePath)) `
         'Owner-registry StatePath rejection wrote rollback state.'
+    Assert-True ([System.IO.File]::ReadAllText($ownerRegistrySentinel, $utf8) -ceq 'machine-wide registry') `
+        'Owner-registry StatePath rejection changed registry content.'
 
     [string] $sharedCliPath = Join-Path $sharedRootSkill 'tools'
     [string] $sharedCliConfig = Join-Path $copiedRoot 'shared-cli-mcp.json'
@@ -1144,6 +1172,54 @@ try {
         'Linked SkillDestination rejection changed its target.'
     Assert-True (-not (Test-Path -LiteralPath $linkedSkillState)) `
         'Linked SkillDestination rejection wrote rollback state.'
+
+    [string[]] $nestedLinkKinds = if (Test-WindowsPlatform) {
+        @('directory')
+    }
+    else {
+        @('file', 'directory')
+    }
+    foreach ($nestedLinkKind in $nestedLinkKinds) {
+        [string] $nestedLinkRoot = Join-Path $copiedRoot "nested-$nestedLinkKind-link"
+        [string] $nestedLinkSkill = Join-Path $nestedLinkRoot 'skill/filtrace'
+        [string] $nestedLinkConfig = Join-Path $nestedLinkRoot 'mcp.json'
+        [string] $nestedLinkState = Join-Path $nestedLinkRoot 'state.json'
+        [string] $nestedLinkTarget = Join-Path $nestedLinkRoot "external-$nestedLinkKind"
+        [string] $nestedLinkPath = Join-Path $nestedLinkSkill "$nestedLinkKind-link"
+        $null = New-Item -ItemType Directory -Path $nestedLinkSkill -Force
+        [System.IO.File]::WriteAllText((Join-Path $nestedLinkSkill 'SKILL.md'), 'prior skill', $utf8)
+        Write-Json $nestedLinkConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
+        if ($nestedLinkKind -ceq 'file') {
+            [System.IO.File]::WriteAllText($nestedLinkTarget, 'external file', $utf8)
+            $null = New-Item -ItemType SymbolicLink -Path $nestedLinkPath -Target $nestedLinkTarget
+        }
+        else {
+            $null = New-Item -ItemType Directory -Path $nestedLinkTarget -Force
+            [System.IO.File]::WriteAllText((Join-Path $nestedLinkTarget 'keep.txt'), 'external directory', $utf8)
+            $null = New-Item `
+                -ItemType $(if (Test-WindowsPlatform) { 'Junction' } else { 'SymbolicLink' }) `
+                -Path $nestedLinkPath `
+                -Target $nestedLinkTarget
+        }
+
+        [string] $nestedLinkFailure = Invoke-WorkflowFailure -Action Install `
+            -McpConfigPath $nestedLinkConfig -SkillDestination $nestedLinkSkill `
+            -StatePath $nestedLinkState -SkipCli -WorkflowPath $copiedWorkflow
+        Assert-True ($nestedLinkFailure -match 'Skill destination contains a symbolic link or junction') `
+            "A nested $nestedLinkKind link was not rejected before skill backup."
+        Assert-True (-not (Test-Path -LiteralPath $nestedLinkState)) `
+            "Nested $nestedLinkKind link rejection wrote rollback state."
+        if ($nestedLinkKind -ceq 'file') {
+            Assert-True ([System.IO.File]::ReadAllText($nestedLinkTarget, $utf8) -ceq 'external file') `
+                'Nested file-link rejection changed the external file.'
+        }
+        else {
+            Assert-True (
+                [System.IO.File]::ReadAllText((Join-Path $nestedLinkTarget 'keep.txt'), $utf8) -ceq
+                'external directory') `
+                'Nested directory-link rejection changed the external directory.'
+        }
+    }
 
     foreach ($reservedName in @('skill-backup', 'cli-backup', 'packages')) {
         [string] $reservedCliRoot = Join-Path $copiedRoot "reserved-cli-$reservedName"
@@ -1418,7 +1494,7 @@ try {
         Assert-True (-not (Test-Path -LiteralPath $cleanupWorkspace)) `
             "Cleanup retry left the workspace when workspacePresent=$workspacePresent."
         [object[]] $cleanupOwners = @(
-            Get-ChildItem -LiteralPath (Join-Path $root 'artifacts/local-testing/owners') `
+            Get-ChildItem -LiteralPath $resourceOwnersRoot `
                 -File -Filter '*.json' -ErrorAction SilentlyContinue |
                 Where-Object {
                     [string] (Read-Json $_.FullName).statePath -ceq $cleanupState
@@ -1531,7 +1607,7 @@ finally {
             Write-Warning "Could not restore test-owned state '$consumerStateForCleanup'; removing its isolated artifacts."
         }
     }
-    [string] $ownersRoot = Join-Path $root 'artifacts/local-testing/owners'
+    [string] $ownersRoot = $resourceOwnersRoot
     if (Test-Path -LiteralPath $ownersRoot -PathType Container) {
         [System.StringComparison] $temporaryComparison = if (Test-WindowsPlatform) {
             [System.StringComparison]::OrdinalIgnoreCase
@@ -1562,6 +1638,12 @@ finally {
     if (-not [string]::IsNullOrWhiteSpace($consumerStateForCleanup)) {
         Remove-Item -LiteralPath "$consumerStateForCleanup.workspace" -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $consumerStateForCleanup -Force -ErrorAction SilentlyContinue
+    }
+    if ($hadOwnersRootOverride) {
+        $env:FILTRACE_LOCAL_TESTING_OWNERS_ROOT = $priorOwnersRootOverride
+    }
+    else {
+        Remove-Item Env:FILTRACE_LOCAL_TESTING_OWNERS_ROOT -ErrorAction SilentlyContinue
     }
     Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

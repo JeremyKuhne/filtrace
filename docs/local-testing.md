@@ -57,7 +57,7 @@ fails after that point, fix the reported cause and either run Install again or r
 Restore; do not delete the manifest or its owned workspace. One process holds an
 exclusive lock keyed by `StatePath` for the complete action, so an overlapping
 install or restore is rejected before MCP, skill, CLI, or manifest mutation.
-Schema-version-6 state also owns the canonical manifest, workspace, MCP, skill,
+Schema-version-7 state also owns the canonical manifest, workspace, MCP, skill,
 and CLI paths until Restore commits final cleanup. Another manifest cannot claim
 the same or an ancestor/descendant resource, even after the first process exits.
 
@@ -90,7 +90,9 @@ configuration file itself must not be a symbolic link or junction; rejecting it
 preserves the link rather than replacing it during an atomic update. The state
 manifest and skill destination likewise must not be symbolic links or junctions.
 A skill destination cannot overlap the Filtrace checkout's shared
-`artifacts/local-testing` state tree.
+`artifacts/local-testing` state tree. A pre-existing skill containing linked files
+or directories is rejected before backup so external link targets are never
+traversed or restored as regular content.
 
 For VS Code Insiders or a nondefault profile, an explicit user MCP override is
 still available:
@@ -174,8 +176,8 @@ refresh the old broad setup. Custom version-2 manifests can also be restored wit
 `-StatePath`; generic sibling directories beside a custom manifest are preserved.
 Version-3 repository-scoped manifests from the preview workflow are likewise
 restore-only. Version-4 manifests with skill-backup integrity metadata and
-version-5 manifests with partial resource ownership are also restore-only; the
-next Install records version 6 with complete durable resource ownership.
+version-5/6 manifests with checkout-local or partial resource ownership are also
+restore-only; the next Install records version 7 with machine-wide ownership.
 
 ## Recover repository-scoped setup without a manifest
 
@@ -205,18 +207,28 @@ Get-ChildItem D:\repos\filtrace\artifacts\local-testing\repositories `
 
 Delete only the workspace identified for that consumer. For an install that used
 `-StatePath`, `-CliToolPath`, `-McpConfigPath`, or `-SkillDestination`, clean the
-explicit paths instead of these defaults. Schema-version-6 installs also retain
-one ownership record per canonical MCP, skill, and CLI resource under
-`artifacts/local-testing/owners`. After the corresponding resources and workspace
-have been cleaned, remove only records whose `statePath` is the lost manifest:
+explicit paths instead of these defaults. Schema-version-7 installs also retain
+one ownership record per canonical manifest, workspace, MCP, skill, and CLI
+resource in a per-user registry shared by every Filtrace checkout. After the
+corresponding resources and workspace have been cleaned, remove only records whose
+`statePath` is the lost manifest:
 
 ```pwsh
 $lostState = 'D:\path\to\lost-state.json'
-Get-ChildItem D:\repos\filtrace\artifacts\local-testing\owners `
+$ownersRoot = if ($IsWindows) {
+  Join-Path $env:LOCALAPPDATA 'Filtrace/local-testing/owners'
+} elseif ($IsMacOS) {
+  Join-Path $HOME 'Library/Application Support/Filtrace/local-testing/owners'
+} elseif ($env:XDG_STATE_HOME) {
+  Join-Path $env:XDG_STATE_HOME 'filtrace/local-testing/owners'
+} else {
+  Join-Path $HOME '.local/state/filtrace/local-testing/owners'
+}
+Get-ChildItem $ownersRoot `
   -Filter *.json -File |
   Where-Object {
     $owner = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
-    [System.IO.Path]::GetFullPath([string] $owner.statePath) -eq
+    [System.IO.Path]::GetFullPath([string] $owner.statePath) -ceq
       [System.IO.Path]::GetFullPath($lostState)
   } |
   Remove-Item
