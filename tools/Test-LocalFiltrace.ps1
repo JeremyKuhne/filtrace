@@ -503,6 +503,37 @@ try {
             -TargetRepository $caseSensitiveRoot
         Assert-True (-not (Test-Path -LiteralPath $caseSensitiveState)) `
             'Restore left state in an NTFS case-sensitive directory.'
+
+        [string] $unsupportedCaseRoot = Join-Path $temporaryRoot 'unsupported case metadata'
+        [string] $unsupportedCaseConfig = Join-Path $unsupportedCaseRoot '.vscode/mcp.json'
+        [string] $unsupportedCaseSkill = Join-Path $unsupportedCaseRoot '.agents/skills/filtrace'
+        [string] $unsupportedCaseState = Join-Path $unsupportedCaseRoot '.local-testing/state.json'
+        $null = New-Item -ItemType Directory -Path $unsupportedCaseRoot
+        [bool] $hadUnsupportedCaseOverride =
+            Test-Path Env:FILTRACE_LOCAL_TESTING_TEST_WINDOWS_CASE_INFO_UNSUPPORTED
+        [string] $priorUnsupportedCaseOverride =
+            $env:FILTRACE_LOCAL_TESTING_TEST_WINDOWS_CASE_INFO_UNSUPPORTED
+        try {
+            $env:FILTRACE_LOCAL_TESTING_TEST_WINDOWS_CASE_INFO_UNSUPPORTED = '1'
+            Invoke-Workflow -Action Install -McpConfigPath $unsupportedCaseConfig `
+                -SkillDestination $unsupportedCaseSkill -StatePath $unsupportedCaseState `
+                -TargetRepository $unsupportedCaseRoot
+            Invoke-Workflow -Action Restore -McpConfigPath $unsupportedCaseConfig `
+                -SkillDestination $unsupportedCaseSkill -StatePath $unsupportedCaseState `
+                -TargetRepository $unsupportedCaseRoot
+        }
+        finally {
+            if ($hadUnsupportedCaseOverride) {
+                $env:FILTRACE_LOCAL_TESTING_TEST_WINDOWS_CASE_INFO_UNSUPPORTED =
+                    $priorUnsupportedCaseOverride
+            }
+            else {
+                Remove-Item Env:FILTRACE_LOCAL_TESTING_TEST_WINDOWS_CASE_INFO_UNSUPPORTED `
+                    -ErrorAction SilentlyContinue
+            }
+        }
+        Assert-True (-not (Test-Path -LiteralPath $unsupportedCaseState)) `
+            'Restore left state after Windows case-metadata fallback.'
     }
 
     # MCP JSON: reject a valid non-object root, and distinguish a read failure
@@ -856,6 +887,108 @@ try {
         'Legacy restore left the rollback manifest active.'
     Assert-True ([System.IO.File]::ReadAllText($legacySibling, $utf8) -ceq 'legacy sibling') `
         'Legacy restore removed an unrelated custom manifest sibling.'
+
+    [string] $legacyColocatedRoot = Join-Path $temporaryRoot 'legacy colocated state'
+    [string] $legacyColocatedConfig = Join-Path $legacyColocatedRoot 'mcp.json'
+    [string] $legacyColocatedSkill = Join-Path $legacyColocatedRoot '.agents/skills/filtrace'
+    [string] $legacyColocatedState = Join-Path $legacyColocatedRoot 'state.json'
+    [string] $legacyColocatedSentinel = Join-Path $legacyColocatedRoot 'keep.txt'
+    $null = New-Item -ItemType Directory -Path $legacyColocatedSkill -Force
+    [System.IO.File]::WriteAllText(
+        (Join-Path $legacyColocatedSkill 'SKILL.md'),
+        'legacy colocated local skill',
+        $utf8)
+    [System.IO.File]::WriteAllText($legacyColocatedSentinel, 'legacy sibling', $utf8)
+    Write-Json $legacyColocatedConfig ([ordered] @{
+            servers = [ordered] @{
+                docs = [ordered] @{ type = 'http'; url = 'https://legacy-colocated.invalid/mcp' }
+                filtrace = [ordered] @{ type = 'stdio'; command = 'dotnet'; args = @('local.dll') }
+            }
+            inputs = @()
+        })
+    Write-Json $legacyColocatedState ([ordered] @{
+            schemaVersion = 2
+            createdUtc = [System.DateTimeOffset]::UtcNow.ToString('O')
+            status = 'local-active'
+            cliManaged = $false
+            cliToolPath = $null
+            cli = $null
+            mcp = [ordered] @{
+                path = $legacyColocatedConfig
+                serverExisted = $false
+                server = $null
+            }
+            skill = [ordered] @{
+                destination = $legacyColocatedSkill
+                existed = $false
+            }
+        })
+    Invoke-Workflow -Action Restore -McpConfigPath $legacyColocatedConfig `
+        -SkillDestination $legacyColocatedSkill -StatePath $legacyColocatedState `
+        -SkipCli -TargetRepository $legacyColocatedRoot
+    Assert-True (-not (Test-Path -LiteralPath $legacyColocatedState)) `
+        'Colocated schema-2 restore left the manifest active.'
+    Assert-True (-not (Test-Path -LiteralPath $legacyColocatedSkill)) `
+        'Colocated schema-2 restore left the local skill active.'
+    Assert-True (
+        [System.IO.File]::ReadAllText($legacyColocatedSentinel, $utf8) -ceq
+        'legacy sibling') `
+        'Colocated schema-2 restore changed an unrelated sibling.'
+    [object] $legacyColocatedRestoredConfig = Read-Json $legacyColocatedConfig
+    Assert-True ($null -eq (Get-Property $legacyColocatedRestoredConfig.servers 'filtrace')) `
+        'Colocated schema-2 restore left the local MCP server active.'
+
+    [string] $legacyCleanupRoot = Join-Path $temporaryRoot 'legacy cleanup status'
+    [string] $legacyCleanupConfig = Join-Path $legacyCleanupRoot 'mcp.json'
+    [string] $legacyCleanupSkill = Join-Path $legacyCleanupRoot '.agents/skills/filtrace'
+    [string] $legacyCleanupState = Join-Path $legacyCleanupRoot 'state.json'
+    [string] $legacyCleanupSentinel = Join-Path $legacyCleanupRoot 'keep.txt'
+    $null = New-Item -ItemType Directory -Path $legacyCleanupSkill -Force
+    [System.IO.File]::WriteAllText(
+        (Join-Path $legacyCleanupSkill 'SKILL.md'),
+        'legacy cleanup local skill',
+        $utf8)
+    [System.IO.File]::WriteAllText($legacyCleanupSentinel, 'legacy cleanup sibling', $utf8)
+    Write-Json (Join-Path $legacyCleanupRoot '.filtrace-local-testing.json') ([ordered] @{
+            schemaVersion = 1
+            statePath = $legacyCleanupState
+        })
+    Write-Json $legacyCleanupConfig ([ordered] @{
+            servers = [ordered] @{
+                filtrace = [ordered] @{ type = 'stdio'; command = 'dotnet'; args = @('local.dll') }
+            }
+            inputs = @()
+        })
+    Write-Json $legacyCleanupState ([ordered] @{
+            schemaVersion = 2
+            createdUtc = [System.DateTimeOffset]::UtcNow.ToString('O')
+            status = 'cleanup-in-progress'
+            cliManaged = $false
+            cliToolPath = $null
+            cli = $null
+            mcp = [ordered] @{
+                path = $legacyCleanupConfig
+                serverExisted = $false
+                server = $null
+            }
+            skill = [ordered] @{
+                destination = $legacyCleanupSkill
+                existed = $false
+            }
+        })
+    Invoke-Workflow -Action Restore -McpConfigPath $legacyCleanupConfig `
+        -SkillDestination $legacyCleanupSkill -StatePath $legacyCleanupState `
+        -SkipCli -TargetRepository $legacyCleanupRoot
+    Assert-True (
+        [System.IO.File]::ReadAllText($legacyCleanupSentinel, $utf8) -ceq
+        'legacy cleanup sibling') `
+        'Schema-2 cleanup status recursively removed the manifest parent.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $legacyCleanupRoot '.filtrace-local-testing.json')) `
+        'Schema-2 cleanup status removed an unrelated workspace marker.'
+    Assert-True (-not (Test-Path -LiteralPath $legacyCleanupState)) `
+        'Schema-2 cleanup status left the manifest active.'
+    Assert-True (-not (Test-Path -LiteralPath $legacyCleanupSkill)) `
+        'Schema-2 cleanup status left the local skill active.'
 
     [string] $legacyScopedRoot = Join-Path $temporaryRoot 'legacy scoped state'
     [string] $legacyScopedConfig = Join-Path $legacyScopedRoot 'mcp.json'

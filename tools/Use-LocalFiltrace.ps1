@@ -315,9 +315,17 @@ namespace Filtrace.LocalTesting
     }
 
     try {
+        if ($env:FILTRACE_LOCAL_TESTING_TEST_WINDOWS_CASE_INFO_UNSUPPORTED -ceq '1') {
+            throw [System.ComponentModel.Win32Exception]::new(50)
+        }
         return [Filtrace.LocalTesting.WindowsPath]::IsDirectoryCaseSensitive($Path)
     }
     catch {
+        [System.Exception] $exception = $_.Exception.GetBaseException()
+        if ($exception -is [System.ComponentModel.Win32Exception] -and
+            $exception.NativeErrorCode -in @(1, 50, 87, 120)) {
+            return $false
+        }
         throw "Directory case sensitivity could not be inspected: '$Path'. $($_.Exception.GetBaseException().Message)"
     }
 }
@@ -502,14 +510,17 @@ function Get-ResourceKeys(
     [bool] $CliManaged,
     [string] $CliPath,
     [string] $ManifestPath,
-    [string] $WorkspacePath) {
+    [string] $WorkspacePath,
+    [bool] $WorkspaceManaged) {
     [System.Collections.Generic.SortedSet[string]] $keys =
         [System.Collections.Generic.SortedSet[string]]::new(
             [System.StringComparer]::Ordinal)
     [void] $keys.Add("path:$(Get-PathIdentity $McpPath)")
     [void] $keys.Add("path:$(Get-PathIdentity $SkillPath)")
     [void] $keys.Add("path:$(Get-PathIdentity $ManifestPath)")
-    [void] $keys.Add("path:$(Get-PathIdentity $WorkspacePath)")
+    if ($WorkspaceManaged) {
+        [void] $keys.Add("path:$(Get-PathIdentity $WorkspacePath)")
+    }
     if ($CliManaged) {
         [void] $keys.Add($(if ([string]::IsNullOrWhiteSpace($CliPath)) {
                     'cli:global'
@@ -1476,17 +1487,22 @@ try {
 
     [string] $targetRepositoryPhysical = Resolve-PhysicalPath $TargetRepository
     [string] $skillDestinationPhysical = Resolve-PhysicalPath $SkillDestination
-    [string] $stateWorkspacePhysical = Resolve-PhysicalPath $stateWorkspace
+    [string] $stateWorkspacePhysical = if ($legacyState) {
+        ''
+    }
+    else {
+        Resolve-PhysicalPath $stateWorkspace
+    }
     if (Test-PathWithin `
         $targetRepositoryPhysical `
         $skillDestinationPhysical `
         (Get-PathComparison $skillDestinationPhysical)) {
         throw "SkillDestination must not contain TargetRepository: '$SkillDestination'."
     }
-    if (Test-PathWithin `
+    if (-not $legacyState -and (Test-PathWithin `
         $targetRepositoryPhysical `
         $stateWorkspacePhysical `
-        (Get-PathComparison $stateWorkspacePhysical)) {
+        (Get-PathComparison $stateWorkspacePhysical))) {
         throw "Local-testing workspace must not contain TargetRepository: '$stateWorkspace'."
     }
     [string] $localTestingRoot = Join-Path $root 'artifacts/local-testing'
@@ -1506,9 +1522,11 @@ try {
     Assert-PathsDoNotOverlap `
         $StatePath 'StatePath' `
         $resourceOwnersRoot 'Resource ownership registry'
-    Assert-PathsDoNotOverlap `
-        $stateWorkspace 'Local-testing workspace' `
-        $resourceOwnersRoot 'Resource ownership registry'
+    if (-not $legacyState) {
+        Assert-PathsDoNotOverlap `
+            $stateWorkspace 'Local-testing workspace' `
+            $resourceOwnersRoot 'Resource ownership registry'
+    }
 
     [bool] $cliManaged = if ($null -ne $state -and
         -not $PSBoundParameters.ContainsKey('SkipCli')) {
@@ -1549,34 +1567,40 @@ try {
     Assert-PathsDoNotOverlap `
         $skillSourceFull 'Repository skill source' `
         $StatePath 'StatePath'
-    Assert-PathsDoNotOverlap `
-        $skillSourceFull 'Repository skill source' `
-        $stateWorkspace 'Local-testing workspace'
+    if (-not $legacyState) {
+        Assert-PathsDoNotOverlap `
+            $skillSourceFull 'Repository skill source' `
+            $stateWorkspace 'Local-testing workspace'
+    }
     Assert-PathsDoNotOverlap `
         $skillSourceFull 'Repository skill source' `
         $McpConfigPath 'McpConfigPath'
     Assert-PathsDoNotOverlap `
         $SkillDestination 'SkillDestination' `
         $StatePath 'StatePath'
-    Assert-PathsDoNotOverlap `
-        $SkillDestination 'SkillDestination' `
-        $stateWorkspace 'Local-testing workspace'
+    if (-not $legacyState) {
+        Assert-PathsDoNotOverlap `
+            $SkillDestination 'SkillDestination' `
+            $stateWorkspace 'Local-testing workspace'
+    }
     Assert-PathsDoNotOverlap `
         $SkillDestination 'SkillDestination' `
         $McpConfigPath 'McpConfigPath'
     Assert-PathsDoNotOverlap `
         $StatePath 'StatePath' `
         $McpConfigPath 'McpConfigPath'
-    Assert-PathsDoNotOverlap `
-        $stateWorkspace 'Local-testing workspace' `
-        $McpConfigPath 'McpConfigPath'
+    if (-not $legacyState) {
+        Assert-PathsDoNotOverlap `
+            $stateWorkspace 'Local-testing workspace' `
+            $McpConfigPath 'McpConfigPath'
+    }
 
     [string] $workspaceMarker = Get-StateWorkspaceMarkerPath $stateWorkspace
     [string] $skillBackup = Join-Path $stateWorkspace 'skill-backup'
     [string] $cliBackup = Join-Path $stateWorkspace 'cli-backup'
     [string] $packageDirectory = Join-Path $stateWorkspace 'packages'
 
-    [bool] $cliOwnedByWorkspace = $CliToolPath -and
+    [bool] $cliOwnedByWorkspace = -not $legacyState -and $CliToolPath -and
         (Test-PathWithin `
             (Resolve-PhysicalPath $CliToolPath) `
             (Resolve-PhysicalPath $stateWorkspace) `
@@ -1608,9 +1632,11 @@ try {
             Assert-PathsDoNotOverlap `
                 $StatePath 'StatePath' `
                 $CliToolPath 'CliToolPath'
-            Assert-PathsDoNotOverlap `
-                $stateWorkspace 'Local-testing workspace' `
-                $CliToolPath 'CliToolPath'
+            if (-not $legacyState) {
+                Assert-PathsDoNotOverlap `
+                    $stateWorkspace 'Local-testing workspace' `
+                    $CliToolPath 'CliToolPath'
+            }
             Assert-PathsDoNotOverlap `
                 $CliToolPath 'CliToolPath' `
                 $resourceOwnersRoot 'Resource ownership registry'
@@ -1636,7 +1662,8 @@ try {
         $cliManaged `
         $CliToolPath `
         $StatePath `
-        $stateWorkspace
+        $stateWorkspace `
+        (-not $legacyState)
     [string[]] $resourceKeys = if ($null -ne $state -and $state.schemaVersion -in @(6, 7)) {
         [string[]] $state.resourceKeys
     }
@@ -1667,7 +1694,8 @@ try {
             $cliManaged `
             $CliToolPath `
             $StatePath `
-            $stateWorkspace
+            $stateWorkspace `
+            (-not $legacyState)
         if (-not (Test-ResourceKeysEqual $resourceKeys $lockedResourceKeys)) {
             throw "Local-testing resource paths changed while acquiring locks. Restore the original path targets before retrying: '$StatePath'."
         }
@@ -1679,7 +1707,8 @@ try {
             $null = Claim-ResourceOwnership $resourceKeys $StatePath
             $ownershipClaimed = $true
         }
-        if ($null -ne $state -and $state.status -ceq 'cleanup-in-progress') {
+        if ($null -ne $state -and -not $legacyState -and
+            $state.status -ceq 'cleanup-in-progress') {
             if (Test-Path -LiteralPath $stateWorkspace -PathType Container) {
                 [string] $cleanupMarker = Get-StateWorkspaceMarkerPath $stateWorkspace
                 if (Test-Path -LiteralPath $cleanupMarker -PathType Leaf) {

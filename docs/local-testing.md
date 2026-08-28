@@ -124,9 +124,11 @@ ancestor, or descendant overlap between the destination and the Filtrace source
 skill before any target write, resolving existing symbolic-link and junction
 ancestors to their physical targets first. Case comparison follows the filesystem
 containing each path, including case-sensitive APFS volumes and per-directory NTFS
-case-sensitivity settings. On Unix-like systems the helper measures child-name
-behavior inside the actual containing directory, including a mounted filesystem's
-root, instead of inferring it from the mount point's parent.
+case-sensitivity settings. Windows filesystems that do not support case-sensitive
+directory metadata use case-insensitive comparison. On Unix-like systems the
+helper measures child-name behavior inside the actual containing directory,
+including a mounted filesystem's root, instead of inferring it from the mount
+point's parent.
 
 ## Verify local mode
 
@@ -191,7 +193,9 @@ Set-Location D:\repos\filtrace
 
 The helper recognizes the legacy default manifest and restores it, but refuses to
 refresh the old broad setup. Custom version-2 manifests can also be restored with
-`-StatePath`; generic sibling directories beside a custom manifest are preserved.
+`-StatePath`; the manifest parent is never treated as an owned workspace, so MCP,
+skill, and unrelated sibling paths may be colocated there and only recorded
+resources are restored or removed.
 Version-3 repository-scoped manifests from the preview workflow are likewise
 restore-only. Version-4 manifests with skill-backup integrity metadata and
 version-5/6 manifests with checkout-local or partial resource ownership are also
