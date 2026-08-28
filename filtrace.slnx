@@ -22,7 +22,11 @@
   <Folder Name="/tests/">
     <Project Path="tests/Filtrace.Core.Tests/Filtrace.Core.Tests.csproj" />
     <Project Path="tests/Filtrace.Cli.Tests/Filtrace.Cli.Tests.csproj" />
+    <Project Path="tests/Filtrace.LocalTesting.Tests/Filtrace.LocalTesting.Tests.csproj" />
     <Project Path="tests/Filtrace.Mcp.Tests/Filtrace.Mcp.Tests.csproj" />
     <Project Path="tests/Filtrace.Parity.Tests/Filtrace.Parity.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Filtrace.LocalTesting/Filtrace.LocalTesting.csproj" />
   </Folder>
 </Solution>
