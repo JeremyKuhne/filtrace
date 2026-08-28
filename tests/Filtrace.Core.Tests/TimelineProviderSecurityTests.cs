@@ -840,6 +840,74 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void SnapshotGcCollector_ActiveCollectionsAtCapacity_RejectsAdditionalIdentity()
+    {
+        TimelineProvider.SnapshotGcCollector collector = new(startMs: 0.0, endMs: 1.0);
+        for (int collectionNumber = 0;
+            collectionNumber < TimelineProvider.MaxSnapshotRetainedKeysPerFamily;
+            collectionNumber++)
+        {
+            collector.ObserveStart(
+                1,
+                9,
+                collectionNumber,
+                0.5,
+                2,
+                GCType.NonConcurrentGC,
+                GCReason.Induced);
+        }
+
+        collector.DetailTruncated.Should().BeFalse();
+        collector.ObserveStart(
+            1,
+            9,
+            TimelineProvider.MaxSnapshotRetainedKeysPerFamily,
+            0.5,
+            2,
+            GCType.NonConcurrentGC,
+            GCReason.Induced);
+        SnapshotGcSummary result = collector.Build(
+            TimelineProvider.AggregateGcPauses([], 0.0, 1.0),
+            out _);
+
+        collector.DetailTruncated.Should().BeTrue();
+        result.CollectionCount.Should().Be(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
+    }
+
+    [TestMethod]
+    public void SnapshotGcCollector_PendingPausesAtCapacity_RejectsAdditionalIdentity()
+    {
+        TimelineProvider.SnapshotGcCollector collector = new(startMs: 0.0, endMs: 200.0);
+        collector.ObserveStart(1, 9, 1, 100.0, 2, GCType.NonConcurrentGC, GCReason.Induced);
+        collector.ObserveStart(2, 10, 2, 100.0, 2, GCType.NonConcurrentGC, GCReason.Induced);
+        for (int threadInstanceIndex = 0;
+            threadInstanceIndex < TimelineProvider.MaxSnapshotRetainedKeysPerFamily;
+            threadInstanceIndex++)
+        {
+            collector.ObserveSuspend(Pause(1, threadInstanceIndex), 9, 99.0);
+        }
+
+        collector.DetailTruncated.Should().BeFalse();
+        collector.ObserveSuspend(Pause(2, 1), 10, 99.0);
+        collector.ObserveRestart(
+            Pause(1, TimelineProvider.MaxSnapshotRetainedKeysPerFamily - 1),
+            9,
+            101.0);
+        collector.ObserveRestart(Pause(2, 1), 10, 101.0);
+        collector.ObserveEnd(1, 9, 1, 102.0);
+        collector.ObserveEnd(2, 10, 2, 102.0);
+        TimelineProvider.GcPauseInterval retainedPause = new(1, 99.0, 101.0);
+        SnapshotGcSummary result = collector.Build(
+            TimelineProvider.AggregateGcPauses([retainedPause], 0.0, 200.0),
+            out _);
+
+        collector.DetailTruncated.Should().BeTrue();
+        result.CollectionCount.Should().Be(2);
+        result.Collections.Single(collection => collection.Number == 1).PauseMs.Should().Be(2.0);
+        result.Collections.Single(collection => collection.Number == 2).PauseMs.Should().Be(0.0);
+    }
+
+    [TestMethod]
     public void SnapshotGcCollector_BlockingPauseCrossesWindow_RetainsFullDetail()
     {
         TimelineProvider.SnapshotGcCollector collector = new(startMs: 20.63, endMs: 20.67);

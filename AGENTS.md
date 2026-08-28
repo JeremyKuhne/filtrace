@@ -36,7 +36,8 @@ For deeper performance investigation, build and analyze with this checkout's CLI
 ```pwsh
 dotnet build src/Filtrace/Filtrace.csproj -c Release
 $filtraceDll = (Resolve-Path src/Filtrace/bin/Release/net10.0/filtrace.dll).Path
-dotnet $filtraceDll info <trace>
+$trace = (Resolve-Path tests/Filtrace.Core.Tests/Fixtures/threadpool.nettrace).Path
+dotnet $filtraceDll info $trace
 ```
 
 Do not use an installed global `filtrace` or the MCP server to profile this repository;

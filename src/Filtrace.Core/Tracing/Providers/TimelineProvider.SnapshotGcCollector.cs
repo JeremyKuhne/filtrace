@@ -185,8 +185,17 @@ public sealed partial class TimelineProvider
 
         private void ObserveSuspend(GCSuspendEETraceData suspend)
         {
-            if (!double.IsFinite(suspend.TimeStampRelativeMSec)
-                || !TryGetPauseIdentity(suspend, out PauseIdentity identity))
+            if (!TryGetPauseIdentity(suspend, out PauseIdentity identity))
+            {
+                return;
+            }
+
+            ObserveSuspend(identity, suspend.ClrInstanceID, suspend.TimeStampRelativeMSec);
+        }
+
+        internal void ObserveSuspend(PauseIdentity identity, int clrInstanceId, double startMs)
+        {
+            if (!double.IsFinite(startMs))
             {
                 return;
             }
@@ -194,7 +203,7 @@ public sealed partial class TimelineProvider
             GcPauseIdentity gcIdentity = new(
                 identity.ProcessInstanceIndex,
                 identity.ThreadInstanceIndex,
-                suspend.ClrInstanceID);
+                clrInstanceId);
             if (_pauseStarts.ContainsKey(gcIdentity))
             {
                 return;
@@ -206,7 +215,7 @@ public sealed partial class TimelineProvider
                 return;
             }
 
-            _pauseStarts.Add(gcIdentity, suspend.TimeStampRelativeMSec);
+            _pauseStarts.Add(gcIdentity, startMs);
         }
 
         private void ObserveRestart(GCNoUserDataTraceData restart)
@@ -216,27 +225,31 @@ public sealed partial class TimelineProvider
                 return;
             }
 
+            ObserveRestart(identity, restart.ClrInstanceID, restart.TimeStampRelativeMSec);
+        }
+
+        internal void ObserveRestart(PauseIdentity identity, int clrInstanceId, double endMs)
+        {
             GcPauseIdentity gcIdentity = new(
                 identity.ProcessInstanceIndex,
                 identity.ThreadInstanceIndex,
-                restart.ClrInstanceID);
+                clrInstanceId);
             if (!_pauseStarts.Remove(gcIdentity, out double startMs))
             {
                 return;
             }
 
-            if (!double.IsFinite(restart.TimeStampRelativeMSec)
-                || restart.TimeStampRelativeMSec < startMs)
+            if (!double.IsFinite(endMs) || endMs < startMs)
             {
                 return;
             }
 
             ObservePause(
-                restart.ClrInstanceID,
+                clrInstanceId,
                 new GcPauseInterval(
                     identity.ProcessInstanceIndex,
                     startMs,
-                    restart.TimeStampRelativeMSec));
+                    endMs));
         }
 
         private RawGcCollection? CurrentCollection(
