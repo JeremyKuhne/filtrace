@@ -135,7 +135,7 @@ jobs:
 
       - name: Local setup contract
         shell: pwsh
-        run: ./tools/Test-LocalFiltrace.ps1 -Configuration Release
+        run: ./tools/Test-LocalFiltrace.ps1 -Configuration Release -RequireWindowsCaseSensitivity
 
       # Hosted Windows runners run elevated, so the one path that needs a real ETW
       # capture is checked here rather than left to a developer box. Keep the build of

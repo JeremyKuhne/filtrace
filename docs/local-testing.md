@@ -136,6 +136,12 @@ The helper runs the MCP protocol check and verifies the installed CLI package
 version and bytes. Use the exact CLI path printed by Install for a visible smoke
 test:
 
+On Windows, `Test-LocalFiltrace.ps1` runs its NTFS case-sensitive-directory cycle
+when the current shell can enable that attribute. An ordinary non-elevated shell
+warns and skips only that cycle; the rest of the contract still runs. The elevated
+Windows CI job passes `-RequireWindowsCaseSensitivity` so the regression remains
+mandatory there.
+
 ```pwsh
 & '<printed-filtrace-path>' --version
 D:\repos\filtrace\tools\Test-McpServer.ps1 -Configuration Release

@@ -12,7 +12,9 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release')]
-    [string] $Configuration = 'Release'
+    [string] $Configuration = 'Release',
+
+    [switch] $RequireWindowsCaseSensitivity
 )
 
 $ErrorActionPreference = 'Stop'
@@ -488,21 +490,43 @@ try {
     if (Test-WindowsPlatform) {
         [string] $caseSensitiveRoot = Join-Path $temporaryRoot 'NTFS case sensitive'
         $null = New-Item -ItemType Directory -Path $caseSensitiveRoot
-        [string[]] $caseSensitiveOutput = @(
-            & fsutil.exe file setCaseSensitiveInfo $caseSensitiveRoot enable 2>&1)
-        Assert-True ($LASTEXITCODE -eq 0) `
-            "Could not enable NTFS case sensitivity: $($caseSensitiveOutput -join ' ')"
-        [string] $caseSensitiveConfig = Join-Path $caseSensitiveRoot '.vscode/mcp.json'
-        [string] $caseSensitiveSkill = Join-Path $caseSensitiveRoot '.agents/skills/filtrace'
-        [string] $caseSensitiveState = Join-Path $caseSensitiveRoot '.local-testing/state.json'
-        Invoke-Workflow -Action Install -McpConfigPath $caseSensitiveConfig `
-            -SkillDestination $caseSensitiveSkill -StatePath $caseSensitiveState `
-            -TargetRepository $caseSensitiveRoot
-        Invoke-Workflow -Action Restore -McpConfigPath $caseSensitiveConfig `
-            -SkillDestination $caseSensitiveSkill -StatePath $caseSensitiveState `
-            -TargetRepository $caseSensitiveRoot
-        Assert-True (-not (Test-Path -LiteralPath $caseSensitiveState)) `
-            'Restore left state in an NTFS case-sensitive directory.'
+        [string] $caseSensitiveFailure = ''
+        if ($env:FILTRACE_LOCAL_TESTING_TEST_WINDOWS_CASE_SENSITIVITY_UNAVAILABLE -ceq '1') {
+            $caseSensitiveFailure = 'Injected access-denied failure.'
+        }
+        else {
+            try {
+                [string[]] $caseSensitiveOutput = @(
+                    & fsutil.exe file setCaseSensitiveInfo $caseSensitiveRoot enable 2>&1)
+                if ($LASTEXITCODE -ne 0) {
+                    $caseSensitiveFailure =
+                        "fsutil exited with code $LASTEXITCODE`: $($caseSensitiveOutput -join ' ')"
+                }
+            }
+            catch {
+                $caseSensitiveFailure = $_.Exception.Message
+            }
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($caseSensitiveFailure)) {
+            if ($RequireWindowsCaseSensitivity) {
+                throw "Could not enable required NTFS case sensitivity: $caseSensitiveFailure"
+            }
+            Write-Warning "Skipping the NTFS case-sensitive install/restore cycle because the current host cannot enable the directory attribute: $caseSensitiveFailure"
+        }
+        else {
+            [string] $caseSensitiveConfig = Join-Path $caseSensitiveRoot '.vscode/mcp.json'
+            [string] $caseSensitiveSkill = Join-Path $caseSensitiveRoot '.agents/skills/filtrace'
+            [string] $caseSensitiveState = Join-Path $caseSensitiveRoot '.local-testing/state.json'
+            Invoke-Workflow -Action Install -McpConfigPath $caseSensitiveConfig `
+                -SkillDestination $caseSensitiveSkill -StatePath $caseSensitiveState `
+                -TargetRepository $caseSensitiveRoot
+            Invoke-Workflow -Action Restore -McpConfigPath $caseSensitiveConfig `
+                -SkillDestination $caseSensitiveSkill -StatePath $caseSensitiveState `
+                -TargetRepository $caseSensitiveRoot
+            Assert-True (-not (Test-Path -LiteralPath $caseSensitiveState)) `
+                'Restore left state in an NTFS case-sensitive directory.'
+        }
 
         [string] $unsupportedCaseRoot = Join-Path $temporaryRoot 'unsupported case metadata'
         [string] $unsupportedCaseConfig = Join-Path $unsupportedCaseRoot '.vscode/mcp.json'
