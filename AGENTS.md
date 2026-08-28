@@ -29,6 +29,20 @@ Layout:
 - `dotnet build filtrace.slnx -c Release`
 - `dotnet test filtrace.slnx -c Release`
 - `dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter *FoldingAggregatorBenchmarks*`
+- `dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter *TimelineProviderBenchmarks* --job short`
+
+For deeper performance investigation, build and analyze with this checkout's CLI:
+
+```pwsh
+dotnet build src/Filtrace/Filtrace.csproj -c Release
+$filtraceDll = (Resolve-Path src/Filtrace/bin/Release/net10.0/filtrace.dll).Path
+$trace = (Resolve-Path tests/Filtrace.Core.Tests/Fixtures/threadpool.nettrace).Path
+dotnet $filtraceDll info $trace
+```
+
+Do not use an installed global `filtrace` or the MCP server to profile this repository;
+that can silently analyze with different code. For an A/B investigation, use one fixed
+locally built baseline CLI to analyze both arms.
 
 CI also runs nine contract and evaluation checks that must stay green:
 

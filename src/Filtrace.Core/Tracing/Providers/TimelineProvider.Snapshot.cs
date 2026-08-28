@@ -6,15 +6,12 @@ using System.Security.Cryptography;
 using Filtrace.Output;
 using Filtrace.Tracing.Readers;
 using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Analysis;
-using Microsoft.Diagnostics.Tracing.Analysis.GC;
 using Microsoft.Diagnostics.Tracing.Etlx;
 using Microsoft.Diagnostics.Tracing.EventPipe;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using Etlx = Microsoft.Diagnostics.Tracing.Etlx;
-using TraceProcess = Microsoft.Diagnostics.Tracing.Analysis.TraceProcess;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -114,7 +111,6 @@ public sealed partial class TimelineProvider
         (double startMs, double endMs) = ResolveSnapshotBounds(atMs, halfWindowMs, traceEnd);
 
         ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
-        HashSet<int>? scopedAnalysisProcessIndexes = resolved.ProcessInstanceIndexes is null ? null : [];
         bool namesTruncated = resolved.ProcessNameBounded;
         string? appliedProcessName = resolved.Label;
         if (appliedProcessName is not null)
@@ -139,23 +135,19 @@ public sealed partial class TimelineProvider
             new(ReferenceEqualityComparer.Instance);
         Dictionary<PauseIdentity, PendingPauseStart> pauseStarts = [];
         List<GcPauseInterval> pauseIntervals = [];
+        SnapshotGcCollector gcCollector = new(startMs, endMs);
         bool detailTruncated = false;
         bool gcPauseDataIncomplete = false;
         bool unknownPauseDataIncomplete = false;
 
         using Etlx.TraceLogEventSource source = traceLog.Events.GetSource();
-        source.NeedLoadedDotNetRuntimes();
         source.AllEvents += Accumulate;
         source.Process();
         gcPauseDataIncomplete |= pauseStarts.Values.Any(static start => start.IsGc);
 
-        SnapshotGcSummary gc = BuildSnapshotGc(
-            source,
-            scopedAnalysisProcessIndexes,
-            pauseIntervals,
-            startMs,
-            endMs,
-            out bool gcNamesTruncated);
+        GcPauseAggregate gcPauses = AggregateGcPauses(pauseIntervals, startMs, endMs);
+        SnapshotGcSummary gc = gcCollector.Build(gcPauses, out bool gcNamesTruncated);
+        detailTruncated |= gcCollector.DetailTruncated;
         namesTruncated |= gcNamesTruncated;
         SnapshotCpuMethod[] topCpu = [.. cpuMethods
             .OrderByDescending(static pair => pair.Value)
@@ -238,13 +230,7 @@ public sealed partial class TimelineProvider
                 return;
             }
 
-            if (scopedAnalysisProcessIndexes is not null
-                && TraceProcessesExtensions.Process(data) is TraceProcess scopedProcess)
-            {
-                // Includes() admitted the exact ETLX instance; this second process model
-                // owns TraceGC, so retain its corresponding index for reconstruction.
-                scopedAnalysisProcessIndexes.Add((int)scopedProcess.ProcessIndex);
-            }
+            gcCollector.Observe(data);
 
             if (data is GCSuspendEETraceData suspend)
             {
@@ -505,82 +491,6 @@ public sealed partial class TimelineProvider
         && timestamp >= windowStartMs
         && timestamp <= windowEndMs;
 
-    private static SnapshotGcSummary BuildSnapshotGc(
-        Etlx.TraceLogEventSource source,
-        HashSet<int>? scopedProcessInstanceIndexes,
-        IReadOnlyList<GcPauseInterval> pauseIntervals,
-        double startMs,
-        double endMs,
-        out bool namesTruncated)
-    {
-        int collectionCount = 0;
-        List<SnapshotGcRecord> longest = [];
-        namesTruncated = false;
-        GcPauseAggregate pauseAggregate = AggregateGcPauses(pauseIntervals, startMs, endMs);
-        IReadOnlyDictionary<int, GcPauseInterval[]> intervalsByProcessInstance =
-            pauseAggregate.IntervalsByProcessInstance;
-
-        foreach (TraceProcess process in source.Processes())
-        {
-            if (scopedProcessInstanceIndexes is not null
-                && !scopedProcessInstanceIndexes.Contains((int)process.ProcessIndex))
-            {
-                continue;
-            }
-
-            TraceLoadedDotNetRuntime? runtime = process.LoadedDotNetRuntime();
-            if (runtime is null)
-            {
-                continue;
-            }
-
-            intervalsByProcessInstance.TryGetValue(
-                (int)process.ProcessIndex,
-                out GcPauseInterval[]? processIntervals);
-            processIntervals ??= [];
-            foreach (TraceGC collection in runtime.GC.GCs)
-            {
-                bool startsInWindow = IsTimelineTimestampInWindow(collection.StartRelativeMSec, startMs, endMs);
-                bool pauseOverlaps = PauseBelongsToCollection(processIntervals, collection);
-                if (!startsInWindow && !pauseOverlaps)
-                {
-                    continue;
-                }
-
-                collectionCount++;
-                string kind = BoundSnapshotName(collection.Type.ToString(), out bool kindTruncated);
-                string reason = BoundSnapshotName(collection.Reason.ToString(), out bool reasonTruncated);
-                namesTruncated |= kindTruncated || reasonTruncated;
-                SnapshotGcRecord record = new(
-                    collection.Number,
-                    Math.Round(collection.StartRelativeMSec, 2),
-                    collection.Generation,
-                    kind,
-                    reason,
-                    Math.Round(collection.PauseDurationMSec, 2));
-                longest.Add(record);
-                if (longest.Count > SnapshotDetailLimit)
-                {
-                    SnapshotGcRecord drop = longest
-                        .OrderBy(static candidate => candidate.PauseMs)
-                        .ThenByDescending(static candidate => candidate.Number)
-                        .First();
-                    longest.Remove(drop);
-                }
-            }
-        }
-
-        SnapshotGcRecord[] top = [.. longest
-            .OrderByDescending(static collection => collection.PauseMs)
-            .ThenBy(static collection => collection.Number)];
-
-        return new SnapshotGcSummary(
-            collectionCount,
-            Math.Round(pauseAggregate.TotalPauseMs, 2),
-            Math.Round(pauseAggregate.MaxPauseMs, 2),
-            top);
-    }
-
     internal static GcPauseAggregate AggregateGcPauses(
         IEnumerable<GcPauseInterval> intervals,
         double windowStartMs,
@@ -606,9 +516,8 @@ public sealed partial class TimelineProvider
         return new GcPauseAggregate(intervalsByProcessInstance, totalPauseMs, maxPauseMs);
     }
 
-    // ContainsTimestamp binary-searches a single candidate, so the intervals it reads must
-    // be disjoint; concurrent suspends on two threads of one process would otherwise hide
-    // the enclosing pause.
+    // Aggregate pause time is a per-process union: overlapping suspensions in one
+    // process are one stopped interval, while pauses in different processes add.
     internal static GcPauseInterval[] MergeOverlapping(IEnumerable<GcPauseInterval> intervals)
     {
         List<GcPauseInterval> merged = [];
@@ -628,39 +537,6 @@ public sealed partial class TimelineProvider
         }
 
         return [.. merged];
-    }
-
-    private static bool PauseBelongsToCollection(IReadOnlyList<GcPauseInterval> intervals, TraceGC collection)
-    {
-        if (ContainsTimestamp(intervals, collection.StartRelativeMSec))
-        {
-            return true;
-        }
-
-        double collectionEndMs = collection.StartRelativeMSec + collection.DurationMSec;
-        return collection.Type == GCType.BackgroundGC && ContainsTimestamp(intervals, collectionEndMs);
-    }
-
-    private static bool ContainsTimestamp(IReadOnlyList<GcPauseInterval> intervals, double timestampMs)
-    {
-        int low = 0;
-        int high = intervals.Count - 1;
-        int candidate = -1;
-        while (low <= high)
-        {
-            int middle = low + ((high - low) / 2);
-            if (intervals[middle].StartMs <= timestampMs)
-            {
-                candidate = middle;
-                low = middle + 1;
-            }
-            else
-            {
-                high = middle - 1;
-            }
-        }
-
-        return candidate >= 0 && intervals[candidate].Contains(timestampMs);
     }
 
     private static SnapshotCountRow[] TopCounts(Dictionary<string, long> counts, out bool namesTruncated)
@@ -984,9 +860,8 @@ public sealed partial class TimelineProvider
 
     private static bool TryGetPauseIdentity(TraceEvent data, out PauseIdentity identity)
     {
-        // The analysis ProcessIndex matches the process model that owns TraceGC;
-        // ETLX ThreadIndex distinguishes OS thread-id reuse within that instance.
-        TraceProcess? process = TraceProcessesExtensions.Process(data);
+        // ETLX process/thread indexes distinguish OS id reuse within the trace.
+        Etlx.TraceProcess? process = TraceLogExtensions.Process(data);
         Etlx.TraceThread? thread = data.Thread();
         if (process is null || thread is null)
         {

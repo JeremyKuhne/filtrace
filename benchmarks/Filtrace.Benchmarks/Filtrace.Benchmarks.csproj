@@ -18,6 +18,18 @@
     <None Include="..\..\tests\Filtrace.Core.Tests\Fixtures\activity.nettrace" Link="Fixtures\activity.nettrace">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\..\tests\Filtrace.Core.Tests\Fixtures\alloc.nettrace" Link="Fixtures\alloc.nettrace">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\tests\Filtrace.Core.Tests\Fixtures\exceptions.nettrace" Link="Fixtures\exceptions.nettrace">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\tests\Filtrace.Core.Tests\Fixtures\jit.nettrace" Link="Fixtures\jit.nettrace">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\tests\Filtrace.Core.Tests\Fixtures\threadpool.nettrace" Link="Fixtures\threadpool.nettrace">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

@@ -840,6 +840,152 @@ public sealed class TimelineProviderSecurityTests
     }
 
     [TestMethod]
+    public void SnapshotGcCollector_ActiveCollectionsAtCapacity_RejectsAdditionalIdentity()
+    {
+        TimelineProvider.SnapshotGcCollector collector = new(startMs: 0.0, endMs: 1.0);
+        for (int collectionNumber = 0;
+            collectionNumber < TimelineProvider.MaxSnapshotRetainedKeysPerFamily;
+            collectionNumber++)
+        {
+            collector.ObserveStart(
+                1,
+                9,
+                collectionNumber,
+                0.5,
+                2,
+                GCType.NonConcurrentGC,
+                GCReason.Induced);
+        }
+
+        collector.DetailTruncated.Should().BeFalse();
+        collector.ObserveStart(
+            1,
+            9,
+            TimelineProvider.MaxSnapshotRetainedKeysPerFamily,
+            0.5,
+            2,
+            GCType.NonConcurrentGC,
+            GCReason.Induced);
+        SnapshotGcSummary result = collector.Build(
+            TimelineProvider.AggregateGcPauses([], 0.0, 1.0),
+            out _);
+
+        collector.DetailTruncated.Should().BeTrue();
+        result.CollectionCount.Should().Be(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
+    }
+
+    [TestMethod]
+    public void SnapshotGcCollector_PendingPausesAtCapacity_RejectsAdditionalIdentity()
+    {
+        TimelineProvider.SnapshotGcCollector collector = new(startMs: 0.0, endMs: 200.0);
+        collector.ObserveStart(1, 9, 1, 100.0, 2, GCType.NonConcurrentGC, GCReason.Induced);
+        collector.ObserveStart(2, 10, 2, 100.0, 2, GCType.NonConcurrentGC, GCReason.Induced);
+        for (int threadInstanceIndex = 0;
+            threadInstanceIndex < TimelineProvider.MaxSnapshotRetainedKeysPerFamily;
+            threadInstanceIndex++)
+        {
+            collector.ObserveSuspend(Pause(1, threadInstanceIndex), 9, 99.0);
+        }
+
+        collector.DetailTruncated.Should().BeFalse();
+        collector.ObserveSuspend(Pause(2, 1), 10, 99.0);
+        collector.ObserveRestart(
+            Pause(1, TimelineProvider.MaxSnapshotRetainedKeysPerFamily - 1),
+            9,
+            101.0);
+        collector.ObserveRestart(Pause(2, 1), 10, 101.0);
+        collector.ObserveEnd(1, 9, 1, 102.0);
+        collector.ObserveEnd(2, 10, 2, 102.0);
+        TimelineProvider.GcPauseInterval retainedPause = new(1, 99.0, 101.0);
+        SnapshotGcSummary result = collector.Build(
+            TimelineProvider.AggregateGcPauses([retainedPause], 0.0, 200.0),
+            out _);
+
+        collector.DetailTruncated.Should().BeTrue();
+        result.CollectionCount.Should().Be(2);
+        result.Collections.Single(collection => collection.Number == 1).PauseMs.Should().Be(2.0);
+        result.Collections.Single(collection => collection.Number == 2).PauseMs.Should().Be(0.0);
+    }
+
+    [TestMethod]
+    public void SnapshotGcCollector_BlockingPauseCrossesWindow_RetainsFullDetail()
+    {
+        TimelineProvider.SnapshotGcCollector collector = new(startMs: 20.63, endMs: 20.67);
+        TimelineProvider.GcPauseInterval pause = new(1, 20.64, 21.06);
+
+        collector.ObserveStart(1, 9, 1, 20.69, 2, GCType.NonConcurrentGC, GCReason.Induced);
+        collector.ObserveEnd(1, 9, 1, 21.05);
+        collector.ObservePause(9, pause);
+        TimelineProvider.GcPauseAggregate aggregate = TimelineProvider.AggregateGcPauses([pause], 20.63, 20.67);
+
+        SnapshotGcSummary result = collector.Build(aggregate, out bool namesTruncated);
+
+        namesTruncated.Should().BeFalse();
+        result.CollectionCount.Should().Be(1);
+        result.TotalPauseMs.Should().Be(0.03);
+        result.Collections.Should().ContainSingle();
+        result.Collections[0].Should().Be(
+            new SnapshotGcRecord(1, 20.69, 2, "NonConcurrentGC", "Induced", 0.42));
+    }
+
+    [TestMethod]
+    public void SnapshotGcCollector_BackgroundFinalPauseBeforeEnd_AttributesBothCollections()
+    {
+        TimelineProvider.SnapshotGcCollector collector = new(startMs: 100.0, endMs: 200.0);
+        TimelineProvider.GcPauseInterval initialBackgroundPause = new(1, 9.0, 11.0);
+        TimelineProvider.GcPauseInterval foregroundPause = new(1, 119.0, 126.0);
+        TimelineProvider.GcPauseInterval finalBackgroundPause = new(1, 190.0, 210.0);
+
+        collector.ObserveStart(1, 9, 1, 10.0, 2, GCType.BackgroundGC, GCReason.Induced);
+        collector.ObservePause(9, initialBackgroundPause);
+        collector.ObserveStart(1, 9, 2, 120.0, 0, GCType.NonConcurrentGC, GCReason.AllocSmall);
+        collector.ObserveEnd(1, 9, 2, 125.0);
+        collector.ObservePause(9, foregroundPause);
+        collector.ObservePause(9, finalBackgroundPause);
+        collector.ObserveEnd(1, 9, 1, 195.0);
+        TimelineProvider.GcPauseInterval[] pauses =
+            [initialBackgroundPause, foregroundPause, finalBackgroundPause];
+        TimelineProvider.GcPauseAggregate aggregate = TimelineProvider.AggregateGcPauses(pauses, 100.0, 200.0);
+
+        SnapshotGcSummary result = collector.Build(aggregate, out bool namesTruncated);
+
+        namesTruncated.Should().BeFalse();
+        result.CollectionCount.Should().Be(2);
+        result.TotalPauseMs.Should().Be(17.0);
+        result.MaxPauseMs.Should().Be(10.0);
+        result.Collections.Should().Equal(
+            new SnapshotGcRecord(1, 10.0, 2, "BackgroundGC", "Induced", 22.0),
+            new SnapshotGcRecord(2, 120.0, 0, "NonConcurrentGC", "AllocSmall", 7.0));
+    }
+
+    [TestMethod]
+    public void SnapshotGcCollector_MultipleClrs_AttributesPausesByClrInstance()
+    {
+        TimelineProvider.SnapshotGcCollector collector = new(startMs: 0.0, endMs: 100.0);
+        TimelineProvider.GcPauseInterval firstPause = new(1, 9.0, 11.0);
+        TimelineProvider.GcPauseInterval secondPause = new(1, 19.0, 23.0);
+
+        collector.ObserveStart(1, 9, 1, 10.0, 2, GCType.NonConcurrentGC, GCReason.Induced);
+        collector.ObserveStart(1, 10, 1, 20.0, 2, GCType.NonConcurrentGC, GCReason.Induced);
+        collector.ObservePause(9, firstPause);
+        collector.ObserveEnd(1, 9, 1, 11.0);
+        collector.ObservePause(10, secondPause);
+        collector.ObserveEnd(1, 10, 1, 23.0);
+        TimelineProvider.GcPauseAggregate aggregate = TimelineProvider.AggregateGcPauses(
+            [firstPause, secondPause],
+            0.0,
+            100.0);
+
+        SnapshotGcSummary result = collector.Build(aggregate, out bool namesTruncated);
+
+        namesTruncated.Should().BeFalse();
+        result.CollectionCount.Should().Be(2);
+        result.Collections.Should().Equal(
+            new SnapshotGcRecord(1, 20.0, 2, "NonConcurrentGC", "Induced", 4.0),
+            new SnapshotGcRecord(1, 10.0, 2, "NonConcurrentGC", "Induced", 2.0));
+    }
+
+    [TestMethod]
     public void GetSnapshotGcPauseWarning_IncompleteEvidence_IsExplicit()
     {
         TimelineSnapshot snapshot = new(
