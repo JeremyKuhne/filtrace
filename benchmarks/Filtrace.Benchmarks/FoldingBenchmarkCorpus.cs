@@ -4,7 +4,7 @@
 
 namespace Filtrace.Benchmarks;
 
-internal static class FoldingBenchmarkCorpus
+internal static partial class FoldingBenchmarkCorpus
 {
     private const int ThreadCount = 8;
 
@@ -99,9 +99,4 @@ internal static class FoldingBenchmarkCorpus
             recordSemantics);
     }
 
-    private readonly record struct FoldingScenario(
-        string Name,
-        int SampleCount,
-        int StackDepth,
-        int DistinctFrameCount);
 }

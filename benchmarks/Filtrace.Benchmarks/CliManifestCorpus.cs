@@ -8,7 +8,7 @@ using Touki;
 
 namespace Filtrace.Benchmarks;
 
-internal sealed class CliManifestCorpus : DisposableBase
+internal sealed partial class CliManifestCorpus : DisposableBase
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -174,12 +174,4 @@ internal sealed class CliManifestCorpus : DisposableBase
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
 
-    private sealed record ManifestFile(int SchemaVersion, IReadOnlyList<ManifestCase> Cases);
-
-    private sealed record ManifestCase(
-        string Id,
-        string Benchmark,
-        string Parameters,
-        string BenchmarkDisplay,
-        string Trace);
 }

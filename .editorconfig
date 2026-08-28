@@ -32,6 +32,4 @@ dotnet_diagnostic.TOUKI0024.severity = warning
 dotnet_diagnostic.TOUKI0041.severity = warning
 
 # Declare one type per file (TOUKI0020)
-# Nested private implementation types stay with their owning abstraction; top-level
-# declarations remain one per file.
-dotnet_code_quality.TOUKI0020.exclude_nested_types = true
+dotnet_diagnostic.TOUKI0020.severity = warning

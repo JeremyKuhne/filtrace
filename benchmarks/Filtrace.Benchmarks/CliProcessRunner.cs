@@ -9,7 +9,7 @@ using System.Text;
 
 namespace Filtrace.Benchmarks;
 
-internal static class CliProcessRunner
+internal static partial class CliProcessRunner
 {
     public const string FiltracePathEnvironmentVariable = "FILTRACE_BENCHMARK_CLI_PATH";
     private const int MaximumCapturedCharacters = 10 * 1024 * 1024;
@@ -299,11 +299,4 @@ internal static class CliProcessRunner
         return Convert.ToHexString(hash.GetHashAndReset());
     }
 
-    private sealed record ProcessObservation(
-        int ExitCode,
-        string StandardOutput,
-        string StandardError,
-        TimeSpan TotalProcessorTime,
-        long PeakWorkingSetBytes,
-        long MaxPrivateMemoryBytes);
 }

@@ -7,7 +7,7 @@ using System.Text.Json;
 
 namespace Filtrace.Benchmarks;
 
-internal static class CliTelemetryCommand
+internal static partial class CliTelemetryCommand
 {
     private const int DefaultIterations = 25;
     private const int MaximumIterations = 100;
@@ -282,10 +282,4 @@ internal static class CliTelemetryCommand
         return new TelemetryOptions(scenario, trace, output, filtrace, iterations);
     }
 
-    private sealed record TelemetryOptions(
-        string Scenario,
-        string TracePath,
-        string OutputPath,
-        string? FiltracePath,
-        int Iterations);
 }
