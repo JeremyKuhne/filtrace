@@ -163,8 +163,125 @@ function Get-CaseVariant([string] $Name) {
     return $null
 }
 
+function Get-NearestExistingContainingDirectory([string] $Path) {
+    [string] $fullPath = Resolve-PhysicalPath $Path
+    [string] $currentPath = Split-Path -Parent $fullPath
+    if ([string]::IsNullOrWhiteSpace($currentPath)) {
+        $currentPath = [System.IO.Path]::GetPathRoot($fullPath)
+    }
+
+    while (-not [string]::IsNullOrWhiteSpace($currentPath)) {
+        [System.IO.FileSystemInfo] $item = Get-Item `
+            -LiteralPath $currentPath `
+            -Force `
+            -ErrorAction SilentlyContinue
+        if ($null -ne $item -and $item.PSIsContainer) {
+            return $item.FullName
+        }
+
+        [string] $parentPath = Split-Path -Parent $currentPath
+        if ([string]::IsNullOrWhiteSpace($parentPath) -or $parentPath -ceq $currentPath) {
+            break
+        }
+        $currentPath = $parentPath
+    }
+
+    throw "No existing containing directory was found for '$Path'."
+}
+
+function Test-WindowsDirectoryCaseSensitive([string] $Path) {
+    if ($null -eq ('Filtrace.LocalTesting.WindowsPath' -as [type])) {
+        Add-Type -TypeDefinition @'
+using Microsoft.Win32.SafeHandles;
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+
+namespace Filtrace.LocalTesting
+{
+    public static class WindowsPath
+    {
+        private const uint FileReadAttributes = 0x00000080;
+        private const uint FileFlagBackupSemantics = 0x02000000;
+        private const int FileCaseSensitiveInfo = 23;
+        private const uint FileCsFlagCaseSensitiveDir = 0x00000001;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CaseSensitiveInfo
+        {
+            public uint Flags;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle CreateFileW(
+            string fileName,
+            uint desiredAccess,
+            FileShare shareMode,
+            IntPtr securityAttributes,
+            FileMode creationDisposition,
+            uint flagsAndAttributes,
+            IntPtr templateFile);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetFileInformationByHandleEx(
+            SafeFileHandle file,
+            int fileInformationClass,
+            out CaseSensitiveInfo fileInformation,
+            uint bufferSize);
+
+        public static bool IsDirectoryCaseSensitive(string path)
+        {
+            using SafeFileHandle handle = CreateFileW(
+                path,
+                FileReadAttributes,
+                FileShare.ReadWrite | FileShare.Delete,
+                IntPtr.Zero,
+                FileMode.Open,
+                FileFlagBackupSemantics,
+                IntPtr.Zero);
+            if (handle.IsInvalid)
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+
+            if (!GetFileInformationByHandleEx(
+                    handle,
+                    FileCaseSensitiveInfo,
+                    out CaseSensitiveInfo information,
+                    (uint)Marshal.SizeOf<CaseSensitiveInfo>()))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+
+            return (information.Flags & FileCsFlagCaseSensitiveDir) != 0;
+        }
+    }
+}
+'@
+    }
+
+    try {
+        return [Filtrace.LocalTesting.WindowsPath]::IsDirectoryCaseSensitive($Path)
+    }
+    catch {
+        throw "Directory case sensitivity could not be inspected: '$Path'. $($_.Exception.GetBaseException().Message)"
+    }
+}
+
 function Get-PathComparison([string] $Path) {
     [string] $currentPath = Resolve-PhysicalPath $Path
+    if (Test-WindowsPlatform) {
+        [string] $containingDirectory = Get-NearestExistingContainingDirectory $currentPath
+        return $(if (Test-WindowsDirectoryCaseSensitive $containingDirectory) {
+                [System.StringComparison]::Ordinal
+            }
+            else {
+                [System.StringComparison]::OrdinalIgnoreCase
+            })
+    }
+
     while (-not [string]::IsNullOrWhiteSpace($currentPath)) {
         [System.IO.FileSystemInfo] $item = Get-Item `
             -LiteralPath $currentPath `
@@ -195,12 +312,7 @@ function Get-PathComparison([string] $Path) {
         $currentPath = $parentPath
     }
 
-    return $(if (Test-WindowsPlatform) {
-            [System.StringComparison]::OrdinalIgnoreCase
-        }
-        else {
-            [System.StringComparison]::Ordinal
-        })
+    return [System.StringComparison]::Ordinal
 }
 
 function Test-PathsEqual([string] $First, [string] $Second) {
@@ -649,6 +761,34 @@ function Set-RestrictiveFileSecurity([string] $Path) {
     [System.IO.File]::SetUnixFileMode($Path, $mode)
 }
 
+function Set-RestrictiveDirectorySecurity([string] $Path) {
+    if (Test-WindowsPlatform) {
+        [System.Security.Principal.SecurityIdentifier] $identity =
+            [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+        [System.Security.AccessControl.DirectorySecurity] $security =
+            [System.Security.AccessControl.DirectorySecurity]::new()
+        $security.SetOwner($identity)
+        $security.SetAccessRuleProtection($true, $false)
+        [System.Security.AccessControl.FileSystemAccessRule] $rule =
+            [System.Security.AccessControl.FileSystemAccessRule]::new(
+                $identity,
+                [System.Security.AccessControl.FileSystemRights]::FullControl,
+                [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+                    [System.Security.AccessControl.InheritanceFlags]::ObjectInherit,
+                [System.Security.AccessControl.PropagationFlags]::None,
+                [System.Security.AccessControl.AccessControlType]::Allow)
+        $security.AddAccessRule($rule)
+        Set-Acl -LiteralPath $Path -AclObject $security
+        return
+    }
+
+    [System.IO.UnixFileMode] $mode =
+        [System.IO.UnixFileMode]::UserRead -bor
+        [System.IO.UnixFileMode]::UserWrite -bor
+        [System.IO.UnixFileMode]::UserExecute
+    [System.IO.File]::SetUnixFileMode($Path, $mode)
+}
+
 function Copy-FileSecurity([string] $Source, [string] $Destination) {
     if (Test-WindowsPlatform) {
         [System.Security.AccessControl.FileSecurity] $security = Get-Acl -LiteralPath $Source
@@ -753,6 +893,8 @@ function Assert-StateWorkspace([string] $Workspace, [string] $ManifestPath) {
         -not (Test-PathsEqual ([string] $marker.statePath) $ManifestPath)) {
         throw "The local-testing workspace marker does not own '$Workspace'."
     }
+
+    Set-RestrictiveDirectorySecurity $Workspace
 }
 
 function Initialize-StateWorkspace([string] $Workspace, [string] $ManifestPath) {
@@ -775,6 +917,7 @@ function Initialize-StateWorkspace([string] $Workspace, [string] $ManifestPath) 
         $null = New-Item -ItemType Directory -Path $Workspace -Force
     }
 
+    Set-RestrictiveDirectorySecurity $Workspace
     Write-JsonFile $markerPath ([ordered] @{
             schemaVersion = 1
             statePath = $ManifestPath

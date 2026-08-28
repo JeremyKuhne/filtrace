@@ -92,7 +92,8 @@ manifest and skill destination likewise must not be symbolic links or junctions.
 A manifest-owned workspace may be below the target repository, but it cannot equal
 or contain the target because Restore recursively removes that workspace. MCP,
 skill, CLI, manifest, and workspace paths also cannot overlap the per-user resource
-ownership registry.
+ownership registry. The workspace uses a protected current-user ACL on Windows and
+mode `0700` on Unix because it can contain a complete backup of the consumer skill.
 A skill destination cannot overlap the Filtrace checkout's shared
 `artifacts/local-testing` state tree. A pre-existing skill containing linked files
 or directories is rejected before backup so external link targets are never
@@ -116,7 +117,8 @@ script. An existing `overlay.md` remains consumer-owned. The helper rejects exac
 ancestor, or descendant overlap between the destination and the Filtrace source
 skill before any target write, resolving existing symbolic-link and junction
 ancestors to their physical targets first. Case comparison follows the filesystem
-containing each path, including case-sensitive APFS volumes.
+containing each path, including case-sensitive APFS volumes and per-directory NTFS
+case-sensitivity settings.
 
 ## Verify local mode
 

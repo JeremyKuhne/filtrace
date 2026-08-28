@@ -168,6 +168,33 @@ function Assert-RestrictedFile([string] $Path, [string] $Description) {
         "$Description does not have Unix mode 0600."
 }
 
+function Assert-RestrictedDirectory([string] $Path, [string] $Description) {
+    Assert-True (Test-Path -LiteralPath $Path -PathType Container) `
+        "$Description does not exist: '$Path'."
+    if (Test-WindowsPlatform) {
+        [System.Security.AccessControl.DirectorySecurity] $security = Get-Acl -LiteralPath $Path
+        [string] $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        [System.Security.AccessControl.AuthorizationRule[]] $rules = @($security.Access)
+        Assert-True $security.AreAccessRulesProtected `
+            "$Description inherits a broader Windows ACL."
+        Assert-True ($rules.Count -eq 1 -and
+            $rules[0].IdentityReference.Translate(
+                [System.Security.Principal.SecurityIdentifier]).Value -ceq $currentUser -and
+            $rules[0].AccessControlType -eq
+                [System.Security.AccessControl.AccessControlType]::Allow) `
+            "$Description is not restricted to the current Windows user."
+        return
+    }
+
+    [int] $expectedMode = [int] (
+        [System.IO.UnixFileMode]::UserRead -bor
+        [System.IO.UnixFileMode]::UserWrite -bor
+        [System.IO.UnixFileMode]::UserExecute)
+    Assert-True (
+        [int] [System.IO.File]::GetUnixFileMode($Path) -eq $expectedMode) `
+        "$Description does not have Unix mode 0700."
+}
+
 function Get-PathIdentity([string] $Path) {
     [string] $identity = [System.IO.Path]::TrimEndingDirectorySeparator(
         [System.IO.Path]::GetFullPath($Path))
@@ -458,6 +485,26 @@ try {
             'Case aliases do not share state on a case-insensitive volume.'
     }
 
+    if (Test-WindowsPlatform) {
+        [string] $caseSensitiveRoot = Join-Path $temporaryRoot 'NTFS case sensitive'
+        $null = New-Item -ItemType Directory -Path $caseSensitiveRoot
+        [string[]] $caseSensitiveOutput = @(
+            & fsutil.exe file setCaseSensitiveInfo $caseSensitiveRoot enable 2>&1)
+        Assert-True ($LASTEXITCODE -eq 0) `
+            "Could not enable NTFS case sensitivity: $($caseSensitiveOutput -join ' ')"
+        [string] $caseSensitiveConfig = Join-Path $caseSensitiveRoot '.vscode/mcp.json'
+        [string] $caseSensitiveSkill = Join-Path $caseSensitiveRoot '.agents/skills/filtrace'
+        [string] $caseSensitiveState = Join-Path $caseSensitiveRoot '.local-testing/state.json'
+        Invoke-Workflow -Action Install -McpConfigPath $caseSensitiveConfig `
+            -SkillDestination $caseSensitiveSkill -StatePath $caseSensitiveState `
+            -TargetRepository $caseSensitiveRoot
+        Invoke-Workflow -Action Restore -McpConfigPath $caseSensitiveConfig `
+            -SkillDestination $caseSensitiveSkill -StatePath $caseSensitiveState `
+            -TargetRepository $caseSensitiveRoot
+        Assert-True (-not (Test-Path -LiteralPath $caseSensitiveState)) `
+            'Restore left state in an NTFS case-sensitive directory.'
+    }
+
     # MCP JSON: reject a valid non-object root, and distinguish a read failure
     # from malformed JSON before any target configuration is changed.
     [string] $arrayMcpRoot = Join-Path $temporaryRoot 'array MCP root'
@@ -550,6 +597,7 @@ try {
         'Default install did not create the manifest-owned CLI executable.'
     Assert-RestrictedFile $consumerMcp 'New project MCP configuration'
     Assert-RestrictedFile $consumerState 'New rollback manifest'
+    Assert-RestrictedDirectory "$consumerState.workspace" 'Existing manifest-owned workspace'
 
     Invoke-DefaultWorkflow 'restore' $consumerRoot -ManageCli
     Assert-True (-not (Test-Path -LiteralPath $consumerMcp)) `
@@ -575,6 +623,7 @@ try {
     Write-Json $unownedConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
     $null = New-Item -ItemType Directory -Path (Split-Path -Parent $unownedSentinel) -Force
     [System.IO.File]::WriteAllText($unownedSentinel, 'not owned', $utf8)
+    [object] $unownedSecurity = Get-FileSecurityFingerprint (Split-Path -Parent $unownedSentinel)
     [string] $unownedFailure = Invoke-WorkflowFailure -Action Install `
         -McpConfigPath $unownedConfig -SkillDestination $unownedSkill `
         -StatePath $unownedState -SkipCli
@@ -586,6 +635,10 @@ try {
         'The workflow wrote state after refusing an unowned workspace.'
     Assert-True (-not (Test-Path -LiteralPath $unownedSkill)) `
         'The workflow changed the skill after refusing an unowned workspace.'
+    Assert-True (
+        (Get-FileSecurityFingerprint (Split-Path -Parent $unownedSentinel)) -ceq
+        $unownedSecurity) `
+        'The workflow changed permissions on an unowned workspace.'
 
     # Concurrency: the StatePath lock rejects an overlapping owner before target
     # mutation, while an independent state key remains usable.
@@ -669,6 +722,7 @@ try {
         'Resource-lock rejection wrote the second rollback manifest.'
 
     Invoke-Workflow 'Install' $ownershipConfig $ownershipSkill $firstOwnershipState
+    Assert-RestrictedDirectory "$firstOwnershipState.workspace" 'New manifest-owned workspace'
     [byte[]] $firstOwnershipStateBytes = [System.IO.File]::ReadAllBytes($firstOwnershipState)
 
     [string] $secondCheckoutRoot = Join-Path $ownershipRoot 'second checkout'
