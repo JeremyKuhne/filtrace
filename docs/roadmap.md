@@ -49,7 +49,7 @@ true.
 | When | Items | Why now |
 |---|---|---|
 | Done | VN0-VN4, VC2, SC8, SC13 | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, and decisive-query replay are implemented. |
-| Now | VC3 | Add temporal shape to CPU rankings only if it saves a follow-up without inflating ordinary results. |
+| Now | VC3, LT1 | Add temporal shape to CPU rankings, and replace the overgrown local checkout activation draft with a narrow repository-only design. |
 | Later | VC4-VC8, SC9-SC12, LP-1..LP-5, VN5 | Complete broadly applicable, demand-, dependency-, or stabilization-gated work before the specialized backlog. |
 | Upstream | TE-P1..TE-P5 | Not actionable in this repository alone. |
 | Backlog | VC1 ([issue #92](https://github.com/JeremyKuhne/filtrace/issues/92)) | DATAS applies only to modern server-GC workloads; retain the design without scheduling it ahead of broader capabilities. |
@@ -1189,6 +1189,23 @@ in [Directory.Packages.props](../Directory.Packages.props)).
 - **Re-audit the TraceEvent public surface whenever the pin moves**, and enter new
   findings here only after checking them against agent value, capture feasibility,
   dependency cost, and response bounds.
+
+---
+
+## Track G - repository engineering
+
+### LT1 - repository-scoped local checkout activation redesign
+
+**Status:** Phase 1 is implemented locally. The implementation plan and current
+validation status are in [local-testing-redesign.md](local-testing-redesign.md).
+
+Replace PR #94's review-era implementation with one fixed-path, one-schema
+workflow rooted in the consumer repository's Git directory. Keep the useful
+failure corpus, but remove arbitrary managed paths, global CLI mutation, implicit
+schema migration, and the machine-wide ownership registry from V1.
+
+**Gate:** validate the Phase 1 core on Linux ARM64 before beginning consumer
+mutation work.
 
 ---
 
