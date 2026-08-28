@@ -605,6 +605,54 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $lockedMcpState)) `
         'Unreadable MCP rejection wrote rollback state.'
 
+    [string] $oversizedOverlayRoot = Join-Path $temporaryRoot 'oversized overlay install'
+    [string] $oversizedOverlayConfig = Join-Path $oversizedOverlayRoot 'mcp.json'
+    [string] $oversizedOverlaySkill = Join-Path $oversizedOverlayRoot 'skill/filtrace'
+    [string] $oversizedOverlayState = Join-Path $oversizedOverlayRoot 'state.json'
+    $null = New-Item -ItemType Directory -Path $oversizedOverlaySkill -Force
+    [System.IO.File]::WriteAllText(
+        (Join-Path $oversizedOverlaySkill 'SKILL.md'),
+        'oversized overlay baseline',
+        $utf8)
+    [System.IO.FileStream] $oversizedOverlayStream = [System.IO.File]::Open(
+        (Join-Path $oversizedOverlaySkill 'overlay.md'),
+        [System.IO.FileMode]::Create,
+        [System.IO.FileAccess]::Write,
+        [System.IO.FileShare]::None)
+    try {
+        $oversizedOverlayStream.SetLength(1MB + 1)
+    }
+    finally {
+        $oversizedOverlayStream.Dispose()
+    }
+    Write-Json $oversizedOverlayConfig ([ordered] @{
+            servers = [ordered] @{
+                docs = [ordered] @{ type = 'http'; url = 'https://overlay.invalid/mcp' }
+            }
+            inputs = @()
+        })
+    [byte[]] $oversizedOverlayConfigBytes =
+        [System.IO.File]::ReadAllBytes($oversizedOverlayConfig)
+    [string] $oversizedOverlayFailure = Invoke-WorkflowFailure -Action Install `
+        -McpConfigPath $oversizedOverlayConfig -SkillDestination $oversizedOverlaySkill `
+        -StatePath $oversizedOverlayState -SkipCli
+    Assert-True ($oversizedOverlayFailure -match 'overlay.md is larger than the 1 MB safety limit') `
+        'An oversized overlay was not rejected before Install mutation.'
+    Assert-True (
+        [System.Linq.Enumerable]::SequenceEqual(
+            $oversizedOverlayConfigBytes,
+            [System.IO.File]::ReadAllBytes($oversizedOverlayConfig))) `
+        'Oversized-overlay rejection changed MCP configuration.'
+    Assert-True (
+        [System.IO.File]::ReadAllText(
+            (Join-Path $oversizedOverlaySkill 'SKILL.md'),
+            $utf8) -ceq 'oversized overlay baseline') `
+        'Oversized-overlay rejection changed the skill.'
+    Assert-True (-not (Test-Path -LiteralPath $oversizedOverlayState)) `
+        'Oversized-overlay rejection wrote rollback state.'
+    Assert-True (-not (Test-Path -LiteralPath "$oversizedOverlayState.workspace")) `
+        'Oversized-overlay rejection created a workspace.'
+
     # Default scope: invoking from a consumer repository changes only that
     # repository, with rollback state keyed to its canonical path.
     [string] $consumerRoot = Join-Path $temporaryRoot 'consumer repository'
@@ -1564,6 +1612,75 @@ try {
     Invoke-Workflow 'Restore' $retargetConfig $retargetSkill $retargetState `
         -SkipCli -WorkflowPath $copiedWorkflow
 
+    foreach ($legacyRetargetSchema in @(2, 3, 4)) {
+        [string] $legacyRetargetState =
+            Join-Path $retargetRoot "legacy-$legacyRetargetSchema-state.json"
+        [string] $legacyRetargetWorkspace = "$legacyRetargetState.workspace"
+        if ($legacyRetargetSchema -ge 3) {
+            $null = New-Item -ItemType Directory -Path $legacyRetargetWorkspace -Force
+            Write-Json (Join-Path $legacyRetargetWorkspace '.filtrace-local-testing.json') ([ordered] @{
+                    schemaVersion = 1
+                    statePath = $legacyRetargetState
+                })
+        }
+        [System.Collections.Specialized.OrderedDictionary] $legacyRetargetManifest = [ordered] @{
+            schemaVersion = $legacyRetargetSchema
+            createdUtc = [System.DateTimeOffset]::UtcNow.ToString('O')
+            status = 'local-active'
+            cliManaged = $false
+            cliToolPath = $null
+            cli = $null
+            mcp = [ordered] @{
+                path = $retargetConfig
+                serverExisted = $false
+                server = $null
+            }
+            skill = [ordered] @{
+                destination = Join-Path $retargetRoot "legacy-$legacyRetargetSchema-skill"
+                existed = $false
+            }
+        }
+        if ($legacyRetargetSchema -ge 3) {
+            $legacyRetargetManifest.targetRepository = $retargetRoot
+            $legacyRetargetManifest.workspace = $legacyRetargetWorkspace
+            $legacyRetargetManifest.mcp.fileExisted = $true
+            $legacyRetargetManifest.mcp.existingAncestor = $retargetOriginal
+            $legacyRetargetManifest.skill.existingAncestor = $retargetRoot
+        }
+        if ($legacyRetargetSchema -eq 4) {
+            $legacyRetargetManifest.skill.backupSha256 = $null
+        }
+        Write-Json $legacyRetargetState $legacyRetargetManifest
+
+        Remove-Item -LiteralPath $retargetAlias -Force
+        $null = New-Item -ItemType $retargetLinkType `
+            -Path $retargetAlias `
+            -Target $retargetReplacement
+        [byte[]] $legacyReplacementBytes =
+            [System.IO.File]::ReadAllBytes((Join-Path $retargetReplacement 'mcp.json'))
+        [string] $legacyRetargetFailure = Invoke-WorkflowFailure -Action Restore `
+            -McpConfigPath $retargetConfig `
+            -SkillDestination $legacyRetargetManifest.skill.destination `
+            -StatePath $legacyRetargetState -SkipCli -WorkflowPath $copiedWorkflow `
+            -TargetRepository $retargetRoot
+        Assert-True ($legacyRetargetFailure -match 'Legacy local-testing state cannot be restored through a symbolic link or') `
+            "Schema-$legacyRetargetSchema Restore accepted a retargetable managed path."
+        Assert-True (
+            [System.Linq.Enumerable]::SequenceEqual(
+                $legacyReplacementBytes,
+                [System.IO.File]::ReadAllBytes((Join-Path $retargetReplacement 'mcp.json')))) `
+            "Schema-$legacyRetargetSchema retarget rejection changed the replacement MCP configuration."
+        Assert-True (Test-Path -LiteralPath $legacyRetargetState -PathType Leaf) `
+            "Schema-$legacyRetargetSchema retarget rejection removed rollback state."
+
+        Remove-Item -LiteralPath $retargetAlias -Force
+        $null = New-Item -ItemType $retargetLinkType `
+            -Path $retargetAlias `
+            -Target $retargetOriginal
+        Remove-Item -LiteralPath $legacyRetargetState -Force
+        Remove-Item -LiteralPath $legacyRetargetWorkspace -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
     [string[]] $nestedLinkKinds = if (Test-WindowsPlatform) {
         @('directory')
     }
@@ -1576,7 +1693,8 @@ try {
         [string] $nestedLinkConfig = Join-Path $nestedLinkRoot 'mcp.json'
         [string] $nestedLinkState = Join-Path $nestedLinkRoot 'state.json'
         [string] $nestedLinkTarget = Join-Path $nestedLinkRoot "external-$nestedLinkKind"
-        [string] $nestedLinkPath = Join-Path $nestedLinkSkill "$nestedLinkKind-link"
+        [string] $nestedLinkPath = Join-Path $nestedLinkSkill $(if (
+            $nestedLinkKind -ceq 'file') { 'overlay.md' } else { "$nestedLinkKind-link" })
         $null = New-Item -ItemType Directory -Path $nestedLinkSkill -Force
         [System.IO.File]::WriteAllText((Join-Path $nestedLinkSkill 'SKILL.md'), 'prior skill', $utf8)
         Write-Json $nestedLinkConfig ([ordered] @{ servers = [ordered] @{}; inputs = @() })
@@ -1596,7 +1714,7 @@ try {
         [string] $nestedLinkFailure = Invoke-WorkflowFailure -Action Install `
             -McpConfigPath $nestedLinkConfig -SkillDestination $nestedLinkSkill `
             -StatePath $nestedLinkState -SkipCli -WorkflowPath $copiedWorkflow
-        Assert-True ($nestedLinkFailure -match 'Skill destination contains a symbolic link or junction') `
+        Assert-True ($nestedLinkFailure -match '(Skill destination contains|Consumer overlay must not be) a symbolic link or junction') `
             "A nested $nestedLinkKind link was not rejected before skill backup."
         Assert-True (-not (Test-Path -LiteralPath $nestedLinkState)) `
             "Nested $nestedLinkKind link rejection wrote rollback state."
@@ -1732,6 +1850,30 @@ try {
         'Install changed the existing MCP configuration security metadata.'
 
     [byte[]] $activeStateBytes = [System.IO.File]::ReadAllBytes($existingState)
+    [string] $existingOverlay = Join-Path $existingSkill 'overlay.md'
+    [byte[]] $existingOverlayBytes = [System.IO.File]::ReadAllBytes($existingOverlay)
+    [System.IO.FileStream] $oversizedRestoreOverlay = [System.IO.File]::Open(
+        $existingOverlay,
+        [System.IO.FileMode]::Create,
+        [System.IO.FileAccess]::Write,
+        [System.IO.FileShare]::None)
+    try {
+        $oversizedRestoreOverlay.SetLength(1MB + 1)
+    }
+    finally {
+        $oversizedRestoreOverlay.Dispose()
+    }
+    [string] $oversizedRestoreFailure = Invoke-WorkflowFailure -Action Restore `
+        -McpConfigPath $existingConfig -SkillDestination $existingSkill `
+        -StatePath $existingState -SkipCli
+    Assert-True ($oversizedRestoreFailure -match 'overlay.md is larger than the 1 MB safety limit') `
+        'An oversized overlay was not rejected before Restore mutation.'
+    Assert-True ((Read-Json $existingState).status -ceq 'local-active') `
+        'Oversized Restore overlay changed active state.'
+    Assert-True ((Read-Json $existingConfig).servers.filtrace.command -ceq 'dotnet') `
+        'Oversized Restore overlay changed the active MCP entry.'
+    [System.IO.File]::WriteAllBytes($existingOverlay, $existingOverlayBytes)
+
     [string] $lockedSkillFile = Join-Path $existingSkill 'SKILL.md'
     [byte[]] $lockedSkillBytes = [System.IO.File]::ReadAllBytes($lockedSkillFile)
     [bool] $hadSkillCleanupFailure =

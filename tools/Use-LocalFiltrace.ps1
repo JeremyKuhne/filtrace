@@ -89,6 +89,7 @@ $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $solution = Join-Path $root 'filtrace.slnx'
 $skillSource = Join-Path $root '.agents/skills/filtrace'
 $utf8 = [System.Text.UTF8Encoding]::new($false)
+$maxOverlayBytes = 1MB
 
 function Get-FullPath([string] $Path, [string] $Description) {
     if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -374,6 +375,37 @@ function Assert-PathIsNotLink([string] $Path, [string] $Description) {
 
     if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
         throw "$Description must not be a symbolic link or junction: '$Path'."
+    }
+}
+
+function Assert-PathContainsNoLinks([string] $Path, [string] $Description) {
+    [string] $fullPath = [System.IO.Path]::GetFullPath($Path)
+    [string] $rootPath = [System.IO.Path]::GetPathRoot($fullPath)
+    [string] $relativePath = $fullPath.Substring($rootPath.Length)
+    [char[]] $separators = @(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar)
+    [string[]] $segments = $relativePath.Split(
+        $separators,
+        [System.StringSplitOptions]::RemoveEmptyEntries)
+    [string] $currentPath = $rootPath
+    foreach ($segment in $segments) {
+        [string] $candidate = Join-Path $currentPath $segment
+        [System.IO.FileSystemInfo] $item = $null
+        try {
+            $item = Get-Item -LiteralPath $candidate -Force -ErrorAction Stop
+        }
+        catch [System.Management.Automation.ItemNotFoundException] {
+            return
+        }
+        catch {
+            throw "$Description could not be inspected: '$candidate'. $($_.Exception.Message)"
+        }
+
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Legacy local-testing state cannot be restored through a symbolic link or junction: '$candidate' ($Description)."
+        }
+        $currentPath = $candidate
     }
 }
 
@@ -1389,7 +1421,31 @@ function Copy-Skill([string] $Source, [string] $Destination, [byte[]] $OverlayBy
 function Get-OverlayBytes([string] $SkillDirectory) {
     [string] $overlay = Join-Path $SkillDirectory 'overlay.md'
     if (Test-Path -LiteralPath $overlay -PathType Leaf) {
-        return ,([System.IO.File]::ReadAllBytes($overlay))
+        Assert-PathIsNotLink $overlay 'Consumer overlay'
+        [byte[]] $buffer = [byte[]]::new($maxOverlayBytes + 1)
+        [int] $length = 0
+        [System.IO.FileStream] $stream = [System.IO.File]::Open(
+            $overlay,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::Read)
+        try {
+            while ($length -lt $buffer.Length) {
+                [int] $read = $stream.Read($buffer, $length, $buffer.Length - $length)
+                if ($read -eq 0) { break }
+                $length += $read
+            }
+        }
+        finally {
+            $stream.Dispose()
+        }
+        if ($length -gt $maxOverlayBytes) {
+            throw "Consumer overlay.md is larger than the 1 MB safety limit: '$overlay'."
+        }
+
+        [byte[]] $result = [byte[]]::new($length)
+        [System.Array]::Copy($buffer, $result, $length)
+        return ,$result
     }
 
     return $null
@@ -1560,6 +1616,26 @@ try {
         throw 'Repository-scoped state must record an isolated CLI tool path.'
     }
 
+    if ($null -ne $state -and $state.schemaVersion -in @(2, 3, 4)) {
+        [System.Collections.Specialized.OrderedDictionary] $legacyManagedPaths = [ordered] @{
+            'Target repository' = $TargetRepository
+            'Local-testing state' = $StatePath
+            'VS Code MCP configuration' = $McpConfigPath
+            'Skill destination' = $SkillDestination
+        }
+        if (-not $legacyState) {
+            $legacyManagedPaths['Local-testing workspace'] = $stateWorkspace
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string] $CliToolPath)) {
+            $legacyManagedPaths['CLI tool path'] = $CliToolPath
+        }
+        foreach ($legacyManagedPath in $legacyManagedPaths.GetEnumerator()) {
+            Assert-PathContainsNoLinks `
+                ([string] $legacyManagedPath.Value) `
+                ([string] $legacyManagedPath.Key)
+        }
+    }
+
     [string] $skillSourceFull = [System.IO.Path]::GetFullPath($skillSource)
     Assert-PathsDoNotOverlap `
         $skillSourceFull 'Repository skill source' `
@@ -1699,6 +1775,7 @@ try {
         if (-not (Test-ResourceKeysEqual $resourceKeys $lockedResourceKeys)) {
             throw "Local-testing resource paths changed while acquiring locks. Restore the original path targets before retrying: '$StatePath'."
         }
+        [byte[]] $currentOverlay = Get-OverlayBytes $SkillDestination
         if ($null -ne $state -and $state.schemaVersion -eq 7 -and
             $state.status -cne 'cleanup-in-progress') {
             Assert-ResourceOwnership $resourceKeys $StatePath
@@ -1864,8 +1941,7 @@ try {
         }
         Set-McpServer $McpConfigPath $true $localServer
 
-        [byte[]] $overlayBytes = Get-OverlayBytes $SkillDestination
-        Copy-Skill $skillSource $SkillDestination $overlayBytes
+        Copy-Skill $skillSource $SkillDestination $currentOverlay
 
         if ($state.status -cne 'local-active') {
             $state.status = 'local-active'
@@ -1943,7 +2019,6 @@ try {
             $pathComparison
     }
 
-        [byte[]] $currentOverlay = Get-OverlayBytes $SkillDestination
     if ([bool] $state.skill.existed) {
         Copy-Skill $skillBackup $SkillDestination $currentOverlay
     }

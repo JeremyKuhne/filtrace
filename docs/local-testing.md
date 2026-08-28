@@ -103,7 +103,8 @@ mode `0700` on Unix because it can contain a complete backup of the consumer ski
 A skill destination cannot overlap the Filtrace checkout's shared
 `artifacts/local-testing` state tree. A pre-existing skill containing linked files
 or directories is rejected before backup so external link targets are never
-traversed or restored as regular content. Refresh and Restore also require every
+traversed or restored as regular content. Consumer `overlay.md` files have a 1 MiB
+safety limit and are validated before any setup resource is changed. Refresh and Restore also require every
 managed path to resolve to the same physical target recorded by Install. If a
 symbolic-link or junction ancestor is retargeted, the helper stops before changing
 the replacement target and retains the manifest for retry. Paths are checked both
@@ -201,7 +202,9 @@ The helper recognizes the legacy default manifest and restores it, but refuses t
 refresh the old broad setup. Custom version-2 manifests can also be restored with
 `-StatePath`; the manifest parent is never treated as an owned workspace, so MCP,
 skill, and unrelated sibling paths may be colocated there and only recorded
-resources are restored or removed.
+resources are restored or removed. Because version 2–4 manifests predate physical
+resource identities, automatic Restore refuses any managed path that traverses a
+symbolic link or junction; restore the original path layout before retrying.
 Version-3 repository-scoped manifests from the preview workflow are likewise
 restore-only. Version-4 manifests with skill-backup integrity metadata and
 version-5/6 manifests with checkout-local or partial resource ownership are also
@@ -216,7 +219,14 @@ workspace that belonged to that setup:
 1. In the consumer's `.vscode/mcp.json`, remove the local `filtrace` property or
    replace it with the shipped `dnx` entry below. Preserve every unrelated server.
 2. Preserve any consumer `overlay.md`, then remove or re-vendor the consumer's
-   `.agents/skills/filtrace` directory with `gh skill --scope project`.
+  `.agents/skills/filtrace` directory from the consumer repository:
+
+```pwsh
+gh skill install JeremyKuhne/filtrace .agents/skills/filtrace `
+  --pin v0.6.3 --agent github-copilot --scope project --force
+```
+
+  Use the current Filtrace release tag instead of `v0.6.3`.
 3. Remove the isolated `state.json.workspace` that contains the exact CLI path
    printed by Install. If that path was not retained, inspect, rather than blindly
    delete, the ownership markers under the Filtrace checkout:
