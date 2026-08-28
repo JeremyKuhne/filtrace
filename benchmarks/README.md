@@ -27,10 +27,17 @@ Run the Phase 0 trace-read, symbol-scan, and process-launch smokes:
 
 ```pwsh
 dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*ActivityReadBenchmarks*' --job dry
+dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*TimelineProviderBenchmarks*' --job dry
 dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*EmbeddedPdbBenchmarks*' --job dry
 dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*FoldingAggregatorMetricBenchmarks*' --job dry
 dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*Cli*Benchmarks*' --job dry
 ```
+
+`TimelineProviderBenchmarks` compares the default five-lane timeline with a
+default 200 ms point-in-time snapshot over committed allocation, exception, JIT,
+and long-running thread-pool captures. The project copies each raw trace; setup
+generates and verifies its ETLX cache and validates fixture-specific lane evidence
+before measurement.
 
 The CLI benchmark `Allocated` column belongs to the BenchmarkDotNet host and process
 wrapper, not the child filtrace process. Capture three telemetry launches while
@@ -58,8 +65,21 @@ output fails the run instead of exhausting the benchmark host.
 To profile a benchmark with filtrace:
 
 ```pwsh
-./.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1 -Project benchmarks/Filtrace.Benchmarks -Filter '*FoldingAggregatorBenchmarks.SelfTime*'
+dotnet build src/Filtrace/Filtrace.csproj -c Release
+$filtraceName = if ($IsWindows) { 'filtrace.exe' } else { 'filtrace' }
+$filtrace = (Resolve-Path (Join-Path 'src/Filtrace/bin/Release/net10.0' $filtraceName)).Path
+./.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1 `
+  -Project benchmarks/Filtrace.Benchmarks `
+  -Filter '*TimelineProviderBenchmarks.Snapshot*' `
+  -FiltracePath $filtrace
 ```
+
+Use that same `$filtrace` apphost for every deeper `info`, `rank`, `callers`,
+`source`, `diff`, and `export` command. The helper's printed `filtrace` commands
+are argument templates; execute their arguments through `& $filtrace`. Do not use
+an installed global tool or the MCP server to investigate this repository, because
+it may run analyzer code from a different build. A/B work uses one fixed locally
+built baseline CLI to analyze both arms.
 
 `Filtrace.PerfWorkload` produces parameterized CPU and nested-activity traces for
 the Track D scale corpus. Smoke both modes directly:

@@ -128,6 +128,11 @@ do not change with the implementation under test. The subjects are the baseline 
 candidate `filtrace.exe` binaries. Build them from separate checkouts and give each
 arm identical trace bytes at distinct paths.
 
+The collector/analyzer must be a locally built Release CLI from the investigation's
+recorded checkout. Never substitute an installed global `filtrace` or the MCP server:
+either can silently change analysis behavior. For a single-checkout drill, use that
+checkout's local CLI. For A/B work, use the fixed local baseline CLI for both arms.
+
 ```pwsh
 $harnessCommit = '<merged commit containing the complete measurement harness>'
 git worktree add --detach ../filtrace-perf-base $harnessCommit
