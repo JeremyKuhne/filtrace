@@ -223,16 +223,16 @@ function Get-DefaultStatePath([string] $Repository) {
 }
 
 function Get-StateLockPath([string] $StatePath) {
-    [string] $lockRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'filtrace-local-testing-locks'
+    [string] $lockRoot = Join-Path $resourceOwnersRoot '.locks'
     $null = [System.IO.Directory]::CreateDirectory($lockRoot)
-    return Join-Path $lockRoot "$(Get-StableHash (Get-PathIdentity $StatePath)).lock"
+    return Join-Path $lockRoot "state-$(Get-StableHash (Get-PathIdentity $StatePath)).lock"
 }
 
 function Get-ResourceLockPath([string] $ResourcePath) {
-    [string] $lockRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'filtrace-local-testing-resource-locks'
+    [string] $lockRoot = Join-Path $resourceOwnersRoot '.locks'
     $null = [System.IO.Directory]::CreateDirectory($lockRoot)
     [string] $resourceKey = "path:$(Get-PathIdentity $ResourcePath)"
-    return Join-Path $lockRoot "$(Get-StableHash $resourceKey).lock"
+    return Join-Path $lockRoot "resource-$(Get-StableHash $resourceKey).lock"
 }
 
 function Invoke-Dotnet([string[]] $Arguments, [switch] $Capture) {
@@ -685,6 +685,8 @@ try {
     }
     Invoke-Workflow 'Install' $lockedConfig $lockedSkill $lockedState
     Invoke-Workflow 'Restore' $lockedConfig $lockedSkill $lockedState
+    Assert-RestrictedDirectory (Join-Path $resourceOwnersRoot '.locks') `
+        'Per-user local-testing lock root'
     Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
 
     # Resource ownership: different StatePath values cannot concurrently or
@@ -1573,6 +1575,46 @@ try {
         'Install changed the existing MCP configuration security metadata.'
 
     [byte[]] $activeStateBytes = [System.IO.File]::ReadAllBytes($existingState)
+    [string] $lockedSkillFile = Join-Path $existingSkill 'SKILL.md'
+    [byte[]] $lockedSkillBytes = [System.IO.File]::ReadAllBytes($lockedSkillFile)
+    [bool] $hadSkillCleanupFailure =
+        Test-Path Env:FILTRACE_LOCAL_TESTING_TEST_FAIL_SKILL_CLEANUP
+    [string] $priorSkillCleanupFailure =
+        $env:FILTRACE_LOCAL_TESTING_TEST_FAIL_SKILL_CLEANUP
+    try {
+        $env:FILTRACE_LOCAL_TESTING_TEST_FAIL_SKILL_CLEANUP = '1'
+        [string] $skillCleanupFailure = Invoke-WorkflowFailure -Action Install `
+            -McpConfigPath $existingConfig -SkillDestination $existingSkill `
+            -StatePath $existingState -SkipCli
+    }
+    finally {
+        if ($hadSkillCleanupFailure) {
+            $env:FILTRACE_LOCAL_TESTING_TEST_FAIL_SKILL_CLEANUP =
+                $priorSkillCleanupFailure
+        }
+        else {
+            Remove-Item Env:FILTRACE_LOCAL_TESTING_TEST_FAIL_SKILL_CLEANUP `
+                -ErrorAction SilentlyContinue
+        }
+    }
+    Assert-True ($skillCleanupFailure -match 'Injected prior-skill cleanup failure') `
+        'Injected prior-skill cleanup failure was not actionable.'
+    Assert-True (
+        [System.Linq.Enumerable]::SequenceEqual(
+            $lockedSkillBytes,
+            [System.IO.File]::ReadAllBytes($lockedSkillFile))) `
+        'Prior-skill cleanup failure did not roll back the published skill.'
+    [string] $skillLeafName = [System.IO.Path]::GetFileName($existingSkill)
+    [object[]] $hiddenPriorSkills = @(
+        Get-ChildItem -LiteralPath (Split-Path -Parent $existingSkill) `
+            -Directory -Force -Filter ".$skillLeafName.*.previous")
+    Assert-True ($hiddenPriorSkills.Count -eq 0) `
+        'Prior-skill cleanup failure left a hidden previous skill directory.'
+    Assert-True (
+        [System.Linq.Enumerable]::SequenceEqual(
+            $activeStateBytes,
+            [System.IO.File]::ReadAllBytes($existingState))) `
+        'Prior-skill cleanup failure changed active rollback state.'
     Invoke-Workflow 'Install' $existingConfig $existingSkill $existingState
     Assert-True (
         [System.Linq.Enumerable]::SequenceEqual(

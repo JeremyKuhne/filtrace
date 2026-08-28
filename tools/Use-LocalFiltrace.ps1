@@ -163,6 +163,58 @@ function Get-CaseVariant([string] $Name) {
     return $null
 }
 
+function Get-DirectoryPathComparison([string] $Directory) {
+    [System.IO.FileSystemInfo[]] $items = @(
+        Get-ChildItem -LiteralPath $Directory -Force -ErrorAction Stop)
+    foreach ($item in $items) {
+        [string] $variant = Get-CaseVariant $item.Name
+        if ([string]::IsNullOrWhiteSpace($variant)) { continue }
+
+        [System.IO.FileSystemInfo[]] $caseMatches = @(
+            $items | Where-Object Name -IEQ $item.Name)
+        if ($caseMatches.Count -gt 1) {
+            return [System.StringComparison]::Ordinal
+        }
+
+        [System.IO.FileSystemInfo] $variantItem = Get-Item `
+            -LiteralPath (Join-Path $Directory $variant) `
+            -Force `
+            -ErrorAction SilentlyContinue
+        return $(if ($null -eq $variantItem) {
+                [System.StringComparison]::Ordinal
+            }
+            else {
+                [System.StringComparison]::OrdinalIgnoreCase
+            })
+    }
+
+    [string] $probeName = ".filtrace-case-probe-$([guid]::NewGuid().ToString('N')).tmp"
+    [string] $probePath = Join-Path $Directory $probeName
+    [string] $variantPath = Join-Path $Directory (Get-CaseVariant $probeName)
+    [System.IO.FileStreamOptions] $options = [System.IO.FileStreamOptions]::new()
+    $options.Mode = [System.IO.FileMode]::CreateNew
+    $options.Access = [System.IO.FileAccess]::Write
+    $options.Share = [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
+    $options.Options = [System.IO.FileOptions]::DeleteOnClose
+    $options.UnixCreateMode =
+        [System.IO.UnixFileMode]::UserRead -bor
+        [System.IO.UnixFileMode]::UserWrite
+    [System.IO.FileStream] $probe = [System.IO.FileStream]::new($probePath, $options)
+    try {
+        return $(if (Test-Path -LiteralPath $variantPath) {
+                [System.StringComparison]::OrdinalIgnoreCase
+            }
+            else {
+                [System.StringComparison]::Ordinal
+            })
+    }
+    finally {
+        $probe.Dispose()
+        Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $variantPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Get-NearestExistingContainingDirectory([string] $Path) {
     [string] $fullPath = Resolve-PhysicalPath $Path
     [string] $currentPath = Split-Path -Parent $fullPath
@@ -272,8 +324,8 @@ namespace Filtrace.LocalTesting
 
 function Get-PathComparison([string] $Path) {
     [string] $currentPath = Resolve-PhysicalPath $Path
+    [string] $containingDirectory = Get-NearestExistingContainingDirectory $currentPath
     if (Test-WindowsPlatform) {
-        [string] $containingDirectory = Get-NearestExistingContainingDirectory $currentPath
         return $(if (Test-WindowsDirectoryCaseSensitive $containingDirectory) {
                 [System.StringComparison]::Ordinal
             }
@@ -282,37 +334,7 @@ function Get-PathComparison([string] $Path) {
             })
     }
 
-    while (-not [string]::IsNullOrWhiteSpace($currentPath)) {
-        [System.IO.FileSystemInfo] $item = Get-Item `
-            -LiteralPath $currentPath `
-            -Force `
-            -ErrorAction SilentlyContinue
-        if ($null -ne $item -and $null -ne $item.Parent) {
-            [string] $variant = Get-CaseVariant $item.Name
-            if (-not [string]::IsNullOrWhiteSpace($variant)) {
-                [System.IO.FileSystemInfo[]] $caseMatches = @(
-                    Get-ChildItem -LiteralPath $item.Parent.FullName -Force |
-                        Where-Object Name -IEQ $item.Name)
-                if ($caseMatches.Count -gt 1) {
-                    return [System.StringComparison]::Ordinal
-                }
-
-                [string] $variantPath = Join-Path $item.Parent.FullName $variant
-                if (Test-Path -LiteralPath $variantPath) {
-                    return [System.StringComparison]::OrdinalIgnoreCase
-                }
-                return [System.StringComparison]::Ordinal
-            }
-        }
-
-        [string] $parentPath = Split-Path -Parent $currentPath
-        if ([string]::IsNullOrWhiteSpace($parentPath) -or $parentPath -ceq $currentPath) {
-            break
-        }
-        $currentPath = $parentPath
-    }
-
-    return [System.StringComparison]::Ordinal
+    return Get-DirectoryPathComparison $containingDirectory
 }
 
 function Test-PathsEqual([string] $First, [string] $Second) {
@@ -459,9 +481,8 @@ function Assert-PathsDoNotOverlap(
 }
 
 function Enter-StateLock([string] $ManifestPath) {
-    [string] $lockRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'filtrace-local-testing-locks'
-    $null = [System.IO.Directory]::CreateDirectory($lockRoot)
-    [string] $lockName = "$(Get-StableHash (Get-PathIdentity $ManifestPath)).lock"
+    [string] $lockRoot = Get-LocalTestingLockRoot
+    [string] $lockName = "state-$(Get-StableHash (Get-PathIdentity $ManifestPath)).lock"
     [string] $lockPath = Join-Path $lockRoot $lockName
     try {
         return [System.IO.File]::Open(
@@ -519,13 +540,12 @@ function Test-ResourceKeysEqual([string[]] $First, [string[]] $Second) {
 }
 
 function Enter-ResourceLocks([string[]] $ResourceKeys) {
-    [string] $lockRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'filtrace-local-testing-resource-locks'
-    $null = [System.IO.Directory]::CreateDirectory($lockRoot)
+    [string] $lockRoot = Get-LocalTestingLockRoot
     [System.Collections.Generic.List[System.IO.FileStream]] $locks =
         [System.Collections.Generic.List[System.IO.FileStream]]::new()
     try {
         foreach ($resourceKey in $ResourceKeys | Sort-Object -CaseSensitive -Unique) {
-            [string] $lockPath = Join-Path $lockRoot "$(Get-StableHash $resourceKey).lock"
+            [string] $lockPath = Join-Path $lockRoot "resource-$(Get-StableHash $resourceKey).lock"
             try {
                 [System.IO.FileStream] $lock = [System.IO.File]::Open(
                     $lockPath,
@@ -581,9 +601,20 @@ function Get-ResourceOwnerPath([string] $ResourceKey) {
     return Join-Path (Get-ResourceOwnersRoot) "$(Get-StableHash $ResourceKey).json"
 }
 
-function Enter-ResourceRegistryLock {
-    [string] $lockRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'filtrace-local-testing-resource-locks'
+function Get-LocalTestingLockRoot {
+    [string] $lockRoot = Join-Path (Get-ResourceOwnersRoot) '.locks'
+    if (Test-Path -LiteralPath $lockRoot -PathType Leaf) {
+        throw "Local-testing lock root is a file: '$lockRoot'."
+    }
+
     $null = [System.IO.Directory]::CreateDirectory($lockRoot)
+    Assert-PathIsNotLink $lockRoot 'Local-testing lock root'
+    Set-RestrictiveDirectorySecurity $lockRoot
+    return $lockRoot
+}
+
+function Enter-ResourceRegistryLock {
+    [string] $lockRoot = Get-LocalTestingLockRoot
     [string] $lockPath = Join-Path $lockRoot 'registry.lock'
     try {
         return [System.IO.File]::Open(
@@ -1313,23 +1344,34 @@ function Copy-Skill([string] $Source, [string] $Destination, [byte[]] $OverlayBy
         Move-Item -LiteralPath $staging -Destination $Destination
         $published = $true
         if ($previousMoved) {
+            if ($env:FILTRACE_LOCAL_TESTING_TEST_FAIL_SKILL_CLEANUP -ceq '1') {
+                throw 'Injected prior-skill cleanup failure.'
+            }
             Remove-Item -LiteralPath $previous -Recurse -Force
             $previousMoved = $false
         }
     }
     catch {
-        if (-not $published -and $previousMoved -and
-            -not (Test-Path -LiteralPath $Destination)) {
-            Move-Item -LiteralPath $previous -Destination $Destination
-            $previousMoved = $false
+        [System.Management.Automation.ErrorRecord] $failure = $_
+        if ($previousMoved) {
+            try {
+                if ($published -and (Test-Path -LiteralPath $Destination)) {
+                    Remove-Item -LiteralPath $Destination -Recurse -Force
+                    $published = $false
+                }
+                if (-not (Test-Path -LiteralPath $Destination)) {
+                    Move-Item -LiteralPath $previous -Destination $Destination
+                    $previousMoved = $false
+                }
+            }
+            catch {
+                throw "Skill publication failed and rollback could not restore '$previous' to '$Destination'. Original error: $($failure.Exception.Message) Rollback error: $($_.Exception.Message)"
+            }
         }
-        throw
+        throw $failure
     }
     finally {
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-        if ($published) {
-            Remove-Item -LiteralPath $previous -Recurse -Force -ErrorAction SilentlyContinue
-        }
     }
 }
 

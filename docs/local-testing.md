@@ -42,6 +42,9 @@ The command performs these operations in order:
 
 Atomic JSON updates preserve an existing file's Unix mode or Windows ACL. New MCP,
 state, and marker files are restricted to the current user (`0600` on Unix).
+Skill replacement is transactional: if retiring the renamed prior directory
+fails after publication, the new directory is removed and the prior one is moved
+back before Install reports the failure.
 
 The helper prints the exact isolated `filtrace` executable path. Use that path for
 CLI-only checks and pass it to helpers that expose `-FiltracePath`. Agent analysis
@@ -60,6 +63,9 @@ install or restore is rejected before MCP, skill, CLI, or manifest mutation.
 Schema-version-7 state also owns the canonical manifest, workspace, MCP, skill,
 and CLI paths until Restore commits final cleanup. Another manifest cannot claim
 the same or an ancestor/descendant resource, even after the first process exits.
+State, resource, and ownership-registry locks live under the per-user ownership
+registry's private `.locks` directory, shared by that user's Filtrace checkouts
+without colliding with other operating-system users.
 
 An already-running chat may need an MCP tool refresh or a new chat before the
 project server and skill are discovered.
@@ -118,7 +124,9 @@ ancestor, or descendant overlap between the destination and the Filtrace source
 skill before any target write, resolving existing symbolic-link and junction
 ancestors to their physical targets first. Case comparison follows the filesystem
 containing each path, including case-sensitive APFS volumes and per-directory NTFS
-case-sensitivity settings.
+case-sensitivity settings. On Unix-like systems the helper measures child-name
+behavior inside the actual containing directory, including a mounted filesystem's
+root, instead of inferring it from the mount point's parent.
 
 ## Verify local mode
 
