@@ -15,7 +15,7 @@ public sealed partial class TimelineProvider
     ///  Reconstructs bounded snapshot GC detail from the raw events already consumed
     ///  by the cross-lane pass.
     /// </summary>
-    internal sealed class SnapshotGcCollector
+    internal sealed partial class SnapshotGcCollector
     {
         private readonly Dictionary<GcIdentity, RawGcCollection> _active = [];
         private readonly double _endMs;
@@ -330,57 +330,5 @@ public sealed partial class TimelineProvider
             return false;
         }
 
-        private sealed class RawGcCollection
-        {
-            public RawGcCollection(
-                GcIdentity identity,
-                double startMs,
-                int generation,
-                string kind,
-                string reason,
-                bool isBackground)
-            {
-                Identity = identity;
-                StartMs = startMs;
-                Generation = generation;
-                Kind = kind;
-                Reason = reason;
-                IsBackground = isBackground;
-            }
-
-            public GcIdentity Identity { get; }
-
-            public double StartMs { get; }
-
-            public int Generation { get; }
-
-            public string Kind { get; }
-
-            public string Reason { get; }
-
-            public bool IsBackground { get; }
-
-            public double? EndMs { get; set; }
-
-            public double PauseMs { get; set; }
-
-            public double LastPauseStartMs { get; set; } = double.NaN;
-
-            public double LastPauseEndMs { get; set; } = double.NaN;
-
-            public bool PauseContainsStart { get; set; }
-
-            public bool PauseContainsEnd { get; set; }
-        }
-
-        private readonly record struct GcIdentity(
-            int ProcessInstanceIndex,
-            int ClrInstanceId,
-            int CollectionNumber);
-
-        private readonly record struct GcPauseIdentity(
-            int ProcessInstanceIndex,
-            int ThreadInstanceIndex,
-            int ClrInstanceId);
     }
 }

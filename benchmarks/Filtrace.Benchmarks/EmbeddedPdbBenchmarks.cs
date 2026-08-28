@@ -8,7 +8,7 @@ namespace Filtrace.Benchmarks;
 ///  Measures trace loading while scanning controlled symbol directories.
 /// </summary>
 [MemoryDiagnoser]
-public class EmbeddedPdbBenchmarks
+public partial class EmbeddedPdbBenchmarks
 {
     private static readonly PdbScenario[] PdbScenarios =
     [
@@ -93,5 +93,4 @@ public class EmbeddedPdbBenchmarks
         _corpus = null;
     }
 
-    private sealed record PdbScenario(string Name, int DllCount, int HitRatePercent);
 }

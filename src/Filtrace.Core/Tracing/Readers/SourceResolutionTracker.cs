@@ -7,7 +7,7 @@ using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing.Readers;
 
-internal sealed class SourceResolutionTracker
+internal sealed partial class SourceResolutionTracker
 {
     private const int MaxTrackedModules = 1024;
     internal const int MaxTrackedMethods = 16384;
@@ -506,26 +506,4 @@ internal sealed class SourceResolutionTracker
         return new string(normalized);
     }
 
-    private sealed class ModuleResolution(string name, TraceModuleFile? module)
-    {
-        public string Name { get; } = name;
-        public TraceModuleFile? Module { get; } = module;
-        public int SampledFrames { get; set; }
-        public int MappedFrames { get; set; }
-        public PdbMatchStatus PdbStatus { get; set; }
-    }
-
-    private sealed class MethodResolution(string? name)
-    {
-        public string? Name { get; } = name;
-        public int SampledFrames { get; set; }
-        public int MappedFrames { get; set; }
-    }
-
-    internal enum PdbMatchStatus
-    {
-        NotFound,
-        IdentityMismatch,
-        Matched
-    }
 }

@@ -22,7 +22,7 @@ namespace Filtrace.Tracing.Readers;
 ///   one place means the two paths cannot drift.
 ///  </para>
 /// </remarks>
-internal static class ProcessTree
+internal static partial class ProcessTree
 {
     /// <summary>
     ///  Resolves a high-level <see cref="ScopeRequest"/> against a trace's process
@@ -597,13 +597,4 @@ internal static class ProcessTree
         }
     }
 
-    internal readonly record struct ProcessInstanceDescriptor(
-        int Index,
-        int ProcessId,
-        string? Name,
-        int? ParentIndex);
-
-    internal sealed record ProcessInstanceSelection(
-        HashSet<int> RootIndexes,
-        HashSet<int> IncludedIndexes);
 }

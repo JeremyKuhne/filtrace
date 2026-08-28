@@ -5,7 +5,6 @@
 using System.Globalization;
 using Filtrace.Caching;
 using Filtrace.Tracing;
-using Touki;
 
 namespace Filtrace.Server;
 
@@ -20,7 +19,7 @@ namespace Filtrace.Server;
 ///   retains only the most recently used traces rather than growing without limit.
 ///  </para>
 /// </remarks>
-public sealed class TraceStore
+public sealed partial class TraceStore
 {
     /// <summary>
     ///  The maximum number of parsed traces retained before the least-recently-used
@@ -298,40 +297,4 @@ public sealed class TraceStore
     private static bool IsConvertible(string fullPath) =>
         fullPath.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase)
         || fullPath.EndsWith(".etl", StringComparison.OrdinalIgnoreCase);
-
-    private sealed class ConversionGate
-    {
-        public SemaphoreSlim Semaphore { get; } = new(initialCount: 1, maxCount: 1);
-
-        public int References { get; set; }
-    }
-
-    private sealed class ConversionGateLease : DisposableBase
-    {
-        private readonly TraceStore _owner;
-        private readonly string _fullPath;
-        private readonly ConversionGate _gate;
-
-        public ConversionGateLease(
-            TraceStore owner,
-            string fullPath,
-            ConversionGate gate,
-            bool waited)
-        {
-            _owner = owner;
-            _fullPath = fullPath;
-            _gate = gate;
-            Waited = waited;
-        }
-
-        public bool Waited { get; }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                _owner.ReleaseConversionGate(_fullPath, _gate);
-            }
-        }
-    }
 }

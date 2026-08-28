@@ -7,7 +7,7 @@ namespace Filtrace.Tracing;
 /// <summary>
 ///  Diagnoses substring frame matching before a stack query is aggregated.
 /// </summary>
-public static class FrameMatchAnalyzer
+public static partial class FrameMatchAnalyzer
 {
     /// <summary>
     ///  Reports every distinct full frame definition matching
@@ -86,14 +86,4 @@ public static class FrameMatchAnalyzer
         return new FrameMatchReport(selector, selection, matchingStackCount, results);
     }
 
-    private sealed class MatchAccumulator(string frame)
-    {
-        public string Frame { get; } = frame;
-
-        public HashSet<int> Depths { get; } = [];
-
-        public int MatchingStackCount { get; set; }
-
-        public int SelectedStackCount { get; set; }
-    }
 }

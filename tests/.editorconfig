@@ -1,6 +1,9 @@
 # Test-only analyzer conventions.
 
 [*.cs]
+# Tests may keep small fixtures and support types beside the behavior they exercise.
+dotnet_diagnostic.TOUKI0020.severity = none
+
 # Naming rule violation (TOUKI0041)
 # Test methods follow Method_State_Expectation naming. Keep TOUKI0041 active for all
 # other symbols while exempting only MSTest's attributed test entry points.
@@ -15,9 +18,3 @@ touki_naming_symbols.mstest_data_methods.applicable_kinds = method
 touki_naming_symbols.mstest_data_methods.required_attributes = Microsoft.VisualStudio.TestTools.UnitTesting.DataTestMethodAttribute
 
 touki_naming_style.pascal_case_style.capitalization = pascal_case
-
-[Filtrace.Core.Tests/{ProcessScopeTests,TraceLoaderTests}.cs]
-# Declare one type per file (TOUKI0020)
-# These fixtures deliberately keep platform-neutral validation and Windows-only
-# integration classes together around one shared behavior surface.
-dotnet_diagnostic.TOUKI0020.severity = none
