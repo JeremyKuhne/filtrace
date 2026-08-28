@@ -153,6 +153,7 @@ internal sealed class LocalTestingStateStore
         if (baseline.Mcp.ServerExisted)
         {
             if (!baseline.Mcp.FileExisted
+                || !baseline.Mcp.ServersExisted
                 || baseline.Mcp.Server is null
                 || baseline.Mcp.Server.Value.ValueKind is not JsonValueKind.Object)
             {
@@ -165,6 +166,11 @@ internal sealed class LocalTestingStateStore
             throw new InvalidDataException(
                 "An absent MCP server baseline cannot contain a server value.");
         }
+        if (baseline.Mcp.ServersExisted && !baseline.Mcp.FileExisted)
+        {
+            throw new InvalidDataException(
+                "An existing MCP servers baseline requires an existing file.");
+        }
 
         if (baseline.Skill.Existed)
         {
@@ -174,6 +180,11 @@ internal sealed class LocalTestingStateStore
         {
             throw new InvalidDataException(
                 "An absent skill baseline cannot contain a backup hash.");
+        }
+        if (baseline.CreatedDirectories.Agents && !baseline.CreatedDirectories.Skills)
+        {
+            throw new InvalidDataException(
+                "A created .agents directory requires a created skills directory.");
         }
     }
 

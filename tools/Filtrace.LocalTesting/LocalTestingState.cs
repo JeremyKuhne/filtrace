@@ -54,6 +54,8 @@ internal sealed record McpBaseline
 {
     public bool FileExisted { get; init; }
 
+    public bool ServersExisted { get; init; }
+
     public bool ServerExisted { get; init; }
 
     public JsonElement? Server { get; init; }

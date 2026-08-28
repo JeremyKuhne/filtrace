@@ -22,6 +22,7 @@ public sealed class ResourcePlanTests
         plan.LockPath.Should().Be(Path.Join(gitDirectory, "filtrace-local-testing.lock"));
         plan.CliDirectory.Should().Be(Path.Join(plan.StateRoot, "tools"));
         plan.ArtifactsDirectory.Should().Be(Path.Join(plan.StateRoot, "artifacts"));
+        plan.SkillBackupPath.Should().Be(Path.Join(plan.ArtifactsDirectory, "skill-baseline"));
         plan.McpConfigurationPath.Should().Be(Path.Join(targetRoot, ".vscode", "mcp.json"));
         plan.SkillDestination.Should().Be(
             Path.Join(targetRoot, ".agents", "skills", "filtrace"));
