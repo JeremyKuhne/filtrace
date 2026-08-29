@@ -17,6 +17,7 @@ internal sealed record ResourcePlan
         LockPath = Path.Join(gitDirectory, $"{StateDirectoryName}.lock");
         CliDirectory = Path.Join(StateRoot, "tools");
         ArtifactsDirectory = Path.Join(StateRoot, "artifacts");
+        SkillBackupPath = Path.Join(ArtifactsDirectory, "skill-baseline");
         McpConfigurationPath = Path.Join(targetRoot, ".vscode", "mcp.json");
         SkillDestination = Path.Join(targetRoot, ".agents", "skills", "filtrace");
     }
@@ -34,6 +35,8 @@ internal sealed record ResourcePlan
     public string CliDirectory { get; }
 
     public string ArtifactsDirectory { get; }
+
+    public string SkillBackupPath { get; }
 
     public string McpConfigurationPath { get; }
 

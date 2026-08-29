@@ -192,6 +192,7 @@ public sealed class LocalTestingStateStoreTests
         {
             JsonObject mcp = GetObject(GetObject(state, "baseline"), "mcp");
             mcp["serverExisted"] = true;
+            mcp["serversExisted"] = true;
             mcp["fileExisted"] = variation is not "missingFile";
             mcp["server"] = variation switch
             {
@@ -204,7 +205,7 @@ public sealed class LocalTestingStateStoreTests
         Action read = () => new LocalTestingStateStore().Read(path);
 
         read.Should().Throw<InvalidDataException>()
-            .WithMessage("*existing MCP server baseline*");
+            .WithMessage("*existing 'servers' object*");
     }
 
     [TestMethod]
@@ -222,6 +223,40 @@ public sealed class LocalTestingStateStoreTests
 
         read.Should().Throw<InvalidDataException>()
             .WithMessage("*absent MCP server baseline*");
+    }
+
+    [TestMethod]
+    public void Read_ServersWithoutMcpFile_Throws()
+    {
+        using TemporaryDirectory directory = new();
+        string path = WriteValidState(directory);
+        ModifyState(path, state =>
+        {
+            JsonObject mcp = GetObject(GetObject(state, "baseline"), "mcp");
+            mcp["serversExisted"] = true;
+        });
+
+        Action read = () => new LocalTestingStateStore().Read(path);
+
+        read.Should().Throw<InvalidDataException>()
+            .WithMessage("*requires an existing file*");
+    }
+
+    [TestMethod]
+    public void Read_CreatedAgentsWithoutCreatedSkills_Throws()
+    {
+        using TemporaryDirectory directory = new();
+        string path = WriteValidState(directory);
+        ModifyState(path, state =>
+        {
+            JsonObject created = GetObject(GetObject(state, "baseline"), "createdDirectories");
+            created["agents"] = true;
+        });
+
+        Action read = () => new LocalTestingStateStore().Read(path);
+
+        read.Should().Throw<InvalidDataException>()
+            .WithMessage("*requires a created skills directory*");
     }
 
     [TestMethod]

@@ -1,13 +1,13 @@
 # Local Filtrace testing redesign plan
 
-**Status:** Phase 1 core implemented and validated on Windows on
-`local-testing-redesign-plan`; Linux ARM64 validation remains open. This remains
-a proposed replacement for the implementation in
-[PR #94](https://github.com/JeremyKuhne/filtrace/pull/94); no replacement workflow
-has shipped.
+**Status:** Phase 1 merged in
+[PR #98](https://github.com/JeremyKuhne/filtrace/pull/98) with Windows and Linux
+ARM64 validation. The first Phase 2 increment, baseline capture and bounded
+overlay input, is implemented locally on `local-testing-install-refresh`; active
+consumer mutation has not begun.
 
-**Last verified:** 2026-08-28 against `origin/main` at `b1a05a1` and PR #94 at
-`1ed3873`.
+**Last verified:** 2026-08-28 against `origin/main` at `2fcdc65`. PR #94 was
+closed without merge after PR #98 established the replacement.
 
 ## Decision
 
@@ -26,9 +26,9 @@ The replacement will:
   a small .NET helper with unit-testable types;
 - carry forward PR #94's failure cases as tests, not its compatibility branches.
 
-PR #94 remains useful as a threat-model corpus. Closing or superseding it is a
-separate remote action and happens only after a replacement PR exists and with
-explicit approval.
+PR #94 remains useful as a threat-model corpus. It was closed as superseded after
+PR #98 merged; its failure cases carry forward as focused tests rather than
+compatibility branches.
 
 ## Why reset
 
@@ -253,8 +253,8 @@ leftover state directory is harmless and may be reused by the next Fresh Install
 
 ## Legacy transition
 
-PR #94 is unmerged, so its schemas are not a shipped compatibility contract. Do
-not copy schema 2-7 branching into the replacement engine.
+PR #94 was closed without merge, so its schemas are not a shipped compatibility
+contract. Do not copy schema 2-7 branching into the replacement engine.
 
 Before trying the replacement, anyone who ran PR #94 must restore using the
 exact PR #94 checkout that created the state. The replacement wrapper should
@@ -277,11 +277,10 @@ merely the existence of review-era schemas.
 
 ### Phase 0 - approve the reset
 
-**Status:** Complete locally. V1 requires a Git target, and linked worktrees keep
+**Status:** Complete. V1 requires a Git target, and linked worktrees keep
 independent state while Filtrace source checkouts targeting the same worktree
 share its lock and baseline. The active PR #94 schema-2 setup was restored before
-Phase 1 began. Closing PR #94 remains deferred until a replacement PR exists and
-receives explicit approval.
+Phase 1 began, and PR #94 was closed as superseded after PR #98 merged.
 
 - Review this plan.
 - Confirm the fixed paths and Git-repository requirement.
@@ -291,12 +290,10 @@ receives explicit approval.
 
 ### Phase 1 - plan and state core
 
-**Status:** Implementation complete locally. The branch contains the helper and
-test projects, fixed `ResourcePlan` derivation, schema-1 source-generated
-serialization, atomic state replacement, and explicit operation classification.
-No command invokes the helper and no consumer mutation exists yet. The focused
-Phase 1 suite has 53 passing tests on Windows; Linux ARM64 validation remains an
-exit gate.
+**Status:** Complete in PR #98. The helper and test projects contain fixed
+`ResourcePlan` derivation, schema-1 source-generated serialization, atomic state
+replacement, and explicit operation classification. The 53 focused tests passed
+on Windows and Linux ARM64 before merge.
 
 - Add the .NET helper project and test project.
 - Implement `ResourcePlan`, manifest serialization, operation classification,
@@ -307,6 +304,13 @@ exit gate.
 and Linux ARM64.
 
 ### Phase 2 - Install and Refresh
+
+**Status:** In progress locally. The first increment captures exact MCP baseline
+semantics, copies and fingerprints a bounded prior skill, rejects links in
+managed paths and skill content, and reads `overlay.md` with a retained 1 MiB
+limit. It writes only the private skill backup; it does not yet change the active
+CLI, MCP configuration, or skill. The focused suite has 87 passing tests on
+Windows.
 
 - Implement baseline capture and bounded overlay handling.
 - Implement isolated CLI installation, structured MCP mutation, and
@@ -399,8 +403,8 @@ These can return only with a concrete user scenario and dedicated threat model.
 
 Resolve these during plan review, before implementation:
 
-1. Is the 1 MiB consumer-overlay ceiling retained from PR #94 or reduced?
-2. How long should the one-shot PR #94 cleanup guidance remain available?
+1. How long should the one-shot PR #94 cleanup guidance remain available?
 
-The Git-target and linked-worktree decisions are closed for V1. Resolve the two
-remaining policy questions before Phase 2 writes consumer resources.
+The Git-target, linked-worktree, and 1 MiB overlay-limit decisions are closed for
+V1. Resolve the remaining transition-window question before Phase 4 ships the
+wrapper.
