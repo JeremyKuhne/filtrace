@@ -31,6 +31,12 @@ internal sealed class LocalTestingTargetLock : IDisposable
         if (File.Exists(plan.LockPath))
         {
             RegularFileGuard.Exists(plan.LockPath, "Local-testing lock");
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(
+                    plan.LockPath,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
         }
 
         FileStream stream;

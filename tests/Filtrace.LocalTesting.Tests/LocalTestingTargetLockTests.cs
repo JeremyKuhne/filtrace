@@ -259,6 +259,25 @@ public sealed class LocalTestingTargetLockTests
     }
 
     [TestMethod]
+    public void Acquire_PreexistingNoPermissionsUnixLock_NormalizesToOwnerReadWrite()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory.Path, "target", "git");
+        File.WriteAllText(plan.LockPath, string.Empty);
+        File.SetUnixFileMode(plan.LockPath, UnixFileMode.None);
+
+        using LocalTestingTargetLock targetLock = LocalTestingTargetLock.Acquire(plan);
+
+        File.GetUnixFileMode(plan.LockPath).Should().Be(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
+    [TestMethod]
     [Timeout(5_000)]
     public void Acquire_UnixFifoLock_ThrowsWithoutBlocking()
     {
