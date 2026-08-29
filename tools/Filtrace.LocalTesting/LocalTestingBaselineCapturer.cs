@@ -113,6 +113,10 @@ internal sealed class LocalTestingBaselineCapturer
 
     private static SkillBaseline CaptureSkill(string source, string backup)
     {
+        if (File.Exists(backup) || Directory.Exists(backup))
+        {
+            throw new InvalidDataException($"Skill backup already exists: '{backup}'.");
+        }
         if (File.Exists(source))
         {
             throw new InvalidDataException(
@@ -121,10 +125,6 @@ internal sealed class LocalTestingBaselineCapturer
         if (!Directory.Exists(source))
         {
             return new();
-        }
-        if (File.Exists(backup) || Directory.Exists(backup))
-        {
-            throw new InvalidDataException($"Skill backup already exists: '{backup}'.");
         }
 
         DirectorySnapshot sourceSnapshot = DirectorySnapshot.Create(

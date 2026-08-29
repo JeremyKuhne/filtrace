@@ -84,6 +84,37 @@ public sealed class LocalTestingBaselineCapturerTests
     }
 
     [TestMethod]
+    public void Capture_ExistingBackupWithMissingSource_RefusesToIgnoreOriginalBaseline()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        Directory.CreateDirectory(plan.SkillDestination);
+        File.WriteAllText(Path.Join(plan.SkillDestination, "SKILL.md"), "original");
+        new LocalTestingBaselineCapturer().Capture(plan);
+        Directory.Delete(plan.SkillDestination, recursive: true);
+
+        Action recapture = () => new LocalTestingBaselineCapturer().Capture(plan);
+
+        recapture.Should().Throw<InvalidDataException>()
+            .WithMessage("*backup already exists*");
+        File.ReadAllText(Path.Join(plan.SkillBackupPath, "SKILL.md")).Should().Be("original");
+    }
+
+    [TestMethod]
+    public void Capture_ExistingBackupFileWithMissingSource_RefusesToIgnoreBackup()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        File.WriteAllText(plan.SkillBackupPath, "unexpected backup");
+
+        Action capture = () => new LocalTestingBaselineCapturer().Capture(plan);
+
+        capture.Should().Throw<InvalidDataException>()
+            .WithMessage("*backup already exists*");
+        File.ReadAllText(plan.SkillBackupPath).Should().Be("unexpected backup");
+    }
+
+    [TestMethod]
     public void Capture_ExistingMcpWithoutServers_RecordsContainerAsAbsent()
     {
         using TemporaryDirectory directory = new();
@@ -96,6 +127,22 @@ public sealed class LocalTestingBaselineCapturerTests
         baseline.Mcp.FileExisted.Should().BeTrue();
         baseline.Mcp.ServersExisted.Should().BeFalse();
         baseline.Mcp.ServerExisted.Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void Capture_ExistingMcpServersWithoutFiltrace_RecordsServerAsAbsent()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        Directory.CreateDirectory(Path.GetDirectoryName(plan.McpConfigurationPath)!);
+        File.WriteAllText(plan.McpConfigurationPath, "{\"servers\":{\"other\":{}}}");
+
+        LocalTestingBaseline baseline = new LocalTestingBaselineCapturer().Capture(plan);
+
+        baseline.Mcp.FileExisted.Should().BeTrue();
+        baseline.Mcp.ServersExisted.Should().BeTrue();
+        baseline.Mcp.ServerExisted.Should().BeFalse();
+        baseline.Mcp.Server.Should().BeNull();
     }
 
     [TestMethod]
