@@ -86,6 +86,27 @@ public sealed class SkillOverlayTests
     }
 
     [TestMethod]
+    public void Read_DanglingSkillDirectoryLink_Throws()
+    {
+        using TemporaryDirectory directory = new();
+        string skill = Path.Join(directory.Path, "skill");
+        try
+        {
+            Directory.CreateSymbolicLink(skill, Path.Join(directory.Path, "missing"));
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            Assert.Inconclusive($"Symbolic links are unavailable: {exception.Message}");
+        }
+
+        Action read = () => SkillOverlay.Read(skill);
+
+        read.Should().Throw<InvalidDataException>()
+            .WithMessage("*must not be a link*");
+    }
+
+    [TestMethod]
     [Timeout(5_000)]
     public void Read_FifoOverlay_ThrowsWithoutBlocking()
     {

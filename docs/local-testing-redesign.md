@@ -309,7 +309,7 @@ and Linux ARM64.
 semantics, copies and fingerprints a bounded prior skill, rejects links in
 managed paths and skill content, and reads `overlay.md` with a retained 1 MiB
 limit. It writes only the private skill backup; it does not yet change the active
-CLI, MCP configuration, or skill. The focused suite has 83 passing tests on
+CLI, MCP configuration, or skill. The focused suite has 87 passing tests on
 Windows.
 
 - Implement baseline capture and bounded overlay handling.

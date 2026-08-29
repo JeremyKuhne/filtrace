@@ -62,8 +62,8 @@ internal sealed class LocalTestingBaselineCapturer
         {
             using JsonDocument document = JsonDocument.Parse(stream, new()
             {
-                AllowTrailingCommas = false,
-                CommentHandling = JsonCommentHandling.Disallow,
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip,
                 MaxDepth = 64
             });
             JsonElement root = document.RootElement;

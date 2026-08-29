@@ -146,6 +146,24 @@ public sealed class LocalTestingBaselineCapturerTests
     }
 
     [TestMethod]
+    [DataRow("{\"servers\":{\n// line comment\n}}")]
+    [DataRow("{/* block comment */\"servers\":{}}")]
+    [DataRow("{\"servers\":{},}")]
+    public void Capture_ValidMcpJsonc_RecordsBaseline(string json)
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        Directory.CreateDirectory(Path.GetDirectoryName(plan.McpConfigurationPath)!);
+        File.WriteAllText(plan.McpConfigurationPath, json);
+
+        LocalTestingBaseline baseline = new LocalTestingBaselineCapturer().Capture(plan);
+
+        baseline.Mcp.FileExisted.Should().BeTrue();
+        baseline.Mcp.ServersExisted.Should().BeTrue();
+        baseline.Mcp.ServerExisted.Should().BeFalse();
+    }
+
+    [TestMethod]
     [DataRow("{not-json")]
     [DataRow("[]")]
     [DataRow("{\"servers\":null}")]
