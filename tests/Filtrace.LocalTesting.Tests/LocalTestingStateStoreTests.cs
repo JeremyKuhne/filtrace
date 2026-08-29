@@ -205,7 +205,7 @@ public sealed class LocalTestingStateStoreTests
         Action read = () => new LocalTestingStateStore().Read(path);
 
         read.Should().Throw<InvalidDataException>()
-            .WithMessage("*existing MCP server baseline*");
+            .WithMessage("*existing 'servers' object*");
     }
 
     [TestMethod]

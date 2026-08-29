@@ -193,6 +193,38 @@ public sealed class LocalTestingBaselineCapturerTests
     }
 
     [TestMethod]
+    public void Capture_MaximumSkillEntries_Succeeds()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        Directory.CreateDirectory(plan.SkillDestination);
+        CreateEmptyDirectories(
+            plan.SkillDestination,
+            LocalTestingBaselineCapturer.MaxSkillEntries);
+
+        LocalTestingBaseline baseline = new LocalTestingBaselineCapturer().Capture(plan);
+
+        baseline.Skill.Existed.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void Capture_TooManySkillEntries_ThrowsWithoutBackup()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        Directory.CreateDirectory(plan.SkillDestination);
+        CreateEmptyDirectories(
+            plan.SkillDestination,
+            LocalTestingBaselineCapturer.MaxSkillEntries + 1);
+
+        Action capture = () => new LocalTestingBaselineCapturer().Capture(plan);
+
+        capture.Should().Throw<InvalidDataException>()
+            .WithMessage("*entry safety limit*");
+        Directory.Exists(plan.SkillBackupPath).Should().BeFalse();
+    }
+
+    [TestMethod]
     public void Capture_LinkInsideSkill_ThrowsWithoutBackup()
     {
         using TemporaryDirectory directory = new();
@@ -242,6 +274,47 @@ public sealed class LocalTestingBaselineCapturerTests
             .WithMessage("*must not contain links*");
     }
 
+    [TestMethod]
+    [Timeout(5_000)]
+    public void Capture_FifoMcpConfiguration_ThrowsWithoutBlocking()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        Directory.CreateDirectory(Path.GetDirectoryName(plan.McpConfigurationPath)!);
+        UnixTestFile.CreateFifo(plan.McpConfigurationPath);
+
+        Action capture = () => new LocalTestingBaselineCapturer().Capture(plan);
+
+        capture.Should().Throw<InvalidDataException>()
+            .WithMessage("*regular file*");
+    }
+
+    [TestMethod]
+    [Timeout(5_000)]
+    public void Capture_FifoSkillEntry_ThrowsWithoutBlocking()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        Directory.CreateDirectory(plan.SkillDestination);
+        UnixTestFile.CreateFifo(Path.Join(plan.SkillDestination, "fifo"));
+
+        Action capture = () => new LocalTestingBaselineCapturer().Capture(plan);
+
+        capture.Should().Throw<InvalidDataException>()
+            .WithMessage("*regular file*");
+        Directory.Exists(plan.SkillBackupPath).Should().BeFalse();
+    }
+
     private static ResourcePlan CreatePlan(TemporaryDirectory directory)
     {
         string targetRoot = Path.Join(directory.Path, "target");
@@ -250,5 +323,13 @@ public sealed class LocalTestingBaselineCapturerTests
         ResourcePlan plan = ResourcePlan.Create(targetRoot, gitDirectory);
         Directory.CreateDirectory(plan.ArtifactsDirectory);
         return plan;
+    }
+
+    private static void CreateEmptyDirectories(string root, int count)
+    {
+        for (int index = 0; index < count; index++)
+        {
+            Directory.CreateDirectory(Path.Join(root, $"entry-{index:D4}"));
+        }
     }
 }

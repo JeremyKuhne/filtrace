@@ -33,18 +33,9 @@ internal static class SkillOverlay
         {
             throw new InvalidDataException($"Consumer overlay is a directory: '{path}'.");
         }
-        FileInfo overlay = new(path);
-        if (overlay.LinkTarget is not null)
-        {
-            throw new InvalidDataException($"Consumer overlay must not be a link: '{path}'.");
-        }
-        if (!overlay.Exists)
+        if (!RegularFileGuard.Exists(path, "Consumer overlay"))
         {
             return null;
-        }
-        if ((overlay.Attributes & FileAttributes.ReparsePoint) is not 0)
-        {
-            throw new InvalidDataException($"Consumer overlay must not be a link: '{path}'.");
         }
 
         using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);

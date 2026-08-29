@@ -84,4 +84,24 @@ public sealed class SkillOverlayTests
         read.Should().Throw<InvalidDataException>()
             .WithMessage("*must not be a link*");
     }
+
+    [TestMethod]
+    [Timeout(5_000)]
+    public void Read_FifoOverlay_ThrowsWithoutBlocking()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using TemporaryDirectory directory = new();
+        string skill = Path.Join(directory.Path, "skill");
+        Directory.CreateDirectory(skill);
+        UnixTestFile.CreateFifo(Path.Join(skill, "overlay.md"));
+
+        Action read = () => SkillOverlay.Read(skill);
+
+        read.Should().Throw<InvalidDataException>()
+            .WithMessage("*regular file*");
+    }
 }

@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -45,7 +46,7 @@ internal sealed class LocalTestingBaselineCapturer
             throw new InvalidDataException(
                 $"VS Code MCP configuration is a directory, not a file: '{path}'.");
         }
-        if (!File.Exists(path))
+        if (!RegularFileGuard.Exists(path, "VS Code MCP configuration"))
         {
             return new();
         }
@@ -126,7 +127,6 @@ internal sealed class LocalTestingBaselineCapturer
             throw new InvalidDataException($"Skill backup already exists: '{backup}'.");
         }
 
-        ManagedPathGuard.EnsureTreeHasNoLinks(source, "Skill destination");
         DirectorySnapshot sourceSnapshot = DirectorySnapshot.Create(
             source,
             MaxSkillEntries,
@@ -251,36 +251,6 @@ internal static class ManagedPathGuard
         }
     }
 
-    public static void EnsureTreeHasNoLinks(string root, string description)
-    {
-        if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) is not 0
-            || new DirectoryInfo(root).LinkTarget is not null)
-        {
-            throw new InvalidDataException($"{description} must not be a link: '{root}'.");
-        }
-
-        Stack<DirectoryInfo> pending = new();
-        pending.Push(new(root));
-        while (pending.Count > 0)
-        {
-            DirectoryInfo directory = pending.Pop();
-            foreach (FileSystemInfo item in directory.EnumerateFileSystemInfos())
-            {
-                item.Refresh();
-                if ((item.Attributes & FileAttributes.ReparsePoint) is not 0
-                    || item.LinkTarget is not null)
-                {
-                    throw new InvalidDataException(
-                        $"{description} must not contain links: '{item.FullName}'.");
-                }
-                if (item is DirectoryInfo child)
-                {
-                    pending.Push(child);
-                }
-            }
-        }
-    }
-
     private static bool TryGetAttributes(string path, out FileAttributes attributes)
     {
         try
@@ -288,12 +258,8 @@ internal static class ManagedPathGuard
             attributes = File.GetAttributes(path);
             return true;
         }
-        catch (FileNotFoundException)
-        {
-            attributes = default;
-            return false;
-        }
-        catch (DirectoryNotFoundException)
+        catch (Exception exception) when (
+            exception is FileNotFoundException or DirectoryNotFoundException)
         {
             attributes = default;
             return false;
@@ -342,6 +308,11 @@ internal sealed class DirectorySnapshot
                 }
                 else if (item is FileInfo file)
                 {
+                    if (!RegularFileGuard.Exists(file.FullName, "Skill destination entry"))
+                    {
+                        throw new IOException(
+                            $"Skill destination entry disappeared: '{file.FullName}'.");
+                    }
                     totalBytes = checked(totalBytes + file.Length);
                     if (totalBytes > maxBytes)
                     {
@@ -417,8 +388,46 @@ internal sealed class DirectorySnapshot
     }
 }
 
-internal sealed record DirectorySnapshotEntry(
-    string RelativePath,
-    bool IsDirectory,
-    long Length,
-    byte[]? Sha256);
+internal sealed record DirectorySnapshotEntry(string RelativePath, bool IsDirectory, long Length, byte[]? Sha256);
+
+internal static class RegularFileGuard
+{
+    private const int FileTypeMask = 0xF000, RegularFile = 0x8000;
+
+    public static bool Exists(string path, string description)
+    {
+        FileInfo file = new(path);
+        file.Refresh();
+        if (file.LinkTarget is not null)
+        {
+            throw new InvalidDataException($"{description} must not be a link: '{path}'.");
+        }
+        if (!file.Exists)
+        {
+            return false;
+        }
+        if (OperatingSystem.IsWindows())
+        {
+            return true;
+        }
+        if (LStat(path, out NativeFileStatus status) is not 0)
+        {
+            throw new IOException($"Could not inspect {description}: '{path}' (errno {Marshal.GetLastPInvokeError()}).");
+        }
+        if ((status.Mode & FileTypeMask) is not RegularFile)
+        {
+            throw new InvalidDataException($"{description} must be a regular file: '{path}'.");
+        }
+
+        return true;
+    }
+
+    [DllImport("System.Native", EntryPoint = "SystemNative_LStat", SetLastError = true)]
+    private static extern int LStat([MarshalAs(UnmanagedType.LPUTF8Str)] string path, out NativeFileStatus status);
+
+    [StructLayout(LayoutKind.Explicit, Size = 120)]
+    private struct NativeFileStatus
+    {
+        [FieldOffset(4)] public int Mode;
+    }
+}

@@ -158,7 +158,7 @@ internal sealed class LocalTestingStateStore
                 || baseline.Mcp.Server.Value.ValueKind is not JsonValueKind.Object)
             {
                 throw new InvalidDataException(
-                    "An existing MCP server baseline requires an existing file and an object value.");
+                    "An existing MCP server baseline requires an existing file, an existing 'servers' object, and an object-valued 'filtrace' entry.");
             }
         }
         else if (baseline.Mcp.Server is not null)
