@@ -39,7 +39,7 @@ internal sealed class LocalTestingTargetLock : IDisposable
             FileStreamOptions options = new()
             {
                 Mode = FileMode.OpenOrCreate,
-                Access = FileAccess.ReadWrite,
+                Access = FileAccess.Read,
                 Share = FileShare.None
             };
             if (!OperatingSystem.IsWindows())
