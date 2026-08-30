@@ -155,6 +155,61 @@ public sealed class LocalTestingTargetLockTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
+    [Timeout(20_000)]
+    public async Task Acquire_RuntimeFileLockingAppContextSwitchEnabled_ThrowsBeforeCreatingLock()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory.Path, "target", "git");
+        string readyPath = Path.Join(directory.Path, "ready");
+        string releasePath = Path.Join(directory.Path, "release");
+        File.WriteAllText(releasePath, string.Empty);
+        ProcessStartInfo startInfo = new(
+            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false
+        };
+        startInfo.ArgumentList.Add(Assembly.GetExecutingAssembly().Location);
+        startInfo.Environment[LocalTestingTargetLockProcessProbe.EnabledVariable] = "1";
+        startInfo.Environment[LocalTestingTargetLockProcessProbe.TargetRootVariable] =
+            plan.TargetRoot;
+        startInfo.Environment[LocalTestingTargetLockProcessProbe.GitDirectoryVariable] =
+            plan.GitDirectory;
+        startInfo.Environment[LocalTestingTargetLockProcessProbe.ReadyPathVariable] = readyPath;
+        startInfo.Environment[LocalTestingTargetLockProcessProbe.ReleasePathVariable] = releasePath;
+        startInfo.Environment[LocalTestingTargetLockProcessProbe.DisableFileLockingSwitchVariable] =
+            "1";
+        startInfo.Environment.Remove("DOTNET_SYSTEM_IO_DISABLEFILELOCKING");
+        using Process child = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start the lock probe.");
+        try
+        {
+            child.WaitForExit(10_000).Should().BeTrue();
+        }
+        finally
+        {
+            if (!child.HasExited)
+            {
+                child.Kill(entireProcessTree: true);
+                child.WaitForExit();
+            }
+        }
+
+        string error = await child.StandardError.ReadToEndAsync();
+        child.ExitCode.Should().NotBe(0, error);
+        error.Should().Contain("requires .NET file locking");
+        File.Exists(readyPath).Should().BeFalse();
+        File.Exists(plan.LockPath).Should().BeFalse();
+    }
+
+    [TestMethod]
     public void Acquire_PreviousLockDisposed_ReacquiresSameFile()
     {
         using TemporaryDirectory directory = new();

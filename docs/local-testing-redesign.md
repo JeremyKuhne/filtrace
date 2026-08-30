@@ -324,7 +324,7 @@ fingerprinted prior-skill capture, managed-path link rejection, and bounded
 `overlay.md` input. The next local increment adds the fixed per-worktree lock,
 including same-process and child-process contention, reacquisition, independent
 worktree, special-file, and Unix-permission coverage. It does not yet change the
-active CLI, MCP configuration, or skill. The focused suite has 103 passing tests
+active CLI, MCP configuration, or skill. The focused suite has 104 passing tests
 on Windows; Linux ARM64 validation for the lock increment remains open.
 
 - Implement baseline capture and bounded overlay handling.

@@ -8,6 +8,8 @@ namespace Filtrace.LocalTesting.Tests;
 
 internal static class LocalTestingTargetLockProcessProbe
 {
+    public const string DisableFileLockingSwitchVariable =
+        "FILTRACE_LOCK_PROBE_DISABLE_FILE_LOCKING_SWITCH";
     public const string EnabledVariable = "FILTRACE_LOCAL_TESTING_TEST_LOCK_PROBE";
     public const string TargetRootVariable = "FILTRACE_LOCK_PROBE_TARGET_ROOT";
     public const string GitDirectoryVariable = "FILTRACE_LOCK_PROBE_GIT_DIRECTORY";
@@ -29,6 +31,13 @@ internal static class LocalTestingTargetLockProcessProbe
         string gitDirectory = ReadRequiredVariable(GitDirectoryVariable);
         string readyPath = ReadRequiredVariable(ReadyPathVariable);
         string releasePath = ReadRequiredVariable(ReleasePathVariable);
+        if ("1".Equals(
+            Environment.GetEnvironmentVariable(DisableFileLockingSwitchVariable),
+            StringComparison.Ordinal))
+        {
+            AppContext.SetSwitch("System.IO.DisableFileLocking", true);
+        }
+
         using LocalTestingTargetLock targetLock = LocalTestingTargetLock.Acquire(
             ResourcePlan.Create(targetRoot, gitDirectory));
         File.WriteAllText(readyPath, string.Empty);
