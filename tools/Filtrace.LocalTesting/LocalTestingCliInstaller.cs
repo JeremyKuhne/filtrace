@@ -65,6 +65,7 @@ internal sealed class LocalTestingCliInstaller
         string feedPackagePath = Path.Join(feedDirectory, Path.GetFileName(package.Path));
         string configPath = Path.Join(operationRoot, "NuGet.config");
         bool cleanupOperation = true;
+        bool installSucceeded = false;
         try
         {
             Directory.CreateDirectory(feedDirectory);
@@ -78,6 +79,7 @@ internal sealed class LocalTestingCliInstaller
                 package.Version,
                 ref cleanupOperation);
             VerifyInstallation(plan.CliDirectory, package);
+            installSucceeded = true;
             return new()
             {
                 PackageVersion = package.Version,
@@ -88,6 +90,10 @@ internal sealed class LocalTestingCliInstaller
         {
             if (cleanupOperation && Directory.Exists(operationRoot))
             {
+                if (!installSucceeded && Directory.Exists(plan.CliDirectory))
+                {
+                    Directory.Delete(plan.CliDirectory, recursive: true);
+                }
                 Directory.Delete(operationRoot, recursive: true);
             }
         }
@@ -201,7 +207,7 @@ internal sealed class LocalTestingCliInstaller
         LocalTestingCliPackage[] installed =
         [
             .. Directory.EnumerateFiles(storeDirectory, "*.nupkg", SearchOption.AllDirectories)
-                .Select(LocalTestingCliPackage.Read)
+                .Select(LocalTestingCliPackage.ReadInstalled)
         ];
         if (installed.Length is 0
             || installed.Any(package =>

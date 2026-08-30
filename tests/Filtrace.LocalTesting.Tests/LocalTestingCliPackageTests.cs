@@ -27,6 +27,23 @@ public sealed class LocalTestingCliPackageTests
     }
 
     [TestMethod]
+    public void Read_RenamedPackage_ThrowsActionableError()
+    {
+        using TemporaryDirectory directory = new();
+        string canonicalPath = CreatePackage(
+            directory.Path,
+            LocalTestingCliPackage.PackageId,
+            "1.2.3");
+        string renamedPath = Path.Join(directory.Path, "renamed.nupkg");
+        File.Move(canonicalPath, renamedPath);
+
+        Action read = () => LocalTestingCliPackage.Read(renamedPath);
+
+        read.Should().Throw<InvalidDataException>()
+            .WithMessage("*must be named 'KlutzyNinja.Filtrace.1.2.3.nupkg'*");
+    }
+
+    [TestMethod]
     public void Read_WrongPackageId_Throws()
     {
         using TemporaryDirectory directory = new();
@@ -203,7 +220,7 @@ public sealed class LocalTestingCliPackageTests
 
     private static string CreatePackage(string directory, string id, string version)
     {
-        string packagePath = Path.Join(directory, "package.nupkg");
+        string packagePath = Path.Join(directory, $"{id}.{version}.nupkg");
         using ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Create);
         WriteNuspec(archive, "package.nuspec", id, version);
         return packagePath;

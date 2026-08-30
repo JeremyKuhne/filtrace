@@ -32,9 +32,20 @@ public sealed class LocalTestingCliInstallerTests
             packageDirectory,
             "/p:IncludeSymbols=false");
         string packagePath = Directory.GetFiles(packageDirectory, "*.nupkg").Single();
-        LocalTestingCliPackage expected = LocalTestingCliPackage.Read(packagePath);
+        string renamedPackagePath = Path.Join(packageDirectory, "renamed.nupkg");
+        File.Copy(packagePath, renamedPackagePath);
         ResourcePlan plan = CreatePlan(directory.Path);
         Directory.CreateDirectory(plan.StateRoot);
+
+        Action renamedInstall = () => new LocalTestingCliInstaller().InstallFresh(
+            plan,
+            renamedPackagePath,
+            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet");
+
+        renamedInstall.Should().Throw<InvalidDataException>()
+            .WithMessage("*must be named*");
+        Directory.Exists(plan.CliDirectory).Should().BeFalse();
+        LocalTestingCliPackage expected = LocalTestingCliPackage.Read(packagePath);
         string ambientPackages = Path.Join(directory.Path, "ambient-packages");
         string ambientPlugins = Path.Join(directory.Path, "ambient-plugins");
         string ambientScratch = Path.Join(directory.Path, "ambient-scratch");
@@ -113,6 +124,46 @@ public sealed class LocalTestingCliInstallerTests
         install.Should().Throw<InvalidOperationException>()
             .WithMessage("*CLI path already exists*");
         File.ReadAllText(markerPath).Should().Be("existing");
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void InstallFresh_ProcessFailure_RemovesOwnedCliAndAllowsRetry()
+    {
+        using TemporaryDirectory directory = new();
+        string packagePath = CreateMetadataPackage(directory.Path);
+        ResourcePlan plan = CreatePlan(directory.Path);
+        Directory.CreateDirectory(plan.StateRoot);
+        string? previous = Environment.GetEnvironmentVariable(
+            LocalTestingCliInstallerProcessProbe.FailureVariable);
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                LocalTestingCliInstallerProcessProbe.FailureVariable,
+                "1");
+            Action install = () => new LocalTestingCliInstaller().InstallFresh(
+                plan,
+                packagePath,
+                GetTestExecutablePath());
+
+            install.Should().Throw<InvalidOperationException>()
+                .WithMessage("*exited with code 9*");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                LocalTestingCliInstallerProcessProbe.FailureVariable,
+                previous);
+        }
+
+        Directory.Exists(plan.CliDirectory).Should().BeFalse();
+        Directory.GetDirectories(plan.StateRoot, ".cli-install-*", SearchOption.TopDirectoryOnly)
+            .Should().BeEmpty();
+        Action retry = () => new LocalTestingCliInstaller().InstallFresh(
+            plan,
+            packagePath,
+            Path.Join(directory.Path, "missing-dotnet"));
+        retry.Should().Throw<Win32Exception>();
     }
 
     [TestMethod]
@@ -231,7 +282,7 @@ public sealed class LocalTestingCliInstallerTests
 
     private static string CreateMetadataPackage(string directory)
     {
-        string packagePath = Path.Join(directory, "package.nupkg");
+        string packagePath = Path.Join(directory, "KlutzyNinja.Filtrace.1.2.3.nupkg");
         using ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Create);
         ZipArchiveEntry entry = archive.CreateEntry("package.nuspec");
         using StreamWriter writer = new(entry.Open());

@@ -19,6 +19,16 @@ internal sealed record LocalTestingCliPackage(string Path, string Version, strin
 
     public static LocalTestingCliPackage Read(string packagePath)
     {
+        return Read(packagePath, requireCanonicalName: true);
+    }
+
+    internal static LocalTestingCliPackage ReadInstalled(string packagePath)
+    {
+        return Read(packagePath, requireCanonicalName: false);
+    }
+
+    private static LocalTestingCliPackage Read(string packagePath, bool requireCanonicalName)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(packagePath);
         string fullPath = System.IO.Path.GetFullPath(packagePath);
         if (!System.IO.Path.GetExtension(fullPath).Equals(".nupkg", StringComparison.OrdinalIgnoreCase))
@@ -56,6 +66,14 @@ internal sealed record LocalTestingCliPackage(string Path, string Version, strin
         {
             throw new InvalidDataException(
                 $"CLI package id is '{id}'; expected '{PackageId}': '{fullPath}'.");
+        }
+        string expectedName = $"{PackageId}.{version}.nupkg";
+        if (requireCanonicalName && !System.IO.Path.GetFileName(fullPath).Equals(
+            expectedName,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                $"CLI package must be named '{expectedName}': '{fullPath}'.");
         }
 
         return new(fullPath, version, sha256);
