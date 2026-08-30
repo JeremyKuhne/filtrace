@@ -6,6 +6,9 @@ namespace Filtrace.LocalTesting;
 
 internal sealed class LocalTestingTargetLock : IDisposable
 {
+    private const string DisableFileLockingSwitch = "System.IO.DisableFileLocking";
+    private const string DisableFileLockingVariable = "DOTNET_SYSTEM_IO_DISABLEFILELOCKING";
+
     private readonly FileStream _stream;
 
     private LocalTestingTargetLock(FileStream stream)
@@ -16,6 +19,12 @@ internal sealed class LocalTestingTargetLock : IDisposable
     public static LocalTestingTargetLock Acquire(ResourcePlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        if (!OperatingSystem.IsWindows() && IsRuntimeFileLockingDisabled())
+        {
+            throw new InvalidOperationException(
+                $"Local testing requires .NET file locking. Disable '{DisableFileLockingSwitch}' "
+                + $"and unset '{DisableFileLockingVariable}'.");
+        }
         if (!Directory.Exists(plan.GitDirectory))
         {
             throw new DirectoryNotFoundException(
@@ -79,6 +88,26 @@ internal sealed class LocalTestingTargetLock : IDisposable
             stream.Dispose();
             throw;
         }
+    }
+
+    private static bool IsRuntimeFileLockingDisabled()
+    {
+        string? configured = Environment.GetEnvironmentVariable(DisableFileLockingVariable);
+        if (configured is not null)
+        {
+            if (configured.Equals("1", StringComparison.Ordinal)
+                || configured.Equals(bool.TrueString, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            if (configured.Equals("0", StringComparison.Ordinal)
+                || configured.Equals(bool.FalseString, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return AppContext.TryGetSwitch(DisableFileLockingSwitch, out bool disabled) && disabled;
     }
 
     public void Dispose()

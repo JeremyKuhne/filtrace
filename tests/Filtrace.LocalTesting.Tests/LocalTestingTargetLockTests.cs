@@ -96,7 +96,11 @@ public sealed class LocalTestingTargetLockTests
             bool ready = SpinWait.SpinUntil(
                 () => File.Exists(readyPath) || child.HasExited,
                 TimeSpan.FromSeconds(10));
-            if (!ready || child.HasExited)
+            if (!ready)
+            {
+                Assert.Fail("Lock probe did not signal readiness within 10 seconds.");
+            }
+            if (child.HasExited)
             {
                 string error = await child.StandardError.ReadToEndAsync();
                 Assert.Fail($"Lock probe failed before signaling readiness: {error}");
@@ -118,7 +122,36 @@ public sealed class LocalTestingTargetLockTests
         }
 
         child.ExitCode.Should().Be(0, await child.StandardError.ReadToEndAsync());
-    using LocalTestingTargetLock reacquired = LocalTestingTargetLock.Acquire(plan);
+        using LocalTestingTargetLock reacquired = LocalTestingTargetLock.Acquire(plan);
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void Acquire_RuntimeFileLockingDisabled_ThrowsBeforeCreatingLock()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory.Path, "target", "git");
+        const string variable = "DOTNET_SYSTEM_IO_DISABLEFILELOCKING";
+        string? previous = Environment.GetEnvironmentVariable(variable);
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, "1");
+
+            Action acquire = () => LocalTestingTargetLock.Acquire(plan);
+
+            acquire.Should().Throw<InvalidOperationException>()
+                .WithMessage("*requires .NET file locking*DOTNET_SYSTEM_IO_DISABLEFILELOCKING*");
+            File.Exists(plan.LockPath).Should().BeFalse();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+        }
     }
 
     [TestMethod]
@@ -304,4 +337,5 @@ public sealed class LocalTestingTargetLockTests
         Directory.CreateDirectory(gitDirectory);
         return ResourcePlan.Create(targetRoot, gitDirectory);
     }
+
 }

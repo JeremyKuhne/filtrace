@@ -189,10 +189,16 @@ local inputs. Managed destinations are still treated defensively:
   marker;
 - do not derive ownership from case-folded path hashes.
 
-A same-user process that replaces filesystem components after validation is
-outside the threat model. The single per-target lock prevents cooperative races;
-the design does not claim to sandbox against a hostile process with the same
-account.
+The V1 guarantee is narrow: cooperating Filtrace processes cannot hold the fixed
+per-target lock concurrently when the platform honors `FileShare.None`. Windows
+rejects incompatible opens; Unix uses .NET's advisory file lock and rejects the
+runtime setting that explicitly disables file locking. Exclusion on a Unix
+filesystem where .NET cannot apply its advisory lock is best-effort and outside
+the guarantee.
+
+A same-user process that ignores the lock or replaces filesystem components
+after validation is outside the threat model. The design does not claim to
+sandbox against a hostile process with the same account.
 
 ## State model
 
@@ -318,7 +324,7 @@ fingerprinted prior-skill capture, managed-path link rejection, and bounded
 `overlay.md` input. The next local increment adds the fixed per-worktree lock,
 including same-process and child-process contention, reacquisition, independent
 worktree, special-file, and Unix-permission coverage. It does not yet change the
-active CLI, MCP configuration, or skill. The focused suite has 102 passing tests
+active CLI, MCP configuration, or skill. The focused suite has 103 passing tests
 on Windows; Linux ARM64 validation for the lock increment remains open.
 
 - Implement baseline capture and bounded overlay handling.
