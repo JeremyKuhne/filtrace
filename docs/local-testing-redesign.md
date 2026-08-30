@@ -3,11 +3,13 @@
 **Status:** Phase 1 merged in
 [PR #98](https://github.com/JeremyKuhne/filtrace/pull/98). Phase 2 baseline
 capture and bounded overlay input merged in
-[PR #99](https://github.com/JeremyKuhne/filtrace/pull/99). The fixed
-per-worktree lock is implemented locally on `local-testing-target-lock`; active
-consumer mutation has not begun.
+[PR #99](https://github.com/JeremyKuhne/filtrace/pull/99), and the fixed
+per-worktree lock merged in
+[PR #100](https://github.com/JeremyKuhne/filtrace/pull/100). Prepared CLI package
+validation and fresh private installation are implemented locally on
+`local-testing-active-resources`; MCP and skill mutation have not begun.
 
-**Last verified:** 2026-08-29 against `origin/main` at `049a13b`. PR #94 was
+**Last verified:** 2026-08-30 against `origin/main` at `a00c158`. PR #94 was
 closed without merge after PR #98 established the replacement.
 
 ## Decision
@@ -321,11 +323,14 @@ and Linux ARM64.
 
 **Status:** In progress. PR #99 merged exact MCP baseline semantics, bounded and
 fingerprinted prior-skill capture, managed-path link rejection, and bounded
-`overlay.md` input. The next local increment adds the fixed per-worktree lock,
-including same-process and child-process contention, reacquisition, independent
-worktree, special-file, and Unix-permission coverage. It does not yet change the
-active CLI, MCP configuration, or skill. The focused suite has 104 passing tests
-on Windows; Linux ARM64 validation for the lock increment remains open.
+`overlay.md` input. PR #100 merged the fixed per-worktree lock after Windows and
+Linux ARM64 validation. The current local increment validates one prepared CLI
+package by bounded nuspec identity and SHA-256, installs it through a one-package
+NuGet source into the fixed private tool directory, isolates writable dotnet and
+NuGet state, and verifies the installed executable and exact package bytes. It
+does not yet mutate MCP or skill resources. The focused suite has 112 passing
+tests on Windows; Linux ARM64 validation for this increment remains open. The
+complete helper is 1,305 lines against the 1,500-line target.
 
 - Implement baseline capture and bounded overlay handling.
 - Implement isolated CLI installation, structured MCP mutation, and

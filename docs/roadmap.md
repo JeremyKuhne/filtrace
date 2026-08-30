@@ -1196,9 +1196,10 @@ in [Directory.Packages.props](../Directory.Packages.props)).
 
 ### LT1 - repository-scoped local checkout activation redesign
 
-**Status:** Phase 1 merged in PR #98, and Phase 2 baseline capture and bounded
-overlay input merged in PR #99. The fixed per-worktree lock is in progress; the
-implementation plan and current validation status are in
+**Status:** Phase 1 merged in PR #98, Phase 2 baseline capture and bounded overlay
+input merged in PR #99, and the fixed per-worktree lock merged in PR #100.
+Prepared CLI package validation and fresh private installation are in progress;
+the implementation plan and current validation status are in
 [local-testing-redesign.md](local-testing-redesign.md).
 
 Replace PR #94's review-era implementation with one fixed-path, one-schema
@@ -1206,8 +1207,8 @@ workflow rooted in the consumer repository's Git directory. Keep the useful
 failure corpus, but remove arbitrary managed paths, global CLI mutation, implicit
 schema migration, and the machine-wide ownership registry from V1.
 
-**Gate:** review and validate the target-lock increment on Linux ARM64 before
-beginning active consumer mutation.
+**Gate:** review and validate the isolated CLI increment on Linux ARM64 before
+beginning structured MCP and skill mutation.
 
 ---
 
