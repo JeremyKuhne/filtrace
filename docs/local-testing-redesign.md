@@ -328,9 +328,9 @@ Linux ARM64 validation. The current local increment validates one prepared CLI
 package by bounded nuspec identity and SHA-256, installs it through a one-package
 NuGet source into the fixed private tool directory, isolates writable dotnet and
 NuGet state, and verifies the installed executable and exact package bytes. It
-does not yet mutate MCP or skill resources. The focused suite has 112 passing
+does not yet mutate MCP or skill resources. The focused suite has 117 passing
 tests on Windows; Linux ARM64 validation for this increment remains open. The
-complete helper is 1,305 lines against the 1,500-line target.
+complete helper is 1,340 lines against the 1,500-line target.
 
 - Implement baseline capture and bounded overlay handling.
 - Implement isolated CLI installation, structured MCP mutation, and

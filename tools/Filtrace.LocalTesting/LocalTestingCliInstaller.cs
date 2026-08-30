@@ -10,7 +10,21 @@ namespace Filtrace.LocalTesting;
 
 internal sealed class LocalTestingCliInstaller
 {
-    private static readonly TimeSpan s_installTimeout = TimeSpan.FromSeconds(90);
+    private readonly TimeSpan _installTimeout;
+    private readonly TimeSpan _killGrace;
+
+    public LocalTestingCliInstaller()
+        : this(TimeSpan.FromSeconds(90), TimeSpan.FromSeconds(5))
+    {
+    }
+
+    internal LocalTestingCliInstaller(TimeSpan installTimeout, TimeSpan killGrace)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(installTimeout, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(killGrace, TimeSpan.Zero);
+        _installTimeout = installTimeout;
+        _killGrace = killGrace;
+    }
 
     public CliInstallation InstallFresh(ResourcePlan plan, string packagePath, string dotnetPath)
     {
@@ -35,9 +49,9 @@ internal sealed class LocalTestingCliInstaller
         string feedDirectory = Path.Join(operationRoot, "feed");
         string feedPackagePath = Path.Join(feedDirectory, Path.GetFileName(package.Path));
         string configPath = Path.Join(operationRoot, "NuGet.config");
-        Directory.CreateDirectory(feedDirectory);
         try
         {
+            Directory.CreateDirectory(feedDirectory);
             File.Copy(package.Path, feedPackagePath, overwrite: false);
             WriteNuGetConfig(configPath, feedDirectory);
             RunDotnetInstall(
@@ -84,7 +98,7 @@ internal sealed class LocalTestingCliInstaller
         writer.WriteEndDocument();
     }
 
-    private static void RunDotnetInstall(
+    private void RunDotnetInstall(
         string dotnetPath,
         ResourcePlan plan,
         string operationRoot,
@@ -94,8 +108,6 @@ internal sealed class LocalTestingCliInstaller
         ProcessStartInfo startInfo = new(dotnetPath)
         {
             WorkingDirectory = plan.StateRoot,
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
             UseShellExecute = false
         };
         startInfo.Environment["DOTNET_CLI_HOME"] = Path.Join(operationRoot, "dotnet-home");
@@ -114,24 +126,26 @@ internal sealed class LocalTestingCliInstaller
 
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start dotnet tool install.");
-        Task<string> output = process.StandardOutput.ReadToEndAsync();
-        Task<string> error = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit((int)s_installTimeout.TotalMilliseconds))
+        if (!process.WaitForExit((int)_installTimeout.TotalMilliseconds))
         {
-            process.Kill(entireProcessTree: true);
-            process.WaitForExit();
-            Task.WaitAll(output, error);
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (Exception exception) when (
+                exception is InvalidOperationException
+                    or NotSupportedException
+                    or System.ComponentModel.Win32Exception)
+            {
+            }
+            process.WaitForExit((int)_killGrace.TotalMilliseconds);
             throw new TimeoutException(
-                $"dotnet tool install did not exit within {s_installTimeout.TotalSeconds} seconds.");
+                $"dotnet tool install did not exit within {_installTimeout.TotalSeconds} seconds.");
         }
-        Task.WaitAll(output, error);
         if (process.ExitCode is not 0)
         {
-            string diagnostics = string.Join(
-                Environment.NewLine,
-                new[] { error.Result.Trim(), output.Result.Trim() }.Where(text => text.Length > 0));
             throw new InvalidOperationException(
-                $"dotnet tool install exited with code {process.ExitCode}: {diagnostics}");
+                $"dotnet tool install exited with code {process.ExitCode}. See dotnet output above.");
         }
     }
 

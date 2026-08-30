@@ -5,6 +5,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Reflection;
 
 namespace Filtrace.LocalTesting.Tests;
 
@@ -104,6 +105,41 @@ public sealed class LocalTestingCliInstallerTests
         File.ReadAllText(markerPath).Should().Be("existing");
     }
 
+    [TestMethod]
+    [DoNotParallelize]
+    [Timeout(10_000)]
+    public void InstallFresh_ProcessTimeout_IsEndToEndBoundedAndCleansTemporaryOperation()
+    {
+        using TemporaryDirectory directory = new();
+        string packagePath = CreateMetadataPackage(directory.Path);
+        ResourcePlan plan = CreatePlan(directory.Path);
+        Directory.CreateDirectory(plan.StateRoot);
+        const string variable = "FILTRACE_LOCAL_TESTING_CLI_INSTALLER_TIMEOUT_PROBE";
+        string? previous = Environment.GetEnvironmentVariable(variable);
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, "1");
+            Stopwatch stopwatch = Stopwatch.StartNew();
+
+            Action install = () => new LocalTestingCliInstaller(
+                TimeSpan.FromMilliseconds(250),
+                TimeSpan.FromSeconds(2)).InstallFresh(
+                    plan,
+                    packagePath,
+                    GetTestExecutablePath());
+
+            install.Should().Throw<TimeoutException>();
+            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+        }
+
+        Directory.GetDirectories(plan.StateRoot, ".cli-install-*", SearchOption.TopDirectoryOnly)
+            .Should().BeEmpty();
+    }
+
     private static ResourcePlan CreatePlan(string root)
     {
         string targetRoot = Path.Join(root, "target");
@@ -123,6 +159,14 @@ public sealed class LocalTestingCliInstallerTests
 
         return directory?.FullName
             ?? throw new DirectoryNotFoundException("Could not find the Filtrace repository root.");
+    }
+
+    private static string GetTestExecutablePath()
+    {
+        string assemblyName = Path.GetFileNameWithoutExtension(Assembly.GetExecutingAssembly().Location);
+        return Path.Join(
+            AppContext.BaseDirectory,
+            OperatingSystem.IsWindows() ? $"{assemblyName}.exe" : assemblyName);
     }
 
     private static string CreateMetadataPackage(string directory)

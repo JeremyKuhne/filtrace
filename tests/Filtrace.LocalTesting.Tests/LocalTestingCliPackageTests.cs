@@ -4,6 +4,7 @@
 
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Xml;
 
 namespace Filtrace.LocalTesting.Tests;
 
@@ -82,6 +83,62 @@ public sealed class LocalTestingCliPackageTests
 
         read.Should().Throw<InvalidDataException>()
             .WithMessage("*nuspec exceeds the 1048576 byte safety limit*");
+    }
+
+    [TestMethod]
+    public void ValidatePackageLength_AtLimit_DoesNotThrow()
+    {
+        Action validate = () => LocalTestingCliPackage.ValidatePackageLength(
+            LocalTestingCliPackage.MaxPackageBytes,
+            "package.nupkg");
+
+        validate.Should().NotThrow();
+    }
+
+    [TestMethod]
+    public void ValidatePackageLength_OverLimit_Throws()
+    {
+        Action validate = () => LocalTestingCliPackage.ValidatePackageLength(
+            LocalTestingCliPackage.MaxPackageBytes + 1,
+            "package.nupkg");
+
+        validate.Should().Throw<InvalidDataException>()
+            .WithMessage("*exceeds the 33554432 byte safety limit*");
+    }
+
+    [TestMethod]
+    public void Read_OverPackageSizeLimit_ThrowsBeforeArchiveValidation()
+    {
+        using TemporaryDirectory directory = new();
+        string packagePath = Path.Join(directory.Path, "package.nupkg");
+        using (FileStream stream = File.Create(packagePath))
+        {
+            stream.SetLength(LocalTestingCliPackage.MaxPackageBytes + 1);
+        }
+
+        Action read = () => LocalTestingCliPackage.Read(packagePath);
+
+        read.Should().Throw<InvalidDataException>()
+            .WithMessage("*CLI package exceeds the 33554432 byte safety limit*");
+    }
+
+    [TestMethod]
+    public void Read_MalformedNuspec_ThrowsPackageError()
+    {
+        using TemporaryDirectory directory = new();
+        string packagePath = Path.Join(directory.Path, "package.nupkg");
+        using (ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Create))
+        {
+            ZipArchiveEntry entry = archive.CreateEntry("package.nuspec");
+            using StreamWriter writer = new(entry.Open());
+            writer.Write("<package><metadata>");
+        }
+
+        Action read = () => LocalTestingCliPackage.Read(packagePath);
+
+        read.Should().Throw<InvalidDataException>()
+            .WithMessage("*nuspec is not valid XML*")
+            .WithInnerException<XmlException>();
     }
 
     private static string CreatePackage(string directory, string id, string version)

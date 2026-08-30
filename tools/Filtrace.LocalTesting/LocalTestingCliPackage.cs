@@ -12,6 +12,7 @@ namespace Filtrace.LocalTesting;
 internal sealed record LocalTestingCliPackage(string Path, string Version, string Sha256)
 {
     public const string PackageId = "KlutzyNinja.Filtrace";
+    internal const long MaxPackageBytes = 32L * 1024 * 1024;
     private const int MaxNuspecBytes = 1024 * 1024;
 
     public static LocalTestingCliPackage Read(string packagePath)
@@ -28,6 +29,7 @@ internal sealed record LocalTestingCliPackage(string Path, string Version, strin
         }
 
         using FileStream stream = new(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        ValidatePackageLength(stream.Length, fullPath);
         string sha256 = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
         stream.Position = 0;
         using ZipArchive archive = new(stream, ZipArchiveMode.Read);
@@ -71,7 +73,17 @@ internal sealed record LocalTestingCliPackage(string Path, string Version, strin
         };
         using Stream stream = nuspec.Open();
         using XmlReader reader = XmlReader.Create(stream, settings);
-        XDocument document = XDocument.Load(reader, LoadOptions.None);
+        XDocument document;
+        try
+        {
+            document = XDocument.Load(reader, LoadOptions.None);
+        }
+        catch (XmlException exception)
+        {
+            throw new InvalidDataException(
+                $"CLI package nuspec is not valid XML: '{packagePath}'.",
+                exception);
+        }
         XElement package = document.Root is { Name.LocalName: "package" } root
             ? root
             : throw new InvalidDataException($"CLI package nuspec has no package root: '{packagePath}'.");
@@ -84,6 +96,15 @@ internal sealed record LocalTestingCliPackage(string Path, string Version, strin
         }
 
         return (id, version);
+    }
+
+    internal static void ValidatePackageLength(long length, string packagePath)
+    {
+        if (length > MaxPackageBytes)
+        {
+            throw new InvalidDataException(
+                $"CLI package exceeds the {MaxPackageBytes} byte safety limit: '{packagePath}'.");
+        }
     }
 
     private static XElement ReadSingleElement(XElement parent, string name, string packagePath)
