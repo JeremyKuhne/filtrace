@@ -1,12 +1,13 @@
 # Local Filtrace testing redesign plan
 
 **Status:** Phase 1 merged in
-[PR #98](https://github.com/JeremyKuhne/filtrace/pull/98) with Windows and Linux
-ARM64 validation. The first Phase 2 increment, baseline capture and bounded
-overlay input, is implemented locally on `local-testing-install-refresh`; active
+[PR #98](https://github.com/JeremyKuhne/filtrace/pull/98). Phase 2 baseline
+capture and bounded overlay input merged in
+[PR #99](https://github.com/JeremyKuhne/filtrace/pull/99). The fixed
+per-worktree lock is implemented locally on `local-testing-target-lock`; active
 consumer mutation has not begun.
 
-**Last verified:** 2026-08-28 against `origin/main` at `2fcdc65`. PR #94 was
+**Last verified:** 2026-08-29 against `origin/main` at `049a13b`. PR #94 was
 closed without merge after PR #98 established the replacement.
 
 ## Decision
@@ -77,13 +78,20 @@ The replacement is complete when a contributor can:
 The implementation must also be small enough to review linearly. Targets, not
 hard compatibility promises:
 
-- mutation engine at or below 700 source lines;
+- stateful active-resource mutation and recovery coordinator at or below 700
+  source lines;
+- total .NET helper at or below 1,500 source lines;
 - end-to-end PowerShell contract at or below 1,000 lines;
 - no function over 100 source lines;
 - no more than one place that constructs resource paths or classifies state.
 
 If the implementation cannot stay within those bounds, stop and reduce scope
 instead of adding another abstraction or compatibility mode.
+
+The coordinator limit starts with code that applies or rolls back active CLI,
+MCP, and skill changes. Pure resource/state models, bounded baseline readers, and
+the target-lock primitive count toward the total-helper limit instead. This keeps
+both budgets measurable without rewarding compressed prerequisite code.
 
 ## V1 scope
 
@@ -181,10 +189,16 @@ local inputs. Managed destinations are still treated defensively:
   marker;
 - do not derive ownership from case-folded path hashes.
 
-A same-user process that replaces filesystem components after validation is
-outside the threat model. The single per-target lock prevents cooperative races;
-the design does not claim to sandbox against a hostile process with the same
-account.
+The V1 guarantee is narrow: cooperating Filtrace processes cannot hold the fixed
+per-target lock concurrently when the platform honors `FileShare.None`. Windows
+rejects incompatible opens; Unix uses .NET's advisory file lock and rejects the
+runtime setting that explicitly disables file locking. Exclusion on a Unix
+filesystem where .NET cannot apply its advisory lock is best-effort and outside
+the guarantee.
+
+A same-user process that ignores the lock or replaces filesystem components
+after validation is outside the threat model. The design does not claim to
+sandbox against a hostile process with the same account.
 
 ## State model
 
@@ -305,12 +319,13 @@ and Linux ARM64.
 
 ### Phase 2 - Install and Refresh
 
-**Status:** In progress locally. The first increment captures exact MCP baseline
-semantics, copies and fingerprints a bounded prior skill, rejects links in
-managed paths and skill content, and reads `overlay.md` with a retained 1 MiB
-limit. It writes only the private skill backup; it does not yet change the active
-CLI, MCP configuration, or skill. The focused suite has 87 passing tests on
-Windows.
+**Status:** In progress. PR #99 merged exact MCP baseline semantics, bounded and
+fingerprinted prior-skill capture, managed-path link rejection, and bounded
+`overlay.md` input. The next local increment adds the fixed per-worktree lock,
+including same-process and child-process contention, reacquisition, independent
+worktree, special-file, and Unix-permission coverage. It does not yet change the
+active CLI, MCP configuration, or skill. The focused suite has 104 passing tests
+on Windows; Linux ARM64 validation for the lock increment remains open.
 
 - Implement baseline capture and bounded overlay handling.
 - Implement isolated CLI installation, structured MCP mutation, and
