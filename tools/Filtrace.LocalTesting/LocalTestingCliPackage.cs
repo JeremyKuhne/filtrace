@@ -12,6 +12,8 @@ namespace Filtrace.LocalTesting;
 internal sealed record LocalTestingCliPackage(string Path, string Version, string Sha256)
 {
     public const string PackageId = "KlutzyNinja.Filtrace";
+    internal const int MaxArchiveEntries = 1024;
+    internal const long MaxExpandedBytes = 128L * 1024 * 1024;
     internal const long MaxPackageBytes = 32L * 1024 * 1024;
     private const int MaxNuspecBytes = 1024 * 1024;
 
@@ -33,6 +35,10 @@ internal sealed record LocalTestingCliPackage(string Path, string Version, strin
         string sha256 = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
         stream.Position = 0;
         using ZipArchive archive = new(stream, ZipArchiveMode.Read);
+        ValidateArchiveLimits(
+            archive.Entries.Count,
+            archive.Entries.Select(entry => entry.Length),
+            fullPath);
         ZipArchiveEntry[] nuspecs =
         [
             .. archive.Entries.Where(entry =>
@@ -104,6 +110,38 @@ internal sealed record LocalTestingCliPackage(string Path, string Version, strin
         {
             throw new InvalidDataException(
                 $"CLI package exceeds the {MaxPackageBytes} byte safety limit: '{packagePath}'.");
+        }
+    }
+
+    internal static void ValidateArchiveLimits(
+        int entryCount,
+        IEnumerable<long> entryLengths,
+        string packagePath)
+    {
+        if (entryCount > MaxArchiveEntries)
+        {
+            throw new InvalidDataException(
+                $"CLI package exceeds the {MaxArchiveEntries} entry safety limit: '{packagePath}'.");
+        }
+
+        long totalLength = 0;
+        try
+        {
+            foreach (long length in entryLengths)
+            {
+                totalLength = checked(totalLength + length);
+                if (totalLength > MaxExpandedBytes)
+                {
+                    throw new InvalidDataException(
+                        $"CLI package expands beyond the {MaxExpandedBytes} byte safety limit: '{packagePath}'.");
+                }
+            }
+        }
+        catch (OverflowException exception)
+        {
+            throw new InvalidDataException(
+                $"CLI package expanded size is invalid: '{packagePath}'.",
+                exception);
         }
     }
 

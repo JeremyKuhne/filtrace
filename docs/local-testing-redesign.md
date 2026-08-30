@@ -247,6 +247,11 @@ acquired.
 Any failure after step 4 leaves enough state for Restore. Do not delete the
 baseline merely because Install failed.
 
+If a CLI install exceeds its deadline, retain its private operation directory
+and process identifier. Because portable process APIs cannot confirm descendant
+termination, block retry and recovery until the operator confirms termination
+and removes that quarantine.
+
 ### Refresh
 
 1. Acquire the same lock and require `active` state.
@@ -327,10 +332,11 @@ fingerprinted prior-skill capture, managed-path link rejection, and bounded
 Linux ARM64 validation. The current local increment validates one prepared CLI
 package by bounded nuspec identity and SHA-256, installs it through a one-package
 NuGet source into the fixed private tool directory, isolates writable dotnet and
-NuGet state, and verifies the installed executable and exact package bytes. It
-does not yet mutate MCP or skill resources. The focused suite has 117 passing
+NuGet state, caps compressed and expanded package input, bounds process lifetime,
+quarantines timed-out installs, and verifies the installed executable and exact
+package bytes. It does not yet mutate MCP or skill resources. The focused suite has 122 passing
 tests on Windows; Linux ARM64 validation for this increment remains open. The
-complete helper is 1,340 lines against the 1,500-line target.
+complete helper is 1,409 lines against the 1,500-line target.
 
 - Implement baseline capture and bounded overlay handling.
 - Implement isolated CLI installation, structured MCP mutation, and

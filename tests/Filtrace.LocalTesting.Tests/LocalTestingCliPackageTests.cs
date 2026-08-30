@@ -123,6 +123,43 @@ public sealed class LocalTestingCliPackageTests
     }
 
     [TestMethod]
+    public void ValidateArchiveLimits_AtLimits_DoesNotThrow()
+    {
+        long[] entryLengths = new long[LocalTestingCliPackage.MaxArchiveEntries];
+        entryLengths[0] = LocalTestingCliPackage.MaxExpandedBytes;
+        Action validate = () => LocalTestingCliPackage.ValidateArchiveLimits(
+            entryLengths.Length,
+            entryLengths,
+            "package.nupkg");
+
+        validate.Should().NotThrow();
+    }
+
+    [TestMethod]
+    public void ValidateArchiveLimits_OverEntryLimit_Throws()
+    {
+        Action validate = () => LocalTestingCliPackage.ValidateArchiveLimits(
+            LocalTestingCliPackage.MaxArchiveEntries + 1,
+            [],
+            "package.nupkg");
+
+        validate.Should().Throw<InvalidDataException>()
+            .WithMessage("*exceeds the 1024 entry safety limit*");
+    }
+
+    [TestMethod]
+    public void ValidateArchiveLimits_OverExpandedSizeLimit_Throws()
+    {
+        Action validate = () => LocalTestingCliPackage.ValidateArchiveLimits(
+            1,
+            [LocalTestingCliPackage.MaxExpandedBytes + 1],
+            "package.nupkg");
+
+        validate.Should().Throw<InvalidDataException>()
+            .WithMessage("*expands beyond the 134217728 byte safety limit*");
+    }
+
+    [TestMethod]
     public void Read_MalformedNuspec_ThrowsPackageError()
     {
         using TemporaryDirectory directory = new();
@@ -132,6 +169,29 @@ public sealed class LocalTestingCliPackageTests
             ZipArchiveEntry entry = archive.CreateEntry("package.nuspec");
             using StreamWriter writer = new(entry.Open());
             writer.Write("<package><metadata>");
+        }
+
+        Action read = () => LocalTestingCliPackage.Read(packagePath);
+
+        read.Should().Throw<InvalidDataException>()
+            .WithMessage("*nuspec is not valid XML*")
+            .WithInnerException<XmlException>();
+    }
+
+    [TestMethod]
+    public void Read_NuspecWithExternalEntity_ThrowsPackageError()
+    {
+        using TemporaryDirectory directory = new();
+        string secretPath = Path.Join(directory.Path, "secret.txt");
+        File.WriteAllText(secretPath, "must not be read");
+        string packagePath = Path.Join(directory.Path, "package.nupkg");
+        using (ZipArchive archive = ZipFile.Open(packagePath, ZipArchiveMode.Create))
+        {
+            ZipArchiveEntry entry = archive.CreateEntry("package.nuspec");
+            using StreamWriter writer = new(entry.Open());
+            writer.Write(
+                $"<!DOCTYPE package [<!ENTITY secret SYSTEM \"{new Uri(secretPath).AbsoluteUri}\">]>"
+                + "<package><metadata><id>&secret;</id><version>1.2.3</version></metadata></package>");
         }
 
         Action read = () => LocalTestingCliPackage.Read(packagePath);

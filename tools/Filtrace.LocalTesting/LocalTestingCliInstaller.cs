@@ -12,18 +12,24 @@ internal sealed class LocalTestingCliInstaller
 {
     private readonly TimeSpan _installTimeout;
     private readonly TimeSpan _killGrace;
+    private readonly Func<Process, int, bool> _waitForExit;
 
     public LocalTestingCliInstaller()
-        : this(TimeSpan.FromSeconds(90), TimeSpan.FromSeconds(5))
+        : this(TimeSpan.FromSeconds(90), TimeSpan.FromSeconds(5), null)
     {
     }
 
-    internal LocalTestingCliInstaller(TimeSpan installTimeout, TimeSpan killGrace)
+    internal LocalTestingCliInstaller(
+        TimeSpan installTimeout,
+        TimeSpan killGrace,
+        Func<Process, int, bool>? waitForExit = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(installTimeout, TimeSpan.Zero);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(killGrace, TimeSpan.Zero);
         _installTimeout = installTimeout;
         _killGrace = killGrace;
+        _waitForExit = waitForExit ?? (static (process, milliseconds) =>
+            process.WaitForExit(milliseconds));
     }
 
     public CliInstallation InstallFresh(ResourcePlan plan, string packagePath, string dotnetPath)
@@ -35,6 +41,15 @@ internal sealed class LocalTestingCliInstaller
         {
             throw new DirectoryNotFoundException(
                 $"Local-testing state directory does not exist: '{plan.StateRoot}'.");
+        }
+        string? incompleteOperation = Directory.EnumerateDirectories(
+            plan.StateRoot,
+            ".cli-install-*",
+            SearchOption.TopDirectoryOnly).FirstOrDefault();
+        if (incompleteOperation is not null)
+        {
+            throw new InvalidOperationException(
+                $"An incomplete local-testing CLI operation requires manual recovery: '{incompleteOperation}'.");
         }
 
         ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.CliDirectory);
@@ -49,6 +64,7 @@ internal sealed class LocalTestingCliInstaller
         string feedDirectory = Path.Join(operationRoot, "feed");
         string feedPackagePath = Path.Join(feedDirectory, Path.GetFileName(package.Path));
         string configPath = Path.Join(operationRoot, "NuGet.config");
+        bool cleanupOperation = true;
         try
         {
             Directory.CreateDirectory(feedDirectory);
@@ -59,7 +75,8 @@ internal sealed class LocalTestingCliInstaller
                 plan,
                 operationRoot,
                 configPath,
-                package.Version);
+                package.Version,
+                ref cleanupOperation);
             VerifyInstallation(plan.CliDirectory, package);
             return new()
             {
@@ -69,7 +86,7 @@ internal sealed class LocalTestingCliInstaller
         }
         finally
         {
-            if (Directory.Exists(operationRoot))
+            if (cleanupOperation && Directory.Exists(operationRoot))
             {
                 Directory.Delete(operationRoot, recursive: true);
             }
@@ -103,7 +120,8 @@ internal sealed class LocalTestingCliInstaller
         ResourcePlan plan,
         string operationRoot,
         string configPath,
-        string version)
+        string version,
+        ref bool cleanupOperation)
     {
         ProcessStartInfo startInfo = new(dotnetPath)
         {
@@ -113,6 +131,8 @@ internal sealed class LocalTestingCliInstaller
         startInfo.Environment["DOTNET_CLI_HOME"] = Path.Join(operationRoot, "dotnet-home");
         startInfo.Environment["NUGET_HTTP_CACHE_PATH"] = Path.Join(operationRoot, "http-cache");
         startInfo.Environment["NUGET_PACKAGES"] = Path.Join(operationRoot, "packages");
+        startInfo.Environment["NUGET_PLUGINS_CACHE_PATH"] = Path.Join(operationRoot, "plugins-cache");
+        startInfo.Environment["NUGET_SCRATCH"] = Path.Join(operationRoot, "scratch");
         string[] arguments =
         [
             "tool", "install", "--tool-path", plan.CliDirectory,
@@ -126,8 +146,9 @@ internal sealed class LocalTestingCliInstaller
 
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start dotnet tool install.");
-        if (!process.WaitForExit((int)_installTimeout.TotalMilliseconds))
+        if (!_waitForExit(process, (int)_installTimeout.TotalMilliseconds))
         {
+            cleanupOperation = false;
             try
             {
                 process.Kill(entireProcessTree: true);
@@ -138,9 +159,19 @@ internal sealed class LocalTestingCliInstaller
                     or System.ComponentModel.Win32Exception)
             {
             }
-            process.WaitForExit((int)_killGrace.TotalMilliseconds);
+            bool processExited = _waitForExit(process, (int)_killGrace.TotalMilliseconds);
+            File.WriteAllText(
+                Path.Join(operationRoot, "installer-process-id"),
+                process.Id.ToString());
+            if (!processExited)
+            {
+                throw new InvalidOperationException(
+                    $"Could not confirm termination of dotnet process {process.Id}. "
+                    + $"The local-testing CLI operation was retained for manual recovery: '{operationRoot}'.");
+            }
             throw new TimeoutException(
-                $"dotnet tool install did not exit within {_installTimeout.TotalSeconds} seconds.");
+                $"dotnet tool install did not exit within {_installTimeout.TotalSeconds} seconds. "
+                + $"The operation was retained for manual recovery: '{operationRoot}'.");
         }
         if (process.ExitCode is not 0)
         {

@@ -36,16 +36,22 @@ public sealed class LocalTestingCliInstallerTests
         ResourcePlan plan = CreatePlan(directory.Path);
         Directory.CreateDirectory(plan.StateRoot);
         string ambientPackages = Path.Join(directory.Path, "ambient-packages");
+        string ambientPlugins = Path.Join(directory.Path, "ambient-plugins");
+        string ambientScratch = Path.Join(directory.Path, "ambient-scratch");
         File.WriteAllText(
             Path.Join(plan.StateRoot, "NuGet.config"),
             "<configuration><packageSources><clear/><add key=\"ambient\" value=\"missing\"/></packageSources></configuration>");
         const string packagesVariable = "NUGET_PACKAGES";
         string? previousPackages = Environment.GetEnvironmentVariable(packagesVariable);
+        string? previousPlugins = Environment.GetEnvironmentVariable("NUGET_PLUGINS_CACHE_PATH");
+        string? previousScratch = Environment.GetEnvironmentVariable("NUGET_SCRATCH");
 
         CliInstallation installed;
         try
         {
             Environment.SetEnvironmentVariable(packagesVariable, ambientPackages);
+            Environment.SetEnvironmentVariable("NUGET_PLUGINS_CACHE_PATH", ambientPlugins);
+            Environment.SetEnvironmentVariable("NUGET_SCRATCH", ambientScratch);
             installed = new LocalTestingCliInstaller().InstallFresh(
                 plan,
                 packagePath,
@@ -54,6 +60,8 @@ public sealed class LocalTestingCliInstallerTests
         finally
         {
             Environment.SetEnvironmentVariable(packagesVariable, previousPackages);
+            Environment.SetEnvironmentVariable("NUGET_PLUGINS_CACHE_PATH", previousPlugins);
+            Environment.SetEnvironmentVariable("NUGET_SCRATCH", previousScratch);
         }
 
         installed.PackageVersion.Should().Be(expected.Version);
@@ -62,6 +70,8 @@ public sealed class LocalTestingCliInstallerTests
             plan.CliDirectory,
             OperatingSystem.IsWindows() ? "filtrace.exe" : "filtrace")).Should().BeTrue();
         Directory.Exists(ambientPackages).Should().BeFalse();
+        Directory.Exists(ambientPlugins).Should().BeFalse();
+        Directory.Exists(ambientScratch).Should().BeFalse();
         Directory.GetDirectories(plan.StateRoot, ".cli-install-*", SearchOption.TopDirectoryOnly)
             .Should().BeEmpty();
     }
@@ -108,7 +118,7 @@ public sealed class LocalTestingCliInstallerTests
     [TestMethod]
     [DoNotParallelize]
     [Timeout(10_000)]
-    public void InstallFresh_ProcessTimeout_IsEndToEndBoundedAndCleansTemporaryOperation()
+    public void InstallFresh_ProcessTimeout_IsEndToEndBoundedAndQuarantinesOperation()
     {
         using TemporaryDirectory directory = new();
         string packagePath = CreateMetadataPackage(directory.Path);
@@ -136,8 +146,58 @@ public sealed class LocalTestingCliInstallerTests
             Environment.SetEnvironmentVariable(variable, previous);
         }
 
-        Directory.GetDirectories(plan.StateRoot, ".cli-install-*", SearchOption.TopDirectoryOnly)
-            .Should().BeEmpty();
+        string operationRoot = Directory.GetDirectories(
+            plan.StateRoot,
+            ".cli-install-*",
+            SearchOption.TopDirectoryOnly).Single();
+        File.Exists(Path.Join(operationRoot, "installer-process-id")).Should().BeTrue();
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [Timeout(10_000)]
+    public void InstallFresh_UnconfirmedTermination_RetainsOperationAndBlocksRetry()
+    {
+        using TemporaryDirectory directory = new();
+        string packagePath = CreateMetadataPackage(directory.Path);
+        ResourcePlan plan = CreatePlan(directory.Path);
+        Directory.CreateDirectory(plan.StateRoot);
+        const string variable = "FILTRACE_LOCAL_TESTING_CLI_INSTALLER_TIMEOUT_PROBE";
+        string? previous = Environment.GetEnvironmentVariable(variable);
+        int waitCount = 0;
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, "1");
+            LocalTestingCliInstaller installer = new(
+                TimeSpan.FromMilliseconds(250),
+                TimeSpan.FromSeconds(2),
+                (process, milliseconds) =>
+                {
+                    bool exited = process.WaitForExit(milliseconds);
+                    return ++waitCount is 1 ? exited : false;
+                });
+
+            Action install = () => installer.InstallFresh(
+                plan,
+                packagePath,
+                GetTestExecutablePath());
+
+            install.Should().Throw<InvalidOperationException>()
+                .WithMessage("*Could not confirm termination*retained for manual recovery*");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+        }
+
+        string operationRoot = Directory.GetDirectories(
+            plan.StateRoot,
+            ".cli-install-*",
+            SearchOption.TopDirectoryOnly).Single();
+        File.Exists(Path.Join(operationRoot, "installer-process-id")).Should().BeTrue();
+        Action retry = () => new LocalTestingCliInstaller().InstallFresh(plan, packagePath, "dotnet");
+        retry.Should().Throw<InvalidOperationException>()
+            .WithMessage("*incomplete local-testing CLI operation requires manual recovery*");
     }
 
     private static ResourcePlan CreatePlan(string root)
