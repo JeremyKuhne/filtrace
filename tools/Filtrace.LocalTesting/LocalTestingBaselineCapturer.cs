@@ -2,19 +2,33 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using System.Buffers.Binary;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
-
 namespace Filtrace.LocalTesting;
 
+/// <summary>
+///  Captures the pre-install MCP and skill state needed to restore a local-testing target safely.
+/// </summary>
 internal sealed class LocalTestingBaselineCapturer
 {
+    /// <summary>
+    ///  The maximum supported size of a VS Code MCP configuration file, in bytes.
+    /// </summary>
     internal const int MaxMcpConfigurationBytes = McpConfigurationDocument.MaxBytes;
+
+    /// <summary>
+    ///  The maximum number of files and directories retained in a skill backup.
+    /// </summary>
     internal const int MaxSkillEntries = 2048;
+
+    /// <summary>
+    ///  The maximum aggregate size of files retained in a skill backup, in bytes.
+    /// </summary>
     internal const long MaxSkillBytes = 16 * 1024 * 1024;
 
+    /// <summary>
+    ///  Captures the managed resources that local testing may replace and records directories it may create.
+    /// </summary>
+    /// <param name="plan">The validated paths for the target checkout and its shared local-testing state.</param>
+    /// <returns>A baseline that can restore the target to its current state.</returns>
     public LocalTestingBaseline Capture(ResourcePlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -44,11 +58,13 @@ internal sealed class LocalTestingBaselineCapturer
         {
             throw new InvalidDataException($"Skill backup already exists: '{backup}'.");
         }
+
         if (File.Exists(source))
         {
             throw new InvalidDataException(
                 $"Skill destination is a file, not a directory: '{source}'.");
         }
+
         if (!Directory.Exists(source))
         {
             return new();
@@ -58,6 +74,7 @@ internal sealed class LocalTestingBaselineCapturer
             source,
             MaxSkillEntries,
             MaxSkillBytes);
+
         string staging = $"{backup}.{Guid.NewGuid():N}.tmp";
         try
         {
@@ -66,6 +83,7 @@ internal sealed class LocalTestingBaselineCapturer
                 staging,
                 MaxSkillEntries,
                 MaxSkillBytes);
+
             if (!sourceSnapshot.Fingerprint.Equals(
                 backupSnapshot.Fingerprint,
                 StringComparison.Ordinal))
@@ -93,6 +111,7 @@ internal sealed class LocalTestingBaselineCapturer
     {
         string vscode = Path.GetDirectoryName(plan.McpConfigurationPath)
             ?? throw new InvalidDataException("MCP configuration has no parent directory.");
+
         string agents = Path.Join(plan.TargetRoot, ".agents");
         string skills = Path.Join(agents, "skills");
 
@@ -110,224 +129,5 @@ internal sealed class LocalTestingBaselineCapturer
         {
             throw new DirectoryNotFoundException($"{description} does not exist: '{path}'.");
         }
-    }
-}
-
-internal static class ManagedPathGuard
-{
-    public static void EnsureNoLinks(string root, string candidate)
-    {
-        string relative = Path.GetRelativePath(root, candidate);
-        if (Path.IsPathFullyQualified(relative)
-            || relative.Equals("..", StringComparison.Ordinal)
-            || relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-            || relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal))
-        {
-            throw new InvalidDataException(
-                $"Managed path is outside its expected root: '{candidate}'.");
-        }
-
-        string[] components = relative.Split(
-            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
-            StringSplitOptions.RemoveEmptyEntries);
-        string current = root;
-        for (int index = 0; index < components.Length; index++)
-        {
-            current = Path.Join(current, components[index]);
-            if (!TryGetAttributes(current, out FileAttributes attributes))
-            {
-                continue;
-            }
-            if ((attributes & FileAttributes.ReparsePoint) is not 0)
-            {
-                throw new InvalidDataException($"Managed path must not contain links: '{current}'.");
-            }
-            if (index < components.Length - 1
-                && (attributes & FileAttributes.Directory) is 0)
-            {
-                throw new InvalidDataException(
-                    $"Managed path ancestor is not a directory: '{current}'.");
-            }
-        }
-    }
-
-    private static bool TryGetAttributes(string path, out FileAttributes attributes)
-    {
-        try
-        {
-            attributes = File.GetAttributes(path);
-            return true;
-        }
-        catch (Exception exception) when (
-            exception is FileNotFoundException or DirectoryNotFoundException)
-        {
-            attributes = default;
-            return false;
-        }
-    }
-}
-
-internal sealed class DirectorySnapshot
-{
-    private readonly DirectorySnapshotEntry[] _entries;
-
-    private DirectorySnapshot(DirectorySnapshotEntry[] entries, string fingerprint)
-    {
-        _entries = entries;
-        Fingerprint = fingerprint;
-    }
-
-    public string Fingerprint { get; }
-
-    public static DirectorySnapshot Create(string root, int maxEntries, long maxBytes)
-    {
-        List<DirectorySnapshotEntry> entries = new();
-        Stack<string> pending = new();
-        pending.Push(root);
-        long totalBytes = 0;
-        while (pending.Count > 0)
-        {
-            string directory = pending.Pop();
-            foreach (FileSystemInfo item in new DirectoryInfo(directory).EnumerateFileSystemInfos())
-            {
-                item.Refresh();
-                if ((item.Attributes & FileAttributes.ReparsePoint) is not 0
-                    || item.LinkTarget is not null)
-                {
-                    throw new InvalidDataException(
-                        $"Skill destination must not contain links: '{item.FullName}'.");
-                }
-
-                string relativePath = Path.GetRelativePath(root, item.FullName).Replace(
-                    Path.DirectorySeparatorChar,
-                    '/');
-                if (item is DirectoryInfo child)
-                {
-                    entries.Add(new(relativePath, IsDirectory: true, Length: 0, Sha256: null));
-                    pending.Push(child.FullName);
-                }
-                else if (item is FileInfo file)
-                {
-                    if (!RegularFileGuard.Exists(file.FullName, "Skill destination entry"))
-                    {
-                        throw new IOException(
-                            $"Skill destination entry disappeared: '{file.FullName}'.");
-                    }
-                    totalBytes = checked(totalBytes + file.Length);
-                    if (totalBytes > maxBytes)
-                    {
-                        throw new InvalidDataException(
-                            $"Skill destination exceeds the {maxBytes} byte safety limit: '{root}'.");
-                    }
-
-                    using FileStream stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
-                    entries.Add(new(
-                        relativePath,
-                        IsDirectory: false,
-                        file.Length,
-                        SHA256.HashData(stream)));
-                }
-                else
-                {
-                    throw new InvalidDataException(
-                        $"Skill destination contains an unsupported entry: '{item.FullName}'.");
-                }
-                if (entries.Count > maxEntries)
-                {
-                    throw new InvalidDataException(
-                        $"Skill destination exceeds the {maxEntries} entry safety limit: '{root}'.");
-                }
-            }
-        }
-
-        DirectorySnapshotEntry[] ordered = [.. entries.OrderBy(
-            entry => entry.RelativePath,
-            StringComparer.Ordinal)];
-        return new(ordered, ComputeFingerprint(ordered));
-    }
-
-    public void CopyTo(string sourceRoot, string destinationRoot)
-    {
-        Directory.CreateDirectory(destinationRoot);
-        foreach (DirectorySnapshotEntry entry in _entries.Where(entry => entry.IsDirectory))
-        {
-            Directory.CreateDirectory(Path.Join(
-                destinationRoot,
-                entry.RelativePath.Replace('/', Path.DirectorySeparatorChar)));
-        }
-        foreach (DirectorySnapshotEntry entry in _entries.Where(entry => !entry.IsDirectory))
-        {
-            string relativePath = entry.RelativePath.Replace('/', Path.DirectorySeparatorChar);
-            File.Copy(
-                Path.Join(sourceRoot, relativePath),
-                Path.Join(destinationRoot, relativePath),
-                overwrite: false);
-        }
-    }
-
-    private static string ComputeFingerprint(DirectorySnapshotEntry[] entries)
-    {
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        Span<byte> number = stackalloc byte[sizeof(long)];
-        foreach (DirectorySnapshotEntry entry in entries)
-        {
-            hash.AppendData(entry.IsDirectory ? [1] : [2]);
-            byte[] path = Encoding.UTF8.GetBytes(entry.RelativePath);
-            BinaryPrimitives.WriteInt32LittleEndian(number, path.Length);
-            hash.AppendData(number[..sizeof(int)]);
-            hash.AppendData(path);
-            if (!entry.IsDirectory)
-            {
-                BinaryPrimitives.WriteInt64LittleEndian(number, entry.Length);
-                hash.AppendData(number);
-                hash.AppendData(entry.Sha256!);
-            }
-        }
-
-        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
-    }
-}
-
-internal sealed record DirectorySnapshotEntry(string RelativePath, bool IsDirectory, long Length, byte[]? Sha256);
-
-internal static class RegularFileGuard
-{
-    private const int FileTypeMask = 0xF000, RegularFile = 0x8000;
-
-    public static bool Exists(string path, string description)
-    {
-        FileInfo file = new(path);
-        file.Refresh();
-        if (file.LinkTarget is not null)
-        {
-            throw new InvalidDataException($"{description} must not be a link: '{path}'.");
-        }
-        if (!file.Exists)
-        {
-            return false;
-        }
-        if (OperatingSystem.IsWindows())
-        {
-            return true;
-        }
-        if (LStat(path, out NativeFileStatus status) is not 0)
-        {
-            throw new IOException($"Could not inspect {description}: '{path}' (errno {Marshal.GetLastPInvokeError()}).");
-        }
-        if ((status.Mode & FileTypeMask) is not RegularFile)
-        {
-            throw new InvalidDataException($"{description} must be a regular file: '{path}'.");
-        }
-
-        return true;
-    }
-
-    [DllImport("System.Native", EntryPoint = "SystemNative_LStat", SetLastError = true)]
-    private static extern int LStat([MarshalAs(UnmanagedType.LPUTF8Str)] string path, out NativeFileStatus status);
-
-    [StructLayout(LayoutKind.Explicit, Size = 120)]
-    private struct NativeFileStatus
-    {
-        [FieldOffset(4)] public int Mode;
     }
 }

@@ -65,8 +65,10 @@ internal static class TraceExecution
         string path,
         string? symbols,
         TextWriter error,
-        [NotNullWhen(true)] out LoadedTrace? trace) =>
-        TryLoad(path, TraceMetric.Cpu, symbols, error, out trace);
+        [NotNullWhen(returnValue: true)] out LoadedTrace? trace)
+    {
+        return TryLoad(path, TraceMetric.Cpu, symbols, error, out trace);
+    }
 
     /// <summary>
     ///  Loads the <paramref name="metric"/> view of the trace at <paramref name="path"/>,
@@ -83,6 +85,7 @@ internal static class TraceExecution
     ///  default when <see langword="null"/>, or every process). Consumed only by the
     ///  CPU and thread-time metrics.
     /// </param>
+    /// <param name="symbolOptions">The optional native-symbol policy and cache override.</param>
     /// <returns>
     ///  <see langword="true"/> on success; otherwise <see langword="false"/>, and the
     ///  caller should return <see cref="ExitCodes.InputError"/>.
@@ -92,7 +95,7 @@ internal static class TraceExecution
         TraceMetric metric,
         string? symbols,
         TextWriter error,
-        [NotNullWhen(true)] out LoadedTrace? trace,
+            [NotNullWhen(returnValue: true)] out LoadedTrace? trace,
         ScopeRequest? scope = null,
         SymbolOptions? symbolOptions = null)
     {
@@ -101,15 +104,7 @@ internal static class TraceExecution
             trace = new TraceStore().Get(path, symbols, metric, scope, symbolOptions);
             return true;
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or JsonException
-            or KeyNotFoundException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsTraceLoadException(ex))
         {
             // Missing, unreadable, or malformed trace input - including a format that
             // does not carry the selected metric's data (NotSupportedException) -
@@ -153,7 +148,7 @@ internal static class TraceExecution
         string reportName,
         Func<T> read,
         TextWriter error,
-        [NotNullWhen(true)] out T? result) where T : class
+            [NotNullWhen(returnValue: true)] out T? result) where T : class
     {
         // Format guardrail (an extension test, no I/O): the report providers parse the
         // EventPipe format, so reject an .etl or speedscope export cleanly here.
@@ -161,6 +156,7 @@ internal static class TraceExecution
         {
             error.WriteLine(
                 $"The {reportName} report requires a .nettrace EventPipe trace; '{path}' is not a .nettrace file.");
+
             result = null;
             return false;
         }
@@ -170,13 +166,7 @@ internal static class TraceExecution
             result = read();
             return true;
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsReportReadException(ex))
         {
             // A missing, unreadable, or malformed .nettrace terminates with a defined
             // exit code rather than crashing the process; a corrupt EventPipe stream
@@ -211,7 +201,7 @@ internal static class TraceExecution
         string reportName,
         Func<T> read,
         TextWriter error,
-        [NotNullWhen(true)] out T? result) where T : class
+            [NotNullWhen(returnValue: true)] out T? result) where T : class
     {
         // Format guardrail (an extension test, no I/O): the kernel disk / file events are
         // ETW-only, so reject a .nettrace or speedscope export cleanly here. Guard a null
@@ -222,6 +212,7 @@ internal static class TraceExecution
             string display = string.IsNullOrEmpty(path) ? "(no path)" : path;
             error.WriteLine(
                 $"The {reportName} report requires a Windows ETW .etl trace; '{display}' is not a .etl file.");
+
             result = null;
             return false;
         }
@@ -231,13 +222,7 @@ internal static class TraceExecution
             result = read();
             return true;
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsReportReadException(ex))
         {
             // A missing, unreadable, or malformed .etl terminates with a defined exit code
             // rather than crashing the process.
@@ -273,7 +258,7 @@ internal static class TraceExecution
         string reportName,
         Func<T> read,
         TextWriter error,
-        [NotNullWhen(true)] out T? result) where T : class
+            [NotNullWhen(returnValue: true)] out T? result) where T : class
     {
         // Format guardrail (an extension test, no I/O): the raw event query spans the
         // EventPipe (.nettrace) and ETW (.etl) event streams, but a speedscope export
@@ -285,6 +270,7 @@ internal static class TraceExecution
             string display = string.IsNullOrEmpty(path) ? "(no path)" : path;
             error.WriteLine(
                 $"The {reportName} requires a .nettrace EventPipe or .etl ETW trace (Windows-only); '{display}' is neither.");
+
             result = null;
             return false;
         }
@@ -294,14 +280,7 @@ internal static class TraceExecution
             result = read();
             return true;
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or InvalidDataException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsDualFormatReadException(ex))
         {
             // A missing, unreadable, or malformed trace - or an .etl read attempted off
             // Windows (PlatformNotSupportedException derives from NotSupportedException) -
@@ -310,6 +289,28 @@ internal static class TraceExecution
             result = null;
             return false;
         }
+    }
+
+    private static bool IsTraceLoadException(Exception exception)
+    {
+        return IsReportReadException(exception)
+            || exception is JsonException
+            || exception is KeyNotFoundException;
+    }
+
+    private static bool IsReportReadException(Exception exception)
+    {
+        return exception is IOException
+            || exception is UnauthorizedAccessException
+            || exception is NotSupportedException
+            || exception is InvalidOperationException
+            || exception is FormatException
+            || exception is ArgumentException;
+    }
+
+    private static bool IsDualFormatReadException(Exception exception)
+    {
+        return exception is InvalidDataException || IsReportReadException(exception);
     }
 
     /// <summary>

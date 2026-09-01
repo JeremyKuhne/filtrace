@@ -27,6 +27,7 @@ public sealed class LocalTestingBaselineCapturerTests
             Agents = true,
             Skills = true
         });
+
         Directory.Exists(plan.SkillBackupPath).Should().BeFalse();
     }
 
@@ -46,6 +47,7 @@ public sealed class LocalTestingBaselineCapturerTests
               }
             }
             """);
+
         Directory.CreateDirectory(plan.SkillDestination);
         File.WriteAllText(Path.Join(plan.SkillDestination, "SKILL.md"), "prior skill");
         Directory.CreateDirectory(Path.Join(plan.SkillDestination, "empty"));
@@ -80,6 +82,7 @@ public sealed class LocalTestingBaselineCapturerTests
 
         recapture.Should().Throw<InvalidDataException>()
             .WithMessage("*backup already exists*");
+
         File.ReadAllText(Path.Join(plan.SkillBackupPath, "SKILL.md")).Should().Be("original");
     }
 
@@ -97,6 +100,7 @@ public sealed class LocalTestingBaselineCapturerTests
 
         recapture.Should().Throw<InvalidDataException>()
             .WithMessage("*backup already exists*");
+
         File.ReadAllText(Path.Join(plan.SkillBackupPath, "SKILL.md")).Should().Be("original");
     }
 
@@ -111,6 +115,7 @@ public sealed class LocalTestingBaselineCapturerTests
 
         capture.Should().Throw<InvalidDataException>()
             .WithMessage("*backup already exists*");
+
         File.ReadAllText(plan.SkillBackupPath).Should().Be("unexpected backup");
     }
 
@@ -254,6 +259,7 @@ public sealed class LocalTestingBaselineCapturerTests
 
         capture.Should().Throw<InvalidDataException>()
             .WithMessage("*safety limit*");
+
         Directory.Exists(plan.SkillBackupPath).Should().BeFalse();
     }
 
@@ -286,6 +292,7 @@ public sealed class LocalTestingBaselineCapturerTests
 
         capture.Should().Throw<InvalidDataException>()
             .WithMessage("*entry safety limit*");
+
         Directory.Exists(plan.SkillBackupPath).Should().BeFalse();
     }
 
@@ -311,6 +318,7 @@ public sealed class LocalTestingBaselineCapturerTests
 
         capture.Should().Throw<InvalidDataException>()
             .WithMessage("*must not contain links*");
+
         Directory.Exists(plan.SkillBackupPath).Should().BeFalse();
     }
 
@@ -377,6 +385,7 @@ public sealed class LocalTestingBaselineCapturerTests
 
         capture.Should().Throw<InvalidDataException>()
             .WithMessage("*regular file*");
+
         Directory.Exists(plan.SkillBackupPath).Should().BeFalse();
     }
 

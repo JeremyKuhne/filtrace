@@ -13,6 +13,15 @@ public sealed class TraceInfo
     /// <summary>
     ///  Initializes a new <see cref="TraceInfo"/>.
     /// </summary>
+    /// <param name="path">The absolute source trace path.</param>
+    /// <param name="format">The source trace format.</param>
+    /// <param name="totalWeight">The sum of normalized sample weights in the active metric's unit.</param>
+    /// <param name="sampleCount">The number of normalized weighted samples.</param>
+    /// <param name="symbolResolutionRate">The fraction of stack frames resolved to method names.</param>
+    /// <param name="threads">Per-thread normalized sample counts.</param>
+    /// <param name="warnings">Quality and scoping warnings produced while loading.</param>
+    /// <param name="availableAnalyses">Analyses supported by the source format.</param>
+    /// <param name="etlxCacheState">How the ETLX cache was obtained, or <see langword="null"/> when unused.</param>
     public TraceInfo(
         string path,
         TraceFormat format,
@@ -40,6 +49,16 @@ public sealed class TraceInfo
     /// <summary>
     ///  Initializes a new <see cref="TraceInfo"/> with per-analysis availability.
     /// </summary>
+    /// <param name="path">The absolute source trace path.</param>
+    /// <param name="format">The source trace format.</param>
+    /// <param name="totalWeight">The sum of normalized sample weights in the active metric's unit.</param>
+    /// <param name="sampleCount">The number of normalized weighted samples.</param>
+    /// <param name="symbolResolutionRate">The fraction of stack frames resolved to method names.</param>
+    /// <param name="threads">Per-thread normalized sample counts.</param>
+    /// <param name="warnings">Quality and scoping warnings produced while loading.</param>
+    /// <param name="availableAnalyses">Analyses supported by the source format.</param>
+    /// <param name="analyses">Format support, capture status, and observed records for each known analysis.</param>
+    /// <param name="etlxCacheState">How the ETLX cache was obtained, or <see langword="null"/> when unused.</param>
     public TraceInfo(
         string path,
         TraceFormat format,

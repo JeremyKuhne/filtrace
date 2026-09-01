@@ -113,6 +113,7 @@ public sealed partial class FoldingAggregator
         double retainedPercent = availableWeight > 0.0
             ? retainedWeight / availableWeight * 100.0
             : 0.0;
+
         bool recordsAvailable = _source.RecordSemantics != StackRecordSemantics.Unavailable;
         return new RootScopeCoverage(
             availableWeight,
@@ -273,6 +274,9 @@ public sealed partial class FoldingAggregator
         return new ClassifyResult(total, rootFrame, rows);
     }
 
+    /// <summary>
+    ///  Attributes each retained sample to every distinct frame on its scoped stack.
+    /// </summary>
     /// <param name="rootFrame">Substring scoping the ranking to a subtree, or empty for the whole trace.</param>
     /// <param name="foldPatterns">Frame fold patterns.</param>
     /// <param name="top">Maximum number of rows to return.</param>
@@ -363,8 +367,8 @@ public sealed partial class FoldingAggregator
 
         warning =
             $"Showing {kept.Count} of {ranking.Rows.Count} ranked rows; more would exceed the "
-            + $"{OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole response under the "
-            + $"{OutputBudget.DefaultCeilingTokens}-token ceiling. The scope total still covers every frame.";
+                + $"{OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole response under the "
+                + $"{OutputBudget.DefaultCeilingTokens}-token ceiling. The scope total still covers every frame.";
 
         return ranking with { Rows = kept };
     }
@@ -426,10 +430,10 @@ public sealed partial class FoldingAggregator
 
         warning =
             $"Showing {keptCallers.Count} of {callers.Callers.Count} callers"
-            + (callers.Callees is null ? string.Empty : $" and {keptCallees!.Count} of {callers.Callees.Count} callees")
-            + $"; more would exceed the {OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole "
-            + $"response under the {OutputBudget.DefaultCeilingTokens}-token ceiling. The focus totals still cover "
-            + "every call site.";
+                + (callers.Callees is null ? string.Empty : $" and {keptCallees!.Count} of {callers.Callees.Count} callees")
+                + $"; more would exceed the {OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole "
+                + $"response under the {OutputBudget.DefaultCeilingTokens}-token ceiling. The focus totals still cover "
+                + "every call site.";
 
         return callers with { Callers = keptCallers, Callees = keptCallees };
     }
@@ -461,8 +465,8 @@ public sealed partial class FoldingAggregator
 
         warning =
             $"Showing {kept.Count} of {lines.Rows.Count} ranked lines; more would exceed the "
-            + $"{OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole response under the "
-            + $"{OutputBudget.DefaultCeilingTokens}-token ceiling. The scope total still covers every line.";
+                + $"{OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole response under the "
+                + $"{OutputBudget.DefaultCeilingTokens}-token ceiling. The scope total still covers every line.";
 
         return lines with { Rows = kept };
     }
@@ -503,9 +507,9 @@ public sealed partial class FoldingAggregator
 
         warning =
             $"Showing the first {kept.Count} of {heatmap.Lines.Count} lines by line number; more would exceed the "
-            + $"{OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole response under the "
-            + $"{OutputBudget.DefaultCeilingTokens}-token ceiling. The file total still covers every line; narrow "
-            + "the request to a hotter file, or rank the lines instead of mapping them.";
+                + $"{OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole response under the "
+                + $"{OutputBudget.DefaultCeilingTokens}-token ceiling. The file total still covers every line; narrow "
+                + "the request to a hotter file, or rank the lines instead of mapping them.";
 
         return heatmap with { Lines = kept };
     }
@@ -622,6 +626,7 @@ public sealed partial class FoldingAggregator
             int byWeight = b.Weight.CompareTo(a.Weight);
             return byWeight != 0 ? byWeight : string.CompareOrdinal(a.Caller, b.Caller);
         });
+
         if (callerRows.Count > top)
         {
             callerRows.RemoveRange(top, callerRows.Count - top);
@@ -643,6 +648,7 @@ public sealed partial class FoldingAggregator
                 int byWeight = b.Weight.CompareTo(a.Weight);
                 return byWeight != 0 ? byWeight : string.CompareOrdinal(a.Callee, b.Callee);
             });
+
             if (callees.Count > top)
             {
                 callees.RemoveRange(top, callees.Count - top);
@@ -752,6 +758,7 @@ public sealed partial class FoldingAggregator
             int byLocation = string.CompareOrdinal(a.Location, b.Location);
             return byLocation != 0 ? byLocation : string.CompareOrdinal(a.Method, b.Method);
         });
+
         if (rows.Count > top)
         {
             rows.RemoveRange(top, rows.Count - top);
@@ -1015,6 +1022,7 @@ public sealed partial class FoldingAggregator
             int byWeight = b.Weight.CompareTo(a.Weight);
             return byWeight != 0 ? byWeight : string.CompareOrdinal(a.Frame, b.Frame);
         });
+
         if (rows.Count > top)
         {
             rows.RemoveRange(top, rows.Count - top);

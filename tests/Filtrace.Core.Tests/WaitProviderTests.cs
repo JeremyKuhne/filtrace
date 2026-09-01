@@ -40,9 +40,9 @@ public sealed class WaitProviderTests
 
         source.Samples.SelectMany(s => s.Frames).Should().OnlyContain(f =>
             !f.StartsWith("EventData ", StringComparison.Ordinal)
-            && !f.StartsWith("BROKEN", StringComparison.Ordinal)
-            && !f.StartsWith("Process", StringComparison.Ordinal)
-            && !f.StartsWith("Thread (", StringComparison.Ordinal));
+                && !f.StartsWith("BROKEN", StringComparison.Ordinal)
+                && !f.StartsWith("Process", StringComparison.Ordinal)
+                && !f.StartsWith("Thread (", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -86,7 +86,7 @@ public sealed class WaitProviderTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Read_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         WaitProvider provider = new();

@@ -179,6 +179,7 @@ public sealed class TraceLoader
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
             warnings, AnalysisRecordCounts("alloc", recordCount),
             appliedTimeWindow: scope?.Window);
+
         return new LoadedTrace(info, source);
     }
 
@@ -210,6 +211,7 @@ public sealed class TraceLoader
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
             warnings, AnalysisRecordCounts("exceptions", recordCount),
             appliedTimeWindow: scope?.Window);
+
         return new LoadedTrace(info, source);
     }
 
@@ -244,6 +246,7 @@ public sealed class TraceLoader
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
             warnings, AnalysisRecordCounts("contention", recordCount),
             appliedTimeWindow: scope?.Window);
+
         return new LoadedTrace(info, source);
     }
 
@@ -277,6 +280,7 @@ public sealed class TraceLoader
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
             warnings, AnalysisRecordCounts("wait", recordCount),
             appliedTimeWindow: scope?.Window);
+
         return new LoadedTrace(info, source);
     }
 
@@ -310,6 +314,7 @@ public sealed class TraceLoader
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
             warnings, AnalysisRecordCounts("activity", recordCount),
             appliedTimeWindow: scope?.Window);
+
         return new LoadedTrace(info, source);
     }
 
@@ -326,6 +331,7 @@ public sealed class TraceLoader
 
         StackSampleSource source = new ThreadTimeProvider().Read(
             fullPath, scope, out ScopeResolution resolved, out int recordCount);
+
         string? appliedScope = resolved.Phrase;
 
         // Thread time carries both scope axes an ETW capture supports: the process tree
@@ -354,9 +360,9 @@ public sealed class TraceLoader
 
             if (scopes.Count > 0)
             {
-                warnings.Add(
-                    $"No thread-time samples remained after scoping to {(scopes.Count == 2 ? $"{scopes[0]} and {scopes[1]}" : scopes[0])}; "
-                    + "a scope may match nothing with samples - pass --all-processes or widen the time window.");
+                warnings.Add(string.Concat(
+                    $"No thread-time samples remained after scoping to {(scopes.Count == 2 ? $"{scopes[0]} and {scopes[1]}" : scopes[0])}; ",
+                    "a scope may match nothing with samples - pass --all-processes or widen the time window."));
             }
             else
             {
@@ -386,6 +392,7 @@ public sealed class TraceLoader
             warnings, AnalysisRecordCounts("threadtime", recordCount),
             appliedProcessScope: resolved.AppliedScope,
             appliedTimeWindow: scope?.Window);
+
         return new LoadedTrace(info, source);
     }
 
@@ -406,6 +413,7 @@ public sealed class TraceLoader
                 ? $"No samples remained inside the {bounded} window; the trace may carry none there, or the "
                     + "window may lie outside the captured range - widen or drop the time window to check."
                 : $"Scoped to the {bounded} window.");
+
             return;
         }
 
@@ -453,6 +461,7 @@ public sealed class TraceLoader
         List<string> combinedWarnings = [.. warnings];
         IReadOnlyDictionary<string, CaptureStatus>? captureStatuses =
             CaptureMetadataReader.Read(fullPath, combinedWarnings);
+
         IReadOnlyDictionary<string, AnalysisAvailability> analyses =
             TraceCapabilities.AvailabilityFor(
                 format,
@@ -481,8 +490,10 @@ public sealed class TraceLoader
 
     private static IReadOnlyDictionary<string, int> AnalysisRecordCounts(
         string analysis,
-        int recordCount) =>
-        new Dictionary<string, int>(StringComparer.Ordinal) { [analysis] = recordCount };
+        int recordCount)
+    {
+        return new Dictionary<string, int>(StringComparer.Ordinal) { [analysis] = recordCount };
+    }
 
     private ITraceReader? ResolveReader(string path)
     {

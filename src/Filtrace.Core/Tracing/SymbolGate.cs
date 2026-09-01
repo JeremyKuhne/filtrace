@@ -49,7 +49,7 @@ public static class SymbolGate
     /// <param name="sampleCount">The number of samples.</param>
     /// <param name="warning">The warning text when the gate fires, otherwise <see langword="null"/>.</param>
     /// <returns><see langword="true"/> when a warning was produced.</returns>
-    public static bool TryGetWarning(double resolutionRate, int sampleCount, [NotNullWhen(true)] out string? warning)
+    public static bool TryGetWarning(double resolutionRate, int sampleCount, [NotNullWhen(returnValue: true)] out string? warning)
     {
         if (!IsBelowThreshold(resolutionRate, sampleCount))
         {
@@ -64,10 +64,11 @@ public static class SymbolGate
         // the locale-dependent space the "P" format inserts before "%".
         int resolvedPct = (int)(resolutionRate * 100);
         int thresholdPct = (int)(MinimumResolutionRate * 100);
-        warning =
-            $"Only {resolvedPct}% of frames resolved to a method name (< {thresholdPct}%); native frames may be unresolved. "
-            + "Managed method names normally come from CLR rundown; inspect unresolved rows before trusting names. "
-            + "For CPU .etl analysis, --native-symbols can name runtime frames; --symbols supplies local PDBs for source lines.";
+        warning = string.Concat(
+            $"Only {resolvedPct}% of frames resolved to a method name (< {thresholdPct}%); native frames may be unresolved. ",
+            "Managed method names normally come from CLR rundown; inspect unresolved rows before trusting names. ",
+            "For CPU .etl analysis, --native-symbols can name runtime frames; --symbols supplies local PDBs for source lines.");
+
         return true;
     }
 }

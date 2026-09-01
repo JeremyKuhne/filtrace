@@ -75,6 +75,18 @@ public sealed class ThreadTimeProvider
         return source;
     }
 
+    /// <summary>
+    ///  Reconstructs elapsed running and blocked intervals, retaining the exact process-instance scope used.
+    /// </summary>
+    /// <param name="path">The ETW trace path.</param>
+    /// <param name="scope">
+    ///  The requested process and time scope, or <see langword="null"/> for automatic process scope.
+    /// </param>
+    /// <param name="scopeResolution">
+    ///  The process roots, instances, labels, and warnings resolved against the trace.
+    /// </param>
+    /// <param name="recordCount">The number of context-switch source records in the trace.</param>
+    /// <returns>The elapsed-time-weighted stacks retained by the resolved scope.</returns>
     internal StackSampleSource Read(
         string path,
         ScopeRequest? scope,
@@ -92,7 +104,7 @@ public sealed class ThreadTimeProvider
         using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
         recordCount = CountContextSwitches(traceLog);
 
-        using SymbolReader symbolReader = new(TextWriter.Null, "", null);
+        using SymbolReader symbolReader = new(TextWriter.Null, "", httpClientDelegatingHandler: null);
 
         // A null request is "unspecified", which is the automatic default (the same as
         // ScopeRequest.Auto): a caller that passes nothing still gets scenario scope. A
@@ -111,6 +123,7 @@ public sealed class ThreadTimeProvider
             // excluding them keeps the stacks to running and blocked intervals.
             ExcludeReadyThread = true
         };
+
         computer.GenerateThreadTimeStacks(stackSource);
 #pragma warning restore CS0618
 
@@ -138,7 +151,7 @@ public sealed class ThreadTimeProvider
                 index = stackSource.GetCallerIndex(index))
             {
                 StackSourceFrameIndex frameIndex = stackSource.GetFrameIndex(index);
-                leafToRoot.Add(stackSource.GetFrameName(frameIndex, false));
+                leafToRoot.Add(stackSource.GetFrameName(frameIndex, fullModulePath: false));
             }
 
             if (leafToRoot.Count == 0)
@@ -154,6 +167,7 @@ public sealed class ThreadTimeProvider
             TraceProcess? processInstance = pid < 0
                 ? null
                 : traceLog.Processes.GetProcess(pid, sample.TimeRelativeMSec);
+
             if (!resolvedScope.Includes(processInstance))
             {
                 return;

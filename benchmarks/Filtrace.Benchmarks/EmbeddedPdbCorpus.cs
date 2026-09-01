@@ -7,12 +7,26 @@ using Touki;
 
 namespace Filtrace.Benchmarks;
 
+/// <summary>
+///  Owns an equal-byte-volume symbol directory with a controlled mix of embedded
+///  and external portable PDB references.
+/// </summary>
 internal sealed class EmbeddedPdbCorpus : DisposableBase
 {
     private EmbeddedPdbCorpus(string directoryPath) => DirectoryPath = directoryPath;
 
+    /// <summary>
+    ///  The temporary symbol directory deleted when the corpus is disposed.
+    /// </summary>
     public string DirectoryPath { get; }
 
+    /// <summary>
+    ///  Builds a directory with evenly distributed embedded-PDB hits while keeping
+    ///  every assembly file the same length.
+    /// </summary>
+    /// <param name="dllCount">The number of assembly files, from 1 through 64.</param>
+    /// <param name="hitRatePercent">An exact realizable hit percentage from 0 through 100.</param>
+    /// <returns>The disposable owner of the generated symbol directory.</returns>
     public static EmbeddedPdbCorpus Create(int dllCount, int hitRatePercent)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(dllCount, 1);
@@ -31,6 +45,7 @@ internal sealed class EmbeddedPdbCorpus : DisposableBase
         string directory = Path.Join(
             Path.GetTempPath(),
             $"filtrace-pdb-benchmark-{Guid.NewGuid():N}");
+
         EmbeddedPdbCorpus corpus = new(directory);
         try
         {
@@ -41,6 +56,7 @@ internal sealed class EmbeddedPdbCorpus : DisposableBase
                 // Spread hits through the directory so one rate is not clustered at the front.
                 bool embedded = (index + 1) * embeddedCount / dllCount
                     > index * embeddedCount / dllCount;
+
                 string source = embedded ? embeddedAssembly : portableAssembly;
                 string kind = embedded ? "embedded" : "portable";
                 string destination = Path.Join(directory, $"{kind}-{index:D2}.dll");
@@ -50,12 +66,14 @@ internal sealed class EmbeddedPdbCorpus : DisposableBase
                     FileMode.Open,
                     FileAccess.Write,
                     FileShare.None);
+
                 // Equal bytes per DLL keep file volume independent of embedded-PDB rate.
                 stream.SetLength(assemblyLength);
             }
 
             long actualBytes = Directory.EnumerateFiles(directory, "*.dll")
                 .Sum(static path => new FileInfo(path).Length);
+
             long expectedBytes = checked(dllCount * assemblyLength);
             if (actualBytes != expectedBytes)
             {
@@ -72,6 +90,10 @@ internal sealed class EmbeddedPdbCorpus : DisposableBase
         }
     }
 
+    /// <summary>
+    ///  Verifies that the two source assemblies exist and expose the embedded and
+    ///  external portable-PDB states required to construct a controlled corpus.
+    /// </summary>
     public static void ValidateSourceAssemblies() => _ = ValidateSources();
 
     protected override void Dispose(bool disposing)
@@ -91,6 +113,7 @@ internal sealed class EmbeddedPdbCorpus : DisposableBase
         long assemblyLength = Math.Max(
             new FileInfo(embeddedAssembly).Length,
             new FileInfo(portableAssembly).Length);
+
         return (embeddedAssembly, portableAssembly, assemblyLength);
     }
 
@@ -100,6 +123,7 @@ internal sealed class EmbeddedPdbCorpus : DisposableBase
         using PEReader reader = new(stream);
         bool actual = reader.ReadDebugDirectory()
             .Any(static entry => entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb);
+
         if (actual != expected)
         {
             throw new InvalidOperationException(

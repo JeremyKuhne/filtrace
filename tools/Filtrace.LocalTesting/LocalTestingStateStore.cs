@@ -6,10 +6,21 @@ using System.Text.Json;
 
 namespace Filtrace.LocalTesting;
 
+/// <summary>
+///  Reads, validates, and atomically replaces the durable recovery state for local testing.
+/// </summary>
 internal sealed class LocalTestingStateStore
 {
+    /// <summary>
+    ///  The maximum accepted state-document length, in bytes.
+    /// </summary>
     internal const int MaxStateBytes = 1024 * 1024;
 
+    /// <summary>
+    ///  Reads and validates existing state without creating a file when none exists.
+    /// </summary>
+    /// <param name="statePath">The state JSON path.</param>
+    /// <returns>The validated state, or <see langword="null"/> when the path does not exist.</returns>
     public LocalTestingState? Read(string statePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(statePath);
@@ -23,6 +34,7 @@ internal sealed class LocalTestingStateStore
             FileMode.Open,
             FileAccess.Read,
             FileShare.Read);
+
         if (stream.Length > MaxStateBytes)
         {
             throw new InvalidDataException(
@@ -52,6 +64,11 @@ internal sealed class LocalTestingStateStore
         return state;
     }
 
+    /// <summary>
+    ///  Validates and writes state through a flushed sibling temporary file before replacing the target.
+    /// </summary>
+    /// <param name="statePath">The state JSON path in an existing directory.</param>
+    /// <param name="state">The internally consistent recovery state to persist.</param>
     public void Write(string statePath, LocalTestingState state)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(statePath);
@@ -68,6 +85,7 @@ internal sealed class LocalTestingStateStore
         string temporaryPath = Path.Join(
             directory,
             $".{Path.GetFileName(statePath)}.{Guid.NewGuid():N}.tmp");
+
         try
         {
             FileStreamOptions options = new()
@@ -76,6 +94,7 @@ internal sealed class LocalTestingStateStore
                 Access = FileAccess.Write,
                 Share = FileShare.None
             };
+
             if (!OperatingSystem.IsWindows())
             {
                 options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
@@ -87,6 +106,7 @@ internal sealed class LocalTestingStateStore
                     stream,
                     state,
                     LocalTestingJsonContext.Default.LocalTestingState);
+
                 stream.Flush(flushToDisk: true);
             }
 
@@ -105,10 +125,12 @@ internal sealed class LocalTestingStateStore
             throw new InvalidDataException(
                 $"Unsupported local-testing schema version '{state.SchemaVersion}'.");
         }
+
         if (state.Status is LocalTestingStatus.Unknown || !Enum.IsDefined(state.Status))
         {
             throw new InvalidDataException("Local-testing state has an unknown status.");
         }
+
         if (string.IsNullOrWhiteSpace(state.SourceCheckout)
             || !Path.IsPathFullyQualified(state.SourceCheckout))
         {
@@ -120,6 +142,7 @@ internal sealed class LocalTestingStateStore
         {
             throw new InvalidDataException("Active local-testing state must record the CLI package.");
         }
+
         if (state.Cli is not null)
         {
             if (string.IsNullOrWhiteSpace(state.Cli.PackageVersion))
@@ -137,11 +160,13 @@ internal sealed class LocalTestingStateStore
         {
             throw new InvalidDataException("Local-testing baseline is missing.");
         }
+
         ValidateMcpBaseline(baseline.Mcp);
         if (baseline.Skill is null)
         {
             throw new InvalidDataException("Local-testing skill baseline is missing.");
         }
+
         if (baseline.CreatedDirectories is null)
         {
             throw new InvalidDataException("Local-testing created-directory baseline is missing.");
@@ -156,6 +181,7 @@ internal sealed class LocalTestingStateStore
             throw new InvalidDataException(
                 "An absent skill baseline cannot contain a backup hash.");
         }
+
         if (baseline.CreatedDirectories.Agents && !baseline.CreatedDirectories.Skills)
         {
             throw new InvalidDataException(
@@ -163,12 +189,17 @@ internal sealed class LocalTestingStateStore
         }
     }
 
+    /// <summary>
+    ///  Verifies that MCP existence flags and the retained server value describe a possible prior configuration.
+    /// </summary>
+    /// <param name="baseline">The baseline to validate.</param>
     internal static void ValidateMcpBaseline(McpBaseline? baseline)
     {
         if (baseline is null)
         {
             throw new InvalidDataException("Local-testing MCP baseline is missing.");
         }
+
         if (baseline.ServerExisted)
         {
             if (!baseline.FileExisted
@@ -185,6 +216,7 @@ internal sealed class LocalTestingStateStore
             throw new InvalidDataException(
                 "An absent MCP server baseline cannot contain a server value.");
         }
+
         if (baseline.ServersExisted && !baseline.FileExisted)
         {
             throw new InvalidDataException(

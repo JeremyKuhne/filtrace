@@ -63,6 +63,7 @@ internal static class RankRequestFactory
     /// <param name="format">The render format.</param>
     /// <param name="strict">Whether to trip the strict symbol-resolution exit gate.</param>
     /// <param name="scope">The process scope, or <see langword="null"/> for the automatic default.</param>
+    /// <param name="symbolOptions">The optional native-symbol policy and cache override.</param>
     /// <returns>The assembled request.</returns>
     public static RankRequest Create(
         string trace,
@@ -107,7 +108,7 @@ internal static class RankRequestFactory
         bool nativeSymbols,
         string symbolCache,
         out SymbolOptions symbolOptions,
-        [NotNullWhen(false)] out string? errorMessage)
+            [NotNullWhen(returnValue: false)] out string? errorMessage)
     {
         if (!nativeSymbols)
         {
@@ -154,7 +155,7 @@ internal static class RankRequestFactory
         string[]? fold,
         bool noFold,
         out string[]? patterns,
-        [NotNullWhen(false)] out string? errorMessage)
+            [NotNullWhen(returnValue: false)] out string? errorMessage)
     {
         bool hasFold = fold is { Length: > 0 };
         if (hasFold && noFold)
@@ -195,7 +196,7 @@ internal static class RankRequestFactory
         Children children,
         bool allProcesses,
         out ScopeRequest scope,
-        [NotNullWhen(false)] out string? errorMessage)
+            [NotNullWhen(returnValue: false)] out string? errorMessage)
     {
         scope = ScopeRequest.Auto;
 
@@ -274,7 +275,7 @@ internal static class RankRequestFactory
         string root,
         bool benchmark,
         out string resolvedRoot,
-        [NotNullWhen(false)] out string? errorMessage)
+            [NotNullWhen(returnValue: false)] out string? errorMessage)
     {
         if (benchmark && !string.IsNullOrEmpty(root))
         {

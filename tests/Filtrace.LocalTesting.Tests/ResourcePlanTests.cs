@@ -35,6 +35,7 @@ public sealed class ResourcePlanTests
         ResourcePlan first = ResourcePlan.Create(
             Path.Join(Path.GetTempPath(), "worktree-one"),
             Path.Join(common, "one"));
+
         ResourcePlan second = ResourcePlan.Create(
             Path.Join(Path.GetTempPath(), "worktree-two"),
             Path.Join(common, "two"));

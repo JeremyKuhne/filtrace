@@ -55,6 +55,7 @@ public sealed partial class TraceStore
         StringComparer pathComparer = OperatingSystem.IsLinux()
             ? StringComparer.Ordinal
             : StringComparer.OrdinalIgnoreCase;
+
         _cache = new LruCache<string, LoadedTrace>(capacity, pathComparer);
         _conversionGates = new Dictionary<string, ConversionGate>(pathComparer);
     }
@@ -83,13 +84,14 @@ public sealed partial class TraceStore
         {
             LoadedTrace unconverted = await Task.Run(
                 () => Get(fullPath, symbolsDirectory, metric, scope, symbolOptions),
-                cancellationToken).ConfigureAwait(false);
-            return new TraceStoreLoadResult(unconverted, null);
+                    cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+
+            return new TraceStoreLoadResult(unconverted, EtlxCacheState: null);
         }
 
         using ConversionGateLease lease = await AcquireConversionGateAsync(
             fullPath,
-            cancellationToken).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 
         return await Task.Run(() =>
         {
@@ -97,9 +99,10 @@ public sealed partial class TraceStore
             EtlxCacheState state = lease.Waited && cache.State == EtlxCacheState.Hit
                 ? EtlxCacheState.Waited
                 : cache.State;
+
             LoadedTrace trace = Get(fullPath, symbolsDirectory, metric, scope, symbolOptions);
             return new TraceStoreLoadResult(trace, state);
-        }, cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
     }
 
     /// <summary>
@@ -263,7 +266,7 @@ public sealed partial class TraceStore
         {
             try
             {
-                await gate.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+                await gate.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
             }
             catch
             {
@@ -296,5 +299,5 @@ public sealed partial class TraceStore
 
     private static bool IsConvertible(string fullPath) =>
         fullPath.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase)
-        || fullPath.EndsWith(".etl", StringComparison.OrdinalIgnoreCase);
+            || fullPath.EndsWith(".etl", StringComparison.OrdinalIgnoreCase);
 }

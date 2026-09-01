@@ -87,6 +87,7 @@ public sealed partial class DiskIoProvider
 
             ref FileTally tally = ref System.Runtime.InteropServices.CollectionsMarshal.GetValueRefOrAddDefault(
                 byFile, file, out _);
+
             tally.TotalDiskMs += ms;
             totalDiskMs += ms;
 

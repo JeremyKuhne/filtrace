@@ -117,6 +117,7 @@ public sealed partial class EmbeddedPdbExtractorTests
             output.Should().NotBeNull();
             Directory.GetFiles(output!, "*.pdb").Select(Path.GetFileName)
                 .Should().BeEquivalentTo(["embedded.pdb"]);
+
             Directory.GetFiles(output, "*.tmp").Should().BeEmpty();
         }
         finally
@@ -142,6 +143,7 @@ public sealed partial class EmbeddedPdbExtractorTests
             FileMode.Open,
             FileAccess.Write,
             FileShare.None);
+
         writeStream.SetLength(embeddedDataOffset + 8);
     }
 
@@ -160,6 +162,7 @@ public sealed partial class EmbeddedPdbExtractorTests
             Path = System.IO.Path.Join(
                 System.IO.Path.GetTempPath(),
                 $"filtrace-embedded-pdb-test-{Guid.NewGuid():N}");
+
             Directory.CreateDirectory(Path);
         }
 

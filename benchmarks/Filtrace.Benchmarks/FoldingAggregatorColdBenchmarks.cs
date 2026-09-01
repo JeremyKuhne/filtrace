@@ -52,6 +52,7 @@ public class FoldingAggregatorColdBenchmarks
     /// <summary>
     ///  Constructs an aggregator and ranks folded leaf weight.
     /// </summary>
+    /// <returns>The scoped ranking and its top 25 leaf rows.</returns>
     [Benchmark]
     public RankingResult SelfTime() =>
         new FoldingAggregator(_source).SelfTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
@@ -59,6 +60,7 @@ public class FoldingAggregatorColdBenchmarks
     /// <summary>
     ///  Constructs an aggregator and ranks every frame by inclusive weight.
     /// </summary>
+    /// <returns>The scoped ranking and its top 25 inclusive rows.</returns>
     [Benchmark]
     public RankingResult InclusiveTime() =>
         new FoldingAggregator(_source).InclusiveTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
@@ -66,6 +68,7 @@ public class FoldingAggregatorColdBenchmarks
     /// <summary>
     ///  Constructs an aggregator and finds callers of a stable focus frame.
     /// </summary>
+    /// <returns>The focus-frame weight and its top 25 caller rows.</returns>
     [Benchmark]
     public CallersResult CallersOf() =>
         new FoldingAggregator(_source).CallersOf(FocusFrame, string.Empty, top: 25);
@@ -73,6 +76,7 @@ public class FoldingAggregatorColdBenchmarks
     /// <summary>
     ///  Constructs an aggregator and ranks synthetic source lines.
     /// </summary>
+    /// <returns>The method scope and its top 25 attributed source lines.</returns>
     [Benchmark]
     public LineRankingResult HotLines() =>
         new FoldingAggregator(_source).HotLines(
@@ -83,6 +87,7 @@ public class FoldingAggregatorColdBenchmarks
     /// <summary>
     ///  Constructs an aggregator and builds a synthetic source heatmap.
     /// </summary>
+    /// <returns>The source-file scope and every weighted line in it.</returns>
     [Benchmark]
     public SourceHeatmapResult SourceHeatmap() =>
         new FoldingAggregator(_source).SourceHeatmap(SourceFile, FrameNames.DefaultFoldPatterns);
@@ -90,6 +95,7 @@ public class FoldingAggregatorColdBenchmarks
     /// <summary>
     ///  Constructs an aggregator and builds a bounded call tree.
     /// </summary>
+    /// <returns>The complete-weight root and descendants through depth 20.</returns>
     [Benchmark]
     public CallTreeResult CallTree() =>
         new FoldingAggregator(_source).CallTree(
@@ -101,6 +107,7 @@ public class FoldingAggregatorColdBenchmarks
     /// <summary>
     ///  Constructs an aggregator and classifies synthetic self-time.
     /// </summary>
+    /// <returns>The scoped total partitioned into runtime work categories.</returns>
     [Benchmark]
     public ClassifyResult Classify() =>
         new FoldingAggregator(_source).Classify(string.Empty);

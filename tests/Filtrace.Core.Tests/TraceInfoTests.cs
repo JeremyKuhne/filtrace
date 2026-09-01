@@ -16,11 +16,11 @@ public sealed class TraceInfoTests
         IReadOnlyDictionary<string, AnalysisAvailability> analyses =
             new Dictionary<string, AnalysisAvailability>();
 
-        Action nullPath = () => Create(null!, threads, warnings, availableAnalyses, analyses);
-        Action nullThreads = () => Create("/trace.nettrace", null!, warnings, availableAnalyses, analyses);
-        Action nullWarnings = () => Create("/trace.nettrace", threads, null!, availableAnalyses, analyses);
-        Action nullAvailableAnalyses = () => Create("/trace.nettrace", threads, warnings, null!, analyses);
-        Action nullAnalyses = () => Create("/trace.nettrace", threads, warnings, availableAnalyses, null!);
+        Action nullPath = () => Create(path: null!, threads, warnings, availableAnalyses, analyses);
+        Action nullThreads = () => Create("/trace.nettrace", threads: null!, warnings, availableAnalyses, analyses);
+        Action nullWarnings = () => Create("/trace.nettrace", threads, warnings: null!, availableAnalyses, analyses);
+        Action nullAvailableAnalyses = () => Create("/trace.nettrace", threads, warnings, availableAnalyses: null!, analyses);
+        Action nullAnalyses = () => Create("/trace.nettrace", threads, warnings, availableAnalyses, analyses: null!);
 
         nullPath.Should().Throw<ArgumentNullException>().WithParameterName("path");
         nullThreads.Should().Throw<ArgumentNullException>().WithParameterName("threads");
@@ -35,14 +35,14 @@ public sealed class TraceInfoTests
         IReadOnlyList<string> warnings,
         IReadOnlyList<string> availableAnalyses,
         IReadOnlyDictionary<string, AnalysisAvailability> analyses) =>
-        new(
-            path,
-            TraceFormat.NetTrace,
-            1.0,
-            1,
-            1.0,
-            threads,
-            warnings,
-            availableAnalyses,
-            analyses);
+            new(
+                path,
+                TraceFormat.NetTrace,
+                1.0,
+                1,
+                1.0,
+                threads,
+                warnings,
+                availableAnalyses,
+                analyses);
 }

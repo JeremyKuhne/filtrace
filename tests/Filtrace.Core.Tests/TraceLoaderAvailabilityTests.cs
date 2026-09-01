@@ -35,7 +35,7 @@ public sealed class TraceLoaderAvailabilityTests
         TraceInfo info = new TraceLoader().Load(path).Info;
 
         info.Analyses["wait"].Should().Be(
-            new AnalysisAvailability(true, CaptureStatus.Unknown, null));
+            new AnalysisAvailability(FormatSupported: true, CaptureStatus.Unknown, EventCount: null));
     }
 
     [TestMethod]

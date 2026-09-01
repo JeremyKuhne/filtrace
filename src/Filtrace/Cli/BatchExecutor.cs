@@ -13,6 +13,17 @@ namespace Filtrace.Cli;
 /// </summary>
 internal static class BatchExecutor
 {
+    /// <summary>
+    ///  Runs one ranking across every case in the requested manifest and writes the
+    ///  selected output format.
+    /// </summary>
+    /// <param name="request">The validated ranking, scoping, symbol, and output options.</param>
+    /// <param name="output">The writer that receives the batch result.</param>
+    /// <param name="error">The writer that receives invalid-input and trace-read failures.</param>
+    /// <returns>
+    ///  Success when every case was analyzed, a quality-gate exit when strict symbol
+    ///  resolution fails, or an input-error exit when the manifest or a trace cannot be read.
+    /// </returns>
     public static int Run(BatchRequest request, TextWriter output, TextWriter error)
     {
         if (!TraceExecution.TryValidateFold(request.Fold, error))
@@ -38,11 +49,14 @@ internal static class BatchExecutor
                         request.Symbols ?? captureCase.SymbolsDirectory,
                         request.Metric,
                         captureManifest.ResolveCaseScope(captureCase, request.Scope));
+
                     belowThreshold |= SymbolGate.IsBelowThreshold(
                         trace.Info.SymbolResolutionRate,
                         trace.Info.SampleCount);
+
                     return trace;
                 });
+
             AnalysisResult<BatchRankingResult> envelope = new(
                 result,
                 hints: SteeringHints.ForBatch(result, request.Scope, request.Symbols, request.Fold),
@@ -63,15 +77,19 @@ internal static class BatchExecutor
 
             return request.Strict && belowThreshold ? ExitCodes.QualityGate : ExitCodes.Success;
         }
-        catch (Exception exception) when (
-            exception is IOException
-            or UnauthorizedAccessException
-            or InvalidDataException
-            or ArgumentException)
+        catch (Exception exception) when (IsInputException(exception))
         {
             error.WriteLine(exception.Message);
             return ExitCodes.InputError;
         }
+    }
+
+    private static bool IsInputException(Exception exception)
+    {
+        return exception is IOException
+            || exception is UnauthorizedAccessException
+            || exception is InvalidDataException
+            || exception is ArgumentException;
     }
 
     private static string MetricSelector(TraceMetric metric) => metric switch
@@ -83,7 +101,7 @@ internal static class BatchExecutor
         TraceMetric.Contention => "contention",
         TraceMetric.Wait => "wait",
         TraceMetric.Activity => "activity",
-        _ => throw new ArgumentOutOfRangeException(nameof(metric), metric, null)
+        _ => throw new ArgumentOutOfRangeException(nameof(metric), metric, message: null)
     };
 
 }

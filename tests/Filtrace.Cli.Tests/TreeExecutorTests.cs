@@ -22,7 +22,7 @@ public sealed class TreeExecutorTests
         OutputFormat format = OutputFormat.Text,
         bool strict = false,
         IReadOnlyList<string>? fold = null) =>
-        new(path, root, fold ?? FrameNames.DefaultFoldPatterns, maxDepth, minPercent, Symbols: null, format, strict);
+            new(path, root, fold ?? FrameNames.DefaultFoldPatterns, maxDepth, minPercent, Symbols: null, format, strict);
 
     private static (int Exit, string Out, string Error) Run(TreeRequest request)
     {

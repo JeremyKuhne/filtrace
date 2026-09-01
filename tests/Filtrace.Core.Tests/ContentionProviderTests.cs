@@ -43,11 +43,9 @@ public sealed class ContentionProviderTests
         // The provider strips the computer's synthetic per-event leaves, TraceEvent's
         // BROKEN stack markers, and the process / thread roots so the ranking is over
         // real code only.
-        source.Samples.SelectMany(s => s.Frames).Should().OnlyContain(f =>
-            !f.StartsWith("EventData ", StringComparison.Ordinal)
-            && !f.StartsWith("BROKEN", StringComparison.Ordinal)
-            && !f.StartsWith("Process", StringComparison.Ordinal)
-            && !f.StartsWith("Thread (", StringComparison.Ordinal));
+        string[] metadataPrefixes = ["EventData ", "BROKEN", "Process", "Thread ("];
+        source.Samples.SelectMany(s => s.Frames).Should().OnlyContain(frame =>
+            metadataPrefixes.All(prefix => !frame.StartsWith(prefix, StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -92,7 +90,7 @@ public sealed class ContentionProviderTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Read_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         ContentionProvider provider = new();

@@ -50,6 +50,7 @@ public sealed class TraceStoreTests
                     return await store.GetAsync(path);
                 }))
                 .ToArray();
+
             startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
 
             TraceStoreLoadResult[] results = await Task.WhenAll(loads);
@@ -95,6 +96,7 @@ public sealed class TraceStoreTests
                 conversionMutex.ReleaseMutex();
             }
         });
+
         try
         {
             mutexHeld.Wait(SynchronizationTimeout).Should().BeTrue();
@@ -199,7 +201,7 @@ public sealed class TraceStoreTests
 
         LoadedTrace whole = store.Get(path, metric: TraceMetric.Cpu);
         LoadedTrace windowed = store.Get(
-            path, metric: TraceMetric.Cpu, scope: ScopeRequest.Auto.WithTimeWindow(null, 150.0));
+            path, metric: TraceMetric.Cpu, scope: ScopeRequest.Auto.WithTimeWindow(startMSec: null, 150.0));
 
         windowed.Should().NotBeSameAs(whole);
         windowed.Info.SampleCount.Should().BeLessThan(whole.Info.SampleCount);

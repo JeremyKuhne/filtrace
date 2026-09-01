@@ -43,6 +43,7 @@ public class ManifestAnalyzerBenchmarks
             threads: [],
             warnings: [],
             availableAnalyses: ["cpu"]);
+
         _trace = new LoadedTrace(info, source);
 
         CaptureManifestCase[] beforeCases = new CaptureManifestCase[CaseCount];
@@ -54,13 +55,14 @@ public class ManifestAnalyzerBenchmarks
             afterCases[caseIndex] = CreateCase($"after-{caseIndex}", parameters);
         }
 
-        _before = new CaptureManifest("before-manifest.json", null, beforeCases);
-        _after = new CaptureManifest("after-manifest.json", null, afterCases);
+        _before = new CaptureManifest("before-manifest.json", Process: null, beforeCases);
+        _after = new CaptureManifest("after-manifest.json", Process: null, afterCases);
     }
 
     /// <summary>
     ///  Runs one self-time query across every preloaded case.
     /// </summary>
+    /// <returns>The case-keyed scope totals, hottest frames, and record counts.</returns>
     [Benchmark]
     public BatchRankingResult BatchSelf() =>
         CaptureManifestBatchAnalyzer.Analyze(
@@ -75,6 +77,7 @@ public class ManifestAnalyzerBenchmarks
     /// <summary>
     ///  Diffs self-time rankings across every preloaded case pair.
     /// </summary>
+    /// <returns>The paired case diffs together with any manifest-level warnings.</returns>
     [Benchmark]
     public CaptureManifestDiffAnalysis DiffSelf() =>
         CaptureManifestDiffAnalyzer.Analyze(

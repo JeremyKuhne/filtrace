@@ -22,7 +22,7 @@ public sealed class ActivityScopeTests
 
         // An empty or null name clears the scope rather than filtering to "".
         ScopeRequest.Auto.WithActivity("Order").WithActivity("").ActivityName.Should().BeNull();
-        ScopeRequest.Auto.WithActivity(null).ActivityName.Should().BeNull();
+        ScopeRequest.Auto.WithActivity(activityName: null).ActivityName.Should().BeNull();
     }
 
     [TestMethod]
@@ -48,6 +48,7 @@ public sealed class ActivityScopeTests
         scoped.Info.SampleCount.Should().BeGreaterThan(0);
         scoped.Info.SampleCount.Should().BeLessThan(
             whole.Info.SampleCount, "the activity scope drops samples taken outside Order activities");
+
         scoped.Info.Warnings.Should().Contain(w =>
             w.Contains("Scoped to the 'Order' activity", StringComparison.Ordinal));
     }

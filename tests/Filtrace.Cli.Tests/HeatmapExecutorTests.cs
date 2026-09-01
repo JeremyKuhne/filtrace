@@ -20,7 +20,7 @@ public sealed class HeatmapExecutorTests
         OutputFormat format = OutputFormat.Text,
         bool strict = false,
         IReadOnlyList<string>? fold = null) =>
-        new(path, file, fold ?? FrameNames.DefaultFoldPatterns, Symbols: null, format, strict);
+            new(path, file, fold ?? FrameNames.DefaultFoldPatterns, Symbols: null, format, strict);
 
     private static (int Exit, string Out, string Error) Run(HeatmapRequest request)
     {

@@ -139,61 +139,94 @@ public sealed record RankingDiffResult(
     [JsonIgnore]
     public bool FrameNamesBounded { get; init; }
 
+    /// <summary>
+    ///  Gets the baseline scope weight for direct trace diffs; omitted for manifest diffs.
+    /// </summary>
     [JsonInclude]
     [JsonPropertyName("beforeScopeWeight")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     internal double? SerializedBeforeScopeWeight => Kind == TraceKind ? BeforeScopeWeight : null;
 
+    /// <summary>
+    ///  Gets the current scope weight for direct trace diffs; omitted for manifest diffs.
+    /// </summary>
     [JsonInclude]
     [JsonPropertyName("afterScopeWeight")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     internal double? SerializedAfterScopeWeight => Kind == TraceKind ? AfterScopeWeight : null;
 
+    /// <summary>
+    ///  Gets the scope-weight change for direct trace diffs; omitted for manifest diffs.
+    /// </summary>
     [JsonInclude]
     [JsonPropertyName("scopeDelta")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     internal double? SerializedScopeDelta => Kind == TraceKind ? ScopeDelta : null;
 
+    /// <summary>
+    ///  Gets changed frame rows for direct trace diffs; omitted for manifest diffs.
+    /// </summary>
     [JsonInclude]
     [JsonPropertyName("rows")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     internal IReadOnlyList<DiffRow>? SerializedRows => Kind == TraceKind ? Rows : null;
 
+    /// <summary>
+    ///  Gets case-level results for manifest diffs; omitted for direct trace diffs.
+    /// </summary>
     [JsonInclude]
     [JsonPropertyName("cases")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     internal IReadOnlyList<RankingDiffCaseResult>? SerializedCases =>
         Kind == ManifestKind ? Cases : null;
 
+    /// <summary>
+    ///  Gets the baseline contributing-record count for direct trace diffs when available.
+    /// </summary>
     [JsonInclude]
     [JsonPropertyName("beforeContributingRecordCount")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     internal int? SerializedBeforeContributingRecordCount =>
         Kind == TraceKind ? BeforeContributingRecordCount : null;
 
+    /// <summary>
+    ///  Gets the current contributing-record count for direct trace diffs when available.
+    /// </summary>
     [JsonInclude]
     [JsonPropertyName("afterContributingRecordCount")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     internal int? SerializedAfterContributingRecordCount =>
         Kind == TraceKind ? AfterContributingRecordCount : null;
 
+    /// <summary>
+    ///  Gets the per-operation denominator name for direct trace diffs when supplied.
+    /// </summary>
     [JsonInclude]
     [JsonPropertyName("operationUnit")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     internal string? SerializedOperationUnit => Kind == TraceKind ? OperationUnit : null;
 
+    /// <summary>
+    ///  Gets baseline scope weight per operation for direct trace diffs when supplied.
+    /// </summary>
     [JsonInclude]
     [JsonPropertyName("beforeScopeWeightPerOperation")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     internal double? SerializedBeforeScopeWeightPerOperation =>
         Kind == TraceKind ? BeforeScopeWeightPerOperation : null;
 
+    /// <summary>
+    ///  Gets current scope weight per operation for direct trace diffs when supplied.
+    /// </summary>
     [JsonInclude]
     [JsonPropertyName("afterScopeWeightPerOperation")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     internal double? SerializedAfterScopeWeightPerOperation =>
         Kind == TraceKind ? AfterScopeWeightPerOperation : null;
 
+    /// <summary>
+    ///  Gets the per-operation scope-weight change for direct trace diffs when supplied.
+    /// </summary>
     [JsonInclude]
     [JsonPropertyName("scopeWeightPerOperationDelta")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

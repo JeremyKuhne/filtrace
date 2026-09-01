@@ -24,7 +24,7 @@ public sealed class ExportExecutorTests
         ScopeRequest? scope = null,
         string root = "",
         SymbolOptions? symbolOptions = null) =>
-        new(path, format, output, Symbols: null, name, scope ?? ScopeRequest.Auto, root, symbolOptions);
+            new(path, format, output, Symbols: null, name, scope ?? ScopeRequest.Auto, root, symbolOptions);
 
     private static (int Exit, string Out, string Error) Run(ExportRequest request)
     {

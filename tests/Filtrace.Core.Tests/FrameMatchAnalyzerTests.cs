@@ -23,12 +23,14 @@ public sealed class FrameMatchAnalyzerTests
 
         FrameMatch wrapper = report.Matches.Single(
             static match => match.Frame.StartsWith("BenchmarkDotNet", StringComparison.Ordinal));
+
         wrapper.Depths.Should().Equal(1);
         wrapper.MatchingStackCount.Should().Be(2);
         wrapper.SelectedStackCount.Should().Be(2);
 
         FrameMatch benchmark = report.Matches.Single(
             static match => match.Frame.StartsWith("Touki.Perf", StringComparison.Ordinal));
+
         benchmark.Depths.Should().Equal(2, 3);
         benchmark.MatchingStackCount.Should().Be(2);
         benchmark.SelectedStackCount.Should().Be(0);
@@ -44,32 +46,37 @@ public sealed class FrameMatchAnalyzerTests
 
         FrameMatch wrapper = report.Matches.Single(
             static match => match.Frame.StartsWith("BenchmarkDotNet", StringComparison.Ordinal));
+
         wrapper.SelectedStackCount.Should().Be(0);
 
         FrameMatch benchmark = report.Matches.Single(
             static match => match.Frame.StartsWith("Touki.Perf", StringComparison.Ordinal));
+
         benchmark.SelectedStackCount.Should().Be(2);
     }
 
-    private static StackSampleSource Source() => new(
-        MetricInfo.Cpu,
-        [
-            new SampleStack(
-                [
-                    "dotnet!Program.Main()",
-                    "BenchmarkDotNet!Runnable.Deserialize()",
-                    "Touki.Perf!NrbfBenchmarks.Deserialize()",
-                    "System.Private.CoreLib!CPU_TIME"
-                ],
-                10.0),
-            new SampleStack(
-                [
-                    "dotnet!Program.Main()",
-                    "BenchmarkDotNet!Runnable.Deserialize()",
-                    "BenchmarkDotNet!Runnable.WorkloadAction()",
-                    "Touki.Perf!NrbfBenchmarks.Deserialize()",
-                    "System.Private.CoreLib!CPU_TIME"
-                ],
-                20.0)
-        ]);
+    private static StackSampleSource Source()
+    {
+        return new StackSampleSource(
+            MetricInfo.Cpu,
+            [
+                new SampleStack(
+                    [
+                        "dotnet!Program.Main()",
+                        "BenchmarkDotNet!Runnable.Deserialize()",
+                        "Touki.Perf!NrbfBenchmarks.Deserialize()",
+                        "System.Private.CoreLib!CPU_TIME"
+                    ],
+                    10.0),
+                new SampleStack(
+                    [
+                        "dotnet!Program.Main()",
+                        "BenchmarkDotNet!Runnable.Deserialize()",
+                        "BenchmarkDotNet!Runnable.WorkloadAction()",
+                        "Touki.Perf!NrbfBenchmarks.Deserialize()",
+                        "System.Private.CoreLib!CPU_TIME"
+                    ],
+                    20.0)
+            ]);
+    }
 }

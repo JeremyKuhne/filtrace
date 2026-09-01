@@ -10,7 +10,7 @@ public sealed class LocalTestingOperationClassifierTests
     [TestMethod]
     public void Classify_NoStateInstall_ReturnsFreshInstall()
     {
-        LocalTestingOperationClassifier.Classify(LocalTestingAction.Install, null)
+        LocalTestingOperationClassifier.Classify(LocalTestingAction.Install, state: null)
             .Should().Be(LocalTestingOperation.FreshInstall);
     }
 
@@ -18,7 +18,9 @@ public sealed class LocalTestingOperationClassifierTests
     public void Classify_NoStateRestore_Throws()
     {
         Action action = () =>
-            LocalTestingOperationClassifier.Classify(LocalTestingAction.Restore, null);
+        {
+            LocalTestingOperationClassifier.Classify(LocalTestingAction.Restore, state: null);
+        };
 
         action.Should().Throw<InvalidOperationException>()
             .WithMessage("*requires existing*");
@@ -31,7 +33,7 @@ public sealed class LocalTestingOperationClassifierTests
     {
         LocalTestingAction action = (LocalTestingAction)actionValue;
 
-        Action classify = () => LocalTestingOperationClassifier.Classify(action, null);
+        Action classify = () => LocalTestingOperationClassifier.Classify(action, state: null);
 
         classify.Should().Throw<ArgumentOutOfRangeException>()
             .WithParameterName("action");

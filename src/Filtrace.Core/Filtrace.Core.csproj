@@ -3,8 +3,6 @@
 
   <PropertyGroup>
     <RootNamespace>Filtrace</RootNamespace>
-    <!-- The analysis library: emit XML docs (TreatWarningsAsErrors turns missing docs into errors). -->
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

@@ -25,14 +25,26 @@ public sealed partial class TimelineProvider
         private int _collectionCount;
         private bool _namesTruncated;
 
+        /// <summary>
+        ///  Creates a collector for GC collections and pauses that overlap one snapshot window.
+        /// </summary>
+        /// <param name="startMs">The inclusive window start in trace-relative milliseconds.</param>
+        /// <param name="endMs">The inclusive window end in trace-relative milliseconds.</param>
         internal SnapshotGcCollector(double startMs, double endMs)
         {
             _startMs = startMs;
             _endMs = endMs;
         }
 
+        /// <summary>
+        ///  Gets whether a bounded collection or pause-state table rejected additional detail.
+        /// </summary>
         internal bool DetailTruncated { get; private set; }
 
+        /// <summary>
+        ///  Routes a raw GC start, end, suspend, or restart event into the reconstruction state machine.
+        /// </summary>
+        /// <param name="data">The raw CLR event to observe.</param>
         internal void Observe(TraceEvent data)
         {
             switch (data)
@@ -52,12 +64,18 @@ public sealed partial class TimelineProvider
             }
         }
 
+        /// <summary>
+        ///  Attributes a completed pause interval to the foreground or background collection active at its end.
+        /// </summary>
+        /// <param name="clrInstanceId">The CLR instance that emitted the pause.</param>
+        /// <param name="interval">The completed pause interval and process-instance identity.</param>
         internal void ObservePause(int clrInstanceId, GcPauseInterval interval)
         {
             RawGcCollection? collection = CurrentCollection(
                 interval.ProcessInstanceIndex,
                 clrInstanceId,
                 interval.EndMs);
+
             if (collection is null)
             {
                 return;
@@ -80,6 +98,12 @@ public sealed partial class TimelineProvider
             }
         }
 
+        /// <summary>
+        ///  Completes remaining active collections and builds the bounded, pause-ranked GC snapshot detail.
+        /// </summary>
+        /// <param name="pauses">Merged pause intervals and aggregate in-window durations.</param>
+        /// <param name="namesTruncated">Whether a retained collection kind or reason required bounding.</param>
+        /// <returns>Collection count, aggregate pauses, and the longest retained collections.</returns>
         internal SnapshotGcSummary Build(GcPauseAggregate pauses, out bool namesTruncated)
         {
             while (_active.Count > 0)
@@ -93,6 +117,7 @@ public sealed partial class TimelineProvider
             SnapshotGcRecord[] top = [.. _longest
                 .OrderByDescending(static collection => collection.PauseMs)
                 .ThenBy(static collection => collection.Number)];
+
             return new SnapshotGcSummary(
                 _collectionCount,
                 Math.Round(pauses.TotalPauseMs, 2),
@@ -117,6 +142,16 @@ public sealed partial class TimelineProvider
                 start.Reason);
         }
 
+        /// <summary>
+        ///  Starts tracking a unique collection while bounded active-state capacity remains.
+        /// </summary>
+        /// <param name="processInstanceIndex">The TraceEvent process-instance index.</param>
+        /// <param name="clrInstanceId">The CLR instance id.</param>
+        /// <param name="collectionNumber">The collection sequence number within the CLR instance.</param>
+        /// <param name="startMs">The collection start in trace-relative milliseconds.</param>
+        /// <param name="generation">The condemned generation reported by the runtime.</param>
+        /// <param name="type">Whether the collection is foreground, background, or another runtime GC type.</param>
+        /// <param name="reason">The runtime reason that triggered the collection.</param>
         internal void ObserveStart(
             int processInstanceIndex,
             int clrInstanceId,
@@ -159,6 +194,13 @@ public sealed partial class TimelineProvider
             ObserveEnd(processInstanceIndex, end.ClrInstanceID, end.Count, end.TimeStampRelativeMSec);
         }
 
+        /// <summary>
+        ///  Records a collection end and completes it when its foreground or background pause evidence is sufficient.
+        /// </summary>
+        /// <param name="processInstanceIndex">The TraceEvent process-instance index.</param>
+        /// <param name="clrInstanceId">The CLR instance id.</param>
+        /// <param name="collectionNumber">The collection sequence number within the CLR instance.</param>
+        /// <param name="endMs">The collection end in trace-relative milliseconds.</param>
         internal void ObserveEnd(
             int processInstanceIndex,
             int clrInstanceId,
@@ -171,10 +213,12 @@ public sealed partial class TimelineProvider
                 collection.EndMs = endMs;
                 bool lastPauseOverlapsWindow = collection.LastPauseStartMs <= _endMs
                     && collection.LastPauseEndMs >= _startMs;
+
                 collection.PauseContainsEnd |= collection.IsBackground
                     && lastPauseOverlapsWindow
                     && endMs >= collection.LastPauseStartMs
                     && endMs <= collection.LastPauseEndMs;
+
                 if ((!collection.IsBackground && collection.PauseContainsStart)
                     || (collection.IsBackground && collection.PauseContainsEnd))
                 {
@@ -193,6 +237,12 @@ public sealed partial class TimelineProvider
             ObserveSuspend(identity, suspend.ClrInstanceID, suspend.TimeStampRelativeMSec);
         }
 
+        /// <summary>
+        ///  Retains one finite GC suspension start per process, thread, and CLR instance while capacity remains.
+        /// </summary>
+        /// <param name="identity">The process-thread instance that suspended.</param>
+        /// <param name="clrInstanceId">The CLR instance id.</param>
+        /// <param name="startMs">The suspension start in trace-relative milliseconds.</param>
         internal void ObserveSuspend(PauseIdentity identity, int clrInstanceId, double startMs)
         {
             if (!double.IsFinite(startMs))
@@ -204,6 +254,7 @@ public sealed partial class TimelineProvider
                 identity.ProcessInstanceIndex,
                 identity.ThreadInstanceIndex,
                 clrInstanceId);
+
             if (_pauseStarts.ContainsKey(gcIdentity))
             {
                 return;
@@ -228,12 +279,19 @@ public sealed partial class TimelineProvider
             ObserveRestart(identity, restart.ClrInstanceID, restart.TimeStampRelativeMSec);
         }
 
+        /// <summary>
+        ///  Matches a restart to a retained suspension and attributes the resulting valid interval to a collection.
+        /// </summary>
+        /// <param name="identity">The process-thread instance that restarted.</param>
+        /// <param name="clrInstanceId">The CLR instance id.</param>
+        /// <param name="endMs">The restart time in trace-relative milliseconds.</param>
         internal void ObserveRestart(PauseIdentity identity, int clrInstanceId, double endMs)
         {
             GcPauseIdentity gcIdentity = new(
                 identity.ProcessInstanceIndex,
                 identity.ThreadInstanceIndex,
                 clrInstanceId);
+
             if (!_pauseStarts.Remove(gcIdentity, out double startMs))
             {
                 return;
@@ -291,6 +349,7 @@ public sealed partial class TimelineProvider
             bool relevant = IsTimelineTimestampInWindow(collection.StartMs, _startMs, _endMs)
                 || collection.PauseContainsStart
                 || (collection.IsBackground && collection.PauseContainsEnd);
+
             if (!relevant)
             {
                 return;
@@ -308,12 +367,14 @@ public sealed partial class TimelineProvider
                     kind,
                     reason,
                     Math.Round(collection.PauseMs, 2)));
+
             if (_longest.Count > SnapshotDetailLimit)
             {
                 SnapshotGcRecord drop = _longest
                     .OrderBy(static candidate => candidate.PauseMs)
                     .ThenByDescending(static candidate => candidate.Number)
                     .First();
+
                 _longest.Remove(drop);
             }
         }

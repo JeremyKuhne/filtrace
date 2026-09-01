@@ -140,9 +140,9 @@ public sealed class JitStatsProvider
 
     private static int EstimateRecordTokens(JitMethodRecord method) =>
         RecordScaffoldTokens
-        + OutputBudget.EstimateTokens(method.MethodName)
-        + OutputBudget.EstimateTokens(method.ModuleILPath)
-        + OutputBudget.EstimateTokens(method.OptimizationTier);
+            + OutputBudget.EstimateTokens(method.MethodName)
+            + OutputBudget.EstimateTokens(method.ModuleILPath)
+            + OutputBudget.EstimateTokens(method.OptimizationTier);
 
     private static JitStatsResult Summarize(List<JitMethodRecord> records)
     {

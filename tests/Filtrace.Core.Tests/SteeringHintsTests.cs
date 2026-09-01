@@ -82,6 +82,7 @@ public sealed class SteeringHintsTests
 
         AnalysisNextStepArguments arguments = new AnalysisResult<RankingResult>(ranking, hints: hints)
             .NextSteps[0].Arguments!;
+
         arguments.Frame.Should().Be("MyApp.Inner");
         arguments.Root.Should().Be("WorkloadAction");
         arguments.Process.Should().Be("MyApp");
@@ -120,6 +121,7 @@ public sealed class SteeringHintsTests
             ranking,
             MetricInfo.Cpu,
             ScopeRequest.ForProcessIds(processIds));
+
         AnalysisResult<RankingResult> envelope = new(ranking, hints: hints);
 
         AnalysisNextStepArguments arguments = envelope.NextSteps[0].Arguments!;
@@ -138,6 +140,7 @@ public sealed class SteeringHintsTests
             ranking,
             MetricInfo.Cpu,
             ScopeRequest.ForProcessIds(processIds));
+
         AnalysisResult<RankingResult> envelope = new(ranking, hints: hints);
 
         AnalysisNextStepArguments arguments = envelope.NextSteps[0].Arguments!;
@@ -159,6 +162,7 @@ public sealed class SteeringHintsTests
 
         AnalysisNextStepArguments arguments = new AnalysisResult<RankingResult>(ranking, hints: hints)
             .NextSteps[0].Arguments!;
+
         arguments.ProcessIds.Should().Equal(9144);
         arguments.IncludeChildren.Should().BeFalse();
     }
@@ -200,15 +204,18 @@ public sealed class SteeringHintsTests
 
         hints.Should().Contain(h => h.Contains("format-supported symptom routes", StringComparison.Ordinal)
             && h.Contains("contention", StringComparison.Ordinal));
+
         hints.Should().NotContain(h => h.Contains("known-enabled symptom routes", StringComparison.Ordinal));
         hints.Should().Contain(h => h.Contains("frequent exceptions -> exceptions", StringComparison.Ordinal));
         hints.Should().Contain(h => h.Contains("slow but low CPU", StringComparison.Ordinal)
             && h.Contains("contention", StringComparison.Ordinal)
             && h.Contains("wait", StringComparison.Ordinal)
             && h.Contains("threadpool", StringComparison.Ordinal));
+
         hints.Should().Contain(h => h.Contains("high allocation rate or GC pauses", StringComparison.Ordinal)
             && h.Contains("alloc", StringComparison.Ordinal)
             && h.Contains("gcstats", StringComparison.Ordinal));
+
         hints.Should().NotContain(h => h.Contains("growing memory", StringComparison.Ordinal));
 
         AnalysisResult<TraceInfo> envelope = new(info, hints: hints);
@@ -228,6 +235,7 @@ public sealed class SteeringHintsTests
                     ["alloc"] = CaptureStatus.Disabled,
                     ["wait"] = CaptureStatus.Unknown
                 });
+
         TraceInfo info = new(
             "/t.nettrace", TraceFormat.NetTrace, 100.0, 100, 1.0, [], [],
             TraceCapabilities.AnalysesFor(TraceFormat.NetTrace), analyses);
@@ -295,14 +303,16 @@ public sealed class SteeringHintsTests
 
         hints.Should().Contain(hint =>
             hint.Contains("method-name resolution (100%) is separate from source mapping (0%)", StringComparison.Ordinal)
-            && hint.Contains("GeneratedChild", StringComparison.Ordinal)
-            && hint.Contains("generated child output", StringComparison.Ordinal));
+                && hint.Contains("GeneratedChild", StringComparison.Ordinal)
+                && hint.Contains("generated child output", StringComparison.Ordinal));
+
         hints.Should().Contain(hint =>
             hint.Contains("PDB identity mismatch for: GeneratedChild", StringComparison.Ordinal)
-            && hint.Contains("trace-recorded GUID/age", StringComparison.Ordinal));
+                && hint.Contains("trace-recorded GUID/age", StringComparison.Ordinal));
+
         hints.Should().Contain(hint =>
             hint.Contains("named managed frames without source: 100", StringComparison.Ordinal)
-            && hint.Contains("sourceResolution.highestUnmappedMethods", StringComparison.Ordinal));
+                && hint.Contains("sourceResolution.highestUnmappedMethods", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -380,6 +390,7 @@ public sealed class SteeringHintsTests
             25.0,
             [new CallerRow("Program.Main", 20.0, 100.0)],
             [new CalleeRow("MyApp.Inner", 16.0, 80.0)]);
+
         ScopeRequest scope = ScopeRequest.ForProcess("MyApp");
 
         IReadOnlyList<string> hints = SteeringHints.ForCallers(callers, "WorkloadAction", scope);
@@ -387,6 +398,7 @@ public sealed class SteeringHintsTests
         hints.Should().HaveCount(2);
         hints[0].Should().Be(
             "continue up the stack with: callers Program.Main --root 'WorkloadAction' --process 'MyApp'");
+
         hints[1].Should().Be(
             "continue down into the callee with: callers MyApp.Inner --callees --root 'WorkloadAction' --process 'MyApp'");
 
@@ -524,12 +536,14 @@ public sealed class SteeringHintsTests
         {
             CaseId = "command"
         };
+
         BatchRankingResult batch = new(
             "manifest.json",
             "cpu",
             "inclusive",
             "Workload",
             [captureCase]);
+
         ScopeRequest scope = ScopeRequest.ForProcessIds([9144, 40356], includeChildren: false);
 
         IReadOnlyList<string> hints = SteeringHints.ForBatch(
@@ -537,6 +551,7 @@ public sealed class SteeringHintsTests
             scope,
             symbols: "symbols",
             foldPatterns: ["CustomFold"]);
+
         AnalysisResult<BatchRankingResult> envelope = new(batch, hints: hints);
 
         AnalysisNextStep next = envelope.NextSteps.Should().ContainSingle().Subject;
@@ -580,7 +595,7 @@ public sealed class SteeringHintsTests
         BatchRankingResult batch = BatchWithCaseId();
         string[] foldPatterns = [.. Enumerable.Repeat("fold", 33)];
 
-        IReadOnlyList<string> hints = SteeringHints.ForBatch(batch, null, null, foldPatterns);
+        IReadOnlyList<string> hints = SteeringHints.ForBatch(batch, scope: null, symbols: null, foldPatterns);
         AnalysisNextStep next = new AnalysisResult<BatchRankingResult>(batch, hints: hints).NextSteps[0];
 
         next.Operation.Should().BeNull();
@@ -592,7 +607,7 @@ public sealed class SteeringHintsTests
     {
         BatchRankingResult batch = BatchWithCaseId();
 
-        IReadOnlyList<string> hints = SteeringHints.ForBatch(batch, null, null, [new string('f', 257)]);
+        IReadOnlyList<string> hints = SteeringHints.ForBatch(batch, scope: null, symbols: null, [new string('f', 257)]);
         AnalysisNextStep next = new AnalysisResult<BatchRankingResult>(batch, hints: hints).NextSteps[0];
 
         next.Operation.Should().BeNull();
@@ -604,7 +619,7 @@ public sealed class SteeringHintsTests
     {
         BatchRankingResult batch = BatchWithCaseId();
 
-        IReadOnlyList<string> hints = SteeringHints.ForBatch(batch, null, new string('s', 1025), null);
+        IReadOnlyList<string> hints = SteeringHints.ForBatch(batch, scope: null, new string('s', 1025), foldPatterns: null);
         AnalysisNextStep next = new AnalysisResult<BatchRankingResult>(batch, hints: hints).NextSteps[0];
 
         next.Operation.Should().BeNull();
@@ -636,15 +651,15 @@ public sealed class SteeringHintsTests
     public void ForTimeline_CpuLane_DrillsBusiestWindowWithScopedRanking()
     {
         TimelineResult timeline = new(
-            0.0, 100.0, 20.0, 5, null,
+            0.0, 100.0, 20.0, 5, Process: null,
             Gc: null,
             Cpu:
             [
-                new CpuBucket(0, null),
-                new CpuBucket(0, null),
+                new CpuBucket(0, TopMethod: null),
+                new CpuBucket(0, TopMethod: null),
                 new CpuBucket(50, "MyApp.Hot"),
-                new CpuBucket(1, null),
-                new CpuBucket(0, null)
+                new CpuBucket(1, TopMethod: null),
+                new CpuBucket(0, TopMethod: null)
             ],
             Exceptions: null, Alloc: null, Jit: null);
 
@@ -664,15 +679,15 @@ public sealed class SteeringHintsTests
             Gc: null,
             Cpu:
             [
-                new CpuBucket(0, null),
-                new CpuBucket(0, null),
+                new CpuBucket(0, TopMethod: null),
+                new CpuBucket(0, TopMethod: null),
                 new CpuBucket(50, "MyApp.Hot"),
-                new CpuBucket(1, null),
-                new CpuBucket(0, null)
+                new CpuBucket(1, TopMethod: null),
+                new CpuBucket(0, TopMethod: null)
             ],
             Exceptions: null, Alloc: null, Jit: null)
         {
-            AppliedProcessScope = new AppliedProcessScope("name", "HotLoopBench", [], [123], [], true)
+            AppliedProcessScope = new AppliedProcessScope("name", "HotLoopBench", [], [123], [], IncludeChildren: true)
         };
 
         IReadOnlyList<string> hints = SteeringHints.ForTimeline(timeline);
@@ -697,7 +712,7 @@ public sealed class SteeringHintsTests
     {
         TimelineResult timeline = CpuBucketTimeline() with
         {
-            AppliedProcessScope = new AppliedProcessScope("ids", null, [123, 456], [123, 456], [], false)
+            AppliedProcessScope = new AppliedProcessScope("ids", Process: null, [123, 456], [123, 456], [], IncludeChildren: false)
         };
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
@@ -737,7 +752,7 @@ public sealed class SteeringHintsTests
     {
         TimelineResult timeline = CpuBucketTimeline() with
         {
-            AppliedProcessScope = new AppliedProcessScope("automatic", "App", [], [789], [790], true)
+            AppliedProcessScope = new AppliedProcessScope("automatic", "App", [], [789], [790], IncludeChildren: true)
         };
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
@@ -754,10 +769,11 @@ public sealed class SteeringHintsTests
     [TestMethod]
     public void ForTimeline_BucketWithReusedAutomaticRootId_EmitsNoRunnableFollowUp()
     {
-        AppliedProcessScope scope = new("automatic", "App", [], [789], [], true)
+        AppliedProcessScope scope = new("automatic", "App", [], [789], [], IncludeChildren: true)
         {
             RootProcessIdsReplayable = false
         };
+
         TimelineResult timeline = CpuBucketTimeline() with { AppliedProcessScope = scope };
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
@@ -766,6 +782,7 @@ public sealed class SteeringHintsTests
             .Contain("root pid reused by multiple process instances")
             .And.Contain("choose an explicit selector")
             .And.NotContain("--pid 789");
+
         envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
         envelope.NextSteps[0].Arguments.Should().BeNull();
     }
@@ -777,15 +794,15 @@ public sealed class SteeringHintsTests
         // the drill window must keep its precision rather than rounding to a degenerate or
         // shifted whole-millisecond range that would select the wrong slice.
         TimelineResult timeline = new(
-            0.0, 1.5, 0.3, 5, null,
+            0.0, 1.5, 0.3, 5, Process: null,
             Gc: null,
             Cpu:
             [
-                new CpuBucket(0, null),
-                new CpuBucket(0, null),
+                new CpuBucket(0, TopMethod: null),
+                new CpuBucket(0, TopMethod: null),
                 new CpuBucket(50, "MyApp.Hot"),
-                new CpuBucket(1, null),
-                new CpuBucket(0, null)
+                new CpuBucket(1, TopMethod: null),
+                new CpuBucket(0, TopMethod: null)
             ],
             Exceptions: null, Alloc: null, Jit: null);
 
@@ -798,7 +815,7 @@ public sealed class SteeringHintsTests
     public void ForTimeline_Empty_NudgesToWiden()
     {
         TimelineResult timeline = new(
-            0.0, 100.0, 20.0, 5, null,
+                0.0, 100.0, 20.0, 5, Process: null,
             Gc: null, Cpu: null, Exceptions: null, Alloc: null, Jit: null);
 
         IReadOnlyList<string> hints = SteeringHints.ForTimeline(timeline);
@@ -818,19 +835,21 @@ public sealed class SteeringHintsTests
             new SnapshotAllocationSummary(0, 0, 0, []),
             new SnapshotJitSummary(0, 0, []),
             new SnapshotEventSummary(10, 1, [new SnapshotEventType("SampleProfiler", "ThreadSample", 10)]),
-            false);
+            NamesTruncated: false);
+
         TimelineResult timeline = new(
-            40.0, 60.0, 20.0, 1, process, null, null, null, null, null)
+            40.0, 60.0, 20.0, 1, process, Gc: null, Cpu: null, Exceptions: null, Alloc: null, Jit: null)
         {
             Mode = "snapshot",
             Snapshot = snapshot,
-            AppliedProcessScope = new AppliedProcessScope("name", process, [], [123], [], true)
+            AppliedProcessScope = new AppliedProcessScope("name", process, [], [123], [], IncludeChildren: true)
         };
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
 
         envelope.Hints.Should().ContainSingle().Which.Should()
             .EndWith("--time 40,60 --process 'My App''s $(Get-Item)'");
+
         AnalysisNextStep next = envelope.NextSteps.Should().ContainSingle().Subject;
         next.Operation.Should().Be("rank");
         next.Arguments!.Metric.Should().Be("cpu");
@@ -844,7 +863,7 @@ public sealed class SteeringHintsTests
     {
         TimelineResult timeline = SnapshotTimeline() with
         {
-            AppliedProcessScope = new AppliedProcessScope("ids", null, [123, 456], [123, 456], [], false)
+            AppliedProcessScope = new AppliedProcessScope("ids", Process: null, [123, 456], [123, 456], [], IncludeChildren: false)
         };
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
@@ -880,7 +899,7 @@ public sealed class SteeringHintsTests
     {
         TimelineResult timeline = SnapshotTimeline() with
         {
-            AppliedProcessScope = new AppliedProcessScope("automatic", "App", [], [789], [790], true)
+            AppliedProcessScope = new AppliedProcessScope("automatic", "App", [], [789], [790], IncludeChildren: true)
         };
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
@@ -897,7 +916,7 @@ public sealed class SteeringHintsTests
         int[] processIds = [.. Enumerable.Range(1, AnalysisScopeContext.MaxReportedProcessIds + 1)];
         TimelineResult timeline = SnapshotTimeline() with
         {
-            AppliedProcessScope = new AppliedProcessScope("automatic", "App", [], processIds, [], true)
+            AppliedProcessScope = new AppliedProcessScope("automatic", "App", [], processIds, [], IncludeChildren: true)
         };
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
@@ -906,6 +925,7 @@ public sealed class SteeringHintsTests
             .Contain($"exact process scope has {processIds.Length} ids")
             .And.Contain("choose a narrower --process or --pid selector")
             .And.NotContain("original process selector");
+
         envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
         envelope.NextSteps[0].Arguments.Should().BeNull();
     }
@@ -913,10 +933,11 @@ public sealed class SteeringHintsTests
     [TestMethod]
     public void ForTimeline_SnapshotWithReusedAutomaticRootId_EmitsNoRunnableFollowUp()
     {
-        AppliedProcessScope scope = new("automatic", "App", [], [789], [], true)
+        AppliedProcessScope scope = new("automatic", "App", [], [789], [], IncludeChildren: true)
         {
             RootProcessIdsReplayable = false
         };
+
         TimelineResult timeline = SnapshotTimeline() with { AppliedProcessScope = scope };
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
@@ -925,6 +946,7 @@ public sealed class SteeringHintsTests
             .Contain("root pid reused by multiple process instances")
             .And.Contain("choose an explicit selector")
             .And.NotContain("--pid 789");
+
         envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
         envelope.NextSteps[0].Arguments.Should().BeNull();
     }
@@ -932,10 +954,11 @@ public sealed class SteeringHintsTests
     [TestMethod]
     public void ForTimeline_SnapshotWithNameScopeAndReusedRootId_PreservesNameFollowUp()
     {
-        AppliedProcessScope scope = new("name", "App", [], [789], [], true)
+        AppliedProcessScope scope = new("name", "App", [], [789], [], IncludeChildren: true)
         {
             RootProcessIdsReplayable = false
         };
+
         TimelineResult timeline = SnapshotTimeline() with { AppliedProcessScope = scope };
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
@@ -952,7 +975,7 @@ public sealed class SteeringHintsTests
         int[] processIds = [.. Enumerable.Range(1, AnalysisScopeContext.MaxReportedProcessIds + 1)];
         TimelineResult timeline = SnapshotTimeline() with
         {
-            AppliedProcessScope = new AppliedProcessScope("ids", null, processIds, processIds, [], true)
+            AppliedProcessScope = new AppliedProcessScope("ids", Process: null, processIds, processIds, [], IncludeChildren: true)
         };
 
         AnalysisResult<TimelineResult> envelope = new(timeline, hints: SteeringHints.ForTimeline(timeline));
@@ -960,6 +983,7 @@ public sealed class SteeringHintsTests
         envelope.Hints.Should().ContainSingle().Which.Should()
             .Contain($"exact process scope has {processIds.Length} ids")
             .And.Contain("original process selector");
+
         envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
         envelope.NextSteps[0].Arguments.Should().BeNull();
     }
@@ -975,9 +999,10 @@ public sealed class SteeringHintsTests
             new SnapshotAllocationSummary(0, 0, 0, []),
             new SnapshotJitSummary(0, 0, []),
             new SnapshotEventSummary(3, 1, [new SnapshotEventType("Runtime", "Exception", 3)]),
-            false);
+            NamesTruncated: false);
+
         TimelineResult timeline = new(
-            40.0, 60.0, 20.0, 1, null, null, null, null, null, null)
+            40.0, 60.0, 20.0, 1, Process: null, Gc: null, Cpu: null, Exceptions: null, Alloc: null, Jit: null)
         {
             Mode = "snapshot",
             Snapshot = snapshot
@@ -1004,8 +1029,9 @@ public sealed class SteeringHintsTests
             new SnapshotAllocationSummary(0, 0, 0, []),
             new SnapshotJitSummary(0, 0, []),
             new SnapshotEventSummary(10, 1, [new SnapshotEventType("SampleProfiler", "ThreadSample", 10)]),
-            false);
-        TimelineResult timeline = new(40.0, 60.0, 20.0, 1, null, null, null, null, null, null)
+                NamesTruncated: false);
+
+        TimelineResult timeline = new(40.0, 60.0, 20.0, 1, Process: null, Gc: null, Cpu: null, Exceptions: null, Alloc: null, Jit: null)
         {
             Mode = "snapshot",
             Snapshot = snapshot
@@ -1020,7 +1046,7 @@ public sealed class SteeringHintsTests
     [TestMethod]
     public void ForRanking_Null_ThrowsArgumentNull()
     {
-        Action act = () => SteeringHints.ForRanking(null!);
+        Action act = () => SteeringHints.ForRanking(ranking: null!);
 
         act.Should().Throw<ArgumentNullException>();
     }
@@ -1028,7 +1054,7 @@ public sealed class SteeringHintsTests
     [TestMethod]
     public void ForCallers_Null_ThrowsArgumentNull()
     {
-        Action act = () => SteeringHints.ForCallers(null!);
+        Action act = () => SteeringHints.ForCallers(callers: null!);
 
         act.Should().Throw<ArgumentNullException>();
     }
@@ -1036,7 +1062,7 @@ public sealed class SteeringHintsTests
     [TestMethod]
     public void ForDiff_Null_ThrowsArgumentNull()
     {
-        Action act = () => SteeringHints.ForDiff(null!);
+        Action act = () => SteeringHints.ForDiff(diff: null!);
 
         act.Should().Throw<ArgumentNullException>();
     }
@@ -1044,7 +1070,7 @@ public sealed class SteeringHintsTests
     [TestMethod]
     public void ForTimeline_Null_ThrowsArgumentNull()
     {
-        Action act = () => SteeringHints.ForTimeline(null!);
+        Action act = () => SteeringHints.ForTimeline(timeline: null!);
 
         act.Should().Throw<ArgumentNullException>();
     }
@@ -1059,8 +1085,9 @@ public sealed class SteeringHintsTests
             new SnapshotAllocationSummary(0, 0, 0, []),
             new SnapshotJitSummary(0, 0, []),
             new SnapshotEventSummary(10, 1, [new SnapshotEventType("Runtime", "Sample", 10)]),
-            false);
-        return new TimelineResult(40.0, 60.0, 20.0, 1, null, null, null, null, null, null)
+                NamesTruncated: false);
+
+        return new TimelineResult(40.0, 60.0, 20.0, 1, Process: null, Gc: null, Cpu: null, Exceptions: null, Alloc: null, Jit: null)
         {
             Mode = "snapshot",
             Snapshot = snapshot
@@ -1073,15 +1100,15 @@ public sealed class SteeringHintsTests
             100.0,
             20.0,
             5,
-            null,
+            Process: null,
             Gc: null,
             Cpu:
             [
-                new CpuBucket(0, null),
-                new CpuBucket(0, null),
+                new CpuBucket(0, TopMethod: null),
+                new CpuBucket(0, TopMethod: null),
                 new CpuBucket(50, "App.Hot"),
-                new CpuBucket(1, null),
-                new CpuBucket(0, null)
+                new CpuBucket(1, TopMethod: null),
+                new CpuBucket(0, TopMethod: null)
             ],
             Exceptions: null,
             Alloc: null,

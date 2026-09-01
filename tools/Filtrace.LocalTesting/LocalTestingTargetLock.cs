@@ -4,6 +4,9 @@
 
 namespace Filtrace.LocalTesting;
 
+/// <summary>
+///  Holds an exclusive file handle that serializes local-testing mutations for one target repository.
+/// </summary>
 internal sealed class LocalTestingTargetLock : IDisposable
 {
     private const string DisableFileLockingSwitch = "System.IO.DisableFileLocking";
@@ -16,15 +19,22 @@ internal sealed class LocalTestingTargetLock : IDisposable
         _stream = stream;
     }
 
+    /// <summary>
+    ///  Opens the target's regular lock file without sharing and rejects runtimes configured to disable Unix locks.
+    /// </summary>
+    /// <param name="plan">The target plan containing the shared git-directory lock path.</param>
+    /// <returns>A disposable owner of the exclusive lock handle.</returns>
     public static LocalTestingTargetLock Acquire(ResourcePlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
         if (!OperatingSystem.IsWindows() && IsRuntimeFileLockingDisabled())
         {
             throw new InvalidOperationException(
-                $"Local testing requires .NET file locking. Disable '{DisableFileLockingSwitch}' "
-                + $"and unset '{DisableFileLockingVariable}'.");
+                string.Concat(
+                    $"Local testing requires .NET file locking. Disable '{DisableFileLockingSwitch}' ",
+                    $"and unset '{DisableFileLockingVariable}'."));
         }
+
         if (!Directory.Exists(plan.GitDirectory))
         {
             throw new DirectoryNotFoundException(
@@ -37,6 +47,7 @@ internal sealed class LocalTestingTargetLock : IDisposable
             throw new InvalidDataException(
                 $"Local-testing lock is a directory, not a file: '{plan.LockPath}'.");
         }
+
         if (File.Exists(plan.LockPath))
         {
             RegularFileGuard.Exists(plan.LockPath, "Local-testing lock");
@@ -57,6 +68,7 @@ internal sealed class LocalTestingTargetLock : IDisposable
                 Access = FileAccess.Read,
                 Share = FileShare.None
             };
+
             if (!OperatingSystem.IsWindows())
             {
                 options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
@@ -67,8 +79,9 @@ internal sealed class LocalTestingTargetLock : IDisposable
         catch (IOException exception)
         {
             throw new InvalidOperationException(
-                $"Could not acquire the local-testing lock for '{plan.TargetRoot}'. "
-                + "Another local-testing operation may already be running.",
+                string.Concat(
+                    $"Could not acquire the local-testing lock for '{plan.TargetRoot}'. ",
+                    "Another local-testing operation may already be running."),
                 exception);
         }
 
@@ -100,6 +113,7 @@ internal sealed class LocalTestingTargetLock : IDisposable
             {
                 return true;
             }
+
             if (configured.Equals("0", StringComparison.Ordinal)
                 || configured.Equals(bool.FalseString, StringComparison.OrdinalIgnoreCase))
             {
@@ -110,6 +124,9 @@ internal sealed class LocalTestingTargetLock : IDisposable
         return AppContext.TryGetSwitch(DisableFileLockingSwitch, out bool disabled) && disabled;
     }
 
+    /// <summary>
+    ///  Closes the exclusive file handle so another process can acquire the target lock.
+    /// </summary>
     public void Dispose()
     {
         _stream.Dispose();

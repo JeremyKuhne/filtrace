@@ -32,7 +32,7 @@ public sealed class RankingExecutorTests
         bool strict = false,
         IReadOnlyList<string>? fold = null,
         TraceMetric metric = TraceMetric.Cpu) =>
-        new(path, metric, root, top, fold ?? FrameNames.DefaultFoldPatterns, measure, format, Symbols: null, strict);
+            new(path, metric, root, top, fold ?? FrameNames.DefaultFoldPatterns, measure, format, Symbols: null, strict);
 
     private static (int Exit, string Out, string Error) Run(RankRequest request)
     {
@@ -240,7 +240,7 @@ public sealed class RankingExecutorTests
     }
 
     [TestMethod]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     [DataRow("")]
     public void Run_ManifestCase_NullOrEmptySymbolsUsesRecordedDirectory(string? symbols)
     {
@@ -296,6 +296,7 @@ public sealed class RankingExecutorTests
             $$"""
             {"schemaVersion":2,"kind":"command","process":"HotLoopBench","cases":[{"id":"command","benchmark":"Command.Run","parameters":"","benchmarkDisplay":"Command.Run","trace":"{{trace}}","invocations":[{"ordinal":1,"processId":999999,"exitCode":0,"startedUtc":"2026-08-03T00:00:00Z","stoppedUtc":"2026-08-03T00:00:01Z"}]}]}
             """);
+
         try
         {
             RankRequest request = Request(manifest) with { CaseId = "command" };
@@ -321,6 +322,7 @@ public sealed class RankingExecutorTests
             $$"""
             {"schemaVersion":1,"cases":[{"id":"{{caseId}}","benchmark":"Bench.Work","parameters":"Size: 1","benchmarkDisplay":"Work(Size: 1)","speedscope":"{{trace}}"}]}
             """);
+
         return manifest;
     }
 
@@ -334,6 +336,7 @@ public sealed class RankingExecutorTests
             $$"""
             {"schemaVersion":1,"cases":[{"id":"{{caseId}}","benchmark":"Bench.Work","parameters":"","benchmarkDisplay":"Work","trace":"{{trace}}","symbolsDirectory":"{{symbols}}"}]}
             """);
+
         return manifest;
     }
 

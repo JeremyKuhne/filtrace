@@ -263,6 +263,7 @@ public sealed class CliAppTests
             $$"""
             {"schemaVersion":1,"cases":[{"id":"size-1","benchmark":"Bench.Work","parameters":"Size: 1","benchmarkDisplay":"Work(Size: 1)","speedscope":"{{trace}}"}]}
             """);
+
         try
         {
             (int exit, string output, string error) = Run(
@@ -943,6 +944,7 @@ public sealed class CliAppTests
     {
         (int sourceExit, string sourceOutput, _) = Run(
             "source", Speedscope, "--view", "lines", "--format", "json");
+
         (int aliasExit, string aliasOutput, string aliasError) = Run(
             "lines", Speedscope, "--format", "json");
 
@@ -1314,6 +1316,7 @@ public sealed class CliAppTests
     {
         (int reportExit, string reportOutput, _) = Run(
             "report", Alloc, "--kind", "gc", "--format", "json");
+
         (int aliasExit, string aliasOutput, string aliasError) = Run(
             "gcstats", Alloc, "--format", "json");
 
@@ -1333,6 +1336,7 @@ public sealed class CliAppTests
         {
             (int convertExit, string convertOutput, _) = Run(
                 "cache", trace, "--action", "convert");
+
             (int cleanExit, string cleanOutput, _) = Run(
                 "cache", trace, "--action", "clean");
 

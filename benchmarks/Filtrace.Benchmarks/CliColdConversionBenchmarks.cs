@@ -72,6 +72,7 @@ public class CliColdConversionBenchmarks
     /// <summary>
     ///  Starts filtrace once against the fresh trace.
     /// </summary>
+    /// <returns>A task that captures the child exit code and redirected-output sizes.</returns>
     [Benchmark]
     public Task<CliProcessResult> InfoCold() =>
         CliProcessRunner.RunAsync(_executable, _arguments);

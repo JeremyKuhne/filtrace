@@ -87,7 +87,7 @@ public static class ChromiumExporter
                 // sample, deepest first.
                 for (int i = open.Count - 1; i >= common; i--)
                 {
-                    WriteDuration(writer, "E", null, cursor * scale);
+                    WriteDuration(writer, "E", name: null, cursor * scale);
                 }
 
                 // Open this sample's frames below the shared prefix, shallowest first.
@@ -104,7 +104,7 @@ public static class ChromiumExporter
             // Close whatever remains open at the final cursor.
             for (int i = open.Count - 1; i >= 0; i--)
             {
-                WriteDuration(writer, "E", null, cursor * scale);
+                WriteDuration(writer, "E", name: null, cursor * scale);
             }
 
             writer.WriteEndArray();

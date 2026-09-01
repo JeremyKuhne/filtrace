@@ -16,6 +16,7 @@ public sealed class CaptureMetadataReaderTests
             File.WriteAllText(
                 CaptureMetadataReader.PathFor(trace),
                 """{"schemaVersion":1,"analyses":{"cpu":"enabled","alloc":"disabled","future":"enabled"},"recorder":{"name":"dotnet-trace","version":"9.0.661903","profiles":["dotnet-common","dotnet-sampled-thread-time"]}}""");
+
             List<string> warnings = [];
 
             IReadOnlyDictionary<string, CaptureStatus>? result =
@@ -26,6 +27,7 @@ public sealed class CaptureMetadataReaderTests
                 ["cpu"] = CaptureStatus.Enabled,
                 ["alloc"] = CaptureStatus.Disabled
             });
+
             warnings.Should().BeEmpty();
         }
         finally
@@ -64,6 +66,7 @@ public sealed class CaptureMetadataReaderTests
             File.WriteAllBytes(
                 CaptureMetadataReader.PathFor(trace),
                 new byte[CaptureMetadataReader.MaxBytes + 1]);
+
             List<string> warnings = [];
 
             IReadOnlyDictionary<string, CaptureStatus>? result =

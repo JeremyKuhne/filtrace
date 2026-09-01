@@ -9,13 +9,25 @@ using System.Text;
 
 namespace Filtrace.Benchmarks;
 
+/// <summary>
+///  Launches filtrace out of process while draining bounded output and, for telemetry
+///  campaigns, sampling child CPU and memory counters.
+/// </summary>
 internal static partial class CliProcessRunner
 {
+    /// <summary>
+    ///  The environment variable that overrides Release-build executable discovery.
+    /// </summary>
     public const string FiltracePathEnvironmentVariable = "FILTRACE_BENCHMARK_CLI_PATH";
     private const int MaximumCapturedCharacters = 10 * 1024 * 1024;
     private static readonly TimeSpan ProcessCleanupTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    ///  Resolves an explicit executable override or walks to the repository root and
+    ///  selects the Release filtrace executable for the current platform.
+    /// </summary>
+    /// <returns>The full path to an existing filtrace executable.</returns>
     public static string FindFiltraceExecutable()
     {
         string? configured = Environment.GetEnvironmentVariable(FiltracePathEnvironmentVariable);
@@ -52,6 +64,7 @@ internal static partial class CliProcessRunner
             "Release",
             "net10.0",
             OperatingSystem.IsWindows() ? "filtrace.exe" : "filtrace");
+
         if (!File.Exists(executable))
         {
             throw new FileNotFoundException(
@@ -62,6 +75,13 @@ internal static partial class CliProcessRunner
         return executable;
     }
 
+    /// <summary>
+    ///  Runs one measured child process and reduces its bounded redirected streams to
+    ///  the values consumed by BenchmarkDotNet.
+    /// </summary>
+    /// <param name="executable">The filtrace executable to launch.</param>
+    /// <param name="arguments">The argument tokens passed without shell parsing.</param>
+    /// <returns>A task containing the exit code and stdout and stderr character counts.</returns>
     public static async Task<CliProcessResult> RunAsync(
         string executable,
         IReadOnlyList<string> arguments)
@@ -69,13 +89,22 @@ internal static partial class CliProcessRunner
         ProcessObservation observation = await RunCoreAsync(
             executable,
             arguments,
-            samplePrivateMemory: false).ConfigureAwait(false);
+                samplePrivateMemory: false).ConfigureAwait(continueOnCapturedContext: false);
+
         return new CliProcessResult(
             observation.ExitCode,
             observation.StandardOutput.Length,
             observation.StandardError.Length);
     }
 
+    /// <summary>
+    ///  Runs one telemetry launch and records output identity together with final CPU,
+    ///  peak working-set, and sampled private-memory measurements.
+    /// </summary>
+    /// <param name="executable">The filtrace executable to launch.</param>
+    /// <param name="arguments">The argument tokens passed without shell parsing.</param>
+    /// <param name="iteration">The one-based launch number within the campaign.</param>
+    /// <returns>A task containing the serialized telemetry for the completed launch.</returns>
     public static async Task<CliProcessTelemetry> RunTelemetryAsync(
         string executable,
         IReadOnlyList<string> arguments,
@@ -84,7 +113,8 @@ internal static partial class CliProcessRunner
         ProcessObservation observation = await RunCoreAsync(
             executable,
             arguments,
-            samplePrivateMemory: true).ConfigureAwait(false);
+                samplePrivateMemory: true).ConfigureAwait(continueOnCapturedContext: false);
+
         return new CliProcessTelemetry(
             iteration,
             [.. arguments],
@@ -108,6 +138,7 @@ internal static partial class CliProcessRunner
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+
         foreach (string argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);
@@ -149,22 +180,22 @@ internal static partial class CliProcessRunner
                         ref maxPrivateMemoryBytes);
                 }
 
-                await Task.WhenAny(waitForExit, Task.Delay(10)).ConfigureAwait(false);
+                await Task.WhenAny(waitForExit, Task.Delay(10)).ConfigureAwait(continueOnCapturedContext: false);
                 if (standardOutput.IsFaulted || standardError.IsFaulted)
                 {
-                    await StopProcessAsync(process).ConfigureAwait(false);
-                    await Task.WhenAll(standardOutput, standardError).ConfigureAwait(false);
+                    await StopProcessAsync(process).ConfigureAwait(continueOnCapturedContext: false);
+                    await Task.WhenAll(standardOutput, standardError).ConfigureAwait(continueOnCapturedContext: false);
                 }
             }
 
-            await waitForExit.ConfigureAwait(false);
+            await waitForExit.ConfigureAwait(continueOnCapturedContext: false);
         }
         catch (OperationCanceledException) when (timeout.IsCancellationRequested)
         {
             Exception? cleanupError = null;
             try
             {
-                await StopProcessAsync(process).ConfigureAwait(false);
+                await StopProcessAsync(process).ConfigureAwait(continueOnCapturedContext: false);
             }
             catch (Exception exception)
             {
@@ -173,7 +204,7 @@ internal static partial class CliProcessRunner
 
             try
             {
-                await Task.WhenAll(standardOutput, standardError).ConfigureAwait(false);
+                await Task.WhenAll(standardOutput, standardError).ConfigureAwait(continueOnCapturedContext: false);
             }
             catch (InvalidDataException)
             {
@@ -185,9 +216,9 @@ internal static partial class CliProcessRunner
                 cleanupError);
         }
 
-        await Task.WhenAll(standardOutput, standardError).ConfigureAwait(false);
-        string output = await standardOutput.ConfigureAwait(false);
-        string error = await standardError.ConfigureAwait(false);
+        await Task.WhenAll(standardOutput, standardError).ConfigureAwait(continueOnCapturedContext: false);
+        string output = await standardOutput.ConfigureAwait(continueOnCapturedContext: false);
+        string error = await standardError.ConfigureAwait(continueOnCapturedContext: false);
         if (process.ExitCode != 0)
         {
             string detail = error.Length <= 1_000 ? error : error[..1_000];
@@ -218,7 +249,7 @@ internal static partial class CliProcessRunner
             int remaining = MaximumCapturedCharacters - output.WrittenCount;
             int requested = Math.Min(4_096, remaining + 1);
             Memory<char> buffer = output.GetMemory(requested)[..requested];
-            int read = await reader.ReadAsync(buffer).ConfigureAwait(false);
+            int read = await reader.ReadAsync(buffer).ConfigureAwait(continueOnCapturedContext: false);
             if (read == 0)
             {
                 return new string(output.WrittenSpan);
@@ -252,7 +283,7 @@ internal static partial class CliProcessRunner
         using CancellationTokenSource cleanupTimeout = new(ProcessCleanupTimeout);
         try
         {
-            await process.WaitForExitAsync(cleanupTimeout.Token).ConfigureAwait(false);
+            await process.WaitForExitAsync(cleanupTimeout.Token).ConfigureAwait(continueOnCapturedContext: false);
         }
         catch (OperationCanceledException) when (cleanupTimeout.IsCancellationRequested)
         {

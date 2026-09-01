@@ -28,7 +28,7 @@ public sealed class EventsExecutorTests
         int? pid = null,
         int? tid = null,
         OutputFormat format = OutputFormat.Text) =>
-        new(path, name, skip, take, maxPayload, payload, pid, tid, format);
+            new(path, name, skip, take, maxPayload, payload, pid, tid, format);
 
     private static (int Exit, string Out, string Error) Run(EventsRequest request)
     {
@@ -148,6 +148,7 @@ public sealed class EventsExecutorTests
         // A payload value that appears in nothing narrows to zero matches.
         (int exit2, string output2, _) =
             Run(Request(Alloc, name: "AllocationTick", payload: "__no_such_value__", format: OutputFormat.Json));
+
         exit2.Should().Be(ExitCodes.Success);
         output2.Should().Contain("\"totalMatched\":0");
     }

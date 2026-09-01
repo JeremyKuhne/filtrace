@@ -9,5 +9,7 @@ public sealed partial class TimelineProvider
     /// <summary>
     ///  Retains one unmatched EE suspension and whether it proves GC provenance.
     /// </summary>
+    /// <param name="TimestampMs">The suspension timestamp in trace-relative milliseconds.</param>
+    /// <param name="IsGc">Whether the suspension reason identifies the pause as garbage collection.</param>
     internal readonly record struct PendingPauseStart(double TimestampMs, bool IsGc);
 }

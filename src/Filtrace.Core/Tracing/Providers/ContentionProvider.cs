@@ -49,6 +49,15 @@ public sealed class ContentionProvider
     public StackSampleSource Read(string path, TimeWindow? window = null) =>
         Read(path, window, out _);
 
+    /// <summary>
+    ///  Reconstructs blocked-time contention stacks and reports the number of completed contention records read.
+    /// </summary>
+    /// <param name="path">The EventPipe trace path.</param>
+    /// <param name="window">An optional trace-relative contention-start filter.</param>
+    /// <param name="recordCount">
+    ///  The number of completed contention records encountered before output filtering.
+    /// </param>
+    /// <returns>The contention stack source retained by the requested window.</returns>
     internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount) =>
         LatencyStackReader.Read(
             path,

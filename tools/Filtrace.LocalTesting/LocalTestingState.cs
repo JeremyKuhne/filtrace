@@ -2,84 +2,40 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using System.Text.Json;
-using System.Text.Json.Serialization;
-
 namespace Filtrace.LocalTesting;
 
-[JsonConverter(typeof(LocalTestingStatusJsonConverter))]
-internal enum LocalTestingStatus
-{
-    [JsonStringEnumMemberName("unknown")]
-    Unknown,
-
-    [JsonStringEnumMemberName("installing")]
-    Installing,
-
-    [JsonStringEnumMemberName("active")]
-    Active,
-
-    [JsonStringEnumMemberName("restoring")]
-    Restoring,
-
-    [JsonStringEnumMemberName("cleanup")]
-    Cleanup
-}
-
+/// <summary>
+///  Persists the recoverable state of a local-testing installation for one target checkout.
+/// </summary>
 internal sealed record LocalTestingState
 {
+    /// <summary>
+    ///  The schema version written and understood by this implementation.
+    /// </summary>
     public const int CurrentSchemaVersion = 1;
 
+    /// <summary>
+    ///  Gets the schema version of this state document.
+    /// </summary>
     public required int SchemaVersion { get; init; }
 
+    /// <summary>
+    ///  Gets the last durable phase reached by the local-testing workflow.
+    /// </summary>
     public required LocalTestingStatus Status { get; init; }
 
+    /// <summary>
+    ///  Gets the absolute source-checkout path from which local-testing assets were installed.
+    /// </summary>
     public required string SourceCheckout { get; init; }
 
+    /// <summary>
+    ///  Gets the target state captured before installation.
+    /// </summary>
     public required LocalTestingBaseline Baseline { get; init; }
 
+    /// <summary>
+    ///  Gets the installed CLI package identity, when installation reached that step.
+    /// </summary>
     public CliInstallation? Cli { get; init; }
-}
-
-internal sealed record LocalTestingBaseline
-{
-    public required McpBaseline Mcp { get; init; }
-
-    public required SkillBaseline Skill { get; init; }
-
-    public required CreatedDirectoryBaseline CreatedDirectories { get; init; }
-}
-
-internal sealed record McpBaseline
-{
-    public bool FileExisted { get; init; }
-
-    public bool ServersExisted { get; init; }
-
-    public bool ServerExisted { get; init; }
-
-    public JsonElement? Server { get; init; }
-}
-
-internal sealed record SkillBaseline
-{
-    public bool Existed { get; init; }
-
-    public string? BackupSha256 { get; init; }
-}
-
-internal sealed record CreatedDirectoryBaseline
-{
-    public bool Vscode { get; init; }
-
-    public bool Agents { get; init; }
-
-    public bool Skills { get; init; }
-}
-
-internal sealed record CliInstallation
-{
-    public required string PackageVersion { get; init; }
-
-    public required string PackageSha256 { get; init; }
 }

@@ -43,6 +43,7 @@ public class CliWarmBenchmarks
                 definition.CaseCount,
                 definition.IsPaired,
                 preconvert: true);
+
             _arguments = CliBenchmarkScenarios.CreateArguments(
                 definition,
                 _trace,
@@ -94,6 +95,7 @@ public class CliWarmBenchmarks
     /// <summary>
     ///  Starts filtrace and consumes its redirected output streams.
     /// </summary>
+    /// <returns>A task that captures the child exit code and redirected-output sizes.</returns>
     [Benchmark]
     public Task<CliProcessResult> Run() =>
         CliProcessRunner.RunAsync(_executable, _arguments);

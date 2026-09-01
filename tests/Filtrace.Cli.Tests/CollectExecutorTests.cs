@@ -162,6 +162,7 @@ public sealed class CollectExecutorTests
             // low-perturbation capture it claims to be.
             new EventQueryProvider().Query(outputPath, nameFilter: "GC/Start", take: 1)
                 .TotalMatched.Should().Be(0, "startup drops the GC keyword");
+
             new EventQueryProvider().Query(outputPath, nameFilter: "FileIO/Name", take: 1)
                 .TotalMatched.Should().Be(0, "no profile enables the file-name rundown");
         }
@@ -232,6 +233,7 @@ public sealed class CollectExecutorTests
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement invocation = document.RootElement
             .GetProperty("result").GetProperty("invocations")[0];
+
         invocation.EnumerateObject().Select(static property => property.Name)
             .Should().BeEquivalentTo("ordinal", "processId", "exitCode", "startedUtc", "stoppedUtc");
     }
@@ -246,6 +248,7 @@ public sealed class CollectExecutorTests
 
         string workload = Path.Join(
             AppContext.BaseDirectory, "..", "..", "..", "..", "..", "fixtures", "NativeLoop", "NativeLoop.exe");
+
         if (!File.Exists(workload))
         {
             Assert.Inconclusive("The NativeLoop workload has not been built.");
@@ -322,6 +325,7 @@ public sealed class CollectExecutorTests
 
             LoadedTrace trace = new Filtrace.Server.TraceStore().Get(
                 outputPath, symbolsDirectory: null, TraceMetric.Cpu, ScopeRequest.ForProcess("NativeLoop"));
+
             return trace.Info.SampleCount;
         }
         finally
@@ -369,6 +373,7 @@ public sealed class CollectExecutorTests
             // before the previous one is observed to have stopped.
             result.Invocations.Select(static invocation => invocation.ProcessId).Distinct()
                 .Should().HaveCount(3);
+
             result.Invocations[1].StartedUtc.Should().BeOnOrAfter(result.Invocations[0].StoppedUtc);
             result.Invocations[2].StartedUtc.Should().BeOnOrAfter(result.Invocations[1].StoppedUtc);
 
@@ -453,6 +458,7 @@ public sealed class CollectExecutorTests
             using JsonDocument document = JsonDocument.Parse(output.ToString());
             JsonElement invocations = document.RootElement
                 .GetProperty("result").GetProperty("invocations");
+
             invocations.GetArrayLength().Should().Be(2);
             invocations[0].GetProperty("ordinal").GetInt32().Should().Be(1);
             invocations[0].GetProperty("processId").GetInt32().Should().BeGreaterThan(0);

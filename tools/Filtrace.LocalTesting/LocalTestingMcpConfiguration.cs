@@ -6,8 +6,19 @@ using System.Text.Json;
 
 namespace Filtrace.LocalTesting;
 
+/// <summary>
+///  Publishes and restores only the Filtrace entry in a bounded VS Code MCP configuration.
+/// </summary>
+/// <param name="beforeReplace">
+///  An optional test hook invoked after a temporary file is flushed and before publication.
+/// </param>
 internal sealed class LocalTestingMcpConfiguration(Action? beforeReplace = null)
 {
+    /// <summary>
+    ///  Atomically writes a local <c>dotnet</c>-hosted Filtrace server while preserving unrelated JSON properties.
+    /// </summary>
+    /// <param name="plan">The target's normalized local-testing resource paths.</param>
+    /// <param name="mcpDllPath">The absolute, regular-file path to the locally built MCP assembly.</param>
     public void Publish(ResourcePlan plan, string mcpDllPath)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -27,8 +38,10 @@ internal sealed class LocalTestingMcpConfiguration(Action? beforeReplace = null)
         ValidateManagedPath(plan);
         using McpConfigurationDocument? configuration = McpConfigurationDocument.Read(
             plan.McpConfigurationPath);
+
         string directory = Path.GetDirectoryName(plan.McpConfigurationPath)
             ?? throw new InvalidDataException("MCP configuration has no parent directory.");
+
         Directory.CreateDirectory(directory);
         Write(
             plan,
@@ -40,6 +53,11 @@ internal sealed class LocalTestingMcpConfiguration(Action? beforeReplace = null)
                 serverWriter: target => WriteLocalServer(target, fullMcpDllPath)));
     }
 
+    /// <summary>
+    ///  Restores the captured Filtrace server value and removes files or objects created solely for local testing.
+    /// </summary>
+    /// <param name="plan">The target's normalized local-testing resource paths.</param>
+    /// <param name="baseline">The MCP state captured before publication.</param>
     public void Restore(ResourcePlan plan, McpBaseline baseline)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -48,6 +66,7 @@ internal sealed class LocalTestingMcpConfiguration(Action? beforeReplace = null)
         ValidateManagedPath(plan);
         using McpConfigurationDocument? configuration = McpConfigurationDocument.Read(
             plan.McpConfigurationPath);
+
         if (configuration is null)
         {
             if (baseline.FileExisted)
@@ -62,9 +81,11 @@ internal sealed class LocalTestingMcpConfiguration(Action? beforeReplace = null)
 
         bool keepServers = baseline.ServersExisted
             || HasOtherProperty(configuration.Servers, "filtrace");
+
         bool keepFile = baseline.FileExisted
             || HasOtherProperty(configuration.Root, "servers")
             || keepServers;
+
         if (!keepFile)
         {
             File.Delete(plan.McpConfigurationPath);
@@ -90,9 +111,11 @@ internal sealed class LocalTestingMcpConfiguration(Action? beforeReplace = null)
     {
         string directory = Path.GetDirectoryName(path)
             ?? throw new InvalidDataException("MCP configuration has no parent directory.");
+
         string temporaryPath = Path.Join(
             directory,
             $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
+
         try
         {
             FileStreamOptions options = new()
@@ -101,6 +124,7 @@ internal sealed class LocalTestingMcpConfiguration(Action? beforeReplace = null)
                 Access = FileAccess.Write,
                 Share = FileShare.None
             };
+
             if (!OperatingSystem.IsWindows())
             {
                 options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
@@ -112,6 +136,7 @@ internal sealed class LocalTestingMcpConfiguration(Action? beforeReplace = null)
                 {
                     writeConfiguration(writer);
                 }
+
                 if (stream.Length > McpConfigurationDocument.MaxBytes)
                 {
                     throw new InvalidDataException(
@@ -140,6 +165,7 @@ internal sealed class LocalTestingMcpConfiguration(Action? beforeReplace = null)
                 {
                     File.SetUnixFileMode(temporaryPath, File.GetUnixFileMode(path));
                 }
+
                 File.Move(temporaryPath, path, overwrite: true);
             }
         }
@@ -176,11 +202,13 @@ internal sealed class LocalTestingMcpConfiguration(Action? beforeReplace = null)
                 }
             }
         }
+
         if (keepServers && !foundServers)
         {
             writer.WritePropertyName("servers");
             WriteServers(writer, configuration, serverWriter);
         }
+
         writer.WriteEndObject();
     }
 
@@ -206,10 +234,12 @@ internal sealed class LocalTestingMcpConfiguration(Action? beforeReplace = null)
                 }
             }
         }
+
         if (!foundServer)
         {
             serverWriter?.Invoke(writer);
         }
+
         writer.WriteEndObject();
     }
 

@@ -83,6 +83,7 @@ public partial class EmbeddedPdbBenchmarks
     /// <summary>
     ///  Loads the trace through the public symbol-directory path.
     /// </summary>
+    /// <returns>The loaded trace with source resolution attempted against the controlled corpus.</returns>
     [Benchmark]
     public LoadedTrace LoadWithSymbols() =>
         new TraceLoader().Load(_activityTrace, _corpus!.DirectoryPath);

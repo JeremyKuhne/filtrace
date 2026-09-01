@@ -153,8 +153,9 @@ public sealed class CaptureManifestScopeTests
     private static CaptureManifest Manifest(CaptureManifestCase captureCase, string? process) =>
         new("manifest.json", process, [captureCase]);
 
-    private static CaptureManifestCase CaseWithInvocations(params int[] processIds) =>
-        new("case", null, string.Empty, "Case", "trace.etl", null, null, null)
+    private static CaptureManifestCase CaseWithInvocations(params int[] processIds)
+    {
+        return new("case", Benchmark: null, string.Empty, "Case", "trace.etl", SymbolsDirectory: null, OperationCount: null, OperationUnit: null)
         {
             Invocations =
             [
@@ -166,4 +167,5 @@ public sealed class CaptureManifestScopeTests
                     DateTimeOffset.UnixEpoch))
             ]
         };
+    }
 }

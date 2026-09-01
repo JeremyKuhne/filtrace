@@ -50,6 +50,9 @@ internal static class NativeSymbolResolution
     ///  had no unresolved native frames and the pass therefore says nothing.
     /// </summary>
     /// <param name="statuses">Per-module outcomes from <see cref="ResolveLocal"/>.</param>
+    /// <returns>
+    ///  Bounded outcome categories and unresolved-frame count, or <see langword="null"/> when no lookup ran.
+    /// </returns>
     public static NativeSymbolInfo? CreateInfo(IReadOnlyList<NativeModuleSymbolStatus> statuses)
     {
         if (statuses.Count == 0)

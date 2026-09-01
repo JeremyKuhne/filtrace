@@ -19,7 +19,7 @@ public sealed class TimelineProviderTests
         TimeWindow? window = null,
         IReadOnlyCollection<string>? lanes = null,
         int bucketCount = TimelineProvider.DefaultBucketCount) =>
-        new TimelineProvider().Read(path, window, lanes, bucketCount);
+            new TimelineProvider().Read(path, window, lanes, bucketCount);
 
     [TestMethod]
     public void Read_Default_ProducesAllLanesAlignedToOneGeometry()
@@ -138,6 +138,7 @@ public sealed class TimelineProviderTests
         result.Snapshot.Cpu.SampleCount.Should().BeGreaterThan(0);
         result.Snapshot.Cpu.Methods.Should().NotBeEmpty()
             .And.HaveCountLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
+
         result.Snapshot.Exceptions.ExceptionCount.Should().BeGreaterThan(0);
         result.Snapshot.Exceptions.Types.Should().NotBeEmpty()
             .And.HaveCountLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
@@ -154,6 +155,7 @@ public sealed class TimelineProviderTests
         result.Snapshot!.Gc.CollectionCount.Should().BeGreaterThan(0);
         result.Snapshot.Gc.Collections.Should().NotBeEmpty()
             .And.HaveCountLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
+
         result.Snapshot.Alloc.TickCount.Should().BeGreaterThan(0);
         result.Snapshot.Alloc.Bytes.Should().BeGreaterThan(0);
         result.Snapshot.Alloc.Types.Should().NotBeEmpty()
@@ -198,6 +200,7 @@ public sealed class TimelineProviderTests
 
         buckets.ScopeWarnings.Should().ContainSingle(warning =>
             warning.Contains("not found in this trace", StringComparison.Ordinal));
+
         snapshot.ScopeWarnings.Should().ContainSingle(warning =>
             warning.Contains("not found in this trace", StringComparison.Ordinal));
     }
@@ -265,6 +268,7 @@ public sealed class TimelineProviderTests
         // name rather than the auto default.)
         TimelineResult all = new TimelineProvider().Read(
             etl, lanes: [TimelineProvider.CpuLane], scope: ScopeRequest.AllProcesses);
+
         TimelineResult scoped = new TimelineProvider().Read(
             etl, lanes: [TimelineProvider.CpuLane], scope: ScopeRequest.ForProcess("HotLoopBench"));
 
@@ -292,6 +296,7 @@ public sealed class TimelineProviderTests
             atMs: 0.0,
             halfWindowMs: TimelineProvider.MaxSnapshotHalfWindowMs,
             scope: ScopeRequest.AllProcesses);
+
         TimelineResult scoped = new TimelineProvider().ReadSnapshot(
             etl,
             atMs: 0.0,
@@ -314,6 +319,7 @@ public sealed class TimelineProviderTests
             atMs: 0.0,
             halfWindowMs: TimelineProvider.MaxSnapshotHalfWindowMs,
             scope: ScopeRequest.ForProcessIds([rootProcessId], includeChildren: false));
+
         byId.AppliedProcessScope.Should().NotBeNull();
         byId.AppliedProcessScope!.Mode.Should().Be("ids");
         byId.AppliedProcessScope.RequestedProcessIds.Should().Equal(rootProcessId);
@@ -330,7 +336,7 @@ public sealed class TimelineProviderTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Read_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         Action act = () => Read(path!);

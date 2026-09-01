@@ -4,12 +4,31 @@
 
 namespace Filtrace.Tracing;
 
+/// <summary>
+///  Applies deterministic size and character-safety bounds to manifest analysis output.
+/// </summary>
 internal static class CaptureManifestOutput
 {
+    /// <summary>
+    ///  The maximum number of warnings retained for one manifest case.
+    /// </summary>
     public const int MaxWarningsPerCase = 4;
+
+    /// <summary>
+    ///  The maximum number of UTF-16 characters retained in one case warning.
+    /// </summary>
     public const int MaxWarningLength = 240;
+
+    /// <summary>
+    ///  The maximum number of UTF-16 characters retained in a frame name.
+    /// </summary>
     public const int MaxFrameLength = 160;
 
+    /// <summary>
+    ///  Appends a sanitized, bounded warning when the per-case warning budget has room.
+    /// </summary>
+    /// <param name="warnings">The warnings already retained for the case.</param>
+    /// <param name="warning">The warning text to sanitize and append.</param>
     public static void AddWarning(List<string> warnings, string warning)
     {
         if (warnings.Count < MaxWarningsPerCase)
@@ -18,6 +37,11 @@ internal static class CaptureManifestOutput
         }
     }
 
+    /// <summary>
+    ///  Replaces control characters and shortens a frame name without splitting a surrogate pair.
+    /// </summary>
+    /// <param name="frame">The frame name to make safe for bounded output.</param>
+    /// <returns>The original frame when already safe and within budget; otherwise a bounded copy.</returns>
     public static string BoundFrame(string frame) => Bound(frame, MaxFrameLength);
 
     private static string Bound(string value, int maxLength)

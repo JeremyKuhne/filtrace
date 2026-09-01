@@ -173,7 +173,7 @@ public sealed class EventQueryProviderTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Query_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         Action act = () => new EventQueryProvider().Query(path!);

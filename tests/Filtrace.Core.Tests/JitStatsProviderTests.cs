@@ -108,6 +108,7 @@ public sealed class JitStatsProviderTests
             new("Slow.Method", "slow.dll", 10, 20, 5.0, "Optimized"),
             new("Fast.Method", "fast.dll", 30, 40, 1.0, "QuickJitted")
         ];
+
         JitStatsResult report = new(2, 6.0, 5.0, 3.0, 40, 60, methods);
 
         JitStatsResult limited = JitStatsProvider.LimitDetail(report, top: 25, out string? warning);
@@ -165,7 +166,7 @@ public sealed class JitStatsProviderTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Read_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         JitStatsProvider provider = new();

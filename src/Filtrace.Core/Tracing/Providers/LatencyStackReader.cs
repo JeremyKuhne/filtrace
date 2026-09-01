@@ -109,7 +109,7 @@ internal static class LatencyStackReader
                 index = stackSource.GetCallerIndex(index))
             {
                 StackSourceFrameIndex frameIndex = stackSource.GetFrameIndex(index);
-                string frame = stackSource.GetFrameName(frameIndex, false);
+                string frame = stackSource.GetFrameName(frameIndex, fullModulePath: false);
 
                 // Drop the synthetic per-event leaves, TraceEvent's BROKEN stack markers,
                 // and the process / thread roots so the stack is the real blocking call

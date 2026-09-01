@@ -41,10 +41,12 @@ internal static class HeatmapTextRenderer
 
         output.WriteLine(
             $"{info.Format}  {info.SampleCount} samples  {info.TotalWeight:N1} {unit}  symbols {info.SymbolResolutionRate:P0}");
+
         output.WriteLine();
         output.WriteLine(
             $"{metric.Name} source heatmap '{heatmap.File}'  -  {heatmap.FileWeight:N2} {unit} "
-            + $"({percentOfTrace:N2}% of trace)");
+                + $"({percentOfTrace:N2}% of trace)");
+
         if (heatmap.AttributedRecordCount is int attributedRecordCount
             && heatmap.UnattributedRecordCount is int unattributedRecordCount)
         {
@@ -54,9 +56,9 @@ internal static class HeatmapTextRenderer
 
         if (heatmap.Lines.Count == 0)
         {
-            output.WriteLine(
-                $"  (no samples attributed to '{heatmap.File}'; the trace needs source line info "
-                + "(--symbols) and the file name must match)");
+            output.WriteLine(string.Concat(
+                $"  (no samples attributed to '{heatmap.File}'; the trace needs source line info ",
+                "(--symbols) and the file name must match)"));
         }
         else if (SourceAnnotator.TryReadSourceLines(sourceFile, out string[] sourceLines))
         {
@@ -69,9 +71,9 @@ internal static class HeatmapTextRenderer
             output.WriteLine($"  {"weight",WeightColumnWidth}  {"%",PercentColumnWidth}  line  method");
             foreach (HeatLine row in heatmap.Lines)
             {
-                output.WriteLine(
-                    $"  {$"{row.Weight:N2} {unit}",WeightColumnWidth}  {row.PercentOfScope,PercentColumnWidth:N2}  "
-                    + $"{row.Line,5}  {row.Method}");
+                output.WriteLine(string.Concat(
+                    $"  {$"{row.Weight:N2} {unit}",WeightColumnWidth}  {row.PercentOfScope,PercentColumnWidth:N2}  ",
+                    $"{row.Line,5}  {row.Method}"));
             }
         }
 

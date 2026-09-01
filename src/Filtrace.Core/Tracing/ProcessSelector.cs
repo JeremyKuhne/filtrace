@@ -25,6 +25,9 @@ namespace Filtrace.Tracing;
 /// </remarks>
 public abstract record ProcessSelector
 {
+    /// <summary>
+    ///  Restricts selector implementations to the name and process-id variants defined by this assembly.
+    /// </summary>
     private protected ProcessSelector()
     {
     }

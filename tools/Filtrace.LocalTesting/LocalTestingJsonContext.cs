@@ -7,6 +7,9 @@ using System.Text.Json.Serialization;
 
 namespace Filtrace.LocalTesting;
 
+/// <summary>
+///  Provides source-generated JSON metadata for persisted local-testing state.
+/// </summary>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -14,12 +17,5 @@ namespace Filtrace.LocalTesting;
     WriteIndented = true)]
 [JsonSerializable(typeof(LocalTestingState))]
 internal sealed partial class LocalTestingJsonContext : JsonSerializerContext
-{
-}
-
-internal sealed class LocalTestingStatusJsonConverter()
-    : JsonStringEnumConverter<LocalTestingStatus>(
-        JsonNamingPolicy.CamelCase,
-        allowIntegerValues: false)
 {
 }

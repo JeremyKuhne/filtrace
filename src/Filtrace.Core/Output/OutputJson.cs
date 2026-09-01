@@ -73,6 +73,7 @@ public static partial class OutputJson
         // neither AOT- nor trim-safe.
         JsonTypeInfo<AnalysisResult<T>> typeInfo =
             (JsonTypeInfo<AnalysisResult<T>>)s_options.GetTypeInfo(typeof(AnalysisResult<T>));
+
         return JsonSerializer.Serialize(result, typeInfo);
     }
 

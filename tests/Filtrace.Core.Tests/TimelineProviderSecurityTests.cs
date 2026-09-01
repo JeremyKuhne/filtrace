@@ -104,6 +104,7 @@ public sealed class TimelineProviderSecurityTests
             out string firstProvider,
             out string firstName,
             out bool firstTruncated).Should().BeTrue();
+
         bool allSucceeded = true;
         string repeatedProvider = "";
         string repeatedName = "";
@@ -154,6 +155,7 @@ public sealed class TimelineProviderSecurityTests
             out _,
             out _,
             out _).Should().BeFalse();
+
         cache.Should().HaveCount(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
     }
 
@@ -162,6 +164,7 @@ public sealed class TimelineProviderSecurityTests
     {
         Dictionary<object, (string Provider, string Name, bool Truncated)> cache =
             new(ReferenceEqualityComparer.Instance);
+
         object firstTemplate = new();
         object secondTemplate = new();
 
@@ -173,6 +176,7 @@ public sealed class TimelineProviderSecurityTests
             out _,
             out string firstName,
             out _).Should().BeTrue();
+
         TimelineProvider.TryGetBoundedEventNames(
             cache,
             secondTemplate,
@@ -207,6 +211,7 @@ public sealed class TimelineProviderSecurityTests
             },
             out string firstMethod,
             out bool firstTruncated).Should().BeTrue();
+
         bool allSucceeded = true;
         string repeatedMethod = "";
         bool repeatedTruncated = false;
@@ -251,7 +256,7 @@ public sealed class TimelineProviderSecurityTests
             resolutionCalls,
             static calls =>
             {
-                calls.Add(true);
+                calls.Add(item: true);
                 return "overflow-method";
             },
             out _,
@@ -450,6 +455,7 @@ public sealed class TimelineProviderSecurityTests
             GCSuspendEEReason.SuspendForShutdown,
             out bool gcStateIncomplete)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.Duplicate);
+
         starts[Pause(1, 2)].Should().Be(new TimelineProvider.PendingPauseStart(10.0, IsGc: true));
         gcStateIncomplete.Should().BeTrue();
     }
@@ -470,6 +476,7 @@ public sealed class TimelineProviderSecurityTests
             GCSuspendEEReason.SuspendForDebugger,
             out bool gcStateIncomplete)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.Duplicate);
+
         gcStateIncomplete.Should().BeFalse();
     }
 
@@ -494,6 +501,7 @@ public sealed class TimelineProviderSecurityTests
             isGc ? GCSuspendEEReason.SuspendForGC : GCSuspendEEReason.SuspendForCodePitching,
             out bool gcStateIncomplete)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.CapacityExceeded);
+
         gcStateIncomplete.Should().Be(expectedIncomplete);
         starts.Should().HaveCount(TimelineProvider.MaxSnapshotRetainedKeysPerFamily);
     }
@@ -511,6 +519,7 @@ public sealed class TimelineProviderSecurityTests
             GCSuspendEEReason.SuspendForGCPrep,
             out _)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.Added);
+
         starts.Should().ContainKey(Pause(1, 2)).WhoseValue
             .Should().Be(new TimelineProvider.PendingPauseStart(10.0, IsGc: true));
     }
@@ -528,6 +537,7 @@ public sealed class TimelineProviderSecurityTests
             GCSuspendEEReason.SuspendForGC,
             out _)
             .Should().Be(TimelineProvider.BoundedPauseStartResult.AfterWindow);
+
         starts.Should().BeEmpty();
     }
 
@@ -579,6 +589,7 @@ public sealed class TimelineProviderSecurityTests
 
         TimelineProvider.MatchPauseRestart(starts, Pause(1, 2), 10.0, 5.0, 15.0, out TimelineProvider.PendingPauseStart start)
             .Should().Be(TimelineProvider.PauseRestartResult.MissingStart);
+
         start.IsGc.Should().BeFalse();
     }
 
@@ -632,21 +643,25 @@ public sealed class TimelineProviderSecurityTests
             5.0,
             5.0,
             15.0).Should().BeTrue();
+
         TimelineProvider.IsUnknownPauseEvidence(
             TimelineProvider.PauseRestartResult.MissingStart,
             15.0,
             5.0,
             15.0).Should().BeTrue();
+
         TimelineProvider.IsUnknownPauseEvidence(
             TimelineProvider.PauseRestartResult.MissingStart,
             4.99,
             5.0,
             15.0).Should().BeFalse();
+
         TimelineProvider.IsUnknownPauseEvidence(
             TimelineProvider.PauseRestartResult.MissingStart,
             15.01,
             5.0,
             15.0).Should().BeFalse();
+
         TimelineProvider.IsUnknownPauseEvidence(
             TimelineProvider.PauseRestartResult.CompletedNonGc,
             10.0,
@@ -665,11 +680,12 @@ public sealed class TimelineProviderSecurityTests
             new SnapshotAllocationSummary(0, 0, 0, []),
             new SnapshotJitSummary(0, 0, []),
             new SnapshotEventSummary(0, 0, []),
-            false)
+                NamesTruncated: false)
         {
             UnknownPauseDataIncomplete = true
         };
-        TimelineResult result = new(0.0, 1.0, 1.0, 1, null, null, null, null, null, null)
+
+        TimelineResult result = new(0.0, 1.0, 1.0, 1, Process: null, Gc: null, Cpu: null, Exceptions: null, Alloc: null, Jit: null)
         {
             Mode = "snapshot",
             Snapshot = snapshot
@@ -698,6 +714,7 @@ public sealed class TimelineProviderSecurityTests
 
         TimelineProvider.MatchPauseRestart(starts, Pause(1, 2), 10.0, 5.0, 15.0, out TimelineProvider.PendingPauseStart start)
             .Should().Be(TimelineProvider.PauseRestartResult.CompletedNonGc);
+
         start.IsGc.Should().BeFalse();
         starts.Should().BeEmpty();
     }
@@ -712,6 +729,7 @@ public sealed class TimelineProviderSecurityTests
 
         TimelineProvider.MatchPauseRestart(starts, Pause(1, 2), 9.0, 5.0, 15.0, out TimelineProvider.PendingPauseStart start)
             .Should().Be(TimelineProvider.PauseRestartResult.InvalidPair);
+
         start.IsGc.Should().BeTrue();
         starts.Should().ContainKey(Pause(1, 2));
     }
@@ -749,6 +767,7 @@ public sealed class TimelineProviderSecurityTests
 
         TimelineProvider.MatchPauseRestart(starts, Pause(1, 2), 16.0, 5.0, 15.0, out TimelineProvider.PendingPauseStart pauseStart)
             .Should().Be(TimelineProvider.PauseRestartResult.CompletedGc);
+
         pauseStart.TimestampMs.Should().Be(4.0);
         starts.Should().BeEmpty();
     }
@@ -866,6 +885,7 @@ public sealed class TimelineProviderSecurityTests
             2,
             GCType.NonConcurrentGC,
             GCReason.Induced);
+
         SnapshotGcSummary result = collector.Build(
             TimelineProvider.AggregateGcPauses([], 0.0, 1.0),
             out _);
@@ -893,6 +913,7 @@ public sealed class TimelineProviderSecurityTests
             Pause(1, TimelineProvider.MaxSnapshotRetainedKeysPerFamily - 1),
             9,
             101.0);
+
         collector.ObserveRestart(Pause(2, 1), 10, 101.0);
         collector.ObserveEnd(1, 9, 1, 102.0);
         collector.ObserveEnd(2, 10, 2, 102.0);
@@ -945,6 +966,7 @@ public sealed class TimelineProviderSecurityTests
         collector.ObserveEnd(1, 9, 1, 195.0);
         TimelineProvider.GcPauseInterval[] pauses =
             [initialBackgroundPause, foregroundPause, finalBackgroundPause];
+
         TimelineProvider.GcPauseAggregate aggregate = TimelineProvider.AggregateGcPauses(pauses, 100.0, 200.0);
 
         SnapshotGcSummary result = collector.Build(aggregate, out bool namesTruncated);
@@ -996,11 +1018,12 @@ public sealed class TimelineProviderSecurityTests
             new SnapshotAllocationSummary(0, 0, 0, []),
             new SnapshotJitSummary(0, 0, []),
             new SnapshotEventSummary(0, 0, []),
-            false)
+                NamesTruncated: false)
         {
             GcPauseDataIncomplete = true
         };
-        TimelineResult result = new(0.0, 1.0, 1.0, 1, null, null, null, null, null, null)
+
+        TimelineResult result = new(0.0, 1.0, 1.0, 1, Process: null, Gc: null, Cpu: null, Exceptions: null, Alloc: null, Jit: null)
         {
             Mode = "snapshot",
             Snapshot = snapshot
@@ -1019,14 +1042,17 @@ public sealed class TimelineProviderSecurityTests
             expectedType: true,
             ClrTraceEventParser.ProviderGuid,
             "GC/RestartEEStop").Should().BeTrue();
+
         TimelineProvider.IsEeRestartEventIdentity(
             expectedType: false,
             ClrTraceEventParser.ProviderGuid,
             "GC/RestartEEStop").Should().BeFalse();
+
         TimelineProvider.IsEeRestartEventIdentity(
             expectedType: true,
             Guid.Empty,
             "GC/RestartEEStop").Should().BeFalse();
+
         TimelineProvider.IsEeRestartEventIdentity(
             expectedType: true,
             ClrTraceEventParser.ProviderGuid,
@@ -1039,14 +1065,19 @@ public sealed class TimelineProviderSecurityTests
         string name = new('x', TimelineProvider.MaxSnapshotNameChars);
         SnapshotCountRow[] counts = [.. Enumerable.Range(0, TimelineProvider.SnapshotDetailLimit)
             .Select(_ => new SnapshotCountRow(name, long.MaxValue))];
+
         SnapshotGcRecord[] collections = [.. Enumerable.Range(0, TimelineProvider.SnapshotDetailLimit)
             .Select(index => new SnapshotGcRecord(index, double.MaxValue, 2, name, name, double.MaxValue))];
+
         SnapshotCpuMethod[] methods = [.. Enumerable.Range(0, TimelineProvider.SnapshotDetailLimit)
             .Select(_ => new SnapshotCpuMethod(name, long.MaxValue, 100.0))];
+
         SnapshotAllocationType[] allocations = [.. Enumerable.Range(0, TimelineProvider.SnapshotDetailLimit)
             .Select(_ => new SnapshotAllocationType(name, long.MaxValue, long.MaxValue))];
+
         SnapshotEventType[] events = [.. Enumerable.Range(0, TimelineProvider.SnapshotDetailLimit)
             .Select(_ => new SnapshotEventType(name, name, long.MaxValue))];
+
         TimelineSnapshot snapshot = new(
             double.MaxValue,
             new SnapshotGcSummary(int.MaxValue, double.MaxValue, double.MaxValue, collections),
@@ -1055,18 +1086,19 @@ public sealed class TimelineProviderSecurityTests
             new SnapshotAllocationSummary(long.MaxValue, long.MaxValue, int.MaxValue, allocations),
             new SnapshotJitSummary(long.MaxValue, int.MaxValue, counts),
             new SnapshotEventSummary(long.MaxValue, int.MaxValue, events),
-            true);
+                NamesTruncated: true);
+
         TimelineResult result = new(
             0.0,
             double.MaxValue,
             double.MaxValue,
             1,
             name,
-            null,
-            null,
-            null,
-            null,
-            null)
+                Gc: null,
+                Cpu: null,
+                Exceptions: null,
+                Alloc: null,
+                Jit: null)
         {
             Mode = "snapshot",
             Snapshot = snapshot with { DetailTruncated = true }
@@ -1080,6 +1112,7 @@ public sealed class TimelineProviderSecurityTests
         warning.Should().Contain("1024-key-per-family")
             .And.Contain("Aggregate event, CPU-sample, exception, allocation-tick/byte, and JIT-compilation totals remain complete")
             .And.Contain("CPU-method and raw-event-type row counts and percentages may be undercounted");
+
         AnalysisDiagnostic.FromWarning(warning).Code.Should().Be(AnalysisDiagnosticCodes.TruncatedOutput);
     }
 }

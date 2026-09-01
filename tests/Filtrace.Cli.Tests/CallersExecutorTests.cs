@@ -22,7 +22,7 @@ public sealed class CallersExecutorTests
         OutputFormat format = OutputFormat.Text,
         bool strict = false,
         bool callees = false) =>
-        new(path, frame, root, top, Symbols: null, format, strict, Callees: callees);
+            new(path, frame, root, top, Symbols: null, format, strict, Callees: callees);
 
     private static (int Exit, string Out, string Error) Run(CallersRequest request)
     {

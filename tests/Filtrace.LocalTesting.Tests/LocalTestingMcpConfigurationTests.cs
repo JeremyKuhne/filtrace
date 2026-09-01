@@ -75,6 +75,7 @@ public sealed partial class LocalTestingMcpConfigurationTests
             .Where(property => property.NameEquals("duplicate"))
             .Select(property => property.Value.GetInt32())
             .Should().Equal(1, 2);
+
         document.RootElement.GetProperty("servers").EnumerateObject()
             .Where(property => property.NameEquals("other"))
             .Select(property => property.Value.GetInt32())
@@ -134,6 +135,7 @@ public sealed partial class LocalTestingMcpConfigurationTests
             """
             {"servers":{"filtrace":{"command":"old","args":["old.dll"]},"other":{}}}
             """);
+
         McpBaseline baseline = McpConfigurationDocument.Capture(plan.McpConfigurationPath);
         LocalTestingMcpConfiguration configuration = new();
         configuration.Publish(plan, mcpDllPath);
@@ -163,6 +165,7 @@ public sealed partial class LocalTestingMcpConfigurationTests
         WriteConfiguration(
             plan,
             "{\"servers\":{\"filtrace\":{\"command\":\"old\"}}}");
+
         McpBaseline baseline = McpConfigurationDocument.Capture(plan.McpConfigurationPath);
         WriteConfiguration(plan, "{\"servers\":{\"other\":{}}}");
 
@@ -296,6 +299,7 @@ public sealed partial class LocalTestingMcpConfigurationTests
 
         restore.Should().Throw<FileNotFoundException>()
             .WithMessage("*disappeared before it could be restored*");
+
         File.Exists(plan.McpConfigurationPath).Should().BeFalse();
     }
 

@@ -33,7 +33,6 @@ internal static class CollectExecutor
     /// <param name="request">The capture inputs.</param>
     /// <param name="output">The writer the result and next steps are reported to.</param>
     /// <param name="error">The writer a failure message is reported to.</param>
-    /// <returns>A process exit code (see <see cref="ExitCodes"/>).</returns>
     /// <returns>
     ///  A process exit code (see <see cref="ExitCodes"/>). This reports whether the capture
     ///  ran, not how the launched command fared: a capture whose launches all failed still
@@ -53,6 +52,11 @@ internal static class CollectExecutor
     ///   human summary, which is the only way a manifest can carry them accurately.
     ///  </para>
     /// </remarks>
+    /// <param name="request">The command, provider profile, sampling interval, and destination to capture.</param>
+    /// <param name="format">Whether to write the human report or the structured capture result.</param>
+    /// <param name="output">The writer that receives a successful capture result and suggested next steps.</param>
+    /// <param name="error">The writer that receives platform, permission, argument, and collection failures.</param>
+    /// <returns>Success when a trace was produced; otherwise an input-error exit code.</returns>
     public static int Run(
         EtwCollectRequest request,
         OutputFormat format,
@@ -70,9 +74,9 @@ internal static class CollectExecutor
             {
                 warnings.Add(
                     $"Requested a {FormatMSec(result.CpuSample.RequestedMSec)} ms sample interval, but this "
-                    + $"machine honors {FormatMSec(result.CpuSample.MinimumMSec)} to "
-                    + $"{FormatMSec(result.CpuSample.MaximumMSec)} ms; the capture sampled at "
-                    + $"{FormatMSec(result.CpuSample.EffectiveMSec)} ms.");
+                        + $"machine honors {FormatMSec(result.CpuSample.MinimumMSec)} to "
+                        + $"{FormatMSec(result.CpuSample.MaximumMSec)} ms; the capture sampled at "
+                        + $"{FormatMSec(result.CpuSample.EffectiveMSec)} ms.");
             }
 
             if (format == OutputFormat.Json)
@@ -82,22 +86,23 @@ internal static class CollectExecutor
                     warnings,
                     [],
                     new AnalysisContext("collect"))));
+
                 return ExitCodes.Success;
             }
 
             string trace = result.OutputPath;
 
             output.WriteLine(
-                $"Captured {result.FileSizeBytes:N0} bytes to {trace} " +
-                $"(process {result.ProcessName} [{result.ProcessId}] exited {result.ProcessExitCode}).");
+                    $"Captured {result.FileSizeBytes:N0} bytes to {trace} "
+                        + $"(process {result.ProcessName} [{result.ProcessId}] exited {result.ProcessExitCode}).");
 
             WriteInvocationSummary(result, output);
 
             // What the session actually enabled, so a trace can be audited after the fact
             // rather than inferred from the verb that wrote it.
             output.WriteLine(
-                $"  profile {result.Profile.ToString().ToLowerInvariant()}; kernel {result.KernelKeywords}; " +
-                $"clr {result.ClrKeywords}; cpu sample {FormatMSec(result.CpuSample.EffectiveMSec)} ms");
+                    $"  profile {result.Profile.ToString().ToLowerInvariant()}; kernel {result.KernelKeywords}; "
+                        + $"clr {result.ClrKeywords}; cpu sample {FormatMSec(result.CpuSample.EffectiveMSec)} ms");
 
             foreach (string warning in warnings)
             {
@@ -108,7 +113,7 @@ internal static class CollectExecutor
             {
                 output.WriteLine(
                     "  startup keeps only the managed-naming CLR keywords, so GC, contention, and exception "
-                    + "analyses have no events in this capture.");
+                        + "analyses have no events in this capture.");
             }
 
             output.WriteLine();
@@ -123,17 +128,21 @@ internal static class CollectExecutor
             output.WriteLine($"  filtrace classify \"{trace}\" --process \"{result.ProcessName}\" --native-symbols");
             return ExitCodes.Success;
         }
-        catch (Exception ex) when (
-            ex is PlatformNotSupportedException
-            or UnauthorizedAccessException
-            or ArgumentException
-            or InvalidOperationException
-            or IOException
-            or System.ComponentModel.Win32Exception)
+        catch (Exception ex) when (IsCollectionException(ex))
         {
             error.WriteLine(ex.Message);
             return ExitCodes.InputError;
         }
+    }
+
+    private static bool IsCollectionException(Exception exception)
+    {
+        return exception is PlatformNotSupportedException
+            || exception is UnauthorizedAccessException
+            || exception is ArgumentException
+            || exception is InvalidOperationException
+            || exception is IOException
+            || exception is System.ComponentModel.Win32Exception;
     }
 
     // Sub-millisecond intervals are the point of the widened range, so the format has to
@@ -162,8 +171,8 @@ internal static class CollectExecutor
 
         output.WriteLine(
             $"  {result.Invocations.Count} launches in one session, "
-            + $"{totalMSec.ToString("N0", CultureInfo.InvariantCulture)} ms of process wall time, "
-            + $"{failed.Count} failed.");
+                + $"{totalMSec.ToString("N0", CultureInfo.InvariantCulture)} ms of process wall time, "
+                + $"{failed.Count} failed.");
 
         if (failed.Count > 0)
         {
@@ -171,9 +180,11 @@ internal static class CollectExecutor
                 ", ",
                 failed.Take(MaxReportedFailures).Select(
                     static invocation => $"#{invocation.Ordinal} exited {invocation.ExitCode}"));
+
             string more = failed.Count > MaxReportedFailures
                 ? $", and {failed.Count - MaxReportedFailures} more"
                 : string.Empty;
+
             output.WriteLine($"  failed launches: {ordinals}{more}");
         }
     }

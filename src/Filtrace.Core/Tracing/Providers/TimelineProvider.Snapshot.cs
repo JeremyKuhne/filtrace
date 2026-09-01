@@ -133,6 +133,7 @@ public sealed partial class TimelineProvider
         Dictionary<(string Provider, string Name), long> eventTypes = [];
         Dictionary<TraceEvent, (string Provider, string Name, bool Truncated)> eventNameCache =
             new(ReferenceEqualityComparer.Instance);
+
         Dictionary<PauseIdentity, PendingPauseStart> pauseStarts = [];
         List<GcPauseInterval> pauseIntervals = [];
         SnapshotGcCollector gcCollector = new(startMs, endMs);
@@ -149,45 +150,53 @@ public sealed partial class TimelineProvider
         SnapshotGcSummary gc = gcCollector.Build(gcPauses, out bool gcNamesTruncated);
         detailTruncated |= gcCollector.DetailTruncated;
         namesTruncated |= gcNamesTruncated;
+        SnapshotCpuMethod SelectCpuMethod(KeyValuePair<string, long> pair)
+        {
+            string name = BoundSnapshotName(pair.Key, out bool truncated);
+            namesTruncated |= truncated;
+            return new SnapshotCpuMethod(
+                name,
+                pair.Value,
+                cpuSampleCount > 0 ? Math.Round(100.0 * pair.Value / cpuSampleCount, 2) : 0.0);
+        }
+
         SnapshotCpuMethod[] topCpu = [.. cpuMethods
             .OrderByDescending(static pair => pair.Value)
             .ThenBy(static pair => pair.Key, StringComparer.Ordinal)
             .Take(SnapshotDetailLimit)
-            .Select(pair =>
-            {
-                string name = BoundSnapshotName(pair.Key, out bool truncated);
-                namesTruncated |= truncated;
-                return new SnapshotCpuMethod(
-                    name,
-                    pair.Value,
-                    cpuSampleCount > 0 ? Math.Round(100.0 * pair.Value / cpuSampleCount, 2) : 0.0);
-            })];
+            .Select(SelectCpuMethod)];
+
         SnapshotCountRow[] topExceptions = TopCounts(exceptionTypes, out bool exceptionNamesTruncated);
         namesTruncated |= exceptionNamesTruncated;
+        SnapshotAllocationType SelectAllocation(KeyValuePair<string, (long Count, long Bytes)> pair)
+        {
+            string name = BoundSnapshotName(pair.Key, out bool truncated);
+            namesTruncated |= truncated;
+            return new SnapshotAllocationType(name, pair.Value.Count, pair.Value.Bytes);
+        }
+
         SnapshotAllocationType[] topAllocations = [.. allocationTypes
             .OrderByDescending(static pair => pair.Value.Bytes)
             .ThenBy(static pair => pair.Key, StringComparer.Ordinal)
             .Take(SnapshotDetailLimit)
-            .Select(pair =>
-            {
-                string name = BoundSnapshotName(pair.Key, out bool truncated);
-                namesTruncated |= truncated;
-                return new SnapshotAllocationType(name, pair.Value.Count, pair.Value.Bytes);
-            })];
+            .Select(SelectAllocation)];
+
         SnapshotCountRow[] topJit = TopCounts(jitMethods, out bool jitNamesTruncated);
         namesTruncated |= jitNamesTruncated;
+        SnapshotEventType SelectEvent(KeyValuePair<(string Provider, string Name), long> pair)
+        {
+            string provider = BoundSnapshotName(pair.Key.Provider, out bool providerTruncated);
+            string name = BoundSnapshotName(pair.Key.Name, out bool nameTruncated);
+            namesTruncated |= providerTruncated || nameTruncated;
+            return new SnapshotEventType(provider, name, pair.Value);
+        }
+
         SnapshotEventType[] topEvents = [.. eventTypes
             .OrderByDescending(static pair => pair.Value)
             .ThenBy(static pair => pair.Key.Provider, StringComparer.Ordinal)
             .ThenBy(static pair => pair.Key.Name, StringComparer.Ordinal)
             .Take(SnapshotDetailLimit)
-            .Select(pair =>
-            {
-                string provider = BoundSnapshotName(pair.Key.Provider, out bool providerTruncated);
-                string name = BoundSnapshotName(pair.Key.Name, out bool nameTruncated);
-                namesTruncated |= providerTruncated || nameTruncated;
-                return new SnapshotEventType(provider, name, pair.Value);
-            })];
+            .Select(SelectEvent)];
 
         TimelineSnapshot snapshot = new(
             atMs,
@@ -210,11 +219,11 @@ public sealed partial class TimelineProvider
             endMs - startMs,
             1,
             appliedProcessName,
-            null,
-            null,
-            null,
-            null,
-            null)
+                Gc: null,
+                Cpu: null,
+                Exceptions: null,
+                Alloc: null,
+                Jit: null)
         {
             Mode = "snapshot",
             Snapshot = snapshot,
@@ -243,6 +252,7 @@ public sealed partial class TimelineProvider
                         endMs,
                         suspend.Reason,
                         out bool gcStateIncomplete);
+
                     gcPauseDataIncomplete |= gcStateIncomplete;
                     if (addResult == BoundedPauseStartResult.CapacityExceeded && gcStateIncomplete)
                     {
@@ -276,6 +286,7 @@ public sealed partial class TimelineProvider
                         startMs,
                         endMs,
                         out PendingPauseStart pauseStart);
+
                     if (restartResult == PauseRestartResult.MissingStart)
                     {
                         unknownPauseDataIncomplete |= IsUnknownPauseEvidence(
@@ -294,6 +305,7 @@ public sealed partial class TimelineProvider
                             pauseIdentity.ProcessInstanceIndex,
                             pauseStart.TimestampMs,
                             timestamp);
+
                         if (pauseIntervals.Count < MaxSnapshotRetainedKeysPerFamily)
                         {
                             pauseIntervals.Add(interval);
@@ -367,6 +379,7 @@ public sealed partial class TimelineProvider
                     string exceptionType = string.IsNullOrEmpty(exception.ExceptionType)
                         ? "(unknown exception type)"
                         : exception.ExceptionType;
+
                     exceptionType = BoundSnapshotName(exceptionType, out bool exceptionTruncated);
                     namesTruncated |= exceptionTruncated;
                     detailTruncated |= !TallyBounded(exceptionTypes, exceptionType);
@@ -400,10 +413,19 @@ public sealed partial class TimelineProvider
     /// </summary>
     /// <param name="value">The trace-relative millisecond value to inspect.</param>
     /// <returns><see langword="true"/> when the value is supported; otherwise <see langword="false"/>.</returns>
-    public static bool IsSnapshotGeometryRepresentable(double value) =>
-        double.IsFinite(value)
-        && value == Math.Round(value, OutputJson.DoublePrecision, MidpointRounding.AwayFromZero);
+    public static bool IsSnapshotGeometryRepresentable(double value)
+    {
+        return double.IsFinite(value)
+            && value == Math.Round(value, OutputJson.DoublePrecision, MidpointRounding.AwayFromZero);
+    }
 
+    /// <summary>
+    ///  Resolves a centered snapshot window, clamping its start to zero and rounding an overrun end up to trace precision.
+    /// </summary>
+    /// <param name="atMs">The snapshot center in trace-relative milliseconds.</param>
+    /// <param name="halfWindowMs">The requested duration on each side of the center.</param>
+    /// <param name="traceEndMs">The trace's final timestamp in milliseconds.</param>
+    /// <returns>The inclusive snapshot bounds at the shared output precision.</returns>
     internal static (double StartMs, double EndMs) ResolveSnapshotBounds(
         double atMs,
         double halfWindowMs,
@@ -413,10 +435,12 @@ public sealed partial class TimelineProvider
             atMs - halfWindowMs,
             OutputJson.DoublePrecision,
             MidpointRounding.AwayFromZero);
+
         double requestedEndMs = Math.Round(
             atMs + halfWindowMs,
             OutputJson.DoublePrecision,
             MidpointRounding.AwayFromZero);
+
         double startMs = Math.Max(0.0, requestedStartMs);
         if (requestedEndMs <= traceEndMs)
         {
@@ -440,11 +464,12 @@ public sealed partial class TimelineProvider
         ArgumentNullException.ThrowIfNull(result);
 
         return result.Snapshot?.DetailTruncated == true
-            ? $"Snapshot detail was truncated at the {MaxSnapshotRetainedKeysPerFamily}-key-per-family aggregation budget. "
-                + "Aggregate event, CPU-sample, exception, allocation-tick/byte, and JIT-compilation totals remain "
-                + "complete; retained distinct-name counts are lower bounds, retained CPU-method and raw-event-type "
-                + "row counts and percentages may be undercounted, top rows may omit later keys, and GC pause/collection "
-                + "detail may be incomplete."
+            ? string.Concat(
+                $"Snapshot detail was truncated at the {MaxSnapshotRetainedKeysPerFamily}-key-per-family aggregation budget. ",
+                "Aggregate event, CPU-sample, exception, allocation-tick/byte, and JIT-compilation totals remain ",
+                "complete; retained distinct-name counts are lower bounds, retained CPU-method and raw-event-type ",
+                "row counts and percentages may be undercounted, top rows may omit later keys, and GC pause/collection ",
+                "detail may be incomplete.")
             : null;
     }
 
@@ -482,15 +507,32 @@ public sealed partial class TimelineProvider
             : null;
     }
 
+    /// <summary>
+    ///  Determines whether an unmatched EE restart occurs inside the requested window and therefore leaves unknown pause evidence.
+    /// </summary>
+    /// <param name="restartResult">The result of matching the restart to a retained suspension.</param>
+    /// <param name="timestamp">The restart timestamp in trace-relative milliseconds.</param>
+    /// <param name="windowStartMs">The inclusive snapshot start.</param>
+    /// <param name="windowEndMs">The inclusive snapshot end.</param>
+    /// <returns><see langword="true"/> only for a missing start whose restart lies within the window.</returns>
     internal static bool IsUnknownPauseEvidence(
         PauseRestartResult restartResult,
         double timestamp,
         double windowStartMs,
-        double windowEndMs) =>
-        restartResult == PauseRestartResult.MissingStart
-        && timestamp >= windowStartMs
-        && timestamp <= windowEndMs;
+        double windowEndMs)
+    {
+        return restartResult == PauseRestartResult.MissingStart
+            && timestamp >= windowStartMs
+            && timestamp <= windowEndMs;
+    }
 
+    /// <summary>
+    ///  Merges overlapping pauses independently per process instance and computes their overlap with a snapshot window.
+    /// </summary>
+    /// <param name="intervals">The completed GC pause intervals to aggregate.</param>
+    /// <param name="windowStartMs">The inclusive snapshot start.</param>
+    /// <param name="windowEndMs">The inclusive snapshot end.</param>
+    /// <returns>Merged intervals plus total and longest in-window pause durations.</returns>
     internal static GcPauseAggregate AggregateGcPauses(
         IEnumerable<GcPauseInterval> intervals,
         double windowStartMs,
@@ -501,6 +543,7 @@ public sealed partial class TimelineProvider
             .ToDictionary(
                 static group => group.Key,
                 static group => MergeOverlapping(group));
+
         double totalPauseMs = 0.0;
         double maxPauseMs = 0.0;
         foreach (GcPauseInterval[] processIntervals in intervalsByProcessInstance.Values)
@@ -516,8 +559,11 @@ public sealed partial class TimelineProvider
         return new GcPauseAggregate(intervalsByProcessInstance, totalPauseMs, maxPauseMs);
     }
 
-    // Aggregate pause time is a per-process union: overlapping suspensions in one
-    // process are one stopped interval, while pauses in different processes add.
+    /// <summary>
+    ///  Coalesces overlapping or touching pauses from one process into start-ordered disjoint intervals.
+    /// </summary>
+    /// <param name="intervals">Pause intervals belonging to the same process instance.</param>
+    /// <returns>The merged intervals in ascending start order.</returns>
     internal static GcPauseInterval[] MergeOverlapping(IEnumerable<GcPauseInterval> intervals)
     {
         List<GcPauseInterval> merged = [];
@@ -556,6 +602,12 @@ public sealed partial class TimelineProvider
         return [.. top];
     }
 
+    /// <summary>
+    ///  Produces a terminal-safe bounded name, preserving identity with a stable hash when text is escaped or shortened.
+    /// </summary>
+    /// <param name="value">The untrusted trace-derived name.</param>
+    /// <param name="truncated">Whether escaping or length bounding changed the representation.</param>
+    /// <returns>The original value when safe, otherwise an escaped prefix and SHA-256-derived suffix.</returns>
     internal static string BoundSnapshotName(string value, out bool truncated)
     {
         bool requiresEscaping = RequiresSnapshotNameEscaping(value);
@@ -572,6 +624,20 @@ public sealed partial class TimelineProvider
         return $"{prefix}{separator}{hash}";
     }
 
+    /// <summary>
+    ///  Gets or caches bounded provider and event names without exceeding the per-family identity budget.
+    /// </summary>
+    /// <typeparam name="TKey">The stable metadata identity type used by the trace reader.</typeparam>
+    /// <param name="cache">The bounded identity-to-name cache.</param>
+    /// <param name="metadataIdentity">The event metadata identity.</param>
+    /// <param name="provider">The raw provider name used on a cache miss.</param>
+    /// <param name="name">The raw event name used on a cache miss.</param>
+    /// <param name="boundedProvider">The cached or newly bounded provider name.</param>
+    /// <param name="boundedName">The cached or newly bounded event name.</param>
+    /// <param name="truncated">Whether either returned name was escaped or shortened.</param>
+    /// <returns>
+    ///  <see langword="false"/> when a new identity would exceed the cache budget; otherwise <see langword="true"/>.
+    /// </returns>
     internal static bool TryGetBoundedEventNames<TKey>(
         Dictionary<TKey, (string Provider, string Name, bool Truncated)> cache,
         TKey metadataIdentity,
@@ -602,6 +668,20 @@ public sealed partial class TimelineProvider
         return true;
     }
 
+    /// <summary>
+    ///  Resolves and caches a bounded CPU method name once per code-address identity.
+    /// </summary>
+    /// <typeparam name="TKey">The stable code-address identity type.</typeparam>
+    /// <typeparam name="TState">The state passed to the deferred method-name resolver.</typeparam>
+    /// <param name="cache">The bounded identity-to-name cache.</param>
+    /// <param name="codeAddressIdentity">The code address whose method name is requested.</param>
+    /// <param name="state">State required to resolve the name on a cache miss.</param>
+    /// <param name="resolveMethod">The deferred method-name resolver.</param>
+    /// <param name="boundedMethod">The cached or newly bounded method name.</param>
+    /// <param name="truncated">Whether the returned method name was escaped or shortened.</param>
+    /// <returns>
+    ///  <see langword="false"/> when a new identity would exceed the cache budget; otherwise <see langword="true"/>.
+    /// </returns>
     internal static bool TryGetBoundedCpuMethod<TKey, TState>(
         Dictionary<TKey, (string Name, bool Truncated)> cache,
         TKey codeAddressIdentity,
@@ -723,6 +803,15 @@ public sealed partial class TimelineProvider
         return string.IsNullOrEmpty(jit.MethodNamespace) ? method : $"{jit.MethodNamespace}.{method}";
     }
 
+    /// <summary>
+    ///  Increments an existing key or admits a new key while the per-family identity budget has room.
+    /// </summary>
+    /// <typeparam name="TKey">The counted identity type.</typeparam>
+    /// <param name="counts">The bounded count table.</param>
+    /// <param name="key">The identity to count.</param>
+    /// <returns>
+    ///  <see langword="false"/> when a new key was dropped at capacity; otherwise <see langword="true"/>.
+    /// </returns>
     internal static bool TallyBounded<TKey>(Dictionary<TKey, long> counts, TKey key) where TKey : notnull
     {
         if (counts.TryGetValue(key, out long current))
@@ -740,6 +829,15 @@ public sealed partial class TimelineProvider
         return true;
     }
 
+    /// <summary>
+    ///  Adds one allocation tick to a type while bounding the number of distinct retained types.
+    /// </summary>
+    /// <param name="allocations">The allocation count and byte totals keyed by bounded type name.</param>
+    /// <param name="type">The bounded allocation type name.</param>
+    /// <param name="bytes">The positive bytes represented by this tick.</param>
+    /// <returns>
+    ///  <see langword="false"/> when a new type was dropped at capacity; otherwise <see langword="true"/>.
+    /// </returns>
     internal static bool TallyAllocationBounded(
         Dictionary<string, (long Count, long Bytes)> allocations,
         string type,
@@ -760,6 +858,12 @@ public sealed partial class TimelineProvider
         return true;
     }
 
+    /// <summary>
+    ///  Adds allocation bytes with checked arithmetic so a malformed trace cannot wrap the reported total.
+    /// </summary>
+    /// <param name="current">The accumulated byte total.</param>
+    /// <param name="bytes">The bytes to add.</param>
+    /// <returns>The checked sum.</returns>
     internal static long AddAllocationBytes(long current, long bytes)
     {
         try
@@ -774,6 +878,18 @@ public sealed partial class TimelineProvider
         }
     }
 
+    /// <summary>
+    ///  Retains an EE suspension start when valid, relevant, unique, and within the pause-state budget.
+    /// </summary>
+    /// <param name="pauseStarts">Pending suspensions keyed by process and thread instance.</param>
+    /// <param name="key">The suspension's process-thread identity.</param>
+    /// <param name="timestamp">The suspension timestamp in trace-relative milliseconds.</param>
+    /// <param name="windowEndMs">The snapshot's inclusive upper bound.</param>
+    /// <param name="reason">The runtime suspension reason used to identify GC provenance.</param>
+    /// <param name="gcStateIncomplete">
+    ///  Whether rejecting or replacing this start makes GC pause evidence incomplete.
+    /// </param>
+    /// <returns>The reason the start was retained or rejected.</returns>
     internal static BoundedPauseStartResult AddPauseStartBounded(
         Dictionary<PauseIdentity, PendingPauseStart> pauseStarts,
         PauseIdentity key,
@@ -812,6 +928,16 @@ public sealed partial class TimelineProvider
         return BoundedPauseStartResult.Added;
     }
 
+    /// <summary>
+    ///  Matches an EE restart to pending suspension state and classifies its GC relevance to the snapshot.
+    /// </summary>
+    /// <param name="pauseStarts">Pending suspensions keyed by process and thread instance.</param>
+    /// <param name="key">The restart's process-thread identity.</param>
+    /// <param name="timestamp">The restart timestamp in trace-relative milliseconds.</param>
+    /// <param name="windowStartMs">The snapshot's inclusive lower bound.</param>
+    /// <param name="windowEndMs">The snapshot's inclusive upper bound.</param>
+    /// <param name="pauseStart">The matching pending start when present, otherwise the default value.</param>
+    /// <returns>The pairing, provenance, and window-overlap result.</returns>
     internal static PauseRestartResult MatchPauseRestart(
         Dictionary<PauseIdentity, PendingPauseStart> pauseStarts,
         PauseIdentity key,
@@ -853,10 +979,17 @@ public sealed partial class TimelineProvider
             data.ProviderGuid,
             data.EventName);
 
+    /// <summary>
+    ///  Verifies all type, provider, and name signals required to recognize an EE restart-stop event.
+    /// </summary>
+    /// <param name="expectedType">Whether TraceEvent supplied the expected no-payload CLR event type.</param>
+    /// <param name="providerGuid">The event provider identity.</param>
+    /// <param name="eventName">The TraceEvent event name.</param>
+    /// <returns><see langword="true"/> only when all restart identity signals match.</returns>
     internal static bool IsEeRestartEventIdentity(bool expectedType, Guid providerGuid, string eventName) =>
         expectedType
-        && providerGuid == ClrTraceEventParser.ProviderGuid
-        && string.Equals(eventName, "GC/RestartEEStop", StringComparison.Ordinal);
+            && providerGuid == ClrTraceEventParser.ProviderGuid
+            && string.Equals(eventName, "GC/RestartEEStop", StringComparison.Ordinal);
 
     private static bool TryGetPauseIdentity(TraceEvent data, out PauseIdentity identity)
     {
@@ -876,12 +1009,23 @@ public sealed partial class TimelineProvider
     private static bool IsGcPauseReason(GCSuspendEEReason reason) =>
         reason is GCSuspendEEReason.SuspendForGC or GCSuspendEEReason.SuspendForGCPrep;
 
+    /// <summary>
+    ///  Determines whether a GC suspension lacking process-thread identity can affect the requested snapshot.
+    /// </summary>
+    /// <param name="reason">The runtime suspension reason.</param>
+    /// <param name="timestamp">The suspension timestamp, which may be malformed.</param>
+    /// <param name="windowEndMs">The snapshot's inclusive upper bound.</param>
+    /// <returns>
+    ///  <see langword="true"/> for GC provenance at or before the window end, including invalid timestamps.
+    /// </returns>
     internal static bool IsMissingPauseIdentityGcIncomplete(
         GCSuspendEEReason reason,
         double timestamp,
-        double windowEndMs) =>
-        IsGcPauseReason(reason)
-        && (!double.IsFinite(timestamp) || timestamp <= windowEndMs);
+        double windowEndMs)
+    {
+        return IsGcPauseReason(reason)
+            && (!double.IsFinite(timestamp) || timestamp <= windowEndMs);
+    }
 
     private static AppliedProcessScope? FollowUpProcessScope(ScopeResolution resolved) =>
         resolved.AppliedScope.Mode == "automatic" && resolved.Label is null

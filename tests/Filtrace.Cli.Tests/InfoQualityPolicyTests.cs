@@ -17,7 +17,8 @@ public sealed class InfoQualityPolicyTests
             resolutionRate: 1.0,
             sampleCount: 10,
             "cpu",
-            new AnalysisAvailability(true, CaptureStatus.Enabled, 0));
+            new AnalysisAvailability(FormatSupported: true, CaptureStatus.Enabled, 0));
+
         InfoQualityPolicy enabledPolicy = CreatePolicy(requireEnabled: ["cpu"]);
         InfoQualityPolicy eventsPolicy = CreatePolicy(requireEvents: ["cpu"]);
 
@@ -38,7 +39,7 @@ public sealed class InfoQualityPolicyTests
             resolutionRate: 1.0,
             sampleCount: 10,
             "cpu",
-            new AnalysisAvailability(true, CaptureStatus.Enabled, 12));
+                new AnalysisAvailability(FormatSupported: true, CaptureStatus.Enabled, 12));
 
         InfoQualityPolicyResult result = CreatePolicy(
             requireEnabled: ["cpu"],
@@ -59,7 +60,7 @@ public sealed class InfoQualityPolicyTests
             resolutionRate: 1.0,
             sampleCount: 10,
             "cpu",
-            new AnalysisAvailability(true, status, null));
+            new AnalysisAvailability(FormatSupported: true, status, EventCount: null));
 
         InfoQualityPolicyResult result = CreatePolicy(requireEnabled: ["cpu"]).Evaluate(info);
 
@@ -74,7 +75,7 @@ public sealed class InfoQualityPolicyTests
             resolutionRate: 1.0,
             sampleCount: 10,
             "alloc",
-            new AnalysisAvailability(false, CaptureStatus.Unknown, null));
+            new AnalysisAvailability(FormatSupported: false, CaptureStatus.Unknown, EventCount: null));
 
         InfoQualityPolicyResult result = CreatePolicy(requireEnabled: ["alloc"]).Evaluate(info);
 
@@ -132,6 +133,7 @@ public sealed class InfoQualityPolicyTests
             requireEvents,
             out InfoQualityPolicy policy,
             out string? error).Should().BeTrue(error);
+
         return policy;
     }
 

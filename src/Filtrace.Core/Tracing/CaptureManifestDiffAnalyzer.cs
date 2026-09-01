@@ -72,6 +72,7 @@ public static class CaptureManifestDiffAnalyzer
                     inclusive,
                     root,
                     foldPatterns);
+
                 RankingResult afterRanking = Rank(
                     afterTrace,
                     inclusive,
@@ -158,10 +159,12 @@ public static class CaptureManifestDiffAnalyzer
         LoadedTrace trace,
         bool inclusive,
         string root,
-        IReadOnlyList<string> foldPatterns) =>
-        inclusive
+        IReadOnlyList<string> foldPatterns)
+    {
+        return inclusive
             ? trace.Aggregator.InclusiveTime(root, foldPatterns, int.MaxValue)
             : trace.Aggregator.SelfTime(root, foldPatterns, int.MaxValue);
+    }
 
     private static RankingDiffResult Diff(
         RankingResult before,
@@ -191,6 +194,7 @@ public static class CaptureManifestDiffAnalyzer
             || beforeCase.OperationUnit is not null
             || afterCase.OperationCount is not null
             || afterCase.OperationUnit is not null;
+
         if (hasAnyOperationMetadata)
         {
             CaptureManifestOutput.AddWarning(
@@ -206,8 +210,9 @@ public static class CaptureManifestDiffAnalyzer
         RankingDiffResult diff,
         IReadOnlyList<string> warnings,
         RootScopeCoverage? beforeRootCoverage,
-        RootScopeCoverage? afterRootCoverage) =>
-        new(
+        RootScopeCoverage? afterRootCoverage)
+    {
+        return new RankingDiffCaseResult(
             pair.Before.Benchmark!,
             pair.Before.Parameters,
             diff.BeforeScopeWeight,
@@ -228,6 +233,7 @@ public static class CaptureManifestDiffAnalyzer
             AfterScopeWeightPerOperation = diff.AfterScopeWeightPerOperation,
             ScopeWeightPerOperationDelta = diff.ScopeWeightPerOperationDelta
         };
+    }
 
     private static void AddQualityWarnings(
         List<string> warnings,
@@ -255,6 +261,7 @@ public static class CaptureManifestDiffAnalyzer
                 trace.Source,
                 root,
                 FrameMatchSelection.Outermost);
+
             if (report.Matches.Count == 0)
             {
                 CaptureManifestOutput.AddWarning(
@@ -272,9 +279,9 @@ public static class CaptureManifestDiffAnalyzer
 
     private static bool IsCaseFailure(Exception exception) =>
         exception is IOException
-        or UnauthorizedAccessException
-        or NotSupportedException
-        or InvalidOperationException
-        or FormatException
-        or ArgumentException;
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or FormatException
+            or ArgumentException;
 }

@@ -136,6 +136,7 @@ public sealed class CaptureManifestReaderTests
             ",",
             Enumerable.Range(1, 1001).Select(static ordinal =>
                 $$"""{"ordinal":{{ordinal}},"processId":{{ordinal}},"exitCode":0,"startedUtc":"2026-07-31T10:00:00.0000000+00:00","stoppedUtc":"2026-07-31T10:00:00.0100000+00:00"}"""));
+
         using TemporaryManifest manifest = new(
             $$"""
             {"schemaVersion":2,"kind":"command","cases":[{"id":"a","trace":"a.etl","invocations":[{{invocations}}]}]}
@@ -193,6 +194,7 @@ public sealed class CaptureManifestReaderTests
               {"id":"c","benchmark":"Bench.Other","parameters":"","benchmarkDisplay":"Other: Job-C","speedscope":"c.speedscope.json","symbolsDirectory":"symbols","operationCount":200,"operationUnit":"items"}
             ]}
             """);
+
         try
         {
             CaptureManifest manifest = CaptureManifestReader.Read(path);
@@ -236,6 +238,7 @@ public sealed class CaptureManifestReaderTests
                 - 1
                 - prefix.Length
                 - suffix.Length;
+
             string accepted = $"{prefix}{new string('x', acceptedPaddingLength)}{suffix}";
             File.WriteAllText(path, accepted);
             new FileInfo(path).Length.Should().Be(CaptureManifestReader.MaxManifestBytes - 1);
@@ -272,6 +275,7 @@ public sealed class CaptureManifestReaderTests
                 $$"""
                 {"schemaVersion":1,"cases":[{"id":"a","benchmark":"Bench.Work","benchmarkDisplay":"Work({{longParameters}}): Job-A","trace":"a.nettrace"}]}
                 """);
+
             Action derivedParametersTooLong = () => CaptureManifestReader.Read(path);
             derivedParametersTooLong.Should().Throw<InvalidDataException>();
 
@@ -298,6 +302,7 @@ public sealed class CaptureManifestReaderTests
             File.WriteAllText(
                 path,
                 """{"schemaVersion":1,"cases":[{"id":"a","id":"b","trace":"a.nettrace"}]}""");
+
             Action duplicateCase = () => CaptureManifestReader.Read(path);
             duplicateCase.Should().Throw<InvalidDataException>();
         }
@@ -315,6 +320,7 @@ public sealed class CaptureManifestReaderTests
         {
             string Cases(int count) => string.Join(",", Enumerable.Range(0, count).Select(
                 index => $"{{\"id\":\"{index}\",\"benchmark\":\"B\",\"trace\":\"t\"}}"));
+
             File.WriteAllText(path, $"{{\"schemaVersion\":1,\"cases\":[{Cases(256)}]}}");
 
             CaptureManifest manifest = CaptureManifestReader.Read(path);
@@ -341,6 +347,7 @@ public sealed class CaptureManifestReaderTests
         File.WriteAllText(
             path,
             """{"schemaVersion":1,"cases":[{"id":"a","benchmark":"B","trace":"../outside.nettrace"}]}""");
+
         try
         {
             CaptureManifest manifest = CaptureManifestReader.Read(path);
@@ -359,6 +366,7 @@ public sealed class CaptureManifestReaderTests
         CaptureManifest before = Manifest(
             Case("before-1", "Bench.Work", "Size: 1", "Work(Size: 1): Job-OLD"),
             Case("before-2", "Bench.Work", "Size: 2", "Work(Size: 2): Job-OLD"));
+
         CaptureManifest after = Manifest(
             Case("after-2", "Bench.Work", "Size: 2", "Work(Size: 2): Job-NEW"),
             Case("after-1", "Bench.Work", "Size: 1", "Work(Size: 1): Job-NEW"));
@@ -376,12 +384,14 @@ public sealed class CaptureManifestReaderTests
         CaptureManifest duplicate = Manifest(
             Case("a", "Bench.Work", "Size: 1", "A"),
             Case("b", "Bench.Work", "Size: 1", "B"));
+
         Action duplicatePair = () => CaptureManifestPairer.Pair(duplicate, Manifest());
         duplicatePair.Should().Throw<InvalidDataException>();
 
         CaptureManifestPairResult unmatched = CaptureManifestPairer.Pair(
             Manifest(Case("before", "Bench.Work", "Size: 1", "Before")),
             Manifest(Case("after", "Bench.Work", "Size: 2", "After")));
+
         unmatched.Pairs.Should().BeEmpty();
         unmatched.Warnings.Should().HaveCount(2);
 
@@ -389,8 +399,9 @@ public sealed class CaptureManifestReaderTests
             Manifest(),
             new CaptureManifest(
                 "manifest.json",
-                null,
-                [new CaptureManifestCase("unknown", null, "", "Unknown", "trace.nettrace", null, null, null)]));
+                    Process: null,
+                    [new CaptureManifestCase("unknown", Benchmark: null, "", "Unknown", "trace.nettrace", SymbolsDirectory: null, OperationCount: null, OperationUnit: null)]));
+
         unresolvedCurrent.Warnings.Should().ContainSingle(
             warning => warning.Contains("current case 'unknown'", StringComparison.Ordinal)
                 && warning.Contains("analyze its trace directly", StringComparison.Ordinal));
@@ -416,6 +427,7 @@ public sealed class CaptureManifestReaderTests
                 OperationUnit = "items"
             },
             Case("before-failed", "Bench.Work", "Mode: Failed", "Failed"));
+
         CaptureManifest after = Manifest(
             Case("after-absent", "Bench.Work", "Mode: Absent", "Absent"),
             Case("after-count", "Bench.Work", "Mode: Count", "Count") with
@@ -433,6 +445,7 @@ public sealed class CaptureManifestReaderTests
                 OperationUnit = "operations"
             },
             Case("after-failed", "Bench.Work", "Mode: Failed", "Failed"));
+
         Dictionary<string, LoadedTrace> traces = new(StringComparer.Ordinal)
         {
             ["before-absent.nettrace"] = Loaded("before-absent", 38.0, 62.0),
@@ -459,6 +472,7 @@ public sealed class CaptureManifestReaderTests
         analysis.Result.Cases.Should().HaveCount(5);
         analysis.Warnings.Should().ContainSingle(
             warning => warning.Contains("capped to 5", StringComparison.Ordinal));
+
         RankingDiffCaseResult absent = analysis.Result.Cases[0];
         absent.OperationUnit.Should().BeNull();
         absent.Warnings.Should().BeEmpty();
@@ -469,6 +483,7 @@ public sealed class CaptureManifestReaderTests
         countOnly.OperationUnit.Should().BeNull();
         countOnly.Warnings.Should().ContainSingle(
             warning => warning.Contains("per-operation values omitted", StringComparison.Ordinal));
+
         RankingDiffCaseResult complete = analysis.Result.Cases[2];
         complete.OperationUnit.Should().Be("items");
         complete.BeforeScopeWeightPerOperation.Should().Be(10.0);
@@ -478,6 +493,7 @@ public sealed class CaptureManifestReaderTests
         mismatch.OperationUnit.Should().BeNull();
         mismatch.Warnings.Should().ContainSingle(
             warning => warning.Contains("same operationUnit", StringComparison.Ordinal));
+
         RankingDiffCaseResult failed = analysis.Result.Cases[4];
         failed.Rows.Should().BeEmpty();
         failed.Warnings.Should().ContainSingle(
@@ -495,6 +511,7 @@ public sealed class CaptureManifestReaderTests
             },
             Case("thin", "Bench.Work", "Mode: Thin", "Thin"),
             Case("failed", "Bench.Work", "Mode: Failed", "Failed"));
+
         Dictionary<string, LoadedTrace> traces = new(StringComparer.Ordinal)
         {
             ["complete.nettrace"] = Loaded("complete", 60.0, 40.0),
@@ -526,6 +543,7 @@ public sealed class CaptureManifestReaderTests
         result.Cases[1].Warnings.Should().Contain(
             warning => warning.Contains("periodic CPU records", StringComparison.Ordinal)
                 && warning.Contains("at least 200", StringComparison.Ordinal));
+
         result.Cases[2].Warnings.Should().ContainSingle("missing case trace");
         result.Cases[2].CaseId.Should().Be("failed");
         result.Cases[2].TopFrame.Should().BeNull();
@@ -581,8 +599,9 @@ public sealed class CaptureManifestReaderTests
     {
         CaptureManifest manifest = new(
             "manifest.json",
-            null,
-            [new CaptureManifestCase("unknown", null, "", "Unknown", "unknown.nettrace", null, null, null)]);
+                Process: null,
+                [new CaptureManifestCase("unknown", Benchmark: null, "", "Unknown", "unknown.nettrace", SymbolsDirectory: null, OperationCount: null, OperationUnit: null)]);
+
         int loadCount = 0;
 
         BatchRankingResult result = CaptureManifestBatchAnalyzer.Analyze(
@@ -612,6 +631,7 @@ public sealed class CaptureManifestReaderTests
         CaptureManifest manifest = Manifest(
             Case("first", "Bench.Work", "Size: 1", "First"),
             Case("second", "Bench.Work", "Size: 2", "Second"));
+
         List<string> loaded = [];
 
         BatchRankingResult result = CaptureManifestBatchAnalyzer.Analyze(
@@ -655,9 +675,11 @@ public sealed class CaptureManifestReaderTests
         CaptureManifest before = Manifest(
             Case("before-first", "Bench.Work", "Size: 1", "First"),
             Case("before-second", "Bench.Work", "Size: 2", "Second"));
+
         CaptureManifest after = Manifest(
             Case("after-first", "Bench.Work", "Size: 1", "First"),
             Case("after-second", "Bench.Work", "Size: 2", "Second"));
+
         List<string> loaded = [];
 
         CaptureManifestDiffAnalysis result = CaptureManifestDiffAnalyzer.Analyze(
@@ -698,14 +720,14 @@ public sealed class CaptureManifestReaderTests
     }
 
     private static CaptureManifest Manifest(params CaptureManifestCase[] cases) =>
-        new("manifest.json", null, cases);
+        new("manifest.json", Process: null, cases);
 
     private static CaptureManifestCase Case(
         string id,
         string benchmark,
         string parameters,
         string display) =>
-        new(id, benchmark, parameters, display, $"{id}.nettrace", null, null, null);
+            new(id, benchmark, parameters, display, $"{id}.nettrace", SymbolsDirectory: null, OperationCount: null, OperationUnit: null);
 
     private static LoadedTrace Loaded(
         string path,
@@ -718,6 +740,7 @@ public sealed class CaptureManifestReaderTests
             new(["Hot"], hotWeight),
             new(["Other"], otherWeight)
         ];
+
         TraceInfo info = new(
             path,
             TraceFormat.Speedscope,
@@ -727,6 +750,7 @@ public sealed class CaptureManifestReaderTests
             [],
             [],
             ["cpu"]);
+
         return new LoadedTrace(
             info,
             new StackSampleSource(MetricInfo.Cpu, samples, recordSemantics));

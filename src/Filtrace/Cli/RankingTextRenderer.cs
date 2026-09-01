@@ -49,6 +49,7 @@ internal static class RankingTextRenderer
         // (ms for CPU, bytes for allocation), so it reads correctly for every family.
         output.WriteLine(
             $"{info.Format}  {info.SampleCount} samples  {info.TotalWeight:N1} {unit}  symbols {info.SymbolResolutionRate:P0}");
+
         output.WriteLine();
         string records = ranking.ContributingRecordCount is int count ? $"  records {count}" : "";
         output.WriteLine($"{metric.Name} {measureLabel}  -  scope {ranking.ScopeWeight:N2} {unit}{records}  ({scope})");

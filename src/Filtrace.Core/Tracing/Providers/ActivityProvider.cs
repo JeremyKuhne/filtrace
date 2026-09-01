@@ -54,6 +54,13 @@ public sealed class ActivityProvider
     public StackSampleSource Read(string path, TimeWindow? window = null) =>
         Read(path, window, out _);
 
+    /// <summary>
+    ///  Reconstructs duration-weighted activity stacks and reports the number of completed activity records read.
+    /// </summary>
+    /// <param name="path">The EventPipe trace path.</param>
+    /// <param name="window">An optional trace-relative start-time filter.</param>
+    /// <param name="recordCount">The number of completed activity records encountered before output filtering.</param>
+    /// <returns>The activity stack source retained by the requested window.</returns>
     internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
@@ -70,7 +77,7 @@ public sealed class ActivityProvider
         // The activity computer needs a symbol reader and a GC-reference computer to
         // build; neither resolves symbols here (activity names come from the event
         // stream, not from PDBs), so a no-op symbol reader is enough.
-        using SymbolReader symbolReader = new(TextWriter.Null, "", null);
+        using SymbolReader symbolReader = new(TextWriter.Null, "", httpClientDelegatingHandler: null);
         GCReferenceComputer gcReferences = new(source);
         ActivityComputer activityComputer = new(source, symbolReader, gcReferences);
         StartStopActivityComputer startStop = new(source, activityComputer, ignoreApplicationInsightsRequestsWithRelatedActivityId: false);

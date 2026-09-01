@@ -37,17 +37,17 @@ public sealed class DiffExecutorTests
         bool strict = false,
         IReadOnlyList<string>? fold = null,
         ScopeRequest? scope = null) =>
-        new(
-            beforePath,
-            afterPath,
-            root,
-            top,
-            fold ?? FrameNames.DefaultFoldPatterns,
-            measure,
-            format,
-            Symbols: null,
-            strict,
-            scope);
+            new(
+                beforePath,
+                afterPath,
+                root,
+                top,
+                fold ?? FrameNames.DefaultFoldPatterns,
+                measure,
+                format,
+                Symbols: null,
+                strict,
+                scope);
 
     private static (int Exit, string Out, string Error) Run(DiffRequest request)
     {
@@ -232,9 +232,11 @@ public sealed class DiffExecutorTests
         JsonElement envelope = document.RootElement;
         envelope.GetProperty("warnings").EnumerateArray().Should().Contain(
             warning => warning.GetProperty("code").GetString() == AnalysisDiagnosticCodes.RootScopeAncestry);
+
         JsonElement result = envelope.GetProperty("result");
         result.GetProperty("beforeRootCoverage").GetProperty("availableWeight").GetDouble()
             .Should().BeGreaterThan(result.GetProperty("beforeRootCoverage").GetProperty("retainedWeight").GetDouble());
+
         result.GetProperty("afterRootCoverage").GetProperty("availableRecordCount").GetInt32()
             .Should().BeGreaterThan(result.GetProperty("afterRootCoverage").GetProperty("retainedRecordCount").GetInt32());
     }
@@ -260,6 +262,7 @@ public sealed class DiffExecutorTests
                 """
                 {"schemaVersion":1,"cases":[{"id":"before","benchmark":"Bench.Work","parameters":"Size: 1","benchmarkDisplay":"Work(Size: 1): Job-OLD","speedscope":"case.speedscope.json","operationCount":10,"operationUnit":"items"}]}
                 """);
+
             File.WriteAllText(
                 afterManifest,
                 """
@@ -314,6 +317,7 @@ public sealed class DiffExecutorTests
                   {"id":"two","benchmark":"Bench.Work","parameters":"Size: 2","benchmarkDisplay":"Work(Size: 2): Job-A","speedscope":"{{trace}}"}
                 ]}
                 """);
+
             BatchRequest request = new(
                 manifest,
                 TraceMetric.Cpu,

@@ -26,8 +26,8 @@ public static class RankingDiff
     /// <param name="after">The current ranking.</param>
     /// <param name="top">The maximum number of changed rows to return.</param>
     /// <returns>The diff: per-frame deltas, largest absolute change first.</returns>
-    public static RankingDiffResult Diff(RankingResult before, RankingResult after, int top)
-        => DiffCore(before, after, top, null, null, null);
+    public static RankingDiffResult Diff(RankingResult before, RankingResult after, int top) =>
+        DiffCore(before, after, top, beforeOperationCount: null, afterOperationCount: null, operationUnit: null);
 
     /// <summary>
     ///  Diffs two rankings and includes per-operation values when both sides supply
@@ -115,11 +115,13 @@ public static class RankingDiff
         string frameWarning = frameNamesBounded
             ? $"Frame names were truncated to {CaptureManifestOutput.MaxFrameLength} characters or had control characters replaced. "
             : string.Empty;
+
         string rowWarning = rowsTruncated
             ? $"Showing {kept.Count} of {diff.Rows.Count} changed rows; more would exceed the "
                 + $"{OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole response under the "
                 + $"{OutputBudget.DefaultCeilingTokens}-token ceiling. "
             : string.Empty;
+
         warning = $"{frameWarning}{rowWarning}Scope totals still cover every frame.";
 
         return diff with
@@ -176,9 +178,11 @@ public static class RankingDiff
             double? normalizedWeightChange = before.ScopeWeight > 0.0 && after.ScopeWeight > 0.0
                 ? pair.Value.After * before.ScopeWeight / after.ScopeWeight - pair.Value.Before
                 : null;
+
             double? beforePerOperation = beforeOperationCount is double beforeCount
                 ? pair.Value.Before / beforeCount
                 : null;
+
             double? afterPerOperation = afterOperationCount is double afterCount
                 ? pair.Value.After / afterCount
                 : null;
@@ -218,6 +222,7 @@ public static class RankingDiff
         double? beforeScopePerOperation = beforeOperationCount is double beforeOperations
             ? before.ScopeWeight / beforeOperations
             : null;
+
         double? afterScopePerOperation = afterOperationCount is double afterOperations
             ? after.ScopeWeight / afterOperations
             : null;

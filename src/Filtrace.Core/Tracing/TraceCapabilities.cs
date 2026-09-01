@@ -45,6 +45,11 @@ public static class TraceCapabilities
         _ => []
     };
 
+    /// <summary>
+    ///  Determines whether a name belongs to the complete analysis vocabulary accepted in metadata.
+    /// </summary>
+    /// <param name="analysis">The case-sensitive canonical analysis name.</param>
+    /// <returns><see langword="true"/> for a known analysis; otherwise <see langword="false"/>.</returns>
     internal static bool IsKnownAnalysis(string analysis) =>
         Array.IndexOf(AllAnalyses, analysis) >= 0;
 
@@ -76,6 +81,7 @@ public static class TraceCapabilities
                     FormatSupported: false,
                     CaptureStatus.Unknown,
                     EventCount: null);
+
                 continue;
             }
 
@@ -87,11 +93,13 @@ public static class TraceCapabilities
                     FormatSupported: true,
                     CaptureStatus.Enabled,
                     observed);
+
                 continue;
             }
 
             CaptureStatus captureStatus = captureStatuses?.GetValueOrDefault(analysis)
                 ?? CaptureStatus.Unknown;
+
             availability[analysis] = new AnalysisAvailability(
                 FormatSupported: true,
                 captureStatus,

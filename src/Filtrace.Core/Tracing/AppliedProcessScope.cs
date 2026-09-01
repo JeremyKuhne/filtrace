@@ -35,7 +35,10 @@ public sealed record AppliedProcessScope(
     ///  The all-processes opt-out from process scoping.
     /// </summary>
     public static AppliedProcessScope AllProcesses { get; } =
-        new("all", null, [], [], [], true);
+        new("all", Process: null, [], [], [], IncludeChildren: true);
 
+    /// <summary>
+    ///  Gets whether the matched root ids can reproduce this scope without process-instance ambiguity.
+    /// </summary>
     internal bool RootProcessIdsReplayable { get; init; } = true;
 }

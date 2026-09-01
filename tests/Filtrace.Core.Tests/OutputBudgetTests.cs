@@ -189,6 +189,7 @@ public sealed class OutputBudgetTests
             .. Enumerable.Range(0, CaptureManifestOutput.MaxWarningsPerCase)
                 .Select(_ => new string('w', CaptureManifestOutput.MaxWarningLength))
         ];
+
         BatchRankingCaseResult[] cases =
         [
             .. Enumerable.Range(0, CaptureManifestBatchAnalyzer.MaxAnalyzedCases)
@@ -204,6 +205,7 @@ public sealed class OutputBudgetTests
                     100,
                     warnings))
         ];
+
         AnalysisResult<BatchRankingResult> envelope = new(
             new BatchRankingResult("manifest.json", "cpu", "self", "", cases));
 
@@ -223,6 +225,7 @@ public sealed class OutputBudgetTests
             .. Enumerable.Range(0, CaptureManifestOutput.MaxWarningsPerCase)
                 .Select(_ => new string('w', CaptureManifestOutput.MaxWarningLength))
         ];
+
         DiffRow[] rows =
         [
             .. Enumerable.Range(0, CaptureManifestDiffAnalyzer.MaxRowsPerCase)
@@ -237,6 +240,7 @@ public sealed class OutputBudgetTests
                     PerOperationDelta = 1.0
                 })
         ];
+
         RankingDiffCaseResult[] cases =
         [
             .. Enumerable.Range(0, CaptureManifestDiffAnalyzer.MaxAnalyzedCases)
@@ -255,6 +259,7 @@ public sealed class OutputBudgetTests
                     ScopeWeightPerOperationDelta = 1.0
                 })
         ];
+
         AnalysisResult<RankingDiffResult> envelope = new(
             new RankingDiffResult(cases));
 
@@ -281,12 +286,14 @@ public sealed class OutputBudgetTests
         {
             CaseId = "case"
         };
+
         BatchRankingResult batch = new(
             "manifest.json",
             "cpu",
             "self",
             string.Empty,
             [captureCase]);
+
         string symbols = new('s', 1024);
         string[] foldPatterns = [.. Enumerable.Repeat(new string('f', 256), 32)];
         IReadOnlyList<string> hints = SteeringHints.ForBatch(
@@ -294,6 +301,7 @@ public sealed class OutputBudgetTests
             scope: null,
             symbols,
             foldPatterns);
+
         AnalysisResult<BatchRankingResult> envelope = new(batch, hints: hints);
 
         string json = OutputJson.Serialize(envelope);
@@ -310,6 +318,7 @@ public sealed class OutputBudgetTests
             .. Enumerable.Range(0, 2_000)
                 .Select(index => new DiffRow($"Frame.{index}.{new string('f', 120)}", 10.0, 20.0, 10.0))
         ];
+
         RankingDiffResult full = new(100.0, 200.0, 100.0, rows);
 
         RankingDiffResult bounded = RankingDiff.LimitRows(full, out string? warning);

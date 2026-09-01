@@ -28,6 +28,7 @@ internal static class TestState
                     PackageVersion = "1.2.3",
                     PackageSha256 = Hash
                 }
+
                 : null
         };
     }

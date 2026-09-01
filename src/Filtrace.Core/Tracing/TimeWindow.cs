@@ -99,9 +99,11 @@ public readonly struct TimeWindow
     /// </summary>
     /// <param name="relativeMSec">The event's timestamp in milliseconds relative to the start of the trace.</param>
     /// <returns><see langword="true"/> when the time is inside the window.</returns>
-    public bool Contains(double relativeMSec) =>
-        (StartMSec is not double start || relativeMSec >= start)
-        && (EndMSec is not double end || relativeMSec <= end);
+    public bool Contains(double relativeMSec)
+    {
+        return (StartMSec is not double start || relativeMSec >= start)
+            && (EndMSec is not double end || relativeMSec <= end);
+    }
 
     /// <summary>
     ///  Renders the window as <c>[start, end] ms</c>, with an open bound shown as the
@@ -143,7 +145,7 @@ public readonly struct TimeWindow
         string? text,
         out double? startMSec,
         out double? endMSec,
-        [NotNullWhen(false)] out string? errorMessage)
+            [NotNullWhen(returnValue: false)] out string? errorMessage)
     {
         startMSec = null;
         endMSec = null;
@@ -157,9 +159,10 @@ public readonly struct TimeWindow
         int comma = text.IndexOf(',');
         if (comma < 0)
         {
-            errorMessage =
-                "The time window must be 'start,end' in milliseconds relative to the trace start; either "
-                + "bound may be omitted (e.g. '1000,5000', '1000,', or ',5000').";
+            errorMessage = string.Concat(
+                "The time window must be 'start,end' in milliseconds relative to the trace start; either ",
+                "bound may be omitted (e.g. '1000,5000', '1000,', or ',5000').");
+
             return false;
         }
 
@@ -167,6 +170,7 @@ public readonly struct TimeWindow
         {
             errorMessage =
                 "The time window must contain a single ',' separating the start and end (e.g. '1000,5000').";
+
             return false;
         }
 
@@ -203,6 +207,7 @@ public readonly struct TimeWindow
         {
             errorMessage =
                 $"The time window start ({startText} ms) must not be greater than the end ({endText} ms).";
+
             return false;
         }
 
@@ -215,7 +220,7 @@ public readonly struct TimeWindow
         string text,
         string which,
         out double value,
-        [NotNullWhen(false)] out string? errorMessage)
+            [NotNullWhen(returnValue: false)] out string? errorMessage)
     {
         if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value)
             && !double.IsNaN(value)

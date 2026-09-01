@@ -180,6 +180,7 @@ public sealed class EventQueryProvider
                         data.ProcessID,
                         data.ThreadID,
                         renderedPayload));
+
                     pageTokens += recordTokens;
                 }
             }
@@ -224,7 +225,7 @@ public sealed class EventQueryProvider
         string[] names = data.PayloadNames;
         for (int i = 0; i < names.Length; i++)
         {
-            if (data.PayloadString(i, null).Contains(filter, StringComparison.OrdinalIgnoreCase))
+            if (data.PayloadString(i, formatProvider: null).Contains(filter, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -271,15 +272,19 @@ public sealed class EventQueryProvider
             // already filled the cap.
             if (builder.Length < maxPayloadChars)
             {
-                AppendCapped(builder, data.PayloadString(i, null), maxPayloadChars);
+                AppendCapped(builder, data.PayloadString(i, formatProvider: null), maxPayloadChars);
             }
         }
 
         return builder.ToString();
     }
 
-    // Appends at most (cap - builder.Length) characters of value, so the builder
-    // never grows past the cap even when a single value is degenerately large.
+    /// <summary>
+    ///  Appends only the prefix of a value that fits within a shared character budget.
+    /// </summary>
+    /// <param name="builder">The payload buffer whose final length must not exceed the cap.</param>
+    /// <param name="value">The text to append, possibly partially.</param>
+    /// <param name="cap">The maximum permitted builder length.</param>
     internal static void AppendCapped(System.Text.StringBuilder builder, string value, int cap)
     {
         int remaining = cap - builder.Length;

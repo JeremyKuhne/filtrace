@@ -17,8 +17,15 @@ internal sealed class AnalysisEventCounter
 {
     private readonly Dictionary<string, int> _counts = new(StringComparer.Ordinal);
 
+    /// <summary>
+    ///  Gets the observed record counts keyed by canonical analysis name.
+    /// </summary>
     public IReadOnlyDictionary<string, int> Counts => _counts;
 
+    /// <summary>
+    ///  Classifies one trace event and increments every analysis whose source records it represents.
+    /// </summary>
+    /// <param name="data">The event to classify.</param>
     public void Observe(TraceEvent data)
     {
         Increment("events");
@@ -77,6 +84,10 @@ internal sealed class AnalysisEventCounter
         }
     }
 
+    /// <summary>
+    ///  Records the capture's process count when at least one process was observed.
+    /// </summary>
+    /// <param name="count">The number of processes in the trace.</param>
     public void AddProcesses(int count)
     {
         if (count > 0)
@@ -85,9 +96,14 @@ internal sealed class AnalysisEventCounter
         }
     }
 
+    /// <summary>
+    ///  Determines whether an event provider is outside the known .NET runtime provider families.
+    /// </summary>
+    /// <param name="providerName">The provider name to classify.</param>
+    /// <returns><see langword="true"/> for an application provider; otherwise <see langword="false"/>.</returns>
     internal static bool IsApplicationProvider(string providerName) =>
         !providerName.StartsWith("Microsoft-Windows-DotNETRuntime", StringComparison.Ordinal)
-        && !providerName.StartsWith("Microsoft-DotNETCore-", StringComparison.Ordinal);
+            && !providerName.StartsWith("Microsoft-DotNETCore-", StringComparison.Ordinal);
 
     private void Increment(string analysis)
     {
@@ -95,6 +111,11 @@ internal sealed class AnalysisEventCounter
         _counts[analysis] = SaturatingIncrement(count);
     }
 
+    /// <summary>
+    ///  Increments a nonnegative count while preserving <see cref="int.MaxValue"/> as the saturation point.
+    /// </summary>
+    /// <param name="count">The current count.</param>
+    /// <returns>The incremented count, or <see cref="int.MaxValue"/> when already saturated.</returns>
     internal static int SaturatingIncrement(int count) =>
         count == int.MaxValue ? int.MaxValue : count + 1;
 }

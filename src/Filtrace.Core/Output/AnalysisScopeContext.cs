@@ -121,6 +121,15 @@ public sealed record AnalysisScopeContext
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? ToMs { get; init; }
 
+    /// <summary>
+    ///  Builds the serializable effective scope for a completed analysis, omitting the object when no scope applied.
+    /// </summary>
+    /// <param name="root">The stack-ancestry root selector, or an empty string when unscoped.</param>
+    /// <param name="processScope">The resolved process scope, or <see langword="null"/> when unavailable.</param>
+    /// <param name="activityName">The activity selector, or <see langword="null"/> when unscoped.</param>
+    /// <param name="window">The requested time window, or <see langword="null"/> when unscoped.</param>
+    /// <param name="rootCoverage">Coverage retained by the root filter, when measured.</param>
+    /// <returns>The effective scope, or <see langword="null"/> when every scope axis is unbounded.</returns>
     internal static AnalysisScopeContext? Create(
         string root,
         AppliedProcessScope? processScope,

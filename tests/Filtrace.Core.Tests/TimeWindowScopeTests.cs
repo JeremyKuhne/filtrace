@@ -23,13 +23,13 @@ public sealed class TimeWindowScopeTests
         windowed.Window!.Value.EndMSec.Should().Be(5000.0);
 
         // Both bounds null clears the window rather than filtering to an empty span.
-        windowed.WithTimeWindow(null, null).Window.Should().BeNull();
+        windowed.WithTimeWindow(startMSec: null, endMSec: null).Window.Should().BeNull();
     }
 
     [TestMethod]
     public void WithTimeWindow_PreservesTheProcessAndActivityScopes()
     {
-        ScopeRequest scope = ScopeRequest.ForProcess("MyApp").WithActivity("Order").WithTimeWindow(1000.0, null);
+        ScopeRequest scope = ScopeRequest.ForProcess("MyApp").WithActivity("Order").WithTimeWindow(1000.0, endMSec: null);
 
         scope.Selector.Should().BeOfType<ProcessNameSelector>().Which.NameSubstring.Should().Be("MyApp");
         scope.ActivityName.Should().Be("Order");
@@ -46,10 +46,11 @@ public sealed class TimeWindowScopeTests
         wholeCount.Should().BeGreaterThan(0);
 
         LoadedTrace early = loader.Load(
-            ActivityTrace, TraceMetric.Cpu, scope: ScopeRequest.Auto.WithTimeWindow(null, 150.0));
+                ActivityTrace, TraceMetric.Cpu, scope: ScopeRequest.Auto.WithTimeWindow(startMSec: null, 150.0));
 
         early.Info.SampleCount.Should().BeInRange(1, wholeCount - 1,
             "an early window keeps some but not all of the samples");
+
         early.Info.Warnings.Should().Contain(w =>
             w.Contains("Scoped to the [start, 150] ms window", StringComparison.Ordinal));
     }
@@ -62,9 +63,10 @@ public sealed class TimeWindowScopeTests
         int wholeCount = loader.Load(ActivityTrace, TraceMetric.Cpu).Info.SampleCount;
 
         int earlyCount = loader.Load(
-            ActivityTrace, TraceMetric.Cpu, scope: ScopeRequest.Auto.WithTimeWindow(null, 150.0)).Info.SampleCount;
+            ActivityTrace, TraceMetric.Cpu, scope: ScopeRequest.Auto.WithTimeWindow(startMSec: null, 150.0)).Info.SampleCount;
+
         int lateCount = loader.Load(
-            ActivityTrace, TraceMetric.Cpu, scope: ScopeRequest.Auto.WithTimeWindow(150.0, null)).Info.SampleCount;
+            ActivityTrace, TraceMetric.Cpu, scope: ScopeRequest.Auto.WithTimeWindow(150.0, endMSec: null)).Info.SampleCount;
 
         earlyCount.Should().BeGreaterThan(0);
         lateCount.Should().BeGreaterThan(0);
@@ -96,7 +98,7 @@ public sealed class TimeWindowScopeTests
 
         // WithTimeWindow(null, null) clears the window, so the read matches the unscoped one.
         LoadedTrace unbounded = loader.Load(
-            ActivityTrace, TraceMetric.Cpu, scope: ScopeRequest.Auto.WithTimeWindow(null, null));
+            ActivityTrace, TraceMetric.Cpu, scope: ScopeRequest.Auto.WithTimeWindow(startMSec: null, endMSec: null));
 
         unbounded.Info.SampleCount.Should().Be(wholeCount);
         unbounded.Info.Warnings.Should().NotContain(w => w.Contains("window", StringComparison.OrdinalIgnoreCase));

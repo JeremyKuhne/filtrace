@@ -119,7 +119,7 @@ public sealed class ThreadTimeProviderTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Read_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         Action act = () => new ThreadTimeProvider().Read(path!, scope: null, out _);

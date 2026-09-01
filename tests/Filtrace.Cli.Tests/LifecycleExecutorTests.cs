@@ -26,12 +26,12 @@ public sealed class LifecycleExecutorTests
         IReadOnlyList<string>? images = null,
         int top = 25,
         OutputFormat format = OutputFormat.Text) =>
-        new(
-            path,
-            string.IsNullOrEmpty(process) ? ScopeRequest.Auto : ScopeRequest.ForProcess(process),
-            images ?? [],
-            top,
-            format);
+            new(
+                path,
+                string.IsNullOrEmpty(process) ? ScopeRequest.Auto : ScopeRequest.ForProcess(process),
+                images ?? [],
+                top,
+                format);
 
     private static (int Exit, string Out, string Error) Run(LifecycleRequest request)
     {

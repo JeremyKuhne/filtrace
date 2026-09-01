@@ -36,9 +36,11 @@ internal static class ProcessesTextRenderer
 
         output.WriteLine(
             $"{info.Format}  {info.SampleCount} samples  {info.TotalWeight:N1} {unit}  symbols {info.SymbolResolutionRate:P0}");
+
         output.WriteLine();
         output.WriteLine(
             $"processes by {metric.Name}  -  {result.TotalSamples} samples  {result.TotalWeight:N1} {unit}");
+
         output.WriteLine(
             $"  {"weight",WeightColumnWidth}  {"%",PercentColumnWidth}  {"samples",SamplesColumnWidth}  process");
 
@@ -49,7 +51,7 @@ internal static class ProcessesTextRenderer
             string name = process.Process.Length > 0 ? process.Process : "(single process)";
             output.WriteLine(
                 $"  {$"{process.Weight:N2} {unit}",WeightColumnWidth}  {process.PercentOfScope,PercentColumnWidth:N2}  "
-                + $"{process.SampleCount,SamplesColumnWidth}  {name}");
+                    + $"{process.SampleCount,SamplesColumnWidth}  {name}");
         }
 
         if (result.Processes.Count == 0)

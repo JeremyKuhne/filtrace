@@ -34,6 +34,7 @@ public sealed class LocalTestingTargetLockTests
 
         acquire.Should().Throw<DirectoryNotFoundException>()
             .WithMessage("*Git directory does not exist*");
+
         Directory.Exists(gitDirectory).Should().BeFalse();
     }
 
@@ -81,25 +82,31 @@ public sealed class LocalTestingTargetLockTests
             RedirectStandardOutput = true,
             UseShellExecute = false
         };
+
         startInfo.ArgumentList.Add(Assembly.GetExecutingAssembly().Location);
         startInfo.Environment[LocalTestingTargetLockProcessProbe.EnabledVariable] = "1";
         startInfo.Environment[LocalTestingTargetLockProcessProbe.TargetRootVariable] =
             plan.TargetRoot;
+
         startInfo.Environment[LocalTestingTargetLockProcessProbe.GitDirectoryVariable] =
             plan.GitDirectory;
+
         startInfo.Environment[LocalTestingTargetLockProcessProbe.ReadyPathVariable] = readyPath;
         startInfo.Environment[LocalTestingTargetLockProcessProbe.ReleasePathVariable] = releasePath;
         using Process child = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start the lock probe.");
+
         try
         {
             bool ready = SpinWait.SpinUntil(
                 () => File.Exists(readyPath) || child.HasExited,
                 TimeSpan.FromSeconds(10));
+
             if (!ready)
             {
                 Assert.Fail("Lock probe did not signal readiness within 10 seconds.");
             }
+
             if (child.HasExited)
             {
                 string error = await child.StandardError.ReadToEndAsync();
@@ -146,6 +153,7 @@ public sealed class LocalTestingTargetLockTests
 
             acquire.Should().Throw<InvalidOperationException>()
                 .WithMessage("*requires .NET file locking*DOTNET_SYSTEM_IO_DISABLEFILELOCKING*");
+
             File.Exists(plan.LockPath).Should().BeFalse();
         }
         finally
@@ -176,19 +184,24 @@ public sealed class LocalTestingTargetLockTests
             RedirectStandardOutput = true,
             UseShellExecute = false
         };
+
         startInfo.ArgumentList.Add(Assembly.GetExecutingAssembly().Location);
         startInfo.Environment[LocalTestingTargetLockProcessProbe.EnabledVariable] = "1";
         startInfo.Environment[LocalTestingTargetLockProcessProbe.TargetRootVariable] =
             plan.TargetRoot;
+
         startInfo.Environment[LocalTestingTargetLockProcessProbe.GitDirectoryVariable] =
             plan.GitDirectory;
+
         startInfo.Environment[LocalTestingTargetLockProcessProbe.ReadyPathVariable] = readyPath;
         startInfo.Environment[LocalTestingTargetLockProcessProbe.ReleasePathVariable] = releasePath;
         startInfo.Environment[LocalTestingTargetLockProcessProbe.DisableFileLockingSwitchVariable] =
             "1";
+
         startInfo.Environment.Remove("DOTNET_SYSTEM_IO_DISABLEFILELOCKING");
         using Process child = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start the lock probe.");
+
         try
         {
             child.WaitForExit(10_000).Should().BeTrue();

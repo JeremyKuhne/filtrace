@@ -156,6 +156,7 @@ internal sealed class TraceCommands
         {
             Console.Error.WriteLine(
                 $"Unknown metric '{metric}'. Supported stack metrics: {string.Join(", ", TraceMetricSelector.Selectors)}.");
+
             return ExitCodes.UsageError;
         }
 
@@ -172,6 +173,7 @@ internal sealed class TraceCommands
         {
             Console.Error.WriteLine(
                 "The --activity scope applies to the cpu metric only. Use --metric cpu (or omit --metric) to scope to an activity.");
+
             return ExitCodes.UsageError;
         }
 
@@ -208,6 +210,7 @@ internal sealed class TraceCommands
         {
             CaseId = string.IsNullOrEmpty(caseId) ? null : caseId
         };
+
         return RankingExecutor.Run(request, Console.Out, Console.Error);
     }
 
@@ -296,6 +299,7 @@ internal sealed class TraceCommands
 
         RankRequest request = RankRequestFactory.Create(
             trace, TraceMetric.Cpu, measure, resolvedRoot, top, foldPatterns, symbols, format, strict, scope, symbolOptions);
+
         return RankingExecutor.Run(request, Console.Out, Console.Error);
     }
 
@@ -341,6 +345,7 @@ internal sealed class TraceCommands
 
         RankRequest request = RankRequestFactory.Create(
             trace, TraceMetric.Allocations, measure, resolvedRoot, top, fold, symbols: null, format, strict: false);
+
         return RankingExecutor.Run(request, Console.Out, Console.Error);
     }
 
@@ -386,6 +391,7 @@ internal sealed class TraceCommands
 
         RankRequest request = RankRequestFactory.Create(
             trace, TraceMetric.Exceptions, measure, resolvedRoot, top, fold, symbols: null, format, strict: false);
+
         return RankingExecutor.Run(request, Console.Out, Console.Error);
     }
 
@@ -448,6 +454,7 @@ internal sealed class TraceCommands
 
         RankRequest request = RankRequestFactory.Create(
             trace, TraceMetric.ThreadTime, measure, resolvedRoot, top, fold, symbols: null, format, strict: false, scope);
+
         return RankingExecutor.Run(request, Console.Out, Console.Error);
     }
 
@@ -577,6 +584,7 @@ internal sealed class TraceCommands
                 format,
                 strict,
                 scope);
+
             return LinesExecutor.Run(request, Console.Out, Console.Error);
         }
 
@@ -848,11 +856,13 @@ internal sealed class TraceCommands
                     new GcStatsRequest(trace, top ?? 50, format),
                     Console.Out,
                     Console.Error);
+
             case ReportKind.Jit:
                 return JitStatsExecutor.Run(
                     new JitStatsRequest(trace, top ?? 25, format),
                     Console.Out,
                     Console.Error);
+
             case ReportKind.Threadpool:
                 if (top is not null)
                 {
@@ -864,11 +874,13 @@ internal sealed class TraceCommands
                     new ThreadPoolRequest(trace, format),
                     Console.Out,
                     Console.Error);
+
             case ReportKind.Diskio:
                 return DiskIoExecutor.Run(
                     new DiskIoRequest(trace, top ?? 25, format),
                     Console.Out,
                     Console.Error);
+
             default:
                 throw new UnreachableException();
         }
@@ -968,6 +980,7 @@ internal sealed class TraceCommands
             symbols,
             strict,
             scope);
+
         return DiffExecutor.Run(request, Console.Out, Console.Error);
     }
 
@@ -1010,6 +1023,7 @@ internal sealed class TraceCommands
         {
             Console.Error.WriteLine(
                 $"Unknown metric '{metric}'. Valid metrics: {string.Join(", ", TraceMetricSelector.Selectors)}.");
+
             return ExitCodes.UsageError;
         }
 
@@ -1028,6 +1042,7 @@ internal sealed class TraceCommands
         IReadOnlyList<string> foldPatterns = fold is { Length: > 0 }
             ? fold
             : FrameNames.DefaultFoldPatterns;
+
         BatchRequest request = new(
             manifest,
             resolvedMetric,
@@ -1038,6 +1053,7 @@ internal sealed class TraceCommands
             symbols,
             strict,
             scope);
+
         return BatchExecutor.Run(request, Console.Out, Console.Error);
     }
 
@@ -1320,6 +1336,7 @@ internal sealed class TraceCommands
         EventsRequest request = new(
             trace, name, skip, take, maxPayload, payload,
             pid >= 0 ? pid : null, tid >= 0 ? tid : null, format);
+
         return EventsExecutor.Run(request, Console.Out, Console.Error);
     }
 

@@ -17,6 +17,13 @@ public sealed partial class TraceStore
         private readonly string _fullPath;
         private readonly ConversionGate _gate;
 
+        /// <summary>
+        ///  Creates a lease whose disposal releases the path-specific conversion gate.
+        /// </summary>
+        /// <param name="owner">The store that owns the gate registry.</param>
+        /// <param name="fullPath">The canonical trace path associated with the gate.</param>
+        /// <param name="gate">The acquired gate.</param>
+        /// <param name="waited">Whether acquisition had to wait behind another caller.</param>
         public ConversionGateLease(
             TraceStore owner,
             string fullPath,
@@ -29,6 +36,9 @@ public sealed partial class TraceStore
             Waited = waited;
         }
 
+        /// <summary>
+        ///  Gets whether another conversion held the gate when this lease was requested.
+        /// </summary>
         public bool Waited { get; }
 
         protected override void Dispose(bool disposing)

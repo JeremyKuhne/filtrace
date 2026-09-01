@@ -27,6 +27,7 @@ public class ActivityReadBenchmarks
             _activityTrace,
             TraceMetric.Cpu,
             scope: _orderScope);
+
         if (whole.Info.SampleCount <= 0
             || scoped.Info.SampleCount <= 0
             || scoped.Info.SampleCount >= whole.Info.SampleCount)
@@ -39,6 +40,7 @@ public class ActivityReadBenchmarks
     /// <summary>
     ///  Loads all CPU samples with a fresh loader.
     /// </summary>
+    /// <returns>The loaded trace and its complete CPU sample source.</returns>
     [Benchmark(Baseline = true)]
     public LoadedTrace Unscoped() =>
         new TraceLoader().Load(_activityTrace, TraceMetric.Cpu);
@@ -46,6 +48,7 @@ public class ActivityReadBenchmarks
     /// <summary>
     ///  Loads CPU samples inside Order activities with a fresh loader.
     /// </summary>
+    /// <returns>The loaded trace whose CPU source retains only matching activity samples.</returns>
     [Benchmark]
     public LoadedTrace OrderScoped() =>
         new TraceLoader().Load(_activityTrace, TraceMetric.Cpu, scope: _orderScope);

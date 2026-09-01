@@ -50,6 +50,13 @@ public sealed class ExceptionsProvider
     public StackSampleSource Read(string path, TimeWindow? window = null) =>
         Read(path, window, out _);
 
+    /// <summary>
+    ///  Reads count-weighted exception stacks and reports the number of throw records encountered.
+    /// </summary>
+    /// <param name="path">The EventPipe trace path.</param>
+    /// <param name="window">An optional trace-relative throw-time filter.</param>
+    /// <param name="recordCount">The number of exception throw records encountered before output filtering.</param>
+    /// <returns>The exception stack source retained by the requested window.</returns>
     internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);

@@ -45,6 +45,15 @@ public sealed class AllocationProvider
     public StackSampleSource Read(string path, TimeWindow? window = null) =>
         Read(path, window, out _);
 
+    /// <summary>
+    ///  Reads byte-weighted allocation stacks and reports the number of positive allocation ticks encountered.
+    /// </summary>
+    /// <param name="path">The EventPipe trace path.</param>
+    /// <param name="window">An optional trace-relative event-time filter.</param>
+    /// <param name="recordCount">
+    ///  The number of positive allocation tick records encountered before output filtering.
+    /// </param>
+    /// <returns>The allocation stack source retained by the requested window.</returns>
     internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);

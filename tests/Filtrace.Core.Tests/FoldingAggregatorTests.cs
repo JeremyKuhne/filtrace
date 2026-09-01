@@ -60,8 +60,10 @@ public sealed class FoldingAggregatorTests
         // the callees take what is left.
         CallerRow[] callers = [.. Enumerable.Range(0, 4_000).Select(static index => new CallerRow(
             $"Contoso.Widgets.Pipeline.Stage{index}.Invoke(System.String)", 1.0, 0.03))];
+
         CalleeRow[] callees = [.. Enumerable.Range(0, 4_000).Select(static index => new CalleeRow(
             $"Contoso.Widgets.Sinks.Writer{index}.Flush(System.Int32)", 1.0, 0.03))];
+
         CallersResult wide = new("Focus", 4000.0, 50.0, 8000.0, callers, callees);
 
         CallersResult limited = FoldingAggregator.LimitRows(wide, out string? warning);
@@ -81,8 +83,10 @@ public sealed class FoldingAggregatorTests
         // when nothing is left; the always-keep-the-first-row rule must not put one back.
         CallerRow[] callers = [.. Enumerable.Range(0, 4_000).Select(static index => new CallerRow(
             $"Contoso.Widgets.Pipeline.Stage{index}.Invoke(System.String)", 1.0, 0.03))];
+
         CalleeRow[] callees = [.. Enumerable.Range(0, 10).Select(static index => new CalleeRow(
             $"Contoso.Widgets.Sinks.Writer{index}.Flush(System.Int32)", 1.0, 10.0))];
+
         CallersResult wide = new("Focus", 4000.0, 50.0, 8000.0, callers, callees);
 
         CallersResult limited = FoldingAggregator.LimitRows(wide, out string? warning);
@@ -100,6 +104,7 @@ public sealed class FoldingAggregatorTests
             $"C:\\src\\contoso\\widgets\\Pipeline\\Stage{index}.cs:{index}",
             1.0,
             0.02))];
+
         LineRankingResult wide = new(5000.0, string.Empty, rows);
 
         LineRankingResult limited = FoldingAggregator.LimitRows(wide, out string? warning);
@@ -118,6 +123,7 @@ public sealed class FoldingAggregatorTests
         // budget is the only bound it has.
         HeatLine[] lines = [.. Enumerable.Range(1, 8_000).Select(static index => new HeatLine(
             index, 1.0, 0.01, 3, $"Contoso.Widgets.Pipeline.Stage{index}.Execute(System.String)"))];
+
         SourceHeatmapResult wide = new(8000.0, "Pipeline.cs", 8000.0, lines);
 
         SourceHeatmapResult limited = FoldingAggregator.LimitRows(wide, out string? warning);
@@ -169,6 +175,7 @@ public sealed class FoldingAggregatorTests
                 new SampleStack(["Process", "Worker.Sibling"], 6.0, "worker-2")
             ],
             StackRecordSemantics.PeriodicCpuSamples);
+
         FoldingAggregator aggregator = new(source);
 
         RootScopeCoverage coverage = aggregator.GetRootScopeCoverage("SelectedRoot");

@@ -64,7 +64,7 @@ internal abstract class TraceLogReader : ITraceReader
         // server, but portable PDBs sitting next to a traced module still
         // resolve, which is all the managed touki frames need for line-level
         // attribution. Frames without a local PDB (BCL, OS) simply carry no line.
-        using SymbolReader symbolReader = new(TextWriter.Null, "", null);
+        using SymbolReader symbolReader = new(TextWriter.Null, "", httpClientDelegatingHandler: null);
 
         // touki and its sibling assemblies ship embedded portable PDBs, which
         // TraceEvent's SymbolReader cannot read, and BenchmarkDotNet's ephemeral
@@ -75,6 +75,7 @@ internal abstract class TraceLogReader : ITraceReader
         string? extractedPdbDirectory = symbolsDirectory is null
             ? null
             : EmbeddedPdbExtractor.Extract(symbolsDirectory);
+
         string? localSymbolPath = null;
 
         try
@@ -158,6 +159,13 @@ internal abstract class TraceLogReader : ITraceReader
         }
     }
 
+    /// <summary>
+    ///  Validates one offline local symbol directory and converts it to an absolute path.
+    /// </summary>
+    /// <param name="symbolsDirectory">
+    ///  A local directory, or <see langword="null"/> or empty to disable symbol lookup.
+    /// </param>
+    /// <returns>The absolute directory path, or <see langword="null"/> when lookup is disabled.</returns>
     internal static string? NormalizeSymbolsDirectory(string? symbolsDirectory)
     {
         if (string.IsNullOrEmpty(symbolsDirectory))
@@ -399,27 +407,28 @@ internal abstract class TraceLogReader : ITraceReader
 
             if (scopes.Count > 1)
             {
-                warnings.Add(
-                    $"No samples remained after scoping to {JoinScopes(scopes)}; "
-                    + "a scope may have dropped them all - relax one to see which.");
+                warnings.Add(string.Concat(
+                    $"No samples remained after scoping to {JoinScopes(scopes)}; ",
+                    "a scope may have dropped them all - relax one to see which."));
             }
             else if (activityName is not null)
             {
-                warnings.Add(
-                    $"No samples remained inside the '{activityName}' activity; the trace may carry no such "
-                    + "activity (activities come from EventSource Start/Stop events), or none of its samples were CPU samples.");
+                warnings.Add(string.Concat(
+                    $"No samples remained inside the '{activityName}' activity; the trace may carry no such ",
+                    "activity (activities come from EventSource Start/Stop events), or none of its samples were CPU samples."));
             }
             else if (window is TimeWindow soleWindow && soleWindow.IsBounded)
             {
-                warnings.Add(
-                    $"No samples remained inside the {soleWindow} window; the trace may carry no CPU samples "
-                    + "there, or the window may lie outside the captured range - widen or drop it to check.");
+                warnings.Add(string.Concat(
+                    $"No samples remained inside the {soleWindow} window; the trace may carry no CPU samples ",
+                    "there, or the window may lie outside the captured range - widen or drop it to check."));
             }
             else
             {
                 warnings.Add(appliedScope is not null
-                    ? $"No samples remained after scoping to {appliedScope}; "
-                        + "the scope may match no process with samples - pass --all-processes to read every process."
+                    ? string.Concat(
+                        $"No samples remained after scoping to {appliedScope}; ",
+                        "the scope may match no process with samples - pass --all-processes to read every process.")
                     : "No sampled-profile (CPU) events were found. Was the trace captured with a CPU sampler?");
             }
         }
