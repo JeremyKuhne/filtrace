@@ -56,9 +56,9 @@ internal static class HeatmapTextRenderer
 
         if (heatmap.Lines.Count == 0)
         {
-            output.WriteLine(string.Concat(
-                $"  (no samples attributed to '{heatmap.File}'; the trace needs source line info ",
-                "(--symbols) and the file name must match)"));
+            output.WriteLine(
+                $"  (no samples attributed to '{heatmap.File}'; the trace needs source line info "
+                    + "(--symbols) and the file name must match)");
         }
         else if (SourceAnnotator.TryReadSourceLines(sourceFile, out string[] sourceLines))
         {
@@ -71,9 +71,9 @@ internal static class HeatmapTextRenderer
             output.WriteLine($"  {"weight",WeightColumnWidth}  {"%",PercentColumnWidth}  line  method");
             foreach (HeatLine row in heatmap.Lines)
             {
-                output.WriteLine(string.Concat(
-                    $"  {$"{row.Weight:N2} {unit}",WeightColumnWidth}  {row.PercentOfScope,PercentColumnWidth:N2}  ",
-                    $"{row.Line,5}  {row.Method}"));
+                output.WriteLine(
+                    $"  {$"{row.Weight:N2} {unit}",WeightColumnWidth}  {row.PercentOfScope,PercentColumnWidth:N2}  "
+                        + $"{row.Line,5}  {row.Method}");
             }
         }
 

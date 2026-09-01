@@ -82,9 +82,9 @@ internal static class CaptureMetadataReader
         }
         catch (Exception exception) when (IsMetadataReadException(exception))
         {
-            warnings.Add(string.Concat(
-                $"Capture metadata '{metadataPath}' could not be read: {exception.Message} ",
-                "Provider enablement remains unknown where no events were observed."));
+            warnings.Add(
+                $"Capture metadata '{metadataPath}' could not be read: {exception.Message} "
+                    + "Provider enablement remains unknown where no events were observed.");
 
             return null;
         }

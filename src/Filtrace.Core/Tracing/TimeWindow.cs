@@ -159,9 +159,9 @@ public readonly struct TimeWindow
         int comma = text.IndexOf(',');
         if (comma < 0)
         {
-            errorMessage = string.Concat(
-                "The time window must be 'start,end' in milliseconds relative to the trace start; either ",
-                "bound may be omitted (e.g. '1000,5000', '1000,', or ',5000').");
+            errorMessage =
+                "The time window must be 'start,end' in milliseconds relative to the trace start; either "
+                    + "bound may be omitted (e.g. '1000,5000', '1000,', or ',5000').";
 
             return false;
         }

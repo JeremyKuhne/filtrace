@@ -360,9 +360,9 @@ public sealed class TraceLoader
 
             if (scopes.Count > 0)
             {
-                warnings.Add(string.Concat(
-                    $"No thread-time samples remained after scoping to {(scopes.Count == 2 ? $"{scopes[0]} and {scopes[1]}" : scopes[0])}; ",
-                    "a scope may match nothing with samples - pass --all-processes or widen the time window."));
+                warnings.Add(
+                    $"No thread-time samples remained after scoping to {(scopes.Count == 2 ? $"{scopes[0]} and {scopes[1]}" : scopes[0])}; "
+                        + "a scope may match nothing with samples - pass --all-processes or widen the time window.");
             }
             else
             {

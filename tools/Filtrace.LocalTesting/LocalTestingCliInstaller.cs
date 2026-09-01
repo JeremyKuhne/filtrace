@@ -204,15 +204,13 @@ internal sealed class LocalTestingCliInstaller
             if (!processExited)
             {
                 throw new InvalidOperationException(
-                    string.Concat(
-                        $"Could not confirm termination of dotnet process {process.Id}. ",
-                        $"The local-testing CLI operation was retained for manual recovery: '{operationRoot}'."));
+                    $"Could not confirm termination of dotnet process {process.Id}. "
+                        + $"The local-testing CLI operation was retained for manual recovery: '{operationRoot}'.");
             }
 
             throw new TimeoutException(
-                string.Concat(
-                    $"dotnet tool install did not exit within {_installTimeout.TotalSeconds} seconds. ",
-                    $"The operation was retained for manual recovery: '{operationRoot}'."));
+                $"dotnet tool install did not exit within {_installTimeout.TotalSeconds} seconds. "
+                    + $"The operation was retained for manual recovery: '{operationRoot}'.");
         }
 
         if (process.ExitCode is not 0)

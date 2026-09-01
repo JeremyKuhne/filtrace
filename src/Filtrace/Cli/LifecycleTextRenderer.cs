@@ -57,9 +57,9 @@ internal static class LifecycleTextRenderer
             output.WriteLine($"    {"phase",-32}  {"n",3}  {"p50",10}  {"min",10}  {"max",10}");
             foreach (LifecyclePhase phase in report.Phases)
             {
-                output.WriteLine(string.Concat(
-                    $"    {phase.Phase,-32}  {phase.Count,3}  {phase.MedianMs,10:N3}  ",
-                    $"{phase.MinimumMs,10:N3}  {phase.MaximumMs,10:N3}"));
+                output.WriteLine(
+                    $"    {phase.Phase,-32}  {phase.Count,3}  {phase.MedianMs,10:N3}  "
+                        + $"{phase.MinimumMs,10:N3}  {phase.MaximumMs,10:N3}");
             }
 
             output.WriteLine();
@@ -71,9 +71,9 @@ internal static class LifecycleTextRenderer
             output.WriteLine($"    {"module",-32}  {"n",3}  {"p50",10}  {"min",10}  {"max",10}");
             foreach (LifecycleImageMilestone milestone in report.ImageMilestones)
             {
-                output.WriteLine(string.Concat(
-                    $"    {milestone.Module,-32}  {milestone.Count,3}  {milestone.MedianOffsetMs,10:N3}  ",
-                    $"{milestone.MinimumOffsetMs,10:N3}  {milestone.MaximumOffsetMs,10:N3}"));
+                output.WriteLine(
+                    $"    {milestone.Module,-32}  {milestone.Count,3}  {milestone.MedianOffsetMs,10:N3}  "
+                        + $"{milestone.MinimumOffsetMs,10:N3}  {milestone.MaximumOffsetMs,10:N3}");
             }
 
             output.WriteLine();
@@ -104,9 +104,9 @@ internal static class LifecycleTextRenderer
         // A clipped row is marked rather than dropped: its lifetime is a lower bound, and a
         // reader comparing rows needs to know which ones the medians excluded.
         string mark = clipped ? " *" : "";
-        output.WriteLine(string.Concat(
-            $"  {ordinal}  {process.ProcessId,7}  {process.StartMs,11:N3}  {process.LifetimeMs,10:N3}  ",
-            $"{process.CpuMs,9:N2}  {indent}{process.Name}{mark}"));
+        output.WriteLine(
+            $"  {ordinal}  {process.ProcessId,7}  {process.StartMs,11:N3}  {process.LifetimeMs,10:N3}  "
+                + $"{process.CpuMs,9:N2}  {indent}{process.Name}{mark}");
     }
 
     private static void RenderNotes(AnalysisResult<LifecycleResult> envelope, TextWriter output)

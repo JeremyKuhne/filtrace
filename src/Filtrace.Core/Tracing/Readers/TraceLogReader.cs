@@ -407,28 +407,27 @@ internal abstract class TraceLogReader : ITraceReader
 
             if (scopes.Count > 1)
             {
-                warnings.Add(string.Concat(
-                    $"No samples remained after scoping to {JoinScopes(scopes)}; ",
-                    "a scope may have dropped them all - relax one to see which."));
+                warnings.Add(
+                    $"No samples remained after scoping to {JoinScopes(scopes)}; "
+                        + "a scope may have dropped them all - relax one to see which.");
             }
             else if (activityName is not null)
             {
-                warnings.Add(string.Concat(
-                    $"No samples remained inside the '{activityName}' activity; the trace may carry no such ",
-                    "activity (activities come from EventSource Start/Stop events), or none of its samples were CPU samples."));
+                warnings.Add(
+                    $"No samples remained inside the '{activityName}' activity; the trace may carry no such "
+                        + "activity (activities come from EventSource Start/Stop events), or none of its samples were CPU samples.");
             }
             else if (window is TimeWindow soleWindow && soleWindow.IsBounded)
             {
-                warnings.Add(string.Concat(
-                    $"No samples remained inside the {soleWindow} window; the trace may carry no CPU samples ",
-                    "there, or the window may lie outside the captured range - widen or drop it to check."));
+                warnings.Add(
+                    $"No samples remained inside the {soleWindow} window; the trace may carry no CPU samples "
+                        + "there, or the window may lie outside the captured range - widen or drop it to check.");
             }
             else
             {
                 warnings.Add(appliedScope is not null
-                    ? string.Concat(
-                        $"No samples remained after scoping to {appliedScope}; ",
-                        "the scope may match no process with samples - pass --all-processes to read every process.")
+                    ? $"No samples remained after scoping to {appliedScope}; "
+                        + "the scope may match no process with samples - pass --all-processes to read every process."
                     : "No sampled-profile (CPU) events were found. Was the trace captured with a CPU sampler?");
             }
         }
