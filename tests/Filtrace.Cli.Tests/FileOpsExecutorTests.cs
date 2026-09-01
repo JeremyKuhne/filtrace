@@ -45,12 +45,14 @@ public sealed class FileOpsExecutorTests
         string executable = Path.Join(
             AppContext.BaseDirectory,
             OperatingSystem.IsWindows() ? "filtrace.exe" : "filtrace");
+
         ProcessStartInfo startInfo = new(executable)
         {
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
+
         startInfo.ArgumentList.Add("cache");
         startInfo.ArgumentList.Add(path);
         startInfo.ArgumentList.Add("--action");
@@ -98,7 +100,8 @@ public sealed class FileOpsExecutorTests
             output.Count(text => text.Contains("ETLX cache converted", StringComparison.Ordinal)).Should().Be(1);
             output.Should().ContainSingle(text =>
                 text.Contains("ETLX cache waited", StringComparison.Ordinal)
-                || text.Contains("ETLX cache hit", StringComparison.Ordinal));
+                    || text.Contains("ETLX cache hit", StringComparison.Ordinal));
+
             File.Exists(TraceConverter.EtlxPathFor(trace)).Should().BeTrue();
             Directory.EnumerateFiles(tempDir, "*.new").Should().BeEmpty();
             Directory.EnumerateFiles(tempDir, ".filtrace-etlx-*").Should().BeEmpty();

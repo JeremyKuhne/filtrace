@@ -192,7 +192,7 @@ public static partial class OutputBudget
     /// <param name="ceilingTokens">The token ceiling.</param>
     /// <param name="warning">The warning text when over budget, otherwise <see langword="null"/>.</param>
     /// <returns><see langword="true"/> when a warning was produced.</returns>
-    public static bool TryGetBudgetWarning(string text, int ceilingTokens, [NotNullWhen(true)] out string? warning)
+    public static bool TryGetBudgetWarning(string text, int ceilingTokens, [NotNullWhen(returnValue: true)] out string? warning)
     {
         int tokens = EstimateTokens(text);
         if (tokens <= ceilingTokens)
@@ -203,7 +203,8 @@ public static partial class OutputBudget
 
         warning =
             $"Output is about {tokens} tokens, over the {ceilingTokens}-token budget. "
-            + "Narrow the query (a smaller --top, a --root scope, or a tighter filter) to reduce it.";
+                + "Narrow the query (a smaller --top, a --root scope, or a tighter filter) to reduce it.";
+
         return true;
     }
 }

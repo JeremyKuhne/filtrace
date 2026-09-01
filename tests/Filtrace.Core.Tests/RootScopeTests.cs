@@ -114,6 +114,7 @@ public sealed class RootScopeTests
             new(["Program.Main", "MyApp.Work", "MyApp.Inner"], 10.0, "1"),
             new(["Program.Main", "MyApp.Other"], 5.0, "1")
         ];
+
         StackSampleSource source = new(MetricInfo.Cpu, samples);
 
         StackSampleSource scoped = RootScope.Apply(source, "MyApp.Work");

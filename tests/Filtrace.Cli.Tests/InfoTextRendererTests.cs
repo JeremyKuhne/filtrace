@@ -22,6 +22,7 @@ public sealed class InfoTextRendererTests
             1.0,
             [],
             ["cpu"]);
+
         StringWriter output = new();
 
         InfoTextRenderer.Render(new AnalysisResult<TraceInfoView>(view), output);
@@ -41,7 +42,8 @@ public sealed class InfoTextRendererTests
             [],
             [],
             ["cpu", "alloc"]);
-        TraceInfoView view = TraceInfoView.FromTraceInfo(info, null);
+
+        TraceInfoView view = TraceInfoView.FromTraceInfo(info, etlxCacheState: null);
         StringWriter output = new();
 
         InfoTextRenderer.Render(new AnalysisResult<TraceInfoView>(view), output);
@@ -67,6 +69,7 @@ public sealed class InfoTextRendererTests
                 ["cpu"] = new("enabled", 4)
             }
         };
+
         StringWriter output = new();
 
         InfoTextRenderer.Render(new AnalysisResult<TraceInfoView>(view), output);
@@ -102,6 +105,7 @@ public sealed class InfoTextRendererTests
                 HighestUnmappedMethods = ["GeneratedChild!Run (0/40 mapped)"]
             }
         };
+
         StringWriter output = new();
 
         CultureInfo originalCulture = CultureInfo.CurrentCulture;

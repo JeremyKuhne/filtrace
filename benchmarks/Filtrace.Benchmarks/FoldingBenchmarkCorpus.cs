@@ -4,6 +4,10 @@
 
 namespace Filtrace.Benchmarks;
 
+/// <summary>
+///  Generates deterministic stack sources that vary sample count, stack depth, and
+///  frame cardinality independently for aggregation benchmarks.
+/// </summary>
 internal static partial class FoldingBenchmarkCorpus
 {
     private const int ThreadCount = 8;
@@ -32,12 +36,27 @@ internal static partial class FoldingBenchmarkCorpus
         new("s1000000-d20-f4096", 1_000_000, 20, 4_096)
     ];
 
+    /// <summary>
+    ///  The stable labels for every supported workload dimension combination.
+    /// </summary>
     public static IEnumerable<string> ScenarioNames =>
         s_scenarios.Select(static scenario => scenario.Name);
 
-    public static StackSampleSource Create(string scenarioName)
-        => Create(scenarioName, MetricInfo.Cpu, StackRecordSemantics.PeriodicCpuSamples);
+    /// <summary>
+    ///  Generates a periodic CPU sample source for one registered dimension set.
+    /// </summary>
+    /// <param name="scenarioName">The registered workload label.</param>
+    /// <returns>The deterministic synthetic stacks, weights, threads, and source locations.</returns>
+    public static StackSampleSource Create(string scenarioName) =>
+        Create(scenarioName, MetricInfo.Cpu, StackRecordSemantics.PeriodicCpuSamples);
 
+    /// <summary>
+    ///  Generates one registered dimension set with a caller-selected metric contract.
+    /// </summary>
+    /// <param name="scenarioName">The registered workload label.</param>
+    /// <param name="metric">The name and unit assigned to the synthetic weights.</param>
+    /// <param name="recordSemantics">How downstream quality checks interpret each record.</param>
+    /// <returns>The deterministic synthetic stacks, weights, threads, and source locations.</returns>
     public static StackSampleSource Create(
         string scenarioName,
         MetricInfo metric,
@@ -45,6 +64,7 @@ internal static partial class FoldingBenchmarkCorpus
     {
         FoldingScenario scenario = s_scenarios.Single(
             scenario => string.Equals(scenario.Name, scenarioName, StringComparison.Ordinal));
+
         int occurrenceCount = checked(scenario.SampleCount * scenario.StackDepth);
         if (scenario.DistinctFrameCount > occurrenceCount)
         {
@@ -64,6 +84,7 @@ internal static partial class FoldingBenchmarkCorpus
             {
                 int distinctIndex = (stackIndex * scenario.StackDepth + frameIndex)
                     % scenario.DistinctFrameCount;
+
                 string frame = $"filtrace!Pipeline.Frame{distinctIndex}.Run()";
                 frames[frameIndex] = frame;
                 locations[frameIndex] = $"Pipeline.cs:{distinctIndex + 1}";

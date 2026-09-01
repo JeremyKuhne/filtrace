@@ -64,6 +64,7 @@ internal static class EventsExecutor
         {
             string reason =
                 $"{result.TotalMatched - shownThrough} more match; page with --skip {shownThrough}.";
+
             hints.Add(reason);
             nextSteps.Add(new AnalysisNextStep(reason)
             {

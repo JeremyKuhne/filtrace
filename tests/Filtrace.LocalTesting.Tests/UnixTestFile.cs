@@ -15,6 +15,7 @@ internal static class UnixTestFile
         {
             throw new PlatformNotSupportedException();
         }
+
         if (MkFifo(path, 0x180) is not 0)
         {
             throw new Win32Exception(Marshal.GetLastPInvokeError());

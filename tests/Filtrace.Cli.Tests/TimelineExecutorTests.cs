@@ -32,7 +32,7 @@ public sealed class TimelineExecutorTests
         int[]? pid = null,
         Children children = Children.Include,
         OutputFormat format = OutputFormat.Text) =>
-        new(path, mode, at, window, time, lanes, buckets, process, allProcesses, pid, children, format);
+            new(path, mode, at, window, time, lanes, buckets, process, allProcesses, pid, children, format);
 
     private static (int Exit, string Out, string Error) Run(TimelineRequest request)
     {
@@ -258,17 +258,20 @@ public sealed class TimelineExecutorTests
             new SnapshotAllocationSummary(1, 1_048_576, 1, [new SnapshotAllocationType("System.Byte[]", 1, 1_048_576)]),
             new SnapshotJitSummary(1, 1, [new SnapshotCountRow("App.Start", 1)]),
             new SnapshotEventSummary(15, 1, [new SnapshotEventType("Runtime", "Sample", 15)]),
-            false);
+                NamesTruncated: false);
+
         TimelineResult result = new(
-            40.0, 60.0, 20.0, 1, "App", null, null, null, null, null)
+                40.0, 60.0, 20.0, 1, "App", Gc: null, Cpu: null, Exceptions: null, Alloc: null, Jit: null)
         {
             Mode = "snapshot",
             Snapshot = snapshot
         };
+
         AnalysisResult<TimelineResult> envelope = new(
             result,
             warnings: ["snapshot warning"],
             hints: ["snapshot hint"]);
+
         StringWriter output = new();
 
         TimelineTextRenderer.Render(envelope, "trace.nettrace", output);

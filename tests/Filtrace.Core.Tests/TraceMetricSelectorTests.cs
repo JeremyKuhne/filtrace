@@ -39,7 +39,7 @@ public sealed class TraceMetricSelectorTests
     }
 
     [TestMethod]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     [DataRow("")]
     public void TryResolve_NullOrEmpty_ReturnsFalseAndDefaultsToCpu(string? selector)
     {

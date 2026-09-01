@@ -11,6 +11,9 @@ public sealed partial class TimelineProvider
         /// <summary>
         ///  Identifies one pending GC pause within a process, thread, and CLR instance.
         /// </summary>
+        /// <param name="ProcessInstanceIndex">The TraceEvent process-instance index.</param>
+        /// <param name="ThreadInstanceIndex">The TraceEvent thread-instance index.</param>
+        /// <param name="ClrInstanceId">The CLR instance id.</param>
         private readonly record struct GcPauseIdentity(
             int ProcessInstanceIndex,
             int ThreadInstanceIndex,

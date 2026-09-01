@@ -260,7 +260,7 @@ public sealed class LocalTestingStateStoreTests
     }
 
     [TestMethod]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     [DataRow("invalid")]
     public void Read_ExistingSkillWithInvalidHash_Throws(string? hash)
     {
@@ -378,6 +378,7 @@ public sealed class LocalTestingStateStoreTests
     {
         JsonObject state = JsonNode.Parse(File.ReadAllText(path))?.AsObject()
             ?? throw new InvalidDataException("Expected a JSON object.");
+
         modification(state);
         File.WriteAllText(path, state.ToJsonString());
     }

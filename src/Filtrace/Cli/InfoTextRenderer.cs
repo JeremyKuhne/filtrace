@@ -34,6 +34,7 @@ internal static class InfoTextRenderer
         // view's total sampled milliseconds, the metric this orientation load reads.
         output.WriteLine(
             $"{view.Format}  {view.SampleCount} samples  {view.TotalWeight:N1} ms  symbols {FormatRate(view.SymbolResolutionRate)}");
+
         output.WriteLine();
 
         output.WriteLine("analyses:");
@@ -53,6 +54,7 @@ internal static class InfoTextRenderer
                 string count = availability.EventCount is int observed
                     ? $", {observed} events"
                     : string.Empty;
+
                 output.WriteLine(
                     $"  {name}: capture={availability.CaptureStatus}{count}");
             }
@@ -68,10 +70,13 @@ internal static class InfoTextRenderer
             output.WriteLine($"source: {source.MappedManagedFrameCount}/{source.SampledManagedFrameCount} sampled managed frames ({FormatRate(source.SourceResolutionRate)})");
             output.WriteLine(
                 $"symbol directories: {ListOrNone(source.SearchedDirectories)}");
+
             output.WriteLine(
                 $"matching PDB modules: {ListOrNone(source.MatchingPdbModules)}");
+
             output.WriteLine(
                 $"PDB identity mismatch modules: {ListOrNone(source.PdbIdentityMismatchModules)}");
+
             if (source.SampledManagedMethodCount is int sampledMethods
                 && source.SourceMappedManagedMethodCount is int mappedMethods)
             {
@@ -86,8 +91,10 @@ internal static class InfoTextRenderer
 
             output.WriteLine(
                 $"named managed frames without source: {source.UnmappedNamedManagedFrameCount}");
+
             output.WriteLine(
                 $"highest unmapped modules: {ListOrNone(source.HighestUnmappedModules)}");
+
             output.WriteLine(
                 $"highest unmapped methods: {ListOrNone(source.HighestUnmappedMethods)}");
         }
@@ -97,10 +104,13 @@ internal static class InfoTextRenderer
             output.WriteLine($"unresolved native frames: {native.UnresolvedFrameCount}");
             output.WriteLine(
                 $"local native symbols applied: {ListOrNone(native.ResolvedModules)}");
+
             output.WriteLine(
                 $"native modules without local symbols: {ListOrNone(native.MissingSymbolModules)}");
+
             output.WriteLine(
                 $"native PDB identity mismatch modules: {ListOrNone(native.IdentityMismatchModules)}");
+
             output.WriteLine(
                 $"native modules whose symbol lookup failed: {ListOrNone(native.LookupFailedModules)}");
         }

@@ -89,6 +89,7 @@ internal static class TimelineExecutor
             int buckets = TimelineProvider.ClampBucketCount(
                 request.BucketCount ?? TimelineProvider.DefaultBucketCount,
                 out string? bucketWarning);
+
             if (bucketWarning is not null)
             {
                 warnings.Add(bucketWarning);
@@ -122,7 +123,7 @@ internal static class TimelineExecutor
         {
             warnings.Add(
                 $"Snapshot names were bounded to {TimelineProvider.MaxSnapshotNameChars} characters and "
-                + "control characters were escaped for terminal-safe output where needed.");
+                    + "control characters were escaped for terminal-safe output where needed.");
         }
 
         if (TimelineProvider.GetSnapshotDetailWarning(result) is string detailWarning)
@@ -187,7 +188,8 @@ internal static class TimelineExecutor
         {
             error.WriteLine(
                 $"--window must be finite, in 0.01 millisecond increments, and from {TimelineProvider.MinSnapshotHalfWindowMs:N2} "
-                + $"through {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
+                    + $"through {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
+
             atMs = 0.0;
             halfWindowMs = 0.0;
             return false;

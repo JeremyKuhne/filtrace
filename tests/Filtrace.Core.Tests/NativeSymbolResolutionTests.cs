@@ -106,6 +106,7 @@ public sealed class NativeSymbolResolutionTests
         NativeSymbolInfo native = result.NativeSymbols!;
         native.IdentityMismatchModules.Should().Contain(
             module => module.StartsWith(moduleName, StringComparison.OrdinalIgnoreCase));
+
         native.MissingSymbolModules.Should().NotContain(
             module => module.StartsWith(moduleName, StringComparison.OrdinalIgnoreCase));
     }
@@ -168,6 +169,7 @@ public sealed class NativeSymbolResolutionTests
             Path = System.IO.Path.Join(
                 System.IO.Path.GetTempPath(),
                 $"filtrace-native-symbols-{Guid.NewGuid():N}");
+
             Directory.CreateDirectory(Path);
         }
 

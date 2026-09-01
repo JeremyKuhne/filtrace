@@ -11,6 +11,9 @@ public sealed partial class TimelineProvider
         /// <summary>
         ///  Identifies one collection within a process and CLR instance.
         /// </summary>
+        /// <param name="ProcessInstanceIndex">The TraceEvent process-instance index.</param>
+        /// <param name="ClrInstanceId">The CLR instance id.</param>
+        /// <param name="CollectionNumber">The collection sequence number within the CLR instance.</param>
         private readonly record struct GcIdentity(
             int ProcessInstanceIndex,
             int ClrInstanceId,

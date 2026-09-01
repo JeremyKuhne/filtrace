@@ -128,7 +128,7 @@ public sealed class DiskIoProviderTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Read_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         DiskIoProvider provider = new();

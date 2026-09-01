@@ -61,22 +61,22 @@ public static class SteeringHints
         string reason,
         string operation,
         AnalysisNextStepArguments? arguments = null) =>
-        new SteeringHintSet(
-            [reason],
-            [new AnalysisNextStep(reason) { Operation = operation, Arguments = arguments }]);
+            new SteeringHintSet(
+                [reason],
+                [new AnalysisNextStep(reason) { Operation = operation, Arguments = arguments }]);
 
     private static AnalysisNextStep Step(
         string reason,
         string? operation = null,
         AnalysisNextStepArguments? arguments = null) =>
-        new(reason) { Operation = operation, Arguments = arguments };
+            new(reason) { Operation = operation, Arguments = arguments };
 
     private static AnalysisNextStepArguments CpuScopeArguments(
         ScopeRequest? scope,
         string root = "",
         string? frame = null,
         bool? callees = null) =>
-        RankScopeArguments("cpu", scope, root, frame, callees);
+            RankScopeArguments("cpu", scope, root, frame, callees);
 
     private static AnalysisNextStepArguments RankScopeArguments(
         string metric,
@@ -193,11 +193,12 @@ public static class SteeringHints
                     .Where(static pair => pair.Value is { FormatSupported: true, CaptureStatus: CaptureStatus.Unknown })
                     .Select(static pair => pair.Key)
             ];
+
             if (unknown.Length > 0)
             {
                 hints.Add(
                     $"capture status unknown for: {string.Join(", ", unknown)}; "
-                    + "absence of events is not proof the provider was disabled");
+                        + "absence of events is not proof the provider was disabled");
             }
         }
 
@@ -219,12 +220,13 @@ public static class SteeringHints
             string affected = source.HighestUnmappedModules.Count == 0
                 ? "sampled managed modules"
                 : string.Join(", ", source.HighestUnmappedModules.Take(3));
+
             hints.Add($"method-name resolution ({FormatRate(info.SymbolResolutionRate)}) is separate from source mapping ({FormatRate(source.SourceResolutionRate)}); affected: {affected}; source lines require exact matching PDBs - retry with --symbols pointing at the recorded build output (for BenchmarkDotNet, the generated child output)");
             if (source.HighestUnmappedMethods.Count > 0)
             {
                 hints.Add(
                     $"named managed frames without source: {source.UnmappedNamedManagedFrameCount}; "
-                    + "inspect sourceResolution.highestUnmappedMethods");
+                        + "inspect sourceResolution.highestUnmappedMethods");
             }
         }
 
@@ -272,6 +274,7 @@ public static class SteeringHints
         {
             string reason =
                 $"refine the {metric.Name} ranking with self/inclusive measure, root, or time; callers, lines, heatmap, and tree analyze CPU only";
+
             return Guidance(reason);
         }
 
@@ -279,6 +282,7 @@ public static class SteeringHints
         {
             string reason =
                 "this CPU ranking is activity/time-scoped; callers, lines, heatmap, and tree cannot preserve that slice - refine it with self/inclusive measure or root in rank";
+
             return Guidance(reason, "rank", CpuScopeArguments(scope, ranking.RootFrame));
         }
 
@@ -350,11 +354,13 @@ public static class SteeringHints
                         $"continue down into the callee with: callers {callee.Callee} --callees",
                         root,
                         scope);
+
                     hints.Add(reason);
                     steps.Add(Step(
                         reason,
                         "callers",
                         CpuScopeArguments(scope, root, callee.Callee, callees: true)));
+
                     break;
                 }
             }
@@ -408,6 +414,7 @@ public static class SteeringHints
                 .ThenBy(static pair => pair.row.Frame, StringComparer.Ordinal)
                 .Select(static pair => ((RankingDiffCaseResult Case, DiffRow Row)?)pair)
                 .FirstOrDefault();
+
             if (largest is null)
             {
                 return Guidance("paired manifest cases have no changed ranking rows");
@@ -416,6 +423,7 @@ public static class SteeringHints
             string identity = string.IsNullOrEmpty(largest.Value.Case.Parameters)
                 ? largest.Value.Case.Benchmark
                 : $"{largest.Value.Case.Benchmark} ({largest.Value.Case.Parameters})";
+
             return Guidance(
                 $"largest normalized change is {largest.Value.Row.Frame} in {identity}; drill into the paired traces with callers");
         }
@@ -441,8 +449,10 @@ public static class SteeringHints
     /// <summary>
     ///  Next step after a manifest batch summary.
     /// </summary>
-    public static IReadOnlyList<string> ForBatch(BatchRankingResult batch)
-        => ForBatch(batch, scope: null, symbols: null, foldPatterns: null);
+    /// <param name="batch">The compact results for all analyzed manifest cases.</param>
+    /// <returns>Guidance for drilling into the hottest addressable case.</returns>
+    public static IReadOnlyList<string> ForBatch(BatchRankingResult batch) =>
+        ForBatch(batch, scope: null, symbols: null, foldPatterns: null);
 
     /// <summary>
     ///  Next step after a manifest batch summary, preserving query overrides.
@@ -463,6 +473,7 @@ public static class SteeringHints
             .Where(static captureCase => captureCase.TopFrame is not null)
             .OrderByDescending(static captureCase => captureCase.TopPercentOfScope)
             .FirstOrDefault();
+
         if (hottest is null)
         {
             return Guidance("no manifest case produced a ranked frame; inspect case warnings and capture availability");
@@ -491,6 +502,7 @@ public static class SteeringHints
                     ? [.. foldPatterns]
                     : null
         };
+
         return Guidance(reason, "rank", arguments);
     }
 
@@ -625,7 +637,7 @@ public static class SteeringHints
         {
             hints.Add(
                 $"the median {dominant.Phase} is {FormatMs(dominant.MedianMs)} ms of a "
-                + $"{FormatMs(rootLifetime.MedianMs)} ms median root lifetime");
+                    + $"{FormatMs(rootLifetime.MedianMs)} ms median root lifetime");
         }
 
         // Wall clock and sampled CPU answer different questions, and the gap between them
@@ -633,7 +645,7 @@ public static class SteeringHints
         double sampledCpuMs = lifecycle.TotalRootCpuMs + lifecycle.TotalChildCpuMs;
         hints.Add(
             $"wall clock is not CPU: rank sampled work in the same processes with: cpu, "
-            + $"and time it against {FormatMs(sampledCpuMs)} ms of sampled CPU across the matched tree");
+                + $"and time it against {FormatMs(sampledCpuMs)} ms of sampled CPU across the matched tree");
 
         return new SteeringHintSet(hints);
     }
@@ -729,6 +741,7 @@ public static class SteeringHints
 
         string reason = $"snapshot covers {window}; drill the top {subject} with: "
             + $"rank --metric {metric} --time {FormatMs(timeline.FromMs)},{FormatMs(timeline.ToMs)}{ProcessScope(timeline)}";
+
         return Guidance(
             reason,
             "rank",
@@ -744,6 +757,7 @@ public static class SteeringHints
             "automatic" => scope.RootProcessIds,
             _ => null
         };
+
         int? processIdCount = sourceIds?.Count;
         bool processIdsTruncated = sourceIds is { Count: > AnalysisScopeContext.MaxReportedProcessIds };
         IReadOnlyList<int>? processIds = processIdsTruncated
@@ -783,6 +797,7 @@ public static class SteeringHints
             "automatic" => ProcessIdScope(scope.RootProcessIds),
             _ => string.Empty
         };
+
         return suffix.Length > 0 && scope.Mode != "all" && !scope.IncludeChildren
             ? $"{suffix} --children exclude"
             : suffix;
@@ -807,6 +822,7 @@ public static class SteeringHints
             "automatic" => scope.RootProcessIds,
             _ => null
         };
+
         processIdCount = processIds?.Count ?? 0;
         return processIdCount <= AnalysisScopeContext.MaxReportedProcessIds
             && scope is not { Mode: "automatic", RootProcessIdsReplayable: false };
@@ -824,15 +840,16 @@ public static class SteeringHints
         {
             return Guidance(
                 "the automatic process scope includes a root pid reused by multiple process instances, so no exact "
-                + $"--pid follow-up can be generated; inspect processes, choose an explicit selector, and rerun rank "
-                + $"with --time {FormatMs(startMs)},{FormatMs(endMs)}");
+                    + $"--pid follow-up can be generated; inspect processes, choose an explicit selector, and rerun rank "
+                    + $"with --time {FormatMs(startMs)},{FormatMs(endMs)}");
         }
 
         string selectorGuidance = timeline.AppliedProcessScope?.Mode == "automatic"
             ? "choose a narrower --process or --pid selector"
             : "reuse the original process selector";
+
         return Guidance(
             $"the exact process scope has {processIdCount} ids, exceeding the bounded follow-up limit; "
-            + $"{selectorGuidance} and rerun rank with --time {FormatMs(startMs)},{FormatMs(endMs)}");
+                + $"{selectorGuidance} and rerun rank with --time {FormatMs(startMs)},{FormatMs(endMs)}");
     }
 }

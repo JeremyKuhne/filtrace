@@ -96,6 +96,7 @@ public static class TraceConverter
                 EtlxCacheState state = recovered
                     ? EtlxCacheState.Recovered
                     : waited ? EtlxCacheState.Waited : EtlxCacheState.Hit;
+
                 return new EtlxCacheResult(cachePath, state);
             }
 
@@ -133,6 +134,13 @@ public static class TraceConverter
         }
     }
 
+    /// <summary>
+    ///  Converts a trace as needed and opens its indexed ETLX representation.
+    /// </summary>
+    /// <param name="path">The source <c>.nettrace</c> or <c>.etl</c> path.</param>
+    /// <param name="cacheState">How this request obtained the ETLX cache.</param>
+    /// <param name="cancellationToken">Cancels waiting for another converter.</param>
+    /// <returns>An open TraceEvent log over the current ETLX cache.</returns>
     internal static TraceLog OpenTraceLog(
         string path,
         out EtlxCacheState cacheState,
@@ -198,6 +206,11 @@ public static class TraceConverter
             ? Path.ChangeExtension(path, ".etlx")
             : $"{path}.etlx";
 
+    /// <summary>
+    ///  Computes the cross-process mutex name used to coordinate one canonical trace path.
+    /// </summary>
+    /// <param name="path">The source trace path.</param>
+    /// <returns>The deterministic mutex name for the path.</returns>
     internal static string LockNameFor(string path)
     {
         string fullPath = ValidateConvertible(path);

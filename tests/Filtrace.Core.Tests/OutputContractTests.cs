@@ -46,7 +46,7 @@ public sealed class OutputContractTests
     [TestMethod]
     public void Serialize_NullEnvelope_ThrowsArgumentNull()
     {
-        Action act = () => OutputJson.Serialize<RankingResult>(null!);
+        Action act = () => OutputJson.Serialize<RankingResult>(result: null!);
 
         act.Should().Throw<ArgumentNullException>().WithParameterName("result");
     }
@@ -135,6 +135,7 @@ public sealed class OutputContractTests
             [],
             [],
             TraceCapabilities.AnalysesFor(TraceFormat.NetTrace));
+
         LoadedTrace trace = new(
             info,
             new StackSampleSource(
@@ -144,6 +145,7 @@ public sealed class OutputContractTests
                     new SampleStack(["Process", "Worker.Sibling"], 6.0, "worker-2")
                 ],
                 StackRecordSemantics.PeriodicCpuSamples));
+
         AnalysisContext context = AnalysisContext.ForTrace("rank", trace, "self", "SelectedRoot");
         AnalysisResult<RankingResult> envelope = new(
             trace.Aggregator.SelfTime("SelectedRoot", [], 25),
@@ -159,8 +161,10 @@ public sealed class OutputContractTests
         envelope.Diagnostics.Should().ContainSingle(
             diagnostic => diagnostic.Code == AnalysisDiagnosticCodes.RootScopeAncestry
                 && diagnostic.Severity == "info");
+
         envelope.Hints.Should().ContainSingle(
             hint => hint.Contains("may omit sibling workers", StringComparison.Ordinal));
+
         envelope.NextSteps.Should().ContainSingle();
         AnalysisNextStep nextStep = envelope.NextSteps.Single();
         nextStep.Operation.Should().BeNull();
@@ -193,12 +197,13 @@ public sealed class OutputContractTests
         {
             AppliedProcessScope = new AppliedProcessScope(
                 "ids",
-                null,
+                    Process: null,
                 processIds,
                 processIds,
                 processIds,
-                true)
+                    IncludeChildren: true)
         };
+
         LoadedTrace trace = new(info, new StackSampleSource(MetricInfo.Cpu, []));
 
         AnalysisScopeContext scope = AnalysisContext.ForTrace("rank", trace).Scope!;
@@ -225,8 +230,9 @@ public sealed class OutputContractTests
             [],
             [])
         {
-            AppliedProcessScope = new AppliedProcessScope("ids", null, [999999], [], [], true)
+            AppliedProcessScope = new AppliedProcessScope("ids", Process: null, [999999], [], [], IncludeChildren: true)
         };
+
         LoadedTrace trace = new(info, new StackSampleSource(MetricInfo.Cpu, []));
 
         AnalysisScopeContext scope = AnalysisContext.ForTrace("rank", trace).Scope!;
@@ -240,6 +246,7 @@ public sealed class OutputContractTests
         AnalysisResult<RankingResult> envelope = new(
             new RankingResult(0.0, string.Empty, []),
             context: AnalysisContext.ForTrace("rank", trace));
+
         string json = OutputJson.Serialize(envelope);
         json.Should().Contain("\"rootProcessIds\":[]");
         json.Should().Contain("\"descendantProcessIds\":[]");
@@ -260,6 +267,7 @@ public sealed class OutputContractTests
         {
             AppliedProcessScope = AppliedProcessScope.AllProcesses
         };
+
         LoadedTrace trace = new(info, new StackSampleSource(MetricInfo.Cpu, []));
 
         AnalysisContext.ForTrace("rank", trace).Scope.Should().BeNull();
@@ -330,6 +338,7 @@ public sealed class OutputContractTests
     {
         typeof(AnalysisEnvelopeSchema).GetProperty(nameof(AnalysisEnvelopeSchema.Warnings))!
             .PropertyType.Should().Be(typeof(IReadOnlyList<string>));
+
         typeof(AnalysisEnvelopeSchema).GetProperty(nameof(AnalysisEnvelopeSchema.Hints))!
             .PropertyType.Should().Be(typeof(IReadOnlyList<string>));
     }
@@ -339,6 +348,7 @@ public sealed class OutputContractTests
     {
         AnalysisResult<RankingResult> rankingEnvelope = new(
             new RankingResult(0.0, string.Empty, []));
+
         using JsonDocument rankingDocument = JsonDocument.Parse(OutputJson.Serialize(rankingEnvelope));
         JsonElement ranking = rankingDocument.RootElement.GetProperty("result");
         ranking.TryGetProperty("contributingRecordCount", out _).Should().BeFalse();
@@ -347,6 +357,7 @@ public sealed class OutputContractTests
 
         AnalysisResult<CallersResult> callersEnvelope = new(
             new CallersResult("Focus", 0.0, 0.0, 0.0, []));
+
         using JsonDocument callersDocument = JsonDocument.Parse(OutputJson.Serialize(callersEnvelope));
         JsonElement callers = callersDocument.RootElement.GetProperty("result");
         callers.TryGetProperty("callees", out _).Should().BeFalse();
@@ -368,6 +379,7 @@ public sealed class OutputContractTests
         {
             ScopeWarnings = ["scope warning"]
         };
+
         AnalysisResult<TimelineResult> timelineEnvelope = new(timelineResult);
         using JsonDocument timelineDocument = JsonDocument.Parse(OutputJson.Serialize(timelineEnvelope));
         JsonElement timeline = timelineDocument.RootElement.GetProperty("result");
@@ -398,6 +410,7 @@ public sealed class OutputContractTests
 
         using JsonDocument document = JsonDocument.Parse(
             OutputJson.Serialize(new AnalysisResult<TraceInfoView>(view)));
+
         JsonElement result = document.RootElement.GetProperty("result");
 
         result.TryGetProperty("etlxCacheState", out _).Should().BeFalse();
@@ -413,6 +426,7 @@ public sealed class OutputContractTests
     {
         AnalysisResult<EventQueryResult> completeEnvelope = new(
             new EventQueryResult(0, 0, []));
+
         using JsonDocument completeDocument = JsonDocument.Parse(OutputJson.Serialize(completeEnvelope));
         JsonElement complete = completeDocument.RootElement.GetProperty("result");
         complete.TryGetProperty("budgetTruncated", out _).Should().BeFalse();
@@ -420,6 +434,7 @@ public sealed class OutputContractTests
 
         AnalysisResult<EventQueryResult> truncatedEnvelope = new(
             new EventQueryResult(2, 0, [], BudgetTruncated: true));
+
         using JsonDocument truncatedDocument = JsonDocument.Parse(OutputJson.Serialize(truncatedEnvelope));
         truncatedDocument.RootElement.GetProperty("result")
             .GetProperty("budgetTruncated").GetBoolean().Should().BeTrue();
@@ -432,6 +447,7 @@ public sealed class OutputContractTests
             100.0,
             "",
             [new RankRow("A", 63.8567, 33.3333)]);
+
         AnalysisResult<RankingResult> envelope = new(payload);
 
         string json = OutputJson.Serialize(envelope);
@@ -466,6 +482,7 @@ public sealed class OutputContractTests
             AfterWeightPerOperation = 2.0,
             PerOperationDelta = 1.0
         };
+
         AnalysisResult<RankingDiffResult> envelope = new(
             new RankingDiffResult(40.0, 50.0, 10.0, [row])
             {
@@ -489,6 +506,7 @@ public sealed class OutputContractTests
     {
         AnalysisResult<RankingDiffResult> traceEnvelope = new(
             new RankingDiffResult(0.0, 0.0, 0.0, []));
+
         AnalysisResult<RankingDiffResult> manifestEnvelope = new(
             new RankingDiffResult([]));
 
@@ -519,7 +537,7 @@ public sealed class OutputContractTests
     [TestMethod]
     public void Constructor_DiffNullRows_ThrowsArgumentNull()
     {
-        Action act = () => _ = new RankingDiffResult(0.0, 0.0, 0.0, null!);
+        Action act = () => _ = new RankingDiffResult(0.0, 0.0, 0.0, Rows: null!);
 
         act.Should().Throw<ArgumentNullException>().WithParameterName("Rows");
     }
@@ -553,8 +571,8 @@ public sealed class OutputContractTests
             Analyses = new Dictionary<string, AnalysisAvailabilityView>
             {
                 ["cpu"] = new("enabled", 42),
-                ["alloc"] = new("disabled", null),
-                ["exceptions"] = new("unknown", null)
+                ["alloc"] = new("disabled", EventCount: null),
+                ["exceptions"] = new("unknown", EventCount: null)
             },
             SourceResolution = new SourceResolutionInfo(
                 ["/symbols"],
@@ -570,6 +588,7 @@ public sealed class OutputContractTests
                 HighestUnmappedMethods = ["OtherLibrary!Run (0/40 mapped)"]
             }
         };
+
         AnalysisResult<TraceInfoView> envelope = new(view);
 
         string json = OutputJson.Serialize(envelope);
@@ -583,9 +602,11 @@ public sealed class OutputContractTests
         result.GetProperty("availableAnalyses")[0].GetString().Should().Be("cpu");
         result.GetProperty("analyses").GetProperty("cpu").TryGetProperty("formatSupported", out _)
             .Should().BeFalse();
+
         result.GetProperty("analyses").GetProperty("cpu").GetProperty("eventCount").GetInt32().Should().Be(42);
         result.GetProperty("analyses").GetProperty("alloc").GetProperty("captureStatus").GetString()
             .Should().Be("disabled");
+
         JsonElement exceptions = result.GetProperty("analyses").GetProperty("exceptions");
         exceptions.GetProperty("captureStatus").GetString().Should().Be("unknown");
         exceptions.TryGetProperty("eventCount", out _).Should().BeFalse();
@@ -603,12 +624,15 @@ public sealed class OutputContractTests
         {
             SourceResolution = new SourceResolutionInfo([], 100, 0, [], [])
         };
+
         string unavailableJson = OutputJson.Serialize(
             new AnalysisResult<TraceInfoView>(unavailableView));
+
         using JsonDocument unavailableDoc = JsonDocument.Parse(unavailableJson);
         JsonElement unavailableSource = unavailableDoc.RootElement
             .GetProperty("result")
             .GetProperty("sourceResolution");
+
         unavailableSource.TryGetProperty("sampledManagedMethodCount", out _).Should().BeFalse();
         unavailableSource.TryGetProperty("sourceMappedManagedMethodCount", out _).Should().BeFalse();
     }
@@ -625,6 +649,7 @@ public sealed class OutputContractTests
                     ["alloc"] = CaptureStatus.Disabled,
                     ["wait"] = CaptureStatus.Unknown
                 });
+
         TraceInfo info = new(
             "/traces/sample.nettrace",
             TraceFormat.NetTrace,
@@ -648,8 +673,8 @@ public sealed class OutputContractTests
 
         view.EtlxCacheState.Should().Be("waited");
         view.Analyses!["cpu"].Should().Be(new AnalysisAvailabilityView("enabled", 42));
-        view.Analyses["alloc"].Should().Be(new AnalysisAvailabilityView("disabled", null));
-        view.Analyses["wait"].Should().Be(new AnalysisAvailabilityView("unknown", null));
+        view.Analyses["alloc"].Should().Be(new AnalysisAvailabilityView("disabled", EventCount: null));
+        view.Analyses["wait"].Should().Be(new AnalysisAvailabilityView("unknown", EventCount: null));
         view.Analyses.Should().NotContainKey("threadtime");
         view.SourceResolution!.SourceResolutionRate.Should().Be(0.25);
         view.SourceResolution.MatchingPdbModules.Should().Equal("MyApp");
@@ -658,9 +683,9 @@ public sealed class OutputContractTests
     [TestMethod]
     public void FromTraceInfo_InvalidInput_Throws()
     {
-        Action nullInfo = () => TraceInfoView.FromTraceInfo(null!, null);
+        Action nullInfo = () => TraceInfoView.FromTraceInfo(info: null!, etlxCacheState: null);
         TraceInfo invalidCaptureInfo = CreateTraceInfo((CaptureStatus)999);
-        Action invalidCapture = () => TraceInfoView.FromTraceInfo(invalidCaptureInfo, null);
+        Action invalidCapture = () => TraceInfoView.FromTraceInfo(invalidCaptureInfo, etlxCacheState: null);
         TraceInfo validInfo = CreateTraceInfo(CaptureStatus.Enabled);
         Action invalidCache = () => TraceInfoView.FromTraceInfo(validInfo, (EtlxCacheState)999);
 
@@ -694,6 +719,6 @@ public sealed class OutputContractTests
             ["cpu"],
             new Dictionary<string, AnalysisAvailability>
             {
-                ["cpu"] = new(true, captureStatus, 1)
+                ["cpu"] = new(FormatSupported: true, captureStatus, 1)
             });
 }

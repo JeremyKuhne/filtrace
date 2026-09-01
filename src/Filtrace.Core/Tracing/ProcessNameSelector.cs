@@ -64,10 +64,21 @@ public sealed record ProcessNameSelector : ProcessSelector
         DisplayNameChanged = displayNameChanged;
     }
 
+    /// <summary>
+    ///  Creates a selector from a trace-derived process name while bounding only its display representation.
+    /// </summary>
+    /// <param name="name">The process name read from the trace.</param>
+    /// <returns>A selector that retains the complete name for matching.</returns>
     internal static ProcessNameSelector FromTraceName(string name) => new(name, traceDerived: true);
 
+    /// <summary>
+    ///  Gets the bounded process name safe to include in result text.
+    /// </summary>
     internal string DisplayName { get; }
 
+    /// <summary>
+    ///  Gets whether the display name was shortened or sanitized.
+    /// </summary>
     internal bool DisplayNameChanged { get; }
 
     /// <summary>

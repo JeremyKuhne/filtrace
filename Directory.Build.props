@@ -20,6 +20,10 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
 
+    <!-- Touki validates type/member/parameter/return documentation, including internal APIs. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
     <!--
       Not packable by default: only the two published heads (the CLI and the MCP
       server) opt back in. Test and fixture projects stay non-packable.
@@ -29,6 +33,13 @@
     <!-- Not a test container unless a project opts in. -->
     <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Run Touki's conventions in every project without exposing analyzers to package consumers. -->
+    <PackageReference Include="KlutzyNinja.Touki.Analyzers"
+                      PrivateAssets="all"
+                      IncludeAssets="analyzers" />
+  </ItemGroup>
 
   <!--
     Shared NuGet package metadata. Inert on non-packable projects (they never

@@ -169,11 +169,13 @@ public sealed class TraceConverterTests
                 conversionMutex.ReleaseMutex();
             }
         });
+
         try
         {
             mutexHeld.Wait(SynchronizationTimeout).Should().BeTrue();
             Task<EtlxCacheResult> conversion = Task.Run(() =>
                 TraceConverter.ConvertWithState(trace, cancellation.Token));
+
             cancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
 
             Action wait = () => conversion.GetAwaiter().GetResult();
@@ -243,7 +245,7 @@ public sealed class TraceConverterTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Convert_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         Action act = () => TraceConverter.Convert(path!);

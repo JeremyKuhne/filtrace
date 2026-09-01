@@ -40,7 +40,7 @@ public sealed class TraceLoaderTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Load_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         TraceLoader loader = new();

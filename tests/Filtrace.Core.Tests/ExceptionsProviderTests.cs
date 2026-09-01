@@ -119,7 +119,7 @@ public sealed class ExceptionsProviderTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Read_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         ExceptionsProvider provider = new();

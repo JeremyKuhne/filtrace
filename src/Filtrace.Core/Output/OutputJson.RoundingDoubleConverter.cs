@@ -17,6 +17,10 @@ public static partial class OutputJson
     {
         private readonly int _digits;
 
+        /// <summary>
+        ///  Initializes a converter that rounds serialized values away from zero at midpoint boundaries.
+        /// </summary>
+        /// <param name="digits">The number of fractional decimal digits to preserve.</param>
         public RoundingDoubleConverter(int digits) => _digits = digits;
 
         public override double Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>

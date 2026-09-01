@@ -8,6 +8,10 @@ using Touki;
 
 namespace Filtrace.Benchmarks;
 
+/// <summary>
+///  Owns distinct trace copies and manifests that prevent cache sharing between
+///  batch or diff cases in out-of-process benchmarks.
+/// </summary>
 internal sealed partial class CliManifestCorpus : DisposableBase
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -24,12 +28,30 @@ internal sealed partial class CliManifestCorpus : DisposableBase
         AfterManifest = afterManifest;
     }
 
+    /// <summary>
+    ///  The temporary corpus directory deleted on disposal.
+    /// </summary>
     public string Root { get; }
 
+    /// <summary>
+    ///  The batch input or baseline manifest, depending on the selected operation.
+    /// </summary>
     public string BeforeManifest { get; }
 
+    /// <summary>
+    ///  The current manifest for a paired diff corpus, or <see langword="null"/> for a batch corpus.
+    /// </summary>
     public string? AfterManifest { get; }
 
+    /// <summary>
+    ///  Creates independently named trace files, serializes their manifest entries,
+    ///  and optionally prepares every ETLX cache before measurement.
+    /// </summary>
+    /// <param name="sourceTrace">The immutable capture copied for every case.</param>
+    /// <param name="caseCount">The number of cases in each generated manifest.</param>
+    /// <param name="paired">Whether to create both baseline and current manifest arms.</param>
+    /// <param name="preconvert">Whether every trace copy must have a warm ETLX cache.</param>
+    /// <returns>The disposable owner of the generated corpus tree.</returns>
     public static CliManifestCorpus Create(
         string sourceTrace,
         int caseCount,
@@ -51,12 +73,14 @@ internal sealed partial class CliManifestCorpus : DisposableBase
         string root = Path.Join(
             Path.GetTempPath(),
             $"filtrace-cli-manifest-{Guid.NewGuid():N}");
+
         string beforeDirectory = Path.Join(root, paired ? "before" : "batch");
         string beforeManifest = Path.Join(beforeDirectory, "manifest.json");
         string? afterDirectory = paired ? Path.Join(root, "after") : null;
         string? afterManifest = afterDirectory is null
             ? null
             : Path.Join(afterDirectory, "manifest.json");
+
         CliManifestCorpus corpus = new(root, beforeManifest, afterManifest);
         try
         {
@@ -76,6 +100,13 @@ internal sealed partial class CliManifestCorpus : DisposableBase
         }
     }
 
+    /// <summary>
+    ///  Verifies trace identity counts, manifest readability and pairing, and the
+    ///  expected cache state for every copied trace.
+    /// </summary>
+    /// <param name="caseCount">The expected cases in each manifest arm.</param>
+    /// <param name="paired">Whether a current arm and one-to-one case pairs are required.</param>
+    /// <param name="expectConverted">Whether every copied trace must have an ETLX cache.</param>
     public void Validate(int caseCount, bool paired, bool expectConverted)
     {
         int expectedTraceCount = checked(caseCount * (paired ? 2 : 1));

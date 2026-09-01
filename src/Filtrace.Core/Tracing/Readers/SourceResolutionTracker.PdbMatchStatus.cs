@@ -11,8 +11,19 @@ internal sealed partial class SourceResolutionTracker
     /// </summary>
     internal enum PdbMatchStatus
     {
+        /// <summary>
+        ///  No local PDB with a verifiable identity was found.
+        /// </summary>
         NotFound,
+
+        /// <summary>
+        ///  A same-named local PDB exists but does not match the trace-recorded signature and age.
+        /// </summary>
         IdentityMismatch,
+
+        /// <summary>
+        ///  Local symbol lookup verified the trace-recorded PDB identity.
+        /// </summary>
         Matched
     }
 }

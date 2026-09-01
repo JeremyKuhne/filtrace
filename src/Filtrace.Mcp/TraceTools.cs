@@ -51,7 +51,7 @@ public sealed class TraceTools
         string process = "",
         int[]? pid = null,
         bool children = true) =>
-        InfoAsync(store, path, symbols, process, pid, children).GetAwaiter().GetResult();
+            InfoAsync(store, path, symbols, process, pid, children).GetAwaiter().GetResult();
 
     /// <summary>
     ///  Loads a trace and returns its format, total weight, sample count, frame-name
@@ -72,8 +72,8 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Load a trace first. Returns format, weight, sample/thread counts, frame/source/PDB quality, analysis "
-        + "availability, event counts, and etlxCacheState. captureStatus is enabled, disabled, or unknown; zero "
-        + "is reported only when enablement is known.")]
+            + "availability, event counts, and etlxCacheState. captureStatus is enabled, disabled, or unknown; zero "
+            + "is reported only when enablement is known.")]
     public static async Task<AnalysisResult<TraceInfoView>> InfoAsync(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -87,12 +87,14 @@ public sealed class TraceTools
         bool children = true,
         CancellationToken cancellationToken = default)
     {
+        ScopeRequest? scope = ResolveScope(process, pid, children);
         TraceStoreLoadResult load = await LoadAsync(
             store,
             path,
             NullIfEmpty(symbols),
-            scope: ResolveScope(process, pid, children),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            scope: scope,
+            cancellationToken: cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+
         TraceInfo info = load.Trace.Info;
         TraceInfoView view = TraceInfoView.FromTraceInfo(info, load.EtlxCacheState);
         return new AnalysisResult<TraceInfoView>(
@@ -119,22 +121,22 @@ public sealed class TraceTools
         string time = "",
         bool nativeSymbols = false,
         bool benchmark = false) =>
-        RankAsync(
-            store,
-            path,
-            metric,
-            measure,
-            root,
-            top,
-            fold,
-            symbols,
-            process,
-            pid,
-            children,
-            activity,
-            time,
-            nativeSymbols,
-            benchmark).GetAwaiter().GetResult();
+            RankAsync(
+                store,
+                path,
+                metric,
+                measure,
+                root,
+                top,
+                fold,
+                symbols,
+                process,
+                pid,
+                children,
+                activity,
+                time,
+                nativeSymbols,
+                benchmark).GetAwaiter().GetResult();
 
     /// <inheritdoc cref="RankToolAsync"/>
     public static Task<AnalysisResult<RankingResult>> RankAsync(
@@ -154,26 +156,26 @@ public sealed class TraceTools
         bool nativeSymbols = false,
         bool benchmark = false,
         CancellationToken cancellationToken = default) =>
-        RankToolAsync(
-            store,
-            path,
-            metric,
-            measure,
-            root,
-            top,
-            fold,
-            symbols,
-            process,
-            pid,
-            children,
-            activity,
-            time,
-            nativeSymbols,
-            benchmark,
-            allProcesses: false,
-            manifestPath: "",
-            caseId: "",
-            cancellationToken);
+            RankToolAsync(
+                store,
+                path,
+                metric,
+                measure,
+                root,
+                top,
+                fold,
+                symbols,
+                process,
+                pid,
+                children,
+                activity,
+                time,
+                nativeSymbols,
+                benchmark,
+                allProcesses: false,
+                manifestPath: "",
+                caseId: "",
+                cancellationToken);
 
     /// <summary>
     ///  Ranks the hottest frames over a chosen provider metric by self or inclusive
@@ -214,8 +216,8 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_rank", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Rank frames by self or inclusive metric weight. Metrics: cpu, threadtime, alloc, exceptions, "
-        + "contention, wait, or activity; all but cpu and threadtime need .nettrace. Address either a trace "
-        + "path or one manifestPath+caseId. Scope with root or benchmark=true.")]
+            + "contention, wait, or activity; all but cpu and threadtime need .nettrace. Address either a trace "
+            + "path or one manifestPath+caseId. Scope with root or benchmark=true.")]
     public static async Task<AnalysisResult<RankingResult>> RankToolAsync(
         TraceStore store,
         [Description("Trace path; excludes manifestPath and caseId.")] string path = "",
@@ -302,11 +304,7 @@ public sealed class TraceTools
                 resolvedSymbols ??= captureCase.SymbolsDirectory;
                 scope = manifest.ResolveCaseScope(captureCase, scope);
             }
-            catch (Exception exception) when (
-                exception is IOException
-                or UnauthorizedAccessException
-                or InvalidDataException
-                or ArgumentException)
+            catch (Exception exception) when (IsManifestInputException(exception))
             {
                 throw new McpException(exception.Message);
             }
@@ -319,12 +317,14 @@ public sealed class TraceTools
             resolved,
             scope,
             ResolveSymbols(nativeSymbols),
-            cancellationToken).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+
         LoadedTrace trace = load.Trace;
         TraceInfo info = trace.Info;
         RankingResult ranked = inclusive
             ? trace.Aggregator.InclusiveTime(resolvedRoot, foldPatterns, top)
             : trace.Aggregator.SelfTime(resolvedRoot, foldPatterns, top);
+
         RankingResult ranking = FoldingAggregator.LimitRows(ranked, out string? budgetWarning);
         List<string> warnings = [.. info.Warnings];
         if (budgetWarning is not null)
@@ -338,6 +338,7 @@ public sealed class TraceTools
             resolvedRoot,
             benchmark ? "benchmark root" : "root",
             FrameMatchSelection.Outermost);
+
         AddMethodRecordWarning(warnings, trace.Source, ranking.ContributingRecordCount);
 
         return new AnalysisResult<RankingResult>(
@@ -362,7 +363,7 @@ public sealed class TraceTools
         string process = "",
         int[]? pid = null,
         bool children = true) =>
-        LinesAsync(store, path, method, top, fold, symbols, process, pid, children).GetAwaiter().GetResult();
+            LinesAsync(store, path, method, top, fold, symbols, process, pid, children).GetAwaiter().GetResult();
 
     /// <summary>
     ///  Reports the immediate callers of the frame matching <paramref name="frame"/>,
@@ -381,6 +382,7 @@ public sealed class TraceTools
     ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
     /// </param>
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
+    /// <param name="callees">Whether to include the focus frame's immediate callees beside its callers.</param>
     /// <param name="benchmark">
     ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.
     /// </param>
@@ -388,7 +390,7 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_callers", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Show immediate CPU callers of frame; callees=true also shows immediate callees. Scope with "
-        + "root/process or benchmark=true.")]
+            + "root/process or benchmark=true.")]
     public static AnalysisResult<CallersResult> Callers(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -427,6 +429,7 @@ public sealed class TraceTools
             resolvedRoot,
             benchmark ? "benchmark root" : "root",
             FrameMatchSelection.Outermost);
+
         AddFrameMatchWarnings(warnings, trace.Source, frame, "frame", FrameMatchSelection.Deepest);
         AddMethodRecordWarning(warnings, trace.Source, callers.ContributingRecordCount);
 
@@ -459,8 +462,8 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_lines", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Rank CPU leaf self-time by source line, for methods whose name contains method. Requires .nettrace/.etl "
-        + "and optional local PDBs; unresolved locations are '<no source>'. Speedscope carries no line data, so it "
-        + "can only ever return nothing - trace_info's availableAnalyses says whether to call this at all.")]
+            + "and optional local PDBs; unresolved locations are '<no source>'. Speedscope carries no line data, so it "
+            + "can only ever return nothing - trace_info's availableAnalyses says whether to call this at all.")]
     public static async Task<AnalysisResult<LineRankingResult>> LinesAsync(
         TraceStore store,
         [Description("Path to a .nettrace or .etl trace file (speedscope carries no line data).")] string path,
@@ -479,12 +482,14 @@ public sealed class TraceTools
     {
         RequirePositiveTop(top);
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
+        ScopeRequest? scope = ResolveScope(process, pid, children);
         TraceStoreLoadResult load = await LoadAsync(
             store,
             path,
             NullIfEmpty(symbols),
-            scope: ResolveScope(process, pid, children),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            scope: scope,
+            cancellationToken: cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+
         LoadedTrace trace = load.Trace;
         TraceInfo info = trace.Info;
         LineRankingResult full = trace.Aggregator.HotLines(method, foldPatterns, top);
@@ -523,8 +528,8 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_heatmap", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "CPU self-time heat map for one source filename, ordered by line. Requires .nettrace/.etl and optional "
-        + "local PDBs. Speedscope carries no line data, so it can only ever return nothing - trace_info's "
-        + "availableAnalyses says whether to call this at all.")]
+            + "local PDBs. Speedscope carries no line data, so it can only ever return nothing - trace_info's "
+            + "availableAnalyses says whether to call this at all.")]
     public static AnalysisResult<SourceHeatmapResult> Heatmap(
         TraceStore store,
         [Description("Path to a .nettrace or .etl trace file (speedscope carries no line data).")] string path,
@@ -574,6 +579,10 @@ public sealed class TraceTools
     /// <param name="fold">Optional fold patterns; defaults to the built-in JIT-helper list.</param>
     /// <param name="symbols">Optional build-output directory supplying embedded PDBs for line resolution.</param>
     /// <param name="process">Optional process-name substring applied to both traces.</param>
+    /// <param name="pid">
+    ///  Optional exact process ids applied to both traces; mutually exclusive with <paramref name="process"/>.
+    /// </param>
+    /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="benchmark">
     ///  Use the BenchmarkDotNet workload root; mutually exclusive with <paramref name="root"/>.
     /// </param>
@@ -581,8 +590,8 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_diff", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Compare like-for-like CPU traces by absolute and normalized frame change. Both sides are fully ranked "
-        + "before diffing. Result kind is trace or manifest. Scope with root/process or benchmark=true. Manifest "
-        + "pairs are capped to 24 cases and 5 rows/case; only manifests can supply per-operation values.")]
+            + "before diffing. Result kind is trace or manifest. Scope with root/process or benchmark=true. Manifest "
+            + "pairs are capped to 24 cases and 5 rows/case; only manifests can supply per-operation values.")]
     public static AnalysisResult<RankingDiffResult> Diff(
         TraceStore store,
         [Description("Path to the baseline (before) .speedscope.json, .nettrace, or .etl trace file.")] string beforePath,
@@ -634,6 +643,7 @@ public sealed class TraceTools
                         resolvedSymbols ?? captureCase.SymbolsDirectory,
                         TraceMetric.Cpu,
                         manifest.ResolveCaseScope(captureCase, scope)));
+
                 return new AnalysisResult<RankingDiffResult>(
                     analysis.Result,
                     analysis.Warnings,
@@ -644,11 +654,7 @@ public sealed class TraceTools
                         inclusive ? "inclusive" : "self",
                         resolvedRoot));
             }
-            catch (Exception exception) when (
-                exception is IOException
-                or UnauthorizedAccessException
-                or InvalidDataException
-                or ArgumentException)
+            catch (Exception exception) when (IsManifestInputException(exception))
             {
                 throw new McpException(exception.Message);
             }
@@ -662,6 +668,7 @@ public sealed class TraceTools
         RankingResult beforeRanking = inclusive
             ? before.Aggregator.InclusiveTime(resolvedRoot, foldPatterns, int.MaxValue)
             : before.Aggregator.SelfTime(resolvedRoot, foldPatterns, int.MaxValue);
+
         RankingResult afterRanking = inclusive
             ? after.Aggregator.InclusiveTime(resolvedRoot, foldPatterns, int.MaxValue)
             : after.Aggregator.SelfTime(resolvedRoot, foldPatterns, int.MaxValue);
@@ -676,6 +683,7 @@ public sealed class TraceTools
                 ? null
                 : after.Aggregator.GetRootScopeCoverage(resolvedRoot)
         };
+
         List<string> warnings = [.. DiffWarnings(before.Info, after.Info)];
         if (budgetWarning is not null)
         {
@@ -709,12 +717,16 @@ public sealed class TraceTools
     /// <param name="fold">Optional fold patterns.</param>
     /// <param name="symbols">Optional symbols override for every case.</param>
     /// <param name="process">Optional process override.</param>
+    /// <param name="pid">
+    ///  Optional exact process-id override; mutually exclusive with <paramref name="process"/>.
+    /// </param>
+    /// <param name="children">Whether an overridden process scope follows matched descendants.</param>
     /// <param name="benchmark">Use the BenchmarkDotNet workload root.</param>
     /// <returns>One bounded ranking summary row per manifest case.</returns>
     [McpServerTool(Name = "trace_batch", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Rank up to 24 manifest cases with one metric/query. Returns case-keyed scope, top frame/share, record "
-        + "count, per-operation values when complete, and case warnings.")]
+            + "count, per-operation values when complete, and case warnings.")]
     public static AnalysisResult<BatchRankingResult> Batch(
         TraceStore store,
         [Description("Path to capture-helper manifest.json.")] string manifestPath,
@@ -749,6 +761,7 @@ public sealed class TraceTools
                     resolvedSymbols ?? captureCase.SymbolsDirectory,
                     resolvedMetric,
                     captureManifest.ResolveCaseScope(captureCase, scope)));
+
             return new AnalysisResult<BatchRankingResult>(
                 result,
                 hints: SteeringHints.ForBatch(result, scope, resolvedSymbols, foldPatterns),
@@ -758,11 +771,7 @@ public sealed class TraceTools
                     inclusive ? "inclusive" : "self",
                     resolvedRoot));
         }
-        catch (Exception exception) when (
-            exception is IOException
-            or UnauthorizedAccessException
-            or InvalidDataException
-            or ArgumentException)
+        catch (Exception exception) when (IsManifestInputException(exception))
         {
             throw new McpException(exception.Message);
         }
@@ -780,7 +789,7 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_gc", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "GC summary and top pauses for .nettrace: generation counts, pause time, heap, and promoted bytes. "
-        + ".etl and speedscope are rejected.")]
+            + ".etl and speedscope are rejected.")]
     public static AnalysisResult<GcStatsResult> Gc(
         [Description("Path to a .nettrace EventPipe trace file.")] string path,
         [Description("Maximum number of per-collection records to return, ranked by pause time.")] int top = 25)
@@ -818,11 +827,16 @@ public sealed class TraceTools
     ///  Number of equal time buckets to divide the window into, or <see langword="null"/> to use the default.
     /// </param>
     /// <param name="time">Optional time window (<c>start,end</c> ms) scoping the timeline.</param>
+    /// <param name="process">Optional process-name substring scoping a multi-process trace to one process tree.</param>
+    /// <param name="pid">
+    ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
+    /// </param>
+    /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <returns>The timeline envelope.</returns>
     [McpServerTool(Name = "trace_timeline", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Aligned activity buckets or one bounded GC/CPU/exception/allocation/JIT/event snapshot in .nettrace/.etl. "
-        + "Use mode=snapshot with at=<ms> to inspect one window. Speedscope is rejected.")]
+            + "Use mode=snapshot with at=<ms> to inspect one window. Speedscope is rejected.")]
     public static AnalysisResult<TimelineResult> Timeline(
         [Description("Path to a .nettrace or .etl trace file.")] string path,
         [Description("Mode: buckets (default) or snapshot.")] string mode = "buckets",
@@ -862,7 +876,7 @@ public sealed class TraceTools
             {
                 throw new McpException(
                     $"window must be finite, in 0.01 millisecond increments, and from {TimelineProvider.MinSnapshotHalfWindowMs:N2} "
-                    + $"through {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
+                        + $"through {TimelineProvider.MaxSnapshotHalfWindowMs:N0} ms.");
             }
 
             if (!string.IsNullOrWhiteSpace(time)
@@ -894,6 +908,7 @@ public sealed class TraceTools
             int resolvedBuckets = TimelineProvider.ClampBucketCount(
                 buckets ?? TimelineProvider.DefaultBucketCount,
                 out string? bucketWarning);
+
             if (bucketWarning is not null)
             {
                 warnings.Add(bucketWarning);
@@ -919,7 +934,7 @@ public sealed class TraceTools
         {
             warnings.Add(
                 $"Snapshot names were bounded to {TimelineProvider.MaxSnapshotNameChars} characters and "
-                + "control characters were escaped for terminal-safe output where needed.");
+                    + "control characters were escaped for terminal-safe output where needed.");
         }
 
         if (TimelineProvider.GetSnapshotDetailWarning(result) is string detailWarning)
@@ -954,7 +969,7 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_threadpool", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Thread-pool adjustments, starvation count, worker range, and reasons from .nettrace. .etl and speedscope "
-        + "are rejected.")]
+            + "are rejected.")]
     public static AnalysisResult<ThreadPoolResult> ThreadPool(
         [Description("Path to a .nettrace EventPipe trace file.")] string path)
     {
@@ -982,7 +997,7 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_diskio", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Physical disk reads/writes by file from Windows .etl: bytes, operation counts, and service time. "
-        + ".nettrace and speedscope are rejected.")]
+            + ".nettrace and speedscope are rejected.")]
     public static AnalysisResult<DiskIoResult> DiskIo(
         [Description("Path to a Windows ETW .etl trace file.")] string path,
         [Description("Maximum number of per-file rows to return, ranked by disk service time.")] int top = 25)
@@ -1020,8 +1035,8 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_lifecycle", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Wall-clock phases per invocation from Windows .etl kernel process events: root lifetime, time to "
-        + "first child, child span, teardown, with p50/min/max. Explains a command whose wall clock exceeds "
-        + "its sampled CPU. .nettrace and speedscope are rejected.")]
+            + "first child, child span, teardown, with p50/min/max. Explains a command whose wall clock exceeds "
+            + "its sampled CPU. .nettrace and speedscope are rejected.")]
     public static AnalysisResult<LifecycleResult> Lifecycle(
         [Description("Path to a Windows ETW .etl trace file.")] string path,
         [Description("Root processes are those whose name contains this; omit for the busiest.")] string process = "",
@@ -1076,11 +1091,14 @@ public sealed class TraceTools
     /// <param name="skip">The number of matches to skip, for paging.</param>
     /// <param name="take">The maximum number of matches to return on this page; 0 returns only the total count.</param>
     /// <param name="maxPayload">The per-event payload character cap.</param>
+    /// <param name="payload">Optional case-insensitive substring matched against event payload values.</param>
+    /// <param name="pid">An operating-system process id to retain, or -1 to retain every process.</param>
+    /// <param name="tid">An operating-system thread id to retain, or -1 to retain every thread.</param>
     /// <returns>The events-page envelope.</returns>
     [McpServerTool(Name = "trace_query_events", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Page raw .nettrace/.etl events by name and optional payload/pid/tid filters; skip/take page and maxPayload "
-        + "truncates values. Speedscope is rejected.")]
+            + "truncates values. Speedscope is rejected.")]
     public static AnalysisResult<EventQueryResult> QueryEvents(
         [Description("Path to a .nettrace EventPipe or Windows ETW .etl trace file.")] string path,
         [Description("Substring matched against Provider/EventName; omit to match every event.")] string name = "",
@@ -1130,6 +1148,7 @@ public sealed class TraceTools
         {
             warnings.Add(
                 $"maxPayload {maxPayload} exceeds the {MaxEventPayloadChars} maximum; clamped to {MaxEventPayloadChars}.");
+
             maxPayload = MaxEventPayloadChars;
         }
 
@@ -1188,6 +1207,10 @@ public sealed class TraceTools
     /// <param name="process">
     ///  Optional process-name substring scoping a multi-process <c>.etl</c> to one process tree.
     /// </param>
+    /// <param name="pid">
+    ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
+    /// </param>
+    /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="root">Optional substring of a frame name to scope the export to its subtree.</param>
     /// <param name="benchmark">
     ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.
@@ -1199,7 +1222,7 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_export", ReadOnly = false, Idempotent = true, OpenWorld = true, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Write CPU flame graph to required output, overwriting it; format is speedscope or synthetic chromium. "
-        + "Scope with process/root or benchmark. nativeSymbols is a networked .etl opt-in.")]
+            + "Scope with process/root or benchmark. nativeSymbols is a networked .etl opt-in.")]
     public static AnalysisResult<ExportResult> Export(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -1245,6 +1268,7 @@ public sealed class TraceTools
         string hint = chromium
             ? $"open {outputPath} in chrome://tracing or the Perfetto UI (https://ui.perfetto.dev)"
             : $"open {outputPath} at https://speedscope.app";
+
         List<string> warnings = [.. info.Warnings];
         AddFrameMatchWarnings(
             warnings,
@@ -1270,7 +1294,7 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_processes", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "List every process by CPU-sample weight without auto-scoping; use a process value in later queries. "
-        + "Single-process inputs return one row.")]
+            + "Single-process inputs return one row.")]
     public static AnalysisResult<ProcessListResult> Processes(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path)
@@ -1301,6 +1325,10 @@ public sealed class TraceTools
     /// <param name="process">
     ///  Optional process-name substring scoping a multi-process .etl capture to one process tree.
     /// </param>
+    /// <param name="pid">
+    ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
+    /// </param>
+    /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="benchmark">
     ///  Scope to the BenchmarkDotNet measured-workload subtree (preset root); mutually exclusive with <paramref name="root"/>.
     /// </param>
@@ -1308,7 +1336,7 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_tree", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Top-down CPU call tree with inclusive shares. maxDepth/minPercent bound output; scope with root/process "
-        + "or benchmark=true. JIT helpers fold by default.")]
+            + "or benchmark=true. JIT helpers fold by default.")]
     public static AnalysisResult<CallTreeResult> Tree(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -1368,6 +1396,10 @@ public sealed class TraceTools
     /// <param name="process">
     ///  Optional process-name substring scoping a multi-process .etl capture to one process tree.
     /// </param>
+    /// <param name="pid">
+    ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
+    /// </param>
+    /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="nativeSymbols">
     ///  Resolve native runtime frames from the public symbol server (opt-in, network); cpu/.etl only.
     /// </param>
@@ -1378,7 +1410,7 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_classify", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "Bucket CPU self-time into zeroing, copying, write barrier, GC, JIT, or other. nativeSymbols=true is the "
-        + "networked .etl path for accurate runtime categories; scope with root/process or benchmark.")]
+            + "networked .etl path for accurate runtime categories; scope with root/process or benchmark.")]
     public static AnalysisResult<ClassifyResult> Classify(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
@@ -1405,6 +1437,7 @@ public sealed class TraceTools
             TraceMetric.Cpu,
             scope,
             ResolveSymbols(nativeSymbols));
+
         TraceInfo info = trace.Info;
         ClassifyResult classification = trace.Aggregator.Classify(resolvedRoot);
         List<string> warnings = [.. info.Warnings];
@@ -1433,7 +1466,7 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_jit", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "JIT method count, total/mean compile time, and top costly methods from .nettrace. Aggregate values cover "
-        + "all methods; .etl and speedscope are rejected.")]
+            + "all methods; .etl and speedscope are rejected.")]
     public static AnalysisResult<JitStatsResult> Jit(
         [Description("Path to a .nettrace EventPipe trace file.")] string path,
         [Description("Maximum number of per-method records to return, ranked by compile time.")] int top = 25)
@@ -1474,15 +1507,7 @@ public sealed class TraceTools
         {
             return store.Get(path, symbols, metric, scope, symbolOptions);
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or JsonException
-            or KeyNotFoundException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsTraceLoadException(ex))
         {
             // Missing, unreadable, or malformed trace input - including a format that
             // does not carry the selected metric's data (NotSupportedException) -
@@ -1508,17 +1533,9 @@ public sealed class TraceTools
                 metric,
                 scope,
                 symbolOptions,
-                cancellationToken).ConfigureAwait(false);
+                    cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or JsonException
-            or KeyNotFoundException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsTraceLoadException(ex))
         {
             throw new McpException(ex.Message);
         }
@@ -1577,18 +1594,57 @@ public sealed class TraceTools
             File.WriteAllText(fullPath, content);
             return fullPath;
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or System.Security.SecurityException
-            or ArgumentException)
+        catch (Exception ex) when (IsExportWriteException(ex))
         {
             // A bad or unwritable output path (missing directory, permission denied,
             // invalid characters) surfaces as a clean tool error rather than an
             // unhandled exception.
             throw new McpException($"Could not write '{output}': {ex.Message}");
         }
+    }
+
+    private static bool IsManifestInputException(Exception exception)
+    {
+        return exception is IOException
+            || exception is UnauthorizedAccessException
+            || exception is InvalidDataException
+            || exception is ArgumentException;
+    }
+
+    private static bool IsTraceLoadException(Exception exception)
+    {
+        return exception is IOException
+            || exception is UnauthorizedAccessException
+            || exception is NotSupportedException
+            || exception is JsonException
+            || exception is KeyNotFoundException
+            || exception is InvalidOperationException
+            || exception is FormatException
+            || exception is ArgumentException;
+    }
+
+    private static bool IsExportWriteException(Exception exception)
+    {
+        return exception is IOException
+            || exception is UnauthorizedAccessException
+            || exception is NotSupportedException
+            || exception is System.Security.SecurityException
+            || exception is ArgumentException;
+    }
+
+    private static bool IsReportReadException(Exception exception)
+    {
+        return exception is IOException
+            || exception is UnauthorizedAccessException
+            || exception is NotSupportedException
+            || exception is InvalidOperationException
+            || exception is FormatException
+            || exception is ArgumentException;
+    }
+
+    private static bool IsSnapshotReadException(Exception exception)
+    {
+        return exception is InvalidDataException || IsReportReadException(exception);
     }
 
     private static void RequirePositiveTop(int top)
@@ -1622,13 +1678,7 @@ public sealed class TraceTools
         {
             return new TimelineProvider().Read(path, window, lanes, buckets, scope);
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsReportReadException(ex))
         {
             // A missing, unreadable, or malformed trace - or an .etl read attempted off
             // Windows (PlatformNotSupportedException derives from NotSupportedException) -
@@ -1644,6 +1694,13 @@ public sealed class TraceTools
             () => new TimelineProvider().ReadSnapshot(path, atMs, halfWindowMs, scope));
     }
 
+    /// <summary>
+    ///  Rejects unsupported timeline inputs before invoking the snapshot reader and
+    ///  translates trace and argument failures into protocol-level tool errors.
+    /// </summary>
+    /// <param name="path">The trace path used to validate the supported file format.</param>
+    /// <param name="read">The deferred snapshot read to execute after validation.</param>
+    /// <returns>The timeline snapshot produced by <paramref name="read"/>.</returns>
     internal static TimelineResult ReadTimelineSnapshot(string path, Func<TimelineResult> read)
     {
         RequireNetTraceOrEtl(path, "timeline snapshot");
@@ -1653,14 +1710,7 @@ public sealed class TraceTools
         {
             return read();
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or InvalidDataException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsSnapshotReadException(ex))
         {
             throw new McpException(ex.Message);
         }
@@ -1705,13 +1755,7 @@ public sealed class TraceTools
         {
             return new GcStatsProvider().Read(path);
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsReportReadException(ex))
         {
             // A missing, unreadable, or malformed .nettrace surfaces as a clean tool
             // error rather than an unhandled exception.
@@ -1731,13 +1775,7 @@ public sealed class TraceTools
         {
             return new ThreadPoolProvider().Read(path);
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsReportReadException(ex))
         {
             // A missing, unreadable, or malformed .nettrace surfaces as a clean tool
             // error rather than an unhandled exception.
@@ -1757,13 +1795,7 @@ public sealed class TraceTools
         {
             return new JitStatsProvider().Read(path);
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsReportReadException(ex))
         {
             // A missing, unreadable, or malformed .nettrace surfaces as a clean tool
             // error rather than an unhandled exception.
@@ -1785,13 +1817,7 @@ public sealed class TraceTools
         {
             return new EventQueryProvider().Query(path, name, skip, take, maxPayload, payload, pid, tid);
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsReportReadException(ex))
         {
             // A missing, unreadable, or malformed trace - or an .etl read attempted off
             // Windows (PlatformNotSupportedException derives from NotSupportedException) -
@@ -1848,13 +1874,7 @@ public sealed class TraceTools
         {
             return new DiskIoProvider().Read(path);
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsReportReadException(ex))
         {
             // A missing, unreadable, or malformed .etl surfaces as a clean tool error.
             throw new McpException(ex.Message);
@@ -1877,13 +1897,7 @@ public sealed class TraceTools
         {
             return new LifecycleProvider().Read(path, scope, images, warnings);
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or InvalidOperationException
-            or FormatException
-            or ArgumentException)
+        catch (Exception ex) when (IsReportReadException(ex))
         {
             // A missing, unreadable, or malformed .etl - or a reused process id the
             // selector cannot disambiguate - surfaces as a clean tool error.
@@ -1949,7 +1963,8 @@ public sealed class TraceTools
 
         string summary =
             $"matched {report.Matches.Count} frame definition(s) across {report.MatchingStackCount} stack(s); "
-            + $"the {selectionText} match is selected per stack.";
+                + $"the {selectionText} match is selected per stack.";
+
         warnings.Add(report.IsAmbiguous
             ? $"{role} '{selector}' is ambiguous: {summary}"
             : $"{role} '{selector}' {summary}");
@@ -1959,14 +1974,14 @@ public sealed class TraceTools
         {
             warnings.Add(
                 $"{role} match: selected on {match.SelectedStackCount}/{match.MatchingStackCount} matching stack(s); "
-                + $"zero-based depths [{FormatDepths(match.Depths)}]; {match.Frame}");
+                    + $"zero-based depths [{FormatDepths(match.Depths)}]; {match.Frame}");
         }
 
         if (report.Matches.Count > maxReportedMatches)
         {
             warnings.Add(
                 $"{role} '{selector}' has {report.Matches.Count - maxReportedMatches} additional frame definition(s); "
-                + "use a narrower selector.");
+                    + "use a narrower selector.");
         }
     }
 

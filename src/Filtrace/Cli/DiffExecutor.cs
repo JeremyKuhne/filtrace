@@ -90,6 +90,7 @@ internal static class DiffExecutor
                 ? null
                 : after.Aggregator.GetRootScopeCoverage(request.Root)
         };
+
         List<string> warnings = [.. Warnings(before, after, beforeRanking, afterRanking)];
         if (budgetWarning is not null)
         {
@@ -116,9 +117,15 @@ internal static class DiffExecutor
         }
 
         // The strict gate trips when either trace crosses the symbol-quality threshold.
-        bool belowThreshold =
-            SymbolGate.IsBelowThreshold(before.Info.SymbolResolutionRate, before.Info.SampleCount)
-            || SymbolGate.IsBelowThreshold(after.Info.SymbolResolutionRate, after.Info.SampleCount);
+        bool beforeBelowThreshold = SymbolGate.IsBelowThreshold(
+            before.Info.SymbolResolutionRate,
+            before.Info.SampleCount);
+
+        bool afterBelowThreshold = SymbolGate.IsBelowThreshold(
+            after.Info.SymbolResolutionRate,
+            after.Info.SampleCount);
+
+        bool belowThreshold = beforeBelowThreshold || afterBelowThreshold;
 
         return request.Strict && belowThreshold ? ExitCodes.QualityGate : ExitCodes.Success;
     }
@@ -145,11 +152,14 @@ internal static class DiffExecutor
                         request.Symbols ?? captureCase.SymbolsDirectory,
                         TraceMetric.Cpu,
                         manifest.ResolveCaseScope(captureCase, request.Scope));
+
                     belowThreshold |= SymbolGate.IsBelowThreshold(
                         trace.Info.SymbolResolutionRate,
                         trace.Info.SampleCount);
+
                     return trace;
                 });
+
             AnalysisResult<RankingDiffResult> envelope = new(
                 analysis.Result,
                 analysis.Warnings,
@@ -175,15 +185,19 @@ internal static class DiffExecutor
 
             return request.Strict && belowThreshold ? ExitCodes.QualityGate : ExitCodes.Success;
         }
-        catch (Exception exception) when (
-            exception is IOException
-            or UnauthorizedAccessException
-            or InvalidDataException
-            or ArgumentException)
+        catch (Exception exception) when (IsManifestInputException(exception))
         {
             error.WriteLine(exception.Message);
             return ExitCodes.InputError;
         }
+    }
+
+    private static bool IsManifestInputException(Exception exception)
+    {
+        return exception is IOException
+            || exception is UnauthorizedAccessException
+            || exception is InvalidDataException
+            || exception is ArgumentException;
     }
 
     // Rank every frame (no row cap) so the diff is not skewed by per-side truncation;

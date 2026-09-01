@@ -8,12 +8,16 @@ using System.Runtime.CompilerServices;
 
 namespace Filtrace.PerfWorkload;
 
-/// <summary>Runs bounded CPU or nested-activity work for Track D trace captures.</summary>
+/// <summary>
+///  Runs bounded CPU or nested-activity work for Track D trace captures.
+/// </summary>
 public static class Program
 {
     private const int OperationsPerBurst = 65_536;
 
-    /// <summary>Parses the workload mode and runs the requested worker set.</summary>
+    /// <summary>
+    ///  Parses the workload mode and runs the requested worker set.
+    /// </summary>
     /// <param name="args">Workload mode and bounded options.</param>
     /// <returns>Zero on success; two for invalid arguments.</returns>
     public static int Main(string[] args)
@@ -32,6 +36,7 @@ public static class Program
 
         long durationTicks = (long)Math.Ceiling(
             options.DurationMilliseconds * (double)Stopwatch.Frequency / 1000.0);
+
         long deadline = Stopwatch.GetTimestamp() + durationTicks;
         ulong[] checksums = new ulong[options.Workers];
         Thread[] workers = new Thread[options.Workers];
@@ -44,6 +49,7 @@ public static class Program
                 IsBackground = false,
                 Name = $"TrackD worker {workerIndex}"
             };
+
             workers[workerIndex].Start();
         }
 
@@ -60,7 +66,8 @@ public static class Program
 
         Console.WriteLine(
             $"mode={options.Mode.ToString().ToLowerInvariant()} workers={options.Workers} "
-            + $"depth={options.Depth} checksum=0x{checksum:x16}");
+                + $"depth={options.Depth} checksum=0x{checksum:x16}");
+
         return 0;
     }
 

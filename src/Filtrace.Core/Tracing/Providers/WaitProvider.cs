@@ -53,6 +53,13 @@ public sealed class WaitProvider
     public StackSampleSource Read(string path, TimeWindow? window = null) =>
         Read(path, window, out _);
 
+    /// <summary>
+    ///  Reconstructs blocked-time wait stacks and reports the number of completed wait records read.
+    /// </summary>
+    /// <param name="path">The EventPipe trace path.</param>
+    /// <param name="window">An optional trace-relative wait-start filter.</param>
+    /// <param name="recordCount">The number of completed wait records encountered before output filtering.</param>
+    /// <returns>The wait stack source retained by the requested window.</returns>
     internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount) =>
         LatencyStackReader.Read(
             path,

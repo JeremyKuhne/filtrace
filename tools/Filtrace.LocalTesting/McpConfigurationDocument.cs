@@ -6,6 +6,15 @@ using System.Text.Json;
 
 namespace Filtrace.LocalTesting;
 
+/// <summary>
+///  Owns a validated MCP JSON document and exposes the unique <c>servers</c> and <c>filtrace</c> values it contained.
+/// </summary>
+/// <param name="document">The owned JSON document that keeps all exposed elements alive.</param>
+/// <param name="root">The validated root object.</param>
+/// <param name="serversExisted">Whether the root contained a unique <c>servers</c> object.</param>
+/// <param name="servers">The <c>servers</c> object when present.</param>
+/// <param name="serverExisted">Whether <c>servers</c> contained a unique object-valued <c>filtrace</c> entry.</param>
+/// <param name="server">The <c>filtrace</c> server object when present.</param>
 internal sealed class McpConfigurationDocument(
     JsonDocument document,
     JsonElement root,
@@ -14,18 +23,41 @@ internal sealed class McpConfigurationDocument(
     bool serverExisted,
     JsonElement server) : IDisposable
 {
+    /// <summary>
+    ///  The maximum accepted MCP configuration length, in bytes.
+    /// </summary>
     internal const int MaxBytes = 1024 * 1024;
 
+    /// <summary>
+    ///  Gets the validated configuration root object.
+    /// </summary>
     public JsonElement Root { get; } = root;
 
+    /// <summary>
+    ///  Gets whether the root contained a <c>servers</c> object.
+    /// </summary>
     public bool ServersExisted { get; } = serversExisted;
 
+    /// <summary>
+    ///  Gets the <c>servers</c> object; meaningful only when <see cref="ServersExisted"/> is true.
+    /// </summary>
     public JsonElement Servers { get; } = servers;
 
+    /// <summary>
+    ///  Gets whether the server collection contained a <c>filtrace</c> object.
+    /// </summary>
     public bool ServerExisted { get; } = serverExisted;
 
+    /// <summary>
+    ///  Gets the prior <c>filtrace</c> object; meaningful only when <see cref="ServerExisted"/> is true.
+    /// </summary>
     public JsonElement Server { get; } = server;
 
+    /// <summary>
+    ///  Captures existence flags and a detached copy of the current Filtrace server value for later restoration.
+    /// </summary>
+    /// <param name="path">The VS Code MCP configuration path.</param>
+    /// <returns>A baseline describing the file, server collection, and Filtrace entry.</returns>
     public static McpBaseline Capture(string path)
     {
         using McpConfigurationDocument? configuration = Read(path);
@@ -42,6 +74,11 @@ internal sealed class McpConfigurationDocument(
             };
     }
 
+    /// <summary>
+    ///  Reads a bounded regular file, accepts JSON comments and trailing commas, and rejects duplicate managed properties.
+    /// </summary>
+    /// <param name="path">The VS Code MCP configuration path.</param>
+    /// <returns>An owned validated document, or <see langword="null"/> when the file is absent.</returns>
     public static McpConfigurationDocument? Read(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -50,6 +87,7 @@ internal sealed class McpConfigurationDocument(
             throw new InvalidDataException(
                 $"VS Code MCP configuration is a directory, not a file: '{path}'.");
         }
+
         if (!RegularFileGuard.Exists(path, "VS Code MCP configuration"))
         {
             return null;
@@ -93,6 +131,7 @@ internal sealed class McpConfigurationDocument(
                 "servers",
                 path,
                 out JsonElement parsedServers);
+
             if (parsedServersExisted && parsedServers.ValueKind is not JsonValueKind.Object)
             {
                 throw new InvalidDataException(
@@ -102,6 +141,7 @@ internal sealed class McpConfigurationDocument(
             JsonElement parsedServer = default;
             bool parsedServerExisted = parsedServersExisted
                 && TryGetUniqueProperty(parsedServers, "filtrace", path, out parsedServer);
+
             if (parsedServerExisted && parsedServer.ValueKind is not JsonValueKind.Object)
             {
                 throw new InvalidDataException(
@@ -137,6 +177,7 @@ internal sealed class McpConfigurationDocument(
             {
                 continue;
             }
+
             if (found)
             {
                 throw new InvalidDataException(
@@ -150,6 +191,9 @@ internal sealed class McpConfigurationDocument(
         return found;
     }
 
+    /// <summary>
+    ///  Releases the underlying JSON document and invalidates its borrowed elements.
+    /// </summary>
     public void Dispose()
     {
         document.Dispose();

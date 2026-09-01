@@ -45,19 +45,23 @@ internal static class DiskIoTextRenderer
 
         output.WriteLine(
             $"  reads   {report.ReadCount,8}   {report.TotalReadBytes / BytesPerKB,12:N1} KB");
+
         output.WriteLine(
             $"  writes  {report.WriteCount,8}   {report.TotalWriteBytes / BytesPerKB,12:N1} KB");
+
         output.WriteLine(
             $"  disk time   {report.TotalDiskMs:N2} ms");
+
         output.WriteLine();
 
         output.WriteLine(
             $"  {"reads",6}  {"read(KB)",12}  {"writes",6}  {"write(KB)",12}  {"disk(ms)",10}  file");
+
         foreach (DiskIoFileRecord file in report.Files)
         {
             output.WriteLine(
                 $"  {file.ReadCount,6}  {file.ReadBytes / BytesPerKB,12:N1}  {file.WriteCount,6}  "
-                + $"{file.WriteBytes / BytesPerKB,12:N1}  {file.TotalDiskMs,10:N2}  {file.FileName}");
+                    + $"{file.WriteBytes / BytesPerKB,12:N1}  {file.TotalDiskMs,10:N2}  {file.FileName}");
         }
 
         RenderWarnings(envelope, output);

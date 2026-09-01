@@ -11,10 +11,26 @@ namespace Filtrace.Tracing;
 /// </summary>
 internal static class CaptureMetadataReader
 {
+    /// <summary>
+    ///  The maximum metadata sidecar size accepted, in bytes.
+    /// </summary>
     internal const int MaxBytes = 64 * 1024;
 
+    /// <summary>
+    ///  Constructs the recorder metadata sidecar path for a trace.
+    /// </summary>
+    /// <param name="tracePath">The trace path to which the sidecar suffix is appended.</param>
+    /// <returns>The corresponding <c>.filtrace.json</c> path.</returns>
     public static string PathFor(string tracePath) => $"{tracePath}.filtrace.json";
 
+    /// <summary>
+    ///  Reads known analysis enablement from a bounded sidecar, degrading malformed metadata to a warning.
+    /// </summary>
+    /// <param name="tracePath">The trace whose sidecar should be read.</param>
+    /// <param name="warnings">The collection that receives a read or validation warning.</param>
+    /// <returns>
+    ///  Known capture statuses, or <see langword="null"/> when the sidecar is absent or cannot be trusted.
+    /// </returns>
     public static IReadOnlyDictionary<string, CaptureStatus>? Read(
         string tracePath,
         List<string> warnings)
@@ -31,6 +47,7 @@ internal static class CaptureMetadataReader
             using JsonDocument document = JsonDocument.Parse(
                 bytes,
                 new JsonDocumentOptions { MaxDepth = 8 });
+
             JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object
                 || !root.TryGetProperty("schemaVersion", out JsonElement schemaVersion)
@@ -63,17 +80,19 @@ internal static class CaptureMetadataReader
 
             return statuses;
         }
-        catch (Exception exception) when (
-            exception is IOException
-            or UnauthorizedAccessException
-            or JsonException
-            or InvalidDataException)
+        catch (Exception exception) when (IsMetadataReadException(exception))
         {
-            warnings.Add(
-                $"Capture metadata '{metadataPath}' could not be read: {exception.Message} "
-                + "Provider enablement remains unknown where no events were observed.");
+            warnings.Add(string.Concat(
+                $"Capture metadata '{metadataPath}' could not be read: {exception.Message} ",
+                "Provider enablement remains unknown where no events were observed."));
+
             return null;
         }
+    }
+
+    private static bool IsMetadataReadException(Exception exception)
+    {
+        return exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException;
     }
 
     private static byte[] ReadBounded(string path)
@@ -109,6 +128,7 @@ internal static class CaptureMetadataReader
             "unknown" => CaptureStatus.Unknown,
             _ => CaptureStatus.Unknown
         };
+
         return value is "enabled" or "disabled" or "unknown";
     }
 }

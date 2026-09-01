@@ -36,6 +36,7 @@ internal static class TreeTextRenderer
 
         output.WriteLine(
             $"{info.Format}  {info.SampleCount} samples  {info.TotalWeight:N1} {unit}  symbols {info.SymbolResolutionRate:P0}");
+
         output.WriteLine();
         output.WriteLine($"{metric.Name} call tree  -  scope {tree.ScopeWeight:N2} {unit}  ({scope})");
         output.WriteLine($"  {"weight",WeightColumnWidth}  {"%",PercentColumnWidth}  frame");

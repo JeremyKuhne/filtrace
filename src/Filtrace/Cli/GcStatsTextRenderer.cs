@@ -43,19 +43,23 @@ internal static class GcStatsTextRenderer
 
         output.WriteLine(
             $"  {report.GcCount} collections   gen0 {report.Gen0Count}  gen1 {report.Gen1Count}  gen2 {report.Gen2Count}   induced {report.InducedCount}");
+
         output.WriteLine(
             $"  pause   total {report.TotalPauseMs:N2} ms   max {report.MaxPauseMs:N2} ms   mean {report.MeanPauseMs:N2} ms   ({report.PercentTimeInGc:N1}% of trace)");
+
         output.WriteLine(
             $"  heap    peak {report.PeakHeapSizeMB:N2} MB   promoted {report.TotalPromotedMB:N2} MB");
+
         output.WriteLine();
 
         output.WriteLine(
             $"  {"#",6}  {"gen",3}  {"pause(ms)",12}  {"heap(MB)",12}  {"promoted(MB)",13}  kind / reason");
+
         foreach (GcRecord gc in report.Gcs)
         {
             output.WriteLine(
                 $"  {gc.Number,6}  {gc.Generation,3}  {gc.PauseMs,12:N2}  {gc.HeapSizeAfterMB,12:N2}  "
-                + $"{gc.PromotedMB,13:N2}  {gc.Kind} / {gc.Reason}");
+                    + $"{gc.PromotedMB,13:N2}  {gc.Kind} / {gc.Reason}");
         }
 
         RenderWarnings(envelope, output);

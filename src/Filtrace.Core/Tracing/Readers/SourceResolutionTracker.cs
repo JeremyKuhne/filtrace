@@ -7,9 +7,16 @@ using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing.Readers;
 
+/// <summary>
+///  Aggregates managed frame, method, module, source-line, and local PDB identity coverage for one trace read.
+/// </summary>
 internal sealed partial class SourceResolutionTracker
 {
     private const int MaxTrackedModules = 1024;
+
+    /// <summary>
+    ///  The unique-method ceiling after which method-level counts become unavailable instead of growing without bound.
+    /// </summary>
     internal const int MaxTrackedMethods = 16384;
     private const int MaxReportedMatchingModules = 16;
     private const int MaxReportedUnmappedModules = 8;
@@ -28,6 +35,13 @@ internal sealed partial class SourceResolutionTracker
     private int _unmappedNamedManagedFrames;
     private bool _methodCountsUnavailable;
 
+    /// <summary>
+    ///  Creates a tracker for one trace read and its effective local symbol paths.
+    /// </summary>
+    /// <param name="symbolsDirectory">The caller-supplied local directory reported in diagnostics.</param>
+    /// <param name="localSymbolPath">
+    ///  The effective path used for PDB lookup, including extracted PDBs when present.
+    /// </param>
     public SourceResolutionTracker(string? symbolsDirectory, string? localSymbolPath)
     {
         _localSymbolPath = localSymbolPath;
@@ -36,6 +50,12 @@ internal sealed partial class SourceResolutionTracker
             : [symbolsDirectory];
     }
 
+    /// <summary>
+    ///  Records source-resolution evidence for a sampled address that resolves to a managed method.
+    /// </summary>
+    /// <param name="address">The sampled code address and its TraceEvent method/module metadata.</param>
+    /// <param name="methodName">The rendered method name, or <see langword="null"/> when unnamed.</param>
+    /// <param name="sourceMapped">Whether the address resolved to a source sequence point.</param>
     public void Observe(TraceCodeAddress address, string? methodName, bool sourceMapped)
     {
         TraceMethod? method = address.Method;
@@ -53,6 +73,14 @@ internal sealed partial class SourceResolutionTracker
             sourceMapped);
     }
 
+    /// <summary>
+    ///  Records one managed frame using a stable method key and optional module metadata.
+    /// </summary>
+    /// <param name="methodKey">The trace-local method identity used to deduplicate method counts.</param>
+    /// <param name="module">The trace module metadata, or <see langword="null"/> when unavailable.</param>
+    /// <param name="moduleName">A fallback module name used for display and consolidation.</param>
+    /// <param name="methodName">The rendered method name, or <see langword="null"/> when unnamed.</param>
+    /// <param name="sourceMapped">Whether this frame resolved to source.</param>
     internal void ObserveManagedFrame(
         int methodKey,
         TraceModuleFile? module,
@@ -69,6 +97,12 @@ internal sealed partial class SourceResolutionTracker
         ObserveMethod(methodKey, moduleName, methodName, sourceMapped);
     }
 
+    /// <summary>
+    ///  Adds one sampled frame to module-level totals while bounding distinct tracked modules.
+    /// </summary>
+    /// <param name="module">The trace module metadata, or <see langword="null"/> when unavailable.</param>
+    /// <param name="moduleName">A fallback module name used when metadata is unavailable.</param>
+    /// <param name="sourceMapped">Whether the sampled frame resolved to source.</param>
     internal void ObserveModule(TraceModuleFile? module, string? moduleName, bool sourceMapped)
     {
         _sampledManagedFrames = SaturatingIncrement(_sampledManagedFrames);
@@ -92,7 +126,7 @@ internal sealed partial class SourceResolutionTracker
                 return;
             }
 
-            resolution = new ModuleResolution(name, null);
+            resolution = new ModuleResolution(name, module: null);
             _modulesWithoutMetadata.Add(name, resolution);
             ObserveResolution(resolution, sourceMapped);
             return;
@@ -146,6 +180,7 @@ internal sealed partial class SourceResolutionTracker
                 string.IsNullOrEmpty(methodName)
                     ? null
                     : NormalizeMethodName(moduleName, methodName));
+
             _methods.Add(methodKey, resolution);
         }
 
@@ -156,6 +191,12 @@ internal sealed partial class SourceResolutionTracker
         }
     }
 
+    /// <summary>
+    ///  Matches available PDBs, consolidates repeated module names, and builds bounded source-quality diagnostics.
+    /// </summary>
+    /// <returns>
+    ///  Frame and method coverage together with matching, mismatched, and highest-impact unmapped modules.
+    /// </returns>
     public SourceResolutionInfo CreateInfo()
     {
         List<ModuleResolution> modules = [.. _modules.Values, .. _modulesWithoutMetadata.Values];
@@ -163,7 +204,7 @@ internal sealed partial class SourceResolutionTracker
         {
             try
             {
-                using SymbolReader reader = new(TextWriter.Null, _localSymbolPath, null);
+                using SymbolReader reader = new(TextWriter.Null, _localSymbolPath, httpClientDelegatingHandler: null);
                 foreach (ModuleResolution resolution in modules)
                 {
                     resolution.PdbStatus = resolution.MappedFrames > 0
@@ -199,7 +240,7 @@ internal sealed partial class SourceResolutionTracker
         {
             if (!consolidated.TryGetValue(module.Name, out ModuleResolution? aggregate))
             {
-                aggregate = new ModuleResolution(module.Name, null);
+                aggregate = new ModuleResolution(module.Name, module: null);
                 consolidated.Add(module.Name, aggregate);
             }
 
@@ -267,6 +308,7 @@ internal sealed partial class SourceResolutionTracker
                 aggregate.SampledFrames = SaturatingAdd(
                     aggregate.SampledFrames,
                     method.SampledFrames);
+
                 aggregate.MappedFrames = SaturatingAdd(
                     aggregate.MappedFrames,
                     method.MappedFrames);
@@ -299,6 +341,18 @@ internal sealed partial class SourceResolutionTracker
         };
     }
 
+    /// <summary>
+    ///  Tests whether local symbol lookup finds the exact PDB signature and age recorded for a module.
+    /// </summary>
+    /// <param name="symbolPath">The local symbol search path.</param>
+    /// <param name="pdbName">The PDB name recorded in module metadata.</param>
+    /// <param name="pdbSignature">The expected portable or Windows PDB signature.</param>
+    /// <param name="pdbAge">The expected PDB age.</param>
+    /// <param name="modulePath">The module path supplied as symbol-reader context.</param>
+    /// <param name="fileVersion">The module version supplied as symbol-reader context.</param>
+    /// <returns>
+    ///  <see langword="true"/> only when lookup verifies the requested identity; failures return <see langword="false"/>.
+    /// </returns>
     internal static bool HasMatchingPdb(
         string symbolPath,
         string pdbName,
@@ -316,7 +370,7 @@ internal sealed partial class SourceResolutionTracker
 
         try
         {
-            using SymbolReader reader = new(TextWriter.Null, symbolPath, null);
+            using SymbolReader reader = new(TextWriter.Null, symbolPath, httpClientDelegatingHandler: null);
             return GetPdbMatchStatus(
                 reader,
                 candidateDirectory: null,
@@ -332,6 +386,17 @@ internal sealed partial class SourceResolutionTracker
         }
     }
 
+    /// <summary>
+    ///  Distinguishes an exact PDB match, a same-named identity mismatch, and an absent candidate.
+    /// </summary>
+    /// <param name="symbolPath">The local symbol search path.</param>
+    /// <param name="candidateDirectory">The directory checked for a same-named mismatched PDB.</param>
+    /// <param name="pdbName">The PDB name recorded in module metadata.</param>
+    /// <param name="pdbSignature">The expected PDB signature.</param>
+    /// <param name="pdbAge">The expected PDB age.</param>
+    /// <param name="modulePath">The module path supplied as symbol-reader context.</param>
+    /// <param name="fileVersion">The module version supplied as symbol-reader context.</param>
+    /// <returns>The strongest PDB identity outcome that can be established locally.</returns>
     internal static PdbMatchStatus GetPdbMatchStatus(
         string symbolPath,
         string candidateDirectory,
@@ -348,7 +413,7 @@ internal sealed partial class SourceResolutionTracker
 
         try
         {
-            using SymbolReader reader = new(TextWriter.Null, symbolPath, null);
+            using SymbolReader reader = new(TextWriter.Null, symbolPath, httpClientDelegatingHandler: null);
             return GetPdbMatchStatus(
                 reader,
                 candidateDirectory,
@@ -367,17 +432,22 @@ internal sealed partial class SourceResolutionTracker
     private static PdbMatchStatus GetPdbMatchStatus(
         SymbolReader reader,
         TraceModuleFile? module,
-        string? candidateDirectory) =>
-        module is null
-            ? PdbMatchStatus.NotFound
-            : GetPdbMatchStatus(
-                reader,
-                candidateDirectory,
-                module.PdbName,
-                module.PdbSignature,
-                module.PdbAge,
-                module.FilePath,
-                module.FileVersion);
+        string? candidateDirectory)
+    {
+        if (module is null)
+        {
+            return PdbMatchStatus.NotFound;
+        }
+
+        return GetPdbMatchStatus(
+            reader,
+            candidateDirectory,
+            module.PdbName,
+            module.PdbSignature,
+            module.PdbAge,
+            module.FilePath,
+            module.FileVersion);
+    }
 
     private static PdbMatchStatus GetPdbMatchStatus(
         SymbolReader reader,
@@ -435,12 +505,23 @@ internal sealed partial class SourceResolutionTracker
         }
     }
 
+    /// <summary>
+    ///  Extracts a PDB leaf name from either Windows- or Unix-delimited metadata paths.
+    /// </summary>
+    /// <param name="path">The recorded PDB path or leaf name.</param>
+    /// <returns>The text following the final slash or backslash.</returns>
     internal static string GetPdbFileName(string path)
     {
         int separator = Math.Max(path.LastIndexOf('/'), path.LastIndexOf('\\'));
         return separator < 0 ? path : path[(separator + 1)..];
     }
 
+    /// <summary>
+    ///  Combines repeated module outcomes using exact match, identity mismatch, then not found as precedence.
+    /// </summary>
+    /// <param name="first">One module-instance outcome.</param>
+    /// <param name="second">Another module-instance outcome.</param>
+    /// <returns>The strongest evidence supplied by either outcome.</returns>
     internal static PdbMatchStatus MergePdbMatchStatus(
         PdbMatchStatus first,
         PdbMatchStatus second)
@@ -462,12 +543,23 @@ internal sealed partial class SourceResolutionTracker
     private static int SaturatingAdd(int left, int right) =>
         left > int.MaxValue - right ? int.MaxValue : left + right;
 
+    /// <summary>
+    ///  Replaces a missing module name, bounds its UTF-16 length, and converts control characters to spaces.
+    /// </summary>
+    /// <param name="name">The trace-derived module name.</param>
+    /// <returns>A display-safe module name of at most 120 characters.</returns>
     internal static string NormalizeModuleName(string? name)
     {
         string value = string.IsNullOrEmpty(name) ? "(unknown managed module)" : name;
         return NormalizeDisplayText(value, MaxModuleNameLength);
     }
 
+    /// <summary>
+    ///  Builds a bounded <c>module!method</c> identity after removing the method parameter list.
+    /// </summary>
+    /// <param name="moduleName">The trace-derived module name.</param>
+    /// <param name="methodName">The rendered method name, optionally followed by parameters.</param>
+    /// <returns>A display-safe method identity of at most 120 characters.</returns>
     internal static string NormalizeMethodName(string? moduleName, string methodName)
     {
         int parameters = methodName.IndexOf('(');

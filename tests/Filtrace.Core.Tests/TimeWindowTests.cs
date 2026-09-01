@@ -23,7 +23,7 @@ public sealed class TimeWindowTests
     [TestMethod]
     public void Contains_OpenStart_RunsFromTheTraceStart()
     {
-        TimeWindow window = new(null, 5000.0);
+        TimeWindow window = new(startMSec: null, 5000.0);
 
         window.Contains(0.0).Should().BeTrue();
         window.Contains(5000.0).Should().BeTrue();
@@ -33,7 +33,7 @@ public sealed class TimeWindowTests
     [TestMethod]
     public void Contains_OpenEnd_RunsToTheTraceEnd()
     {
-        TimeWindow window = new(1000.0, null);
+        TimeWindow window = new(1000.0, endMSec: null);
 
         window.Contains(999.999).Should().BeFalse();
         window.Contains(1000.0).Should().BeTrue();
@@ -43,7 +43,7 @@ public sealed class TimeWindowTests
     [TestMethod]
     public void Contains_Unbounded_KeepsEverything()
     {
-        TimeWindow window = new(null, null);
+        TimeWindow window = new(startMSec: null, endMSec: null);
 
         window.IsBounded.Should().BeFalse();
         window.Contains(0.0).Should().BeTrue();
@@ -54,18 +54,18 @@ public sealed class TimeWindowTests
     public void IsBounded_ReflectsWhetherEitherBoundIsSet()
     {
         new TimeWindow(1000.0, 5000.0).IsBounded.Should().BeTrue();
-        new TimeWindow(1000.0, null).IsBounded.Should().BeTrue();
-        new TimeWindow(null, 5000.0).IsBounded.Should().BeTrue();
-        new TimeWindow(null, null).IsBounded.Should().BeFalse();
+        new TimeWindow(1000.0, endMSec: null).IsBounded.Should().BeTrue();
+        new TimeWindow(startMSec: null, 5000.0).IsBounded.Should().BeTrue();
+        new TimeWindow(startMSec: null, endMSec: null).IsBounded.Should().BeFalse();
     }
 
     [TestMethod]
     public void ToString_RendersOpenBoundsAsWords()
     {
         new TimeWindow(1000.0, 5000.0).ToString().Should().Be("[1000, 5000] ms");
-        new TimeWindow(1000.0, null).ToString().Should().Be("[1000, end] ms");
-        new TimeWindow(null, 5000.0).ToString().Should().Be("[start, 5000] ms");
-        new TimeWindow(null, null).ToString().Should().Be("[start, end] ms");
+        new TimeWindow(1000.0, endMSec: null).ToString().Should().Be("[1000, end] ms");
+        new TimeWindow(startMSec: null, 5000.0).ToString().Should().Be("[start, 5000] ms");
+        new TimeWindow(startMSec: null, endMSec: null).ToString().Should().Be("[start, end] ms");
 
         // A fractional millisecond keeps up to three decimals and no locale grouping.
         new TimeWindow(1000.5, 5000.25).ToString().Should().Be("[1000.5, 5000.25] ms");
@@ -90,7 +90,7 @@ public sealed class TimeWindowTests
     [TestMethod]
     public void TryParse_EmptyOrNull_IsAWindowlessSuccess()
     {
-        TimeWindow.TryParse(null, out double? start, out double? end, out string? error).Should().BeTrue();
+        TimeWindow.TryParse(text: null, out double? start, out double? end, out string? error).Should().BeTrue();
         start.Should().BeNull();
         end.Should().BeNull();
         error.Should().BeNull();

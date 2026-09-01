@@ -145,12 +145,14 @@ public sealed class AnalysisResult<T>
             : hints is SteeringHintSet steering
                 ? [.. steering.NextSteps]
                 : [.. resolvedHints.Select(static hint => new AnalysisNextStep(hint))];
+
         if (context?.Scope?.RootKind == AnalysisScopeContext.StackAncestryRootKind)
         {
             diagnostics.Add(new AnalysisDiagnostic(
                 AnalysisDiagnosticCodes.RootScopeAncestry,
                 "info",
                 RootScopeDiagnosticMessage));
+
             if (!resolvedHints.Contains(RootScopeHint, StringComparer.Ordinal))
             {
                 resolvedHints.Add(RootScopeHint);

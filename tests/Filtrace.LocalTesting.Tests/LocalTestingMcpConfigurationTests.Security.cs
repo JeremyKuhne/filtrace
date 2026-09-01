@@ -45,6 +45,7 @@ public sealed partial class LocalTestingMcpConfigurationTests
 
         publish.Should().Throw<InvalidDataException>()
             .WithMessage("*Updated*exceeds*byte safety limit*");
+
         File.ReadAllText(plan.McpConfigurationPath).Should().Be(json);
         AssertNoTemporaryFiles(plan);
     }
@@ -63,6 +64,7 @@ public sealed partial class LocalTestingMcpConfigurationTests
 
         new FileInfo(plan.McpConfigurationPath).Length
             .Should().BeLessThanOrEqualTo(McpConfigurationDocument.MaxBytes);
+
         using JsonDocument document = ReadConfiguration(plan);
         AssertLocalServer(
             document.RootElement.GetProperty("servers").GetProperty("filtrace"),
@@ -83,8 +85,10 @@ public sealed partial class LocalTestingMcpConfigurationTests
 
         publish.Should().Throw<InvalidDataException>()
             .WithMessage("*exceeds*byte safety limit*");
+
         new FileInfo(plan.McpConfigurationPath).Length
             .Should().Be(McpConfigurationDocument.MaxBytes + 1);
+
         AssertNoTemporaryFiles(plan);
     }
 
@@ -103,6 +107,7 @@ public sealed partial class LocalTestingMcpConfigurationTests
 
         restore.Should().Throw<InvalidDataException>()
             .WithMessage("*Updated*exceeds*byte safety limit*");
+
         File.ReadAllText(plan.McpConfigurationPath).Should().Be(activeJson);
         AssertNoTemporaryFiles(plan);
     }
@@ -119,6 +124,7 @@ public sealed partial class LocalTestingMcpConfigurationTests
 
         publish.Should().Throw<ArgumentException>()
             .WithMessage("*must be absolute*");
+
         File.Exists(plan.McpConfigurationPath).Should().BeFalse();
     }
 
@@ -159,6 +165,7 @@ public sealed partial class LocalTestingMcpConfigurationTests
 
         publish.Should().Throw<InvalidDataException>()
             .WithMessage("*must not contain links*");
+
         File.Exists(Path.Join(external, "mcp.json")).Should().BeFalse();
     }
 
@@ -172,17 +179,31 @@ public sealed partial class LocalTestingMcpConfigurationTests
         WriteConfiguration(plan, "{\"inputs\":[]}");
         string external = Path.Join(directory.Path, "external.json");
         File.WriteAllText(external, "{\"external\":true}");
+        string probe = Path.Join(directory.Path, "symlink-probe.json");
+        try
+        {
+            File.CreateSymbolicLink(probe, external);
+            File.Delete(probe);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            Assert.Inconclusive($"Symbolic links are unavailable: {exception.Message}");
+        }
+
         LocalTestingMcpConfiguration configuration = new(() =>
         {
             File.Delete(plan.McpConfigurationPath);
             File.CreateSymbolicLink(plan.McpConfigurationPath, external);
         });
+
         try
         {
             Action publish = () => configuration.Publish(plan, mcpDllPath);
 
             publish.Should().Throw<InvalidDataException>()
                 .WithMessage("*must not contain links*");
+
             File.ReadAllText(external).Should().Be("{\"external\":true}");
             AssertNoTemporaryFiles(plan);
         }
@@ -247,6 +268,7 @@ public sealed partial class LocalTestingMcpConfigurationTests
         UnixFileMode mode = UnixFileMode.UserRead
             | UnixFileMode.UserWrite
             | UnixFileMode.GroupRead;
+
         File.SetUnixFileMode(plan.McpConfigurationPath, mode);
 
         new LocalTestingMcpConfiguration().Publish(plan, mcpDllPath);
@@ -268,16 +290,20 @@ public sealed partial class LocalTestingMcpConfigurationTests
         WriteConfiguration(plan, "{}");
         FileSecurity security = FileSystemAclExtensions.GetAccessControl(
             new FileInfo(plan.McpConfigurationPath));
+
         security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
         SecurityIdentifier identity = WindowsIdentity.GetCurrent().User
             ?? throw new InvalidOperationException("Current Windows identity has no SID.");
+
         security.AddAccessRule(new(
             identity,
             FileSystemRights.FullControl,
             AccessControlType.Allow));
+
         FileSystemAclExtensions.SetAccessControl(
             new FileInfo(plan.McpConfigurationPath),
             security);
+
         string before = ReadWindowsSddl(plan.McpConfigurationPath);
 
         new LocalTestingMcpConfiguration().Publish(plan, mcpDllPath);

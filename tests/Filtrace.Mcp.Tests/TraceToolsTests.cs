@@ -80,7 +80,7 @@ public sealed class TraceToolsTests
         allocation.CaptureStatus.Should().Be("enabled");
         allocation.EventCount.Should().BeGreaterThan(0);
         envelope.Result.Analyses["wait"].Should().Be(
-            new AnalysisAvailabilityView("unknown", null));
+            new AnalysisAvailabilityView("unknown", EventCount: null));
     }
 
     [TestMethod]
@@ -102,10 +102,12 @@ public sealed class TraceToolsTests
         source.SourceMappedManagedMethodCount.Should().NotBeNull();
         source.SourceMappedManagedMethodCount.Value.Should().BeLessThanOrEqualTo(
             source.SampledManagedMethodCount.Value);
+
         source.UnmappedNamedManagedFrameCount.Should().BeGreaterThan(0);
         source.HighestUnmappedMethods.Should().NotBeEmpty();
         source.HighestUnmappedModules.Should().Contain(
             module => module.Contains("HotLoopBench", StringComparison.OrdinalIgnoreCase));
+
         envelope.Hints.Should().Contain(hint =>
             hint.Contains("method-name resolution (100%) is separate from source mapping", StringComparison.Ordinal));
     }
@@ -125,8 +127,10 @@ public sealed class TraceToolsTests
 
             envelope.Result.Analyses!["exceptions"].Should().Be(
                 new AnalysisAvailabilityView("enabled", 0));
+
             envelope.Result.Analyses["wait"].Should().Be(
-                new AnalysisAvailabilityView("disabled", null));
+                new AnalysisAvailabilityView("disabled", EventCount: null));
+
             envelope.Result.Analyses["alloc"].CaptureStatus.Should().Be("enabled");
             envelope.Result.Analyses["alloc"].EventCount.Should().BeGreaterThan(0);
         }
@@ -149,6 +153,7 @@ public sealed class TraceToolsTests
 
             envelope.Warnings.Should().Contain(
                 warning => warning.Contains("Capture metadata", StringComparison.Ordinal));
+
             envelope.Result.Analyses!["alloc"].CaptureStatus.Should().Be("enabled");
             envelope.Result.Analyses["wait"].CaptureStatus.Should().Be("unknown");
         }
@@ -171,21 +176,25 @@ public sealed class TraceToolsTests
                 startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
                 return await TraceTools.InfoAsync(store, path);
             });
+
             Task<AnalysisResult<RankingResult>> firstRankTask = Task.Run(async () =>
             {
                 startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
                 return await TraceTools.RankAsync(store, path);
             });
+
             Task<AnalysisResult<RankingResult>> secondRankTask = Task.Run(async () =>
             {
                 startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
                 return await TraceTools.RankAsync(store, path, measure: "inclusive");
             });
+
             Task<AnalysisResult<LineRankingResult>> linesTask = Task.Run(async () =>
             {
                 startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
                 return await TraceTools.LinesAsync(store, path);
             });
+
             startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
 
             await Task.WhenAll(infoTask, firstRankTask, secondRankTask, linesTask);
@@ -227,6 +236,7 @@ public sealed class TraceToolsTests
         envelope.Result.ContributingRecordCount.Should().Be(4);
         envelope.Warnings.Should().NotContain(
             warning => warning.Contains("periodic CPU records", StringComparison.Ordinal));
+
         envelope.Context.Should().NotBeNull();
         envelope.Context!.Operation.Should().Be("rank");
         envelope.Context.Metric.Should().Be("cpu");
@@ -280,6 +290,7 @@ public sealed class TraceToolsTests
 
         whole.Result.ContributingRecordCount.Should().BeGreaterThanOrEqualTo(
             ContributingRecordQuality.DefaultMinimumMethodRecords);
+
         scoped.Result.ContributingRecordCount.Should().Be(179);
         scoped.Warnings.Should().Contain(
             warning => warning.Contains("179 periodic CPU records", StringComparison.Ordinal)
@@ -321,12 +332,15 @@ public sealed class TraceToolsTests
             warning => warning.Contains("root 'MyApp'", StringComparison.Ordinal)
                 && warning.Contains("outermost", StringComparison.Ordinal)
                 && warning.Contains("ambiguous", StringComparison.OrdinalIgnoreCase));
+
         envelope.Warnings.Should().Contain(
             warning => warning.Contains("MyApp.Work", StringComparison.Ordinal)
                 && warning.Contains("depth", StringComparison.Ordinal));
+
         envelope.Warnings.Should().Contain(
             warning => warning.Contains("MyApp.Inner", StringComparison.Ordinal)
                 && warning.Contains("depth", StringComparison.Ordinal));
+
         envelope.Warnings.Should().Contain(
             warning => warning.Contains("MyApp.Other", StringComparison.Ordinal)
                 && warning.Contains("depth", StringComparison.Ordinal));
@@ -487,6 +501,7 @@ public sealed class TraceToolsTests
         envelope.Result.Rows.Should().NotBeEmpty();
         envelope.Warnings.Should().Contain(w =>
             w.Contains("Scoped to the [0, 100000] ms window", StringComparison.Ordinal));
+
         envelope.Context!.Scope.Should().NotBeNull();
         envelope.Context.Scope!.FromMs.Should().Be(0.0);
         envelope.Context.Scope.ToMs.Should().Be(100000.0);
@@ -531,6 +546,7 @@ public sealed class TraceToolsTests
         AssertEnvelope(envelope);
         envelope.Warnings.Should().Contain(w =>
             w.Contains("not applied to a speedscope", StringComparison.Ordinal));
+
         envelope.Context!.Scope.Should().BeNull();
     }
 
@@ -584,13 +600,17 @@ public sealed class TraceToolsTests
             warning => warning.Contains("frame 'MyApp'", StringComparison.Ordinal)
                 && warning.Contains("deepest", StringComparison.Ordinal)
                 && warning.Contains("ambiguous", StringComparison.OrdinalIgnoreCase));
+
         envelope.Warnings.Should().Contain(
             warning => warning.Contains("MyApp.Work", StringComparison.Ordinal));
+
         envelope.Warnings.Should().Contain(
             warning => warning.Contains("MyApp.Inner", StringComparison.Ordinal));
+
         envelope.Warnings.Should().Contain(
             warning => warning.Contains("MyApp.Other", StringComparison.Ordinal));
     }
+
     [TestMethod]
     public void Callers_WithoutCallees_LeavesCalleesNull()
     {
@@ -777,6 +797,7 @@ public sealed class TraceToolsTests
                 $$"""
                 {"schemaVersion":1,"cases":[{"id":"before","benchmark":"Bench.Work","parameters":"Size: 1","benchmarkDisplay":"Work(Size: 1): Job-OLD","speedscope":"{{trace}}","operationCount":10,"operationUnit":"items"}]}
                 """);
+
             File.WriteAllText(
                 afterManifest,
                 $$"""
@@ -835,10 +856,11 @@ public sealed class TraceToolsTests
             captureCase.AfterScopeWeight.Should().Be(0.0);
             captureCase.Warnings.Should().Contain(warning =>
                 warning.Contains("999998", StringComparison.Ordinal)
-                && warning.Contains("not found in this trace", StringComparison.Ordinal));
+                    && warning.Contains("not found in this trace", StringComparison.Ordinal));
+
             captureCase.Warnings.Should().Contain(warning =>
                 warning.Contains("999999", StringComparison.Ordinal)
-                && warning.Contains("not found in this trace", StringComparison.Ordinal));
+                    && warning.Contains("not found in this trace", StringComparison.Ordinal));
         }
         finally
         {
@@ -874,6 +896,7 @@ public sealed class TraceToolsTests
             captureCase.ScopeWeightPerOperation.Should().Be(2.5);
             envelope.Hints.Should().ContainSingle(
                 hint => hint.Contains("manifest case 'one'", StringComparison.Ordinal));
+
             AnalysisNextStep next = envelope.NextSteps.Should().ContainSingle().Subject;
             next.Operation.Should().Be("rank");
             next.Arguments.Should().NotBeNull();
@@ -884,6 +907,7 @@ public sealed class TraceToolsTests
                 store,
                 manifestPath: manifest,
                 caseId: "one").GetAwaiter().GetResult();
+
             ranking.Result.Rows[0].Frame.Should().Be("MyApp.Inner");
         }
         finally
@@ -950,16 +974,17 @@ public sealed class TraceToolsTests
             captureCase.ScopeWeight.Should().Be(0.0);
             captureCase.Warnings.Should().Contain(warning =>
                 warning.Contains("999999", StringComparison.Ordinal)
-                && warning.Contains("not found in this trace", StringComparison.Ordinal));
+                    && warning.Contains("not found in this trace", StringComparison.Ordinal));
 
             AnalysisResult<RankingResult> ranking = TraceTools.RankToolAsync(
                 store,
                 manifestPath: manifest,
                 caseId: "command").GetAwaiter().GetResult();
+
             ranking.Result.ScopeWeight.Should().Be(0.0);
             ranking.Warnings.Should().Contain(warning =>
                 warning.Contains("999999", StringComparison.Ordinal)
-                && warning.Contains("not found in this trace", StringComparison.Ordinal));
+                    && warning.Contains("not found in this trace", StringComparison.Ordinal));
         }
         finally
         {
@@ -1144,7 +1169,7 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     [DataRow("")]
     [DataRow("unknown")]
     public void Timeline_UnknownMode_ThrowsBoundedMcpException(string? mode)
@@ -1722,10 +1747,13 @@ public sealed class TraceToolsTests
                 warning => warning.Contains("root 'MyApp'", StringComparison.Ordinal)
                     && warning.Contains("outermost", StringComparison.Ordinal)
                     && warning.Contains("ambiguous", StringComparison.OrdinalIgnoreCase));
+
             envelope.Warnings.Should().Contain(
                 warning => warning.Contains("MyApp.Work", StringComparison.Ordinal));
+
             envelope.Warnings.Should().Contain(
                 warning => warning.Contains("MyApp.Inner", StringComparison.Ordinal));
+
             envelope.Warnings.Should().Contain(
                 warning => warning.Contains("MyApp.Other", StringComparison.Ordinal));
         }
@@ -1863,6 +1891,7 @@ public sealed class TraceToolsTests
 
         AnalysisResult<EventQueryResult> none =
             TraceTools.QueryEvents(FixturePath(Alloc), name: "AllocationTick", payload: "__no_such_value__");
+
         none.Result.TotalMatched.Should().Be(0);
     }
 
@@ -1991,7 +2020,7 @@ public sealed class TraceToolsTests
     {
         // A null path must fail through the format guardrail as a clean McpException, not
         // a NullReferenceException surfaced as an opaque JSON-RPC error.
-        Action act = () => TraceTools.QueryEvents(null!);
+        Action act = () => TraceTools.QueryEvents(path: null!);
 
         act.Should().Throw<McpException>().WithMessage("*requires a .nettrace*");
     }

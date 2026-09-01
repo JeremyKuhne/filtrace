@@ -141,6 +141,7 @@ public sealed partial class EmbeddedPdbExtractorTests
             FileMode.Open,
             FileAccess.Write,
             FileShare.None);
+
         stream.Position = entry.DataPointer + 4;
         Span<byte> encodedSize = stackalloc byte[sizeof(uint)];
         BinaryPrimitives.WriteUInt32LittleEndian(encodedSize, declaredSize);

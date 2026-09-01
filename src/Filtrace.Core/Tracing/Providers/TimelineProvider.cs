@@ -258,6 +258,13 @@ public sealed partial class TimelineProvider
     private static int BucketIndex(double timeMs, double startMs, double bucketSizeMs, int buckets) =>
         Math.Clamp((int)((timeMs - startMs) / bucketSizeMs), 0, buckets - 1);
 
+    /// <summary>
+    ///  Tests whether a finite trace timestamp lies within an inclusive timeline window.
+    /// </summary>
+    /// <param name="timestamp">The trace-relative timestamp to test, in milliseconds.</param>
+    /// <param name="startMs">The inclusive window start in milliseconds.</param>
+    /// <param name="endMs">The inclusive window end in milliseconds.</param>
+    /// <returns><see langword="true"/> when the timestamp is finite and within both bounds.</returns>
     internal static bool IsTimelineTimestampInWindow(double timestamp, double startMs, double endMs) =>
         double.IsFinite(timestamp) && timestamp >= startMs && timestamp <= endMs;
 
@@ -387,6 +394,7 @@ public sealed partial class TimelineProvider
                         string type = string.IsNullOrEmpty(exception.ExceptionType)
                             ? "(unknown exception type)"
                             : exception.ExceptionType;
+
                         Tally(exTop![idx], type);
                         break;
                     }

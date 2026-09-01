@@ -11,7 +11,7 @@ namespace Filtrace.Tracing;
 public sealed class SourceResolutionTrackerTests
 {
     [TestMethod]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     [DataRow("")]
     public void NormalizeSymbolsDirectory_NullOrEmpty_ReturnsNull(string? symbolsDirectory)
     {
@@ -87,6 +87,7 @@ public sealed class SourceResolutionTrackerTests
         using PEReader reader = new(stream);
         DebugDirectoryEntry codeView = reader.ReadDebugDirectory()
             .Single(entry => entry.Type == DebugDirectoryEntryType.CodeView);
+
         CodeViewDebugDirectoryData data = reader.ReadCodeViewDebugDirectoryData(codeView);
 
         bool matched = SourceResolutionTracker.HasMatchingPdb(
@@ -103,6 +104,7 @@ public sealed class SourceResolutionTrackerTests
             Guid.NewGuid(),
             data.Age,
             modulePath).Should().BeFalse();
+
         SourceResolutionTracker.HasMatchingPdb(
             directory,
             data.Path,
@@ -120,6 +122,7 @@ public sealed class SourceResolutionTrackerTests
         using PEReader reader = new(stream);
         DebugDirectoryEntry codeView = reader.ReadDebugDirectory()
             .Single(entry => entry.Type == DebugDirectoryEntryType.CodeView);
+
         CodeViewDebugDirectoryData data = reader.ReadCodeViewDebugDirectoryData(codeView);
 
         SourceResolutionTracker.GetPdbMatchStatus(
@@ -129,6 +132,7 @@ public sealed class SourceResolutionTrackerTests
             data.Guid,
             data.Age,
             modulePath).Should().Be(SourceResolutionTracker.PdbMatchStatus.Matched);
+
         SourceResolutionTracker.GetPdbMatchStatus(
             directory,
             directory,
@@ -136,6 +140,7 @@ public sealed class SourceResolutionTrackerTests
             Guid.NewGuid(),
             data.Age,
             modulePath).Should().Be(SourceResolutionTracker.PdbMatchStatus.IdentityMismatch);
+
         SourceResolutionTracker.GetPdbMatchStatus(
             directory,
             directory,
@@ -178,10 +183,12 @@ public sealed class SourceResolutionTrackerTests
             SourceResolutionTracker.PdbMatchStatus.IdentityMismatch,
             SourceResolutionTracker.PdbMatchStatus.Matched)
             .Should().Be(SourceResolutionTracker.PdbMatchStatus.Matched);
+
         SourceResolutionTracker.MergePdbMatchStatus(
             SourceResolutionTracker.PdbMatchStatus.Matched,
             SourceResolutionTracker.PdbMatchStatus.IdentityMismatch)
             .Should().Be(SourceResolutionTracker.PdbMatchStatus.Matched);
+
         SourceResolutionTracker.MergePdbMatchStatus(
             SourceResolutionTracker.PdbMatchStatus.NotFound,
             SourceResolutionTracker.PdbMatchStatus.IdentityMismatch)
@@ -191,13 +198,13 @@ public sealed class SourceResolutionTrackerTests
     [TestMethod]
     public void ObserveManagedFrame_ReportsSequencePointsAndNamedFramesWithoutSource()
     {
-        SourceResolutionTracker tracker = new(null, null);
-        tracker.ObserveManagedFrame(1, null, "ModuleA", "Mapped", sourceMapped: false);
-        tracker.ObserveManagedFrame(1, null, "ModuleA", "Mapped", sourceMapped: true);
-        tracker.ObserveManagedFrame(2, null, "ModuleA", "Unmapped", sourceMapped: false);
-        tracker.ObserveManagedFrame(2, null, "ModuleA", "Unmapped", sourceMapped: false);
-        tracker.ObserveManagedFrame(3, null, "ModuleA", null, sourceMapped: false);
-        tracker.ObserveManagedFrame(4, null, "ModuleA", "Unmapped(int)", sourceMapped: false);
+        SourceResolutionTracker tracker = new(symbolsDirectory: null, localSymbolPath: null);
+        tracker.ObserveManagedFrame(1, module: null, "ModuleA", "Mapped", sourceMapped: false);
+        tracker.ObserveManagedFrame(1, module: null, "ModuleA", "Mapped", sourceMapped: true);
+        tracker.ObserveManagedFrame(2, module: null, "ModuleA", "Unmapped", sourceMapped: false);
+        tracker.ObserveManagedFrame(2, module: null, "ModuleA", "Unmapped", sourceMapped: false);
+        tracker.ObserveManagedFrame(3, module: null, "ModuleA", methodName: null, sourceMapped: false);
+        tracker.ObserveManagedFrame(4, module: null, "ModuleA", "Unmapped(int)", sourceMapped: false);
 
         SourceResolutionInfo source = tracker.CreateInfo();
 
@@ -212,12 +219,12 @@ public sealed class SourceResolutionTrackerTests
     [TestMethod]
     public void ObserveManagedFrame_TooManyMethods_MakesUniqueCountsUnavailable()
     {
-        SourceResolutionTracker tracker = new(null, null);
+        SourceResolutionTracker tracker = new(symbolsDirectory: null, localSymbolPath: null);
         for (int methodKey = 0; methodKey <= SourceResolutionTracker.MaxTrackedMethods; methodKey++)
         {
             tracker.ObserveManagedFrame(
                 methodKey,
-                null,
+                    module: null,
                 "ModuleA",
                 "Run",
                 sourceMapped: false);
@@ -249,16 +256,18 @@ public sealed class SourceResolutionTrackerTests
         source.SourceMappedManagedMethodCount.Should().NotBeNull();
         source.SourceMappedManagedMethodCount.Value.Should().BeLessThanOrEqualTo(
             source.SampledManagedMethodCount.Value);
+
         source.UnmappedNamedManagedFrameCount.Should().BeGreaterThan(0);
         source.HighestUnmappedMethods.Should().NotBeEmpty();
         source.HighestUnmappedModules.Should().Contain(
             module => module.Contains("HotLoopBench", StringComparison.OrdinalIgnoreCase));
+
         source.PdbIdentityMismatchModules.Should().BeEmpty();
-        string[] moduleNames =
-        [
-            .. source.HighestUnmappedModules
-            .Select(static module => module.Split(" (", StringSplitOptions.None)[0])
-        ];
+        IEnumerable<string> names = source.HighestUnmappedModules.Select(
+            static module => module.Split(" (", StringSplitOptions.None)[0]);
+
+        string[] moduleNames = [.. names];
+
         moduleNames.Distinct(StringComparer.OrdinalIgnoreCase)
             .Should().HaveCount(moduleNames.Length);
     }
@@ -273,11 +282,13 @@ public sealed class SourceResolutionTrackerTests
         using PEReader peReader = new(stream);
         DebugDirectoryEntry codeView = peReader.ReadDebugDirectory()
             .Single(entry => entry.Type == DebugDirectoryEntryType.CodeView);
+
         CodeViewDebugDirectoryData data = peReader.ReadCodeViewDebugDirectoryData(codeView);
         string sourcePdb = Path.Join(assemblyDirectory, Path.GetFileName(data.Path));
         string symbolsDirectory = Path.Join(
             Path.GetTempPath(),
             $"filtrace-wrong-pdb-{Guid.NewGuid():N}");
+
         Directory.CreateDirectory(symbolsDirectory);
         try
         {
@@ -309,6 +320,7 @@ public sealed class SourceResolutionTrackerTests
         string method = SourceResolutionTracker.NormalizeMethodName(
             "Hot\tLoop",
             $"Run\0{new string('x', 200)}(class System.String)");
+
         method.Should().HaveLength(120);
         method.Should().StartWith("Hot Loop!Run ");
         method.Any(char.IsControl).Should().BeFalse();
@@ -317,10 +329,10 @@ public sealed class SourceResolutionTrackerTests
     [TestMethod]
     public void ObserveModule_WithoutMetadata_KeepsDistinctNormalizedNames()
     {
-        SourceResolutionTracker tracker = new(null, null);
-        tracker.ObserveModule(null, "ModuleA", sourceMapped: false);
-        tracker.ObserveModule(null, "ModuleB", sourceMapped: false);
-        tracker.ObserveModule(null, "modulea", sourceMapped: true);
+        SourceResolutionTracker tracker = new(symbolsDirectory: null, localSymbolPath: null);
+        tracker.ObserveModule(module: null, "ModuleA", sourceMapped: false);
+        tracker.ObserveModule(module: null, "ModuleB", sourceMapped: false);
+        tracker.ObserveModule(module: null, "modulea", sourceMapped: true);
 
         SourceResolutionInfo source = tracker.CreateInfo();
 

@@ -49,6 +49,7 @@ public static class CaptureManifestPairer
                     warnings,
                     ref omittedWarnings,
                     $"baseline case '{beforeCase.Id}' has no benchmark identity and was not paired; analyze its trace directly");
+
                 continue;
             }
 

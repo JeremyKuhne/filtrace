@@ -40,6 +40,7 @@ public class TimelineProviderBenchmarks
             timeline.ToMs / 2.0,
             OutputJson.DoublePrecision,
             MidpointRounding.AwayFromZero);
+
         TimelineResult snapshot = Snapshot();
         if (!File.Exists($"{_tracePath}.etlx")
             || snapshot.Snapshot is not TimelineSnapshot evidence
@@ -53,6 +54,7 @@ public class TimelineProviderBenchmarks
     /// <summary>
     ///  Builds the default five-lane, 50-bucket timeline over the complete trace.
     /// </summary>
+    /// <returns>The aligned bucket lanes spanning the fixture's recorded duration.</returns>
     [Benchmark]
     public TimelineResult Timeline() =>
         new TimelineProvider().Read(_tracePath);
@@ -60,6 +62,7 @@ public class TimelineProviderBenchmarks
     /// <summary>
     ///  Builds the default bounded cross-lane window at the trace midpoint.
     /// </summary>
+    /// <returns>The point-in-time GC, CPU, exception, allocation, JIT, and event evidence.</returns>
     [Benchmark]
     public TimelineResult Snapshot() =>
         new TimelineProvider().ReadSnapshot(

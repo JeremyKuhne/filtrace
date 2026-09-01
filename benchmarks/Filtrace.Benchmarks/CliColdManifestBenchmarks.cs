@@ -63,6 +63,7 @@ public class CliColdManifestBenchmarks
             _caseCount,
             _paired,
             preconvert: false);
+
         _arguments = CliBenchmarkScenarios.CreateArguments(
             CliBenchmarkScenarios.Get(Scenario),
             _sourceTrace,
@@ -100,6 +101,7 @@ public class CliColdManifestBenchmarks
     /// <summary>
     ///  Starts filtrace once against the fresh manifest tree.
     /// </summary>
+    /// <returns>A task that captures the child exit code and redirected-output sizes.</returns>
     [Benchmark]
     public Task<CliProcessResult> Run() =>
         CliProcessRunner.RunAsync(_executable, _arguments);

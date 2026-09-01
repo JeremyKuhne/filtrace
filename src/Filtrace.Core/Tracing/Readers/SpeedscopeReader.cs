@@ -208,6 +208,7 @@ internal sealed class SpeedscopeReader : ITraceReader
 
         bool hasWeights = profile.TryGetProperty("weights", out JsonElement weights)
             && weights.ValueKind == JsonValueKind.Array;
+
         string thread = profile.TryGetProperty("name", out JsonElement profileName)
             ? profileName.GetString() ?? ""
             : "";
@@ -224,6 +225,7 @@ internal sealed class SpeedscopeReader : ITraceReader
             double weight = hasWeights && sampleIndex < weights.GetArrayLength()
                 ? weights[sampleIndex].GetDouble() * millisecondsPerUnit
                 : millisecondsPerUnit;
+
             sampleIndex++;
             if (weight <= 0.0)
             {

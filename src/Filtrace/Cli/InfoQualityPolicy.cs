@@ -10,6 +10,9 @@ namespace Filtrace.Cli;
 ///  An opt-in trace acceptance policy applied after <c>info</c> has loaded and
 ///  rendered the trace's complete quality evidence.
 /// </summary>
+/// <param name="Strict">Whether inadequate symbol resolution fails the policy.</param>
+/// <param name="RequiredEnabled">Analyses whose capture providers must be confirmed enabled.</param>
+/// <param name="RequiredEvents">Analyses that must also contain at least one recorded event.</param>
 internal sealed record InfoQualityPolicy(
     bool Strict,
     IReadOnlyList<string> RequiredEnabled,
@@ -26,11 +29,18 @@ internal sealed record InfoQualityPolicy(
     /// <summary>
     ///  An acceptance policy with no gates enabled.
     /// </summary>
-    public static InfoQualityPolicy None { get; } = new(false, [], []);
+    public static InfoQualityPolicy None { get; } = new(Strict: false, [], []);
 
     /// <summary>
-    ///  Validates and normalizes CLI policy options.
+    ///  Validates requested analysis names, removes duplicates, and creates the policy
+    ///  used after the trace has loaded.
     /// </summary>
+    /// <param name="strict">Whether inadequate symbol resolution should fail the policy.</param>
+    /// <param name="requireEnabled">Analysis names whose provider enablement must be confirmed.</param>
+    /// <param name="requireEvents">Analysis names that must also contain a recorded event.</param>
+    /// <param name="policy">The normalized policy on success, or <see cref="None"/> on failure.</param>
+    /// <param name="error">An actionable option error on failure; otherwise <see langword="null"/>.</param>
+    /// <returns><see langword="true"/> when every supplied analysis name is supported.</returns>
     public static bool TryCreate(
         bool strict,
         string[]? requireEnabled,
@@ -50,14 +60,17 @@ internal sealed record InfoQualityPolicy(
     }
 
     /// <summary>
-    ///  Evaluates the policy against one loaded trace.
+    ///  Compares the trace's symbol and provider evidence with every enabled policy gate.
     /// </summary>
+    /// <param name="info">The loaded trace metadata and observed event counts.</param>
+    /// <returns>Whether any gate failed and the evidence explaining each failure.</returns>
     public InfoQualityPolicyResult Evaluate(TraceInfo info)
     {
         ArgumentNullException.ThrowIfNull(info);
 
         bool failed = Strict
             && SymbolGate.IsBelowThreshold(info.SymbolResolutionRate, info.SampleCount);
+
         List<string> warnings = [];
         HashSet<string> requireEvents = new(RequiredEvents, StringComparer.Ordinal);
         HashSet<string> evaluated = new(StringComparer.Ordinal);
@@ -75,6 +88,7 @@ internal sealed record InfoQualityPolicy(
                 warnings.Add(info.AvailableAnalyses.Contains(analysis, StringComparer.Ordinal)
                     ? $"Required analysis '{analysis}' capture metadata is unknown; provider enablement is not established."
                     : $"Required analysis '{analysis}' is not supported by the {info.Format} trace format.");
+
                 continue;
             }
 

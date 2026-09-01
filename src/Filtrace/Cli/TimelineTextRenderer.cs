@@ -55,7 +55,8 @@ internal static class TimelineTextRenderer
 
         output.WriteLine(
             $"  {timeline.BucketCount} buckets x {timeline.BucketSizeMs:N1} ms   "
-            + $"window [{timeline.FromMs:N0}, {timeline.ToMs:N0}] ms");
+                + $"window [{timeline.FromMs:N0}, {timeline.ToMs:N0}] ms");
+
         output.WriteLine();
 
         bool anyLane = false;
@@ -146,7 +147,8 @@ internal static class TimelineTextRenderer
 
         output.WriteLine(
             $"  gc           {snapshot.Gc.CollectionCount:N0} collections, {snapshot.Gc.TotalPauseMs:N2} ms total pause, "
-            + $"{snapshot.Gc.MaxPauseMs:N2} ms max merged pause in window");
+                + $"{snapshot.Gc.MaxPauseMs:N2} ms max merged pause in window");
+
         foreach (SnapshotGcRecord collection in snapshot.Gc.Collections)
         {
             output.WriteLine(
@@ -161,6 +163,7 @@ internal static class TimelineTextRenderer
 
         output.WriteLine(
             $"  alloc        {snapshot.Alloc.Bytes / (1024.0 * 1024.0):N2} MB in {snapshot.Alloc.TickCount:N0} ticks, {snapshot.Alloc.TypeCount:N0} types");
+
         foreach (SnapshotAllocationType type in snapshot.Alloc.Types)
         {
             output.WriteLine($"    {type.Bytes / (1024.0 * 1024.0),8:N2} MB  {type.Name}");

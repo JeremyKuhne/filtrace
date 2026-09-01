@@ -137,8 +137,8 @@ public sealed class GcStatsProvider
 
     private static int EstimateRecordTokens(GcRecord collection) =>
         RecordScaffoldTokens
-        + OutputBudget.EstimateTokens(collection.Kind)
-        + OutputBudget.EstimateTokens(collection.Reason);
+            + OutputBudget.EstimateTokens(collection.Kind)
+            + OutputBudget.EstimateTokens(collection.Reason);
 
     private static GcStatsResult Summarize(List<GcRecord> records, double durationMs)
     {

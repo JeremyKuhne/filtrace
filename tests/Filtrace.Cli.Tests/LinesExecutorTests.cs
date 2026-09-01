@@ -21,7 +21,7 @@ public sealed class LinesExecutorTests
         OutputFormat format = OutputFormat.Text,
         bool strict = false,
         IReadOnlyList<string>? fold = null) =>
-        new(path, method, fold ?? FrameNames.DefaultFoldPatterns, top, Symbols: null, format, strict);
+            new(path, method, fold ?? FrameNames.DefaultFoldPatterns, top, Symbols: null, format, strict);
 
     private static (int Exit, string Out, string Error) Run(LinesRequest request)
     {

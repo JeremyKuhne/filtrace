@@ -33,10 +33,12 @@ public class FoldingAggregatorMetricBenchmarks
             "count" => MetricInfo.Exceptions,
             _ => throw new ArgumentOutOfRangeException(nameof(Metric), Metric, "Unknown metric scenario.")
         };
+
         StackSampleSource source = FoldingBenchmarkCorpus.Create(
             "s10000-d20-f4096",
             metric,
             StackRecordSemantics.Unavailable);
+
         _aggregator = new FoldingAggregator(source);
 
         if (SelfTime().Rows.Count == 0
@@ -55,6 +57,7 @@ public class FoldingAggregatorMetricBenchmarks
     /// <summary>
     ///  Ranks folded leaf weight.
     /// </summary>
+    /// <returns>The selected metric's scoped ranking and top 25 leaf rows.</returns>
     [Benchmark]
     public RankingResult SelfTime() =>
         _aggregator.SelfTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
@@ -62,6 +65,7 @@ public class FoldingAggregatorMetricBenchmarks
     /// <summary>
     ///  Ranks every frame by inclusive weight.
     /// </summary>
+    /// <returns>The selected metric's scoped ranking and top 25 inclusive rows.</returns>
     [Benchmark]
     public RankingResult InclusiveTime() =>
         _aggregator.InclusiveTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
@@ -69,6 +73,7 @@ public class FoldingAggregatorMetricBenchmarks
     /// <summary>
     ///  Finds immediate callers of a stable focus frame.
     /// </summary>
+    /// <returns>The focus-frame weight and its top 25 caller rows.</returns>
     [Benchmark]
     public CallersResult CallersOf() =>
         _aggregator.CallersOf(FocusFrame, string.Empty, top: 25);
@@ -76,6 +81,7 @@ public class FoldingAggregatorMetricBenchmarks
     /// <summary>
     ///  Ranks the representative metric by synthetic source line.
     /// </summary>
+    /// <returns>The method scope and its top 25 attributed source lines.</returns>
     [Benchmark]
     public LineRankingResult HotLines() =>
         _aggregator.HotLines("Pipeline.Frame", FrameNames.DefaultFoldPatterns, top: 25);
@@ -83,6 +89,7 @@ public class FoldingAggregatorMetricBenchmarks
     /// <summary>
     ///  Builds the representative metric's source heatmap.
     /// </summary>
+    /// <returns>The source-file scope and every line weighted in the selected unit.</returns>
     [Benchmark]
     public SourceHeatmapResult SourceHeatmap() =>
         _aggregator.SourceHeatmap(SourceFile, FrameNames.DefaultFoldPatterns);
@@ -90,6 +97,7 @@ public class FoldingAggregatorMetricBenchmarks
     /// <summary>
     ///  Builds the representative metric's bounded call tree.
     /// </summary>
+    /// <returns>The complete-weight root and descendants through depth 20.</returns>
     [Benchmark]
     public CallTreeResult CallTree() =>
         _aggregator.CallTree(
@@ -101,6 +109,7 @@ public class FoldingAggregatorMetricBenchmarks
     /// <summary>
     ///  Classifies the representative metric's leaf weights.
     /// </summary>
+    /// <returns>The scoped total partitioned into runtime work categories.</returns>
     [Benchmark]
     public ClassifyResult Classify() =>
         _aggregator.Classify(string.Empty);

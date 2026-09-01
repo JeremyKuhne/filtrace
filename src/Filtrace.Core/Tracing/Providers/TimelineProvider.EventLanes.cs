@@ -6,8 +6,13 @@ namespace Filtrace.Tracing.Providers;
 
 public sealed partial class TimelineProvider
 {
-    // The raw-event lanes returned together from the single event pass; a lane not
-    // requested is null. A value type so the "no lanes requested" path allocates nothing.
+    /// <summary>
+    ///  Groups the optional raw-event lanes produced by a single pass over the trace.
+    /// </summary>
+    /// <param name="Cpu">CPU sample buckets, or <see langword="null"/> when not requested.</param>
+    /// <param name="Exceptions">Exception-count buckets, or <see langword="null"/> when not requested.</param>
+    /// <param name="Alloc">Allocation buckets, or <see langword="null"/> when not requested.</param>
+    /// <param name="Jit">JIT compilation buckets, or <see langword="null"/> when not requested.</param>
     private readonly record struct EventLanes(
         IReadOnlyList<CpuBucket>? Cpu,
         IReadOnlyList<ExceptionBucket>? Exceptions,

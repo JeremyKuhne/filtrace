@@ -31,6 +31,7 @@ public sealed class LocalTestingCliInstallerTests
             "--output",
             packageDirectory,
             "/p:IncludeSymbols=false");
+
         string packagePath = Directory.GetFiles(packageDirectory, "*.nupkg").Single();
         string renamedPackagePath = Path.Join(packageDirectory, "renamed.nupkg");
         File.Copy(packagePath, renamedPackagePath);
@@ -44,6 +45,7 @@ public sealed class LocalTestingCliInstallerTests
 
         renamedInstall.Should().Throw<InvalidDataException>()
             .WithMessage("*must be named*");
+
         Directory.Exists(plan.CliDirectory).Should().BeFalse();
         LocalTestingCliPackage expected = LocalTestingCliPackage.Read(packagePath);
         string ambientPackages = Path.Join(directory.Path, "ambient-packages");
@@ -52,6 +54,7 @@ public sealed class LocalTestingCliInstallerTests
         File.WriteAllText(
             Path.Join(plan.StateRoot, "NuGet.config"),
             "<configuration><packageSources><clear/><add key=\"ambient\" value=\"missing\"/></packageSources></configuration>");
+
         const string packagesVariable = "NUGET_PACKAGES";
         string? previousPackages = Environment.GetEnvironmentVariable(packagesVariable);
         string? previousPlugins = Environment.GetEnvironmentVariable("NUGET_PLUGINS_CACHE_PATH");
@@ -80,6 +83,7 @@ public sealed class LocalTestingCliInstallerTests
         File.Exists(Path.Join(
             plan.CliDirectory,
             OperatingSystem.IsWindows() ? "filtrace.exe" : "filtrace")).Should().BeTrue();
+
         Directory.Exists(ambientPackages).Should().BeFalse();
         Directory.Exists(ambientPlugins).Should().BeFalse();
         Directory.Exists(ambientScratch).Should().BeFalse();
@@ -123,6 +127,7 @@ public sealed class LocalTestingCliInstallerTests
 
         install.Should().Throw<InvalidOperationException>()
             .WithMessage("*CLI path already exists*");
+
         File.ReadAllText(markerPath).Should().Be("existing");
     }
 
@@ -136,11 +141,13 @@ public sealed class LocalTestingCliInstallerTests
         Directory.CreateDirectory(plan.StateRoot);
         string? previous = Environment.GetEnvironmentVariable(
             LocalTestingCliInstallerProcessProbe.FailureVariable);
+
         try
         {
             Environment.SetEnvironmentVariable(
                 LocalTestingCliInstallerProcessProbe.FailureVariable,
                 "1");
+
             Action install = () => new LocalTestingCliInstaller().InstallFresh(
                 plan,
                 packagePath,
@@ -159,10 +166,12 @@ public sealed class LocalTestingCliInstallerTests
         Directory.Exists(plan.CliDirectory).Should().BeFalse();
         Directory.GetDirectories(plan.StateRoot, ".cli-install-*", SearchOption.TopDirectoryOnly)
             .Should().BeEmpty();
+
         Action retry = () => new LocalTestingCliInstaller().InstallFresh(
             plan,
             packagePath,
             Path.Join(directory.Path, "missing-dotnet"));
+
         retry.Should().Throw<Win32Exception>();
     }
 
@@ -201,6 +210,7 @@ public sealed class LocalTestingCliInstallerTests
             plan.StateRoot,
             ".cli-install-*",
             SearchOption.TopDirectoryOnly).Single();
+
         File.Exists(Path.Join(operationRoot, "installer-process-id")).Should().BeTrue();
     }
 
@@ -245,6 +255,7 @@ public sealed class LocalTestingCliInstallerTests
             plan.StateRoot,
             ".cli-install-*",
             SearchOption.TopDirectoryOnly).Single();
+
         File.Exists(Path.Join(operationRoot, "installer-process-id")).Should().BeTrue();
         Action retry = () => new LocalTestingCliInstaller().InstallFresh(plan, packagePath, "dotnet");
         retry.Should().Throw<InvalidOperationException>()
@@ -288,6 +299,7 @@ public sealed class LocalTestingCliInstallerTests
         using StreamWriter writer = new(entry.Open());
         writer.Write(
             "<package><metadata><id>KlutzyNinja.Filtrace</id><version>1.2.3</version></metadata></package>");
+
         return packagePath;
     }
 
@@ -301,6 +313,7 @@ public sealed class LocalTestingCliInstallerTests
             RedirectStandardOutput = true,
             UseShellExecute = false
         };
+
         foreach (string argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);
@@ -308,6 +321,7 @@ public sealed class LocalTestingCliInstallerTests
 
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start dotnet.");
+
         Task<string> output = process.StandardOutput.ReadToEndAsync();
         Task<string> error = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(90_000))
@@ -316,6 +330,7 @@ public sealed class LocalTestingCliInstallerTests
             process.WaitForExit();
             throw new TimeoutException("dotnet did not exit within 90 seconds.");
         }
+
         Task.WaitAll(output, error);
         process.ExitCode.Should().Be(0, $"{error.Result}\n{output.Result}");
     }

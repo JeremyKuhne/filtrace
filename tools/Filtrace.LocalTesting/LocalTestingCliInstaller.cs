@@ -8,17 +8,32 @@ using System.Xml;
 
 namespace Filtrace.LocalTesting;
 
+/// <summary>
+///  Installs the Filtrace CLI into an isolated tool path and verifies the installed package bytes.
+/// </summary>
 internal sealed class LocalTestingCliInstaller
 {
     private readonly TimeSpan _installTimeout;
     private readonly TimeSpan _killGrace;
     private readonly Func<Process, int, bool> _waitForExit;
 
+    /// <summary>
+    ///  Creates an installer with a 90-second process timeout and a five-second termination grace period.
+    /// </summary>
     public LocalTestingCliInstaller()
-        : this(TimeSpan.FromSeconds(90), TimeSpan.FromSeconds(5), null)
+        : this(
+            installTimeout: TimeSpan.FromSeconds(90),
+            killGrace: TimeSpan.FromSeconds(5),
+            waitForExit: null)
     {
     }
 
+    /// <summary>
+    ///  Creates an installer with bounded, testable process-lifetime behavior.
+    /// </summary>
+    /// <param name="installTimeout">The maximum duration allowed for <c>dotnet tool install</c>.</param>
+    /// <param name="killGrace">The time allowed to observe process exit after termination is requested.</param>
+    /// <param name="waitForExit">An optional process wait implementation used to test timeout recovery.</param>
     internal LocalTestingCliInstaller(
         TimeSpan installTimeout,
         TimeSpan killGrace,
@@ -32,6 +47,13 @@ internal sealed class LocalTestingCliInstaller
             process.WaitForExit(milliseconds));
     }
 
+    /// <summary>
+    ///  Installs one validated package using private NuGet caches, then verifies its executable and tool-store package.
+    /// </summary>
+    /// <param name="plan">The target's normalized local-testing resource paths.</param>
+    /// <param name="packagePath">The canonically named Filtrace CLI package to install.</param>
+    /// <param name="dotnetPath">The <c>dotnet</c> host path or command name.</param>
+    /// <returns>The exact version and SHA-256 identity of the installed package.</returns>
     public CliInstallation InstallFresh(ResourcePlan plan, string packagePath, string dotnetPath)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -42,10 +64,12 @@ internal sealed class LocalTestingCliInstaller
             throw new DirectoryNotFoundException(
                 $"Local-testing state directory does not exist: '{plan.StateRoot}'.");
         }
+
         string? incompleteOperation = Directory.EnumerateDirectories(
             plan.StateRoot,
             ".cli-install-*",
             SearchOption.TopDirectoryOnly).FirstOrDefault();
+
         if (incompleteOperation is not null)
         {
             throw new InvalidOperationException(
@@ -78,6 +102,7 @@ internal sealed class LocalTestingCliInstaller
                 configPath,
                 package.Version,
                 ref cleanupOperation);
+
             VerifyInstallation(plan.CliDirectory, package);
             installSucceeded = true;
             return new()
@@ -94,6 +119,7 @@ internal sealed class LocalTestingCliInstaller
                 {
                     Directory.Delete(plan.CliDirectory, recursive: true);
                 }
+
                 Directory.Delete(operationRoot, recursive: true);
             }
         }
@@ -106,6 +132,7 @@ internal sealed class LocalTestingCliInstaller
             Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             Indent = true
         };
+
         using XmlWriter writer = XmlWriter.Create(path, settings);
         writer.WriteStartDocument();
         writer.WriteStartElement("configuration");
@@ -134,6 +161,7 @@ internal sealed class LocalTestingCliInstaller
             WorkingDirectory = plan.StateRoot,
             UseShellExecute = false
         };
+
         startInfo.Environment["DOTNET_CLI_HOME"] = Path.Join(operationRoot, "dotnet-home");
         startInfo.Environment["NUGET_HTTP_CACHE_PATH"] = Path.Join(operationRoot, "http-cache");
         startInfo.Environment["NUGET_PACKAGES"] = Path.Join(operationRoot, "packages");
@@ -145,6 +173,7 @@ internal sealed class LocalTestingCliInstaller
             "--configfile", configPath, "--version", version, "--no-cache",
             LocalTestingCliPackage.PackageId
         ];
+
         foreach (string argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);
@@ -152,6 +181,7 @@ internal sealed class LocalTestingCliInstaller
 
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start dotnet tool install.");
+
         if (!_waitForExit(process, (int)_installTimeout.TotalMilliseconds))
         {
             cleanupOperation = false;
@@ -165,20 +195,26 @@ internal sealed class LocalTestingCliInstaller
                     or System.ComponentModel.Win32Exception)
             {
             }
+
             bool processExited = _waitForExit(process, (int)_killGrace.TotalMilliseconds);
             File.WriteAllText(
                 Path.Join(operationRoot, "installer-process-id"),
                 process.Id.ToString());
+
             if (!processExited)
             {
                 throw new InvalidOperationException(
-                    $"Could not confirm termination of dotnet process {process.Id}. "
-                    + $"The local-testing CLI operation was retained for manual recovery: '{operationRoot}'.");
+                    string.Concat(
+                        $"Could not confirm termination of dotnet process {process.Id}. ",
+                        $"The local-testing CLI operation was retained for manual recovery: '{operationRoot}'."));
             }
+
             throw new TimeoutException(
-                $"dotnet tool install did not exit within {_installTimeout.TotalSeconds} seconds. "
-                + $"The operation was retained for manual recovery: '{operationRoot}'.");
+                string.Concat(
+                    $"dotnet tool install did not exit within {_installTimeout.TotalSeconds} seconds. ",
+                    $"The operation was retained for manual recovery: '{operationRoot}'."));
         }
+
         if (process.ExitCode is not 0)
         {
             throw new InvalidOperationException(
@@ -191,6 +227,7 @@ internal sealed class LocalTestingCliInstaller
         string executablePath = Path.Join(
             cliDirectory,
             OperatingSystem.IsWindows() ? "filtrace.exe" : "filtrace");
+
         if (!RegularFileGuard.Exists(executablePath, "Installed Filtrace CLI"))
         {
             throw new InvalidDataException(
@@ -209,10 +246,14 @@ internal sealed class LocalTestingCliInstaller
             .. Directory.EnumerateFiles(storeDirectory, "*.nupkg", SearchOption.AllDirectories)
                 .Select(LocalTestingCliPackage.ReadInstalled)
         ];
-        if (installed.Length is 0
-            || installed.Any(package =>
-                !package.Version.Equals(expected.Version, StringComparison.Ordinal)
-                || !package.Sha256.Equals(expected.Sha256, StringComparison.Ordinal)))
+
+        static bool PackageDiffers(LocalTestingCliPackage package, LocalTestingCliPackage expectedPackage)
+        {
+            return !package.Version.Equals(expectedPackage.Version, StringComparison.Ordinal)
+                || !package.Sha256.Equals(expectedPackage.Sha256, StringComparison.Ordinal);
+        }
+
+        if (installed.Length is 0 || installed.Any(package => PackageDiffers(package, expected)))
         {
             throw new InvalidDataException(
                 "Installed Filtrace CLI package does not match the prepared package bytes.");

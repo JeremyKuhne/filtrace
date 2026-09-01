@@ -42,6 +42,7 @@ internal static class EventsTextRenderer
                 result.TotalMatched == 0
                     ? "  (no events matched)"
                     : $"  (no events on this page; {result.TotalMatched} matched - lower --skip)");
+
             RenderHints(envelope, output);
             return;
         }

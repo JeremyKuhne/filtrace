@@ -47,6 +47,7 @@ public class FoldingAggregatorBenchmarks
     /// <summary>
     ///  Ranks samples by folded leaf weight.
     /// </summary>
+    /// <returns>The scoped ranking and its top 25 leaf rows.</returns>
     [Benchmark]
     public RankingResult SelfTime() =>
         _aggregator.SelfTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
@@ -54,6 +55,7 @@ public class FoldingAggregatorBenchmarks
     /// <summary>
     ///  Ranks every distinct frame by inclusive weight.
     /// </summary>
+    /// <returns>The scoped ranking and its top 25 inclusive rows.</returns>
     [Benchmark]
     public RankingResult InclusiveTime() =>
         _aggregator.InclusiveTime(string.Empty, FrameNames.DefaultFoldPatterns, top: 25);
@@ -61,6 +63,7 @@ public class FoldingAggregatorBenchmarks
     /// <summary>
     ///  Finds immediate callers of a stable synthetic focus frame.
     /// </summary>
+    /// <returns>The focus-frame weight and its top 25 caller rows.</returns>
     [Benchmark]
     public CallersResult CallersOf() =>
         _aggregator.CallersOf(FocusFrame, string.Empty, top: 25);
@@ -68,6 +71,7 @@ public class FoldingAggregatorBenchmarks
     /// <summary>
     ///  Ranks location-bearing synthetic leaf samples by source line.
     /// </summary>
+    /// <returns>The method scope and its top 25 attributed source lines.</returns>
     [Benchmark]
     public LineRankingResult HotLines() =>
         _aggregator.HotLines("Pipeline.Frame", FrameNames.DefaultFoldPatterns, top: 25);
@@ -75,6 +79,7 @@ public class FoldingAggregatorBenchmarks
     /// <summary>
     ///  Builds the per-line heatmap for the synthetic source file.
     /// </summary>
+    /// <returns>The source-file scope and every weighted line in it.</returns>
     [Benchmark]
     public SourceHeatmapResult SourceHeatmap() =>
         _aggregator.SourceHeatmap(SourceFile, FrameNames.DefaultFoldPatterns);
@@ -82,6 +87,7 @@ public class FoldingAggregatorBenchmarks
     /// <summary>
     ///  Builds a bounded top-down tree over the synthetic stacks.
     /// </summary>
+    /// <returns>The complete-weight root and descendants through depth 20.</returns>
     [Benchmark]
     public CallTreeResult CallTree() =>
         _aggregator.CallTree(string.Empty, FrameNames.DefaultFoldPatterns, maxDepth: 20, minPercentOfScope: 0.0);
@@ -89,6 +95,7 @@ public class FoldingAggregatorBenchmarks
     /// <summary>
     ///  Classifies synthetic self-time by runtime work category.
     /// </summary>
+    /// <returns>The scoped total partitioned into runtime work categories.</returns>
     [Benchmark]
     public ClassifyResult Classify() =>
         _aggregator.Classify(string.Empty);

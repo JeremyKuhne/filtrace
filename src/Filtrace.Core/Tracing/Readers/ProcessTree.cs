@@ -69,15 +69,19 @@ internal static partial class ProcessTree
                 process.ProcessID,
                 process.Name,
                 process.Parent is null ? null : (int)process.Parent.ProcessIndex))];
+
         ProcessInstanceSelection instanceSelection = ResolveProcessInstanceIndexes(
             processInstances,
             selector,
             request.IncludeChildren);
+
         HashSet<ProcessIndex> processInstanceIndexes = [.. instanceSelection.IncludedIndexes.Select(
             static index => (ProcessIndex)index)];
+
         HashSet<int> keep = [.. processInstances
             .Where(process => instanceSelection.IncludedIndexes.Contains(process.Index))
             .Select(static process => process.ProcessId)];
+
         AppliedProcessScope appliedScope = CreateAppliedScope(
             automatic,
             selector,
@@ -103,20 +107,28 @@ internal static partial class ProcessTree
             : new ScopeResolution(
                 keep,
                 processInstanceIndexes,
-                null,
-                null,
+                    label: null,
+                    phrase: null,
                 [],
                 appliedScope,
                 processNameBounded: false);
     }
 
-    // A short identity for the scope, for structured output and terse rendering.
+    /// <summary>
+    ///  Produces the bounded short identity used for structured process-scope output.
+    /// </summary>
+    /// <param name="selector">The resolved process selector.</param>
+    /// <returns>A bounded process name or a compact process-id list.</returns>
     internal static string Label(ProcessSelector selector) => selector is ProcessIdSelector ids
         ? FormatIds(ids.ProcessIds)
         : ((ProcessNameSelector)selector).DisplayName;
 
-    // The scope as a prose phrase, so a warning reads the same whichever selector and
-    // descendant mode produced it.
+    /// <summary>
+    ///  Renders a process selector and descendant policy as a phrase suitable for diagnostics.
+    /// </summary>
+    /// <param name="selector">The resolved process selector.</param>
+    /// <param name="includeChildren">Whether the phrase should describe a process tree or roots only.</param>
+    /// <returns>A bounded human-readable description of the effective process scope.</returns>
     internal static string Phrase(ProcessSelector selector, bool includeChildren)
     {
         if (selector is ProcessIdSelector ids)
@@ -147,13 +159,26 @@ internal static partial class ProcessTree
         return $"{noun} {string.Join(", ", processIds.Take(MaxRenderedIds))} and {processIds.Count - MaxRenderedIds} more";
     }
 
-    // Whether the kept set excludes at least one process that carried activity, i.e.
-    // scoping actually dropped something rather than matching the whole capture.
+    /// <summary>
+    ///  Determines whether a selected instance set excludes at least one non-idle process from the capture.
+    /// </summary>
+    /// <param name="processes">All trace-local process instances.</param>
+    /// <param name="includedIndexes">The trace-local instance indexes retained by the scope.</param>
+    /// <returns><see langword="true"/> when at least one process with a positive id is excluded.</returns>
     internal static bool NarrowsTheCapture(
         IEnumerable<ProcessInstanceDescriptor> processes,
-        HashSet<int> includedIndexes) =>
-        processes.Any(process => process.ProcessId > 0 && !includedIndexes.Contains(process.Index));
+        HashSet<int> includedIndexes)
+    {
+        return processes.Any(process => process.ProcessId > 0 && !includedIndexes.Contains(process.Index));
+    }
 
+    /// <summary>
+    ///  Resolves name or id roots to exact trace-local process instances and optionally expands their descendants.
+    /// </summary>
+    /// <param name="processes">All trace-local process instances and parent links.</param>
+    /// <param name="selector">The root selector to apply.</param>
+    /// <param name="includeChildren">Whether descendants of matched roots should be retained.</param>
+    /// <returns>The directly matched roots and final included instance indexes.</returns>
     internal static ProcessInstanceSelection ResolveProcessInstanceIndexes(
         IReadOnlyList<ProcessInstanceDescriptor> processes,
         ProcessSelector selector,
@@ -163,6 +188,7 @@ internal static partial class ProcessTree
         HashSet<int>? requestedProcessIds = selector is ProcessIdSelector ids
             ? [.. ids.ProcessIds]
             : null;
+
         foreach (ProcessInstanceDescriptor process in processes)
         {
             bool matches = selector switch
@@ -173,6 +199,7 @@ internal static partial class ProcessTree
                 ProcessIdSelector => requestedProcessIds!.Contains(process.ProcessId),
                 _ => false
             };
+
             if (matches)
             {
                 rootIndexes.Add(process.Index);
@@ -357,6 +384,16 @@ internal static partial class ProcessTree
         return keep;
     }
 
+    /// <summary>
+    ///  Builds machine-readable scope metadata and detects root ids that cannot identify one process instance uniquely.
+    /// </summary>
+    /// <param name="automatic">Whether the selector was chosen from the busiest process.</param>
+    /// <param name="selector">The selector resolved against the trace.</param>
+    /// <param name="roots">The OS process ids matched directly.</param>
+    /// <param name="included">All included root and descendant process ids.</param>
+    /// <param name="includeChildren">Whether descendant inclusion was requested.</param>
+    /// <param name="traceProcessIds">Every process id in trace-table order, including reuse.</param>
+    /// <returns>The effective scope and its exact-id replayability signal.</returns>
     internal static AppliedProcessScope CreateAppliedScope(
         bool automatic,
         ProcessSelector selector,
@@ -368,10 +405,12 @@ internal static partial class ProcessTree
         string mode = automatic
             ? "automatic"
             : selector is ProcessIdSelector ? "ids" : "name";
+
         string? process = AppliedProcessName(selector);
         IReadOnlyList<int> requestedIds = selector is ProcessIdSelector idSelector
             ? idSelector.ProcessIds
             : [];
+
         int[] rootIds = [.. roots.Order()];
         int[] descendantIds = [.. included.Except(roots).Order()];
         HashSet<int> observedRootIds = [];
@@ -397,6 +436,11 @@ internal static partial class ProcessTree
         };
     }
 
+    /// <summary>
+    ///  Gets the complete process-name substring represented by a name selector.
+    /// </summary>
+    /// <param name="selector">The resolved selector.</param>
+    /// <returns>The name substring, or <see langword="null"/> for an id selector.</returns>
     internal static string? AppliedProcessName(ProcessSelector selector) =>
         selector is ProcessNameSelector nameSelector ? nameSelector.NameSubstring : null;
 
@@ -416,6 +460,7 @@ internal static partial class ProcessTree
                 process.ProcessID,
                 process.Name,
                 process.Parent is null ? null : (int)process.Parent.ProcessIndex);
+
             processes.Add(descriptor);
             if (process.ProcessID > 0
                 && process.Name is not null
@@ -442,18 +487,31 @@ internal static partial class ProcessTree
         if (independentRoots > 1)
         {
             string guidance = NameScopeWarningGuidance(matchedProcessIds);
-            warnings.Add(
-                $"The name '{selector.DisplayName}' matched {independentRoots} unrelated process trees "
-                + $"({FormatIds([.. matchedProcessIds.Order()])}); "
-                + $"they are ranked together. {guidance}");
+            warnings.Add(string.Concat(
+                $"The name '{selector.DisplayName}' matched {independentRoots} unrelated process trees ",
+                $"({FormatIds([.. matchedProcessIds.Order()])}); ",
+                $"they are ranked together. {guidance}"));
         }
     }
 
+    /// <summary>
+    ///  Chooses safe follow-up guidance for a name scope that matched unrelated process trees.
+    /// </summary>
+    /// <param name="matchedProcessIds">The ids of all independently matched process instances.</param>
+    /// <returns>Id guidance when ids are unique; otherwise guidance to narrow the capture or selector.</returns>
     internal static string NameScopeWarningGuidance(IReadOnlyList<int> matchedProcessIds) =>
         matchedProcessIds.Count != matchedProcessIds.Distinct().Count()
             ? "Inspect the process instances and narrow the capture or use a selector that distinguishes them."
             : "Pass --pid to scope to exact processes.";
 
+    /// <summary>
+    ///  Counts matched process trees after collapsing matched descendants beneath their matched ancestors.
+    /// </summary>
+    /// <param name="processes">All trace-local process instances and parent links.</param>
+    /// <param name="matchedIndexes">The process instance indexes matched directly by a selector.</param>
+    /// <returns>
+    ///  The number of matched instances having no matched ancestor, including disconnected or cyclic entries.
+    /// </returns>
     internal static int CountIndependentRoots(
         IReadOnlyList<ProcessInstanceDescriptor> processes,
         HashSet<int> matchedIndexes)
@@ -577,11 +635,14 @@ internal static partial class ProcessTree
             // CLI and MCP heads surface this message verbatim.
             if (sameId.Count > 1)
             {
+                IEnumerable<string> processDescriptions = sameId.Select(static process =>
+                    $"'{process.Name}' started at {process.StartTimeRelativeMsec.ToString("F3", CultureInfo.InvariantCulture)} ms");
+
                 throw new ArgumentException(
-                    $"Process id {processId} was reused in this trace by {sameId.Count} processes "
-                    + $"({string.Join("; ", sameId.Select(static process =>
-                        $"'{process.Name}' started at {process.StartTimeRelativeMsec.ToString("F3", CultureInfo.InvariantCulture)} ms"))}). "
-                    + "Scope to a time window that contains only one of them, or select by process name.");
+                    string.Concat(
+                        $"Process id {processId} was reused in this trace by {sameId.Count} processes ",
+                        $"({string.Join("; ", processDescriptions)}). ",
+                        "Scope to a time window that contains only one of them, or select by process name."));
             }
 
             roots.Add(processId);
@@ -591,9 +652,9 @@ internal static partial class ProcessTree
         // partial match would otherwise look like an ordinary thin result.
         if (warnings is not null && unmatched.Count > 0)
         {
-            warnings.Add(
-                $"{FormatIds(unmatched)} {(unmatched.Count == 1 ? "was" : "were")} not found in this trace and "
-                + "contributed nothing to the scope.");
+            warnings.Add(string.Concat(
+                $"{FormatIds(unmatched)} {(unmatched.Count == 1 ? "was" : "were")} not found in this trace and ",
+                "contributed nothing to the scope."));
         }
     }
 

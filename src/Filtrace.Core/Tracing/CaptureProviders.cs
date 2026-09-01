@@ -30,18 +30,20 @@ internal sealed record CaptureProviders(
     // on the box.
     private const KernelTraceEventParser.Keywords CpuKernelKeywords =
         KernelTraceEventParser.Keywords.Process
-        | KernelTraceEventParser.Keywords.Thread
-        | KernelTraceEventParser.Keywords.ImageLoad
-        | KernelTraceEventParser.Keywords.Profile;
+            | KernelTraceEventParser.Keywords.Thread
+            | KernelTraceEventParser.Keywords.ImageLoad
+            | KernelTraceEventParser.Keywords.Profile;
 
     // Just enough of the CLR to keep managed frames readable: Jit and NGen name the
     // methods, Loader names their modules, and JittedMethodILToNativeMap carries the
     // IL offsets that turn a native address into a source line.
-    private const ClrTraceEventParser.Keywords NamingClrKeywords =
-        ClrTraceEventParser.Keywords.Jit
-        | ClrTraceEventParser.Keywords.NGen
-        | ClrTraceEventParser.Keywords.Loader
-        | ClrTraceEventParser.Keywords.JittedMethodILToNativeMap;
+    private const ClrTraceEventParser.Keywords MethodNamingClrKeywords =
+        ClrTraceEventParser.Keywords.Jit | ClrTraceEventParser.Keywords.NGen;
+
+    private const ClrTraceEventParser.Keywords ModuleNamingClrKeywords =
+        ClrTraceEventParser.Keywords.Loader | ClrTraceEventParser.Keywords.JittedMethodILToNativeMap;
+
+    private const ClrTraceEventParser.Keywords NamingClrKeywords = MethodNamingClrKeywords | ModuleNamingClrKeywords;
 
     // The naming set plus the two keywords an .etl analysis reads beyond it: GC feeds the
     // timeline's gc and alloc lanes, Exception feeds its exception lane.
@@ -55,9 +57,7 @@ internal sealed record CaptureProviders(
     // .etl CPU stacks come from the kernel Profile keyword). ETW is machine-wide, so every
     // process on the box pays for all of it.
     private const ClrTraceEventParser.Keywords AnalyzedClrKeywords =
-        NamingClrKeywords
-        | ClrTraceEventParser.Keywords.GC
-        | ClrTraceEventParser.Keywords.Exception;
+        NamingClrKeywords | ClrTraceEventParser.Keywords.GC | ClrTraceEventParser.Keywords.Exception;
 
     /// <summary>
     ///  The providers <paramref name="profile"/> enables.

@@ -7,12 +7,14 @@ using System.Globalization;
 
 namespace Filtrace.PerfWorkload;
 
-internal enum WorkloadMode
-{
-    Cpu,
-    Activity
-}
-
+/// <summary>
+///  Defines the bounded inputs used to generate a Track D performance trace.
+/// </summary>
+/// <param name="Mode">The workload pattern to execute.</param>
+/// <param name="Workers">The number of worker threads to start.</param>
+/// <param name="DurationMilliseconds">The minimum duration of CPU work, in milliseconds.</param>
+/// <param name="Depth">The recursive call depth used by each worker.</param>
+/// <param name="ActivityRounds">The number of activity iterations to execute in activity mode.</param>
 internal sealed record WorkloadOptions(
     WorkloadMode Mode,
     int Workers,
@@ -25,9 +27,16 @@ internal sealed record WorkloadOptions(
     private const int MaximumDepth = 128;
     private const int MaximumActivityRounds = 10_000_000;
 
+    /// <summary>
+    ///  Parses and validates the workload's command-line arguments.
+    /// </summary>
+    /// <param name="args">The command-line arguments, beginning with the workload mode.</param>
+    /// <param name="options">The parsed options when all arguments are valid.</param>
+    /// <param name="error">A usage or validation message when parsing fails.</param>
+    /// <returns><see langword="true"/> when parsing succeeds; otherwise <see langword="false"/>.</returns>
     public static bool TryParse(
         string[] args,
-        [NotNullWhen(true)] out WorkloadOptions? options,
+        [NotNullWhen(returnValue: true)] out WorkloadOptions? options,
         out string? error)
     {
         options = null;
@@ -119,7 +128,10 @@ internal sealed record WorkloadOptions(
         return true;
     }
 
+    /// <summary>
+    ///  Gets the command-line syntax accepted by the workload.
+    /// </summary>
     public static string Usage =>
         "Usage: Filtrace.PerfWorkload <cpu|activity> "
-        + "[--workers N] [--duration-ms N] [--depth N] [--activity-rounds N]";
+            + "[--workers N] [--duration-ms N] [--depth N] [--activity-rounds N]";
 }

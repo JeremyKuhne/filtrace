@@ -21,7 +21,7 @@ public sealed class LifecycleProviderTests
     private static LifecycleResult LoadHotLoop(
         IReadOnlyList<string>? images = null,
         List<string>? warnings = null) =>
-        new LifecycleProvider().Read(EtwTrace, ScopeRequest.ForProcess("HotLoop"), images, warnings);
+            new LifecycleProvider().Read(EtwTrace, ScopeRequest.ForProcess("HotLoop"), images, warnings);
 
     [TestMethod]
     public void LimitDetail_MoreInvocationsThanTheBudget_ClampsTheSerializedResponse()
@@ -31,12 +31,13 @@ public sealed class LifecycleProviderTests
         // that wide, so the report is built directly.
         LifecycleInvocation[] invocations = [.. Enumerable.Range(0, 2_000).Select(static index => new LifecycleInvocation(
             index,
-            new LifecycleProcess(1000 + index, "dotnet.exe", 0.0, 120.0, 120.0, 40.0, true, true, 0),
-            [new LifecycleProcess(9000 + index, "HotLoopBench.exe", 5.0, 110.0, 105.0, 90.0, true, true, 0)],
+            new LifecycleProcess(1000 + index, "dotnet.exe", 0.0, 120.0, 120.0, 40.0, StartObserved: true, StopObserved: true, 0),
+            [new LifecycleProcess(9000 + index, "HotLoopBench.exe", 5.0, 110.0, 105.0, 90.0, StartObserved: true, StopObserved: true, 0)],
             5.0,
             105.0,
             10.0,
-            true))];
+            Measurable: true))];
+
         LifecycleResult wide = new("dotnet", 2_000, 2_000, 80000.0, 180000.0, [], invocations, []);
 
         LifecycleResult limited = LifecycleProvider.LimitDetail(wide, top: 100_000, out string? warning);
@@ -106,6 +107,7 @@ public sealed class LifecycleProviderTests
         double sum = invocation.RootStartToChildStartMs!.Value
             + invocation.ChildSpanMs!.Value
             + invocation.ChildStopToRootStopMs!.Value;
+
         sum.Should().BeApproximately(invocation.Root.LifetimeMs, 0.0001);
     }
 

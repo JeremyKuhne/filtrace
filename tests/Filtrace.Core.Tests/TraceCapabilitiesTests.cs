@@ -68,7 +68,7 @@ public sealed class TraceCapabilitiesTests
                 new Dictionary<string, int> { ["alloc"] = 12 });
 
         availability["alloc"].Should().Be(
-            new AnalysisAvailability(true, CaptureStatus.Enabled, 12));
+                    new AnalysisAvailability(FormatSupported: true, CaptureStatus.Enabled, 12));
     }
 
     [TestMethod]
@@ -81,7 +81,7 @@ public sealed class TraceCapabilitiesTests
                 new Dictionary<string, CaptureStatus> { ["exceptions"] = CaptureStatus.Enabled });
 
         availability["exceptions"].Should().Be(
-            new AnalysisAvailability(true, CaptureStatus.Enabled, 0));
+                    new AnalysisAvailability(FormatSupported: true, CaptureStatus.Enabled, 0));
     }
 
     [TestMethod]
@@ -94,7 +94,7 @@ public sealed class TraceCapabilitiesTests
                 new Dictionary<string, CaptureStatus> { ["wait"] = CaptureStatus.Disabled });
 
         availability["wait"].Should().Be(
-            new AnalysisAvailability(true, CaptureStatus.Disabled, null));
+                    new AnalysisAvailability(FormatSupported: true, CaptureStatus.Disabled, EventCount: null));
     }
 
     [TestMethod]
@@ -104,7 +104,7 @@ public sealed class TraceCapabilitiesTests
             TraceCapabilities.AvailabilityFor(TraceFormat.NetTrace, new Dictionary<string, int>());
 
         availability["threadpool"].Should().Be(
-            new AnalysisAvailability(true, CaptureStatus.Unknown, null));
+                new AnalysisAvailability(FormatSupported: true, CaptureStatus.Unknown, EventCount: null));
     }
 
     [TestMethod]
@@ -116,7 +116,7 @@ public sealed class TraceCapabilitiesTests
                 new Dictionary<string, int> { ["cpu"] = 0 });
 
         availability["cpu"].Should().Be(
-            new AnalysisAvailability(true, CaptureStatus.Enabled, 0));
+                    new AnalysisAvailability(FormatSupported: true, CaptureStatus.Enabled, 0));
     }
 
     [TestMethod]
@@ -129,6 +129,6 @@ public sealed class TraceCapabilitiesTests
                 new Dictionary<string, CaptureStatus> { ["alloc"] = CaptureStatus.Enabled });
 
         availability["alloc"].Should().Be(
-            new AnalysisAvailability(false, CaptureStatus.Unknown, null));
+                new AnalysisAvailability(FormatSupported: false, CaptureStatus.Unknown, EventCount: null));
     }
 }

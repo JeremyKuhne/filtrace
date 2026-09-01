@@ -12,6 +12,8 @@ public sealed class ThreadSampleInfo
     /// <summary>
     ///  Initializes a new <see cref="ThreadSampleInfo"/>.
     /// </summary>
+    /// <param name="thread">The source thread label or synthetic profile identifier.</param>
+    /// <param name="sampleCount">The number of normalized samples attributed to the thread.</param>
     public ThreadSampleInfo(string thread, int sampleCount)
     {
         Thread = thread;

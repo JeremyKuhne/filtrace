@@ -18,7 +18,7 @@ public sealed class ProcessScopeValidationTests
 {
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void NameSelector_NullOrEmptyNameSubstring_ThrowsArgument(string? name)
     {
         Action act = () => _ = new ProcessNameSelector(name!);
@@ -48,7 +48,7 @@ public sealed class ProcessScopeValidationTests
             [],
             IncludeChildren: true);
 
-        AnalysisScopeContext context = AnalysisScopeContext.Create("", scope, null, null, null)!;
+        AnalysisScopeContext context = AnalysisScopeContext.Create("", scope, activityName: null, window: null, rootCoverage: null)!;
 
         context.Process.Should().NotBeNull();
         context.Process!.Length.Should().BeLessThanOrEqualTo(TimelineProvider.MaxSnapshotNameChars);
@@ -60,7 +60,7 @@ public sealed class ProcessScopeValidationTests
     {
         AppliedProcessScope scope = new("name", "HotLoopBench", [], [42], [], IncludeChildren: true);
 
-        AnalysisScopeContext context = AnalysisScopeContext.Create("", scope, null, null, null)!;
+        AnalysisScopeContext context = AnalysisScopeContext.Create("", scope, activityName: null, window: null, rootCoverage: null)!;
 
         context.Process.Should().Be("HotLoopBench");
     }
@@ -129,9 +129,9 @@ public sealed class ProcessScopeValidationTests
     {
         ProcessTree.ProcessInstanceDescriptor[] processes =
         [
-            new(1, 42, "App", null),
+            new(1, 42, "App", ParentIndex: null),
             new(2, 43, "Worker", 1),
-            new(3, 42, "Unrelated", null)
+            new(3, 42, "Unrelated", ParentIndex: null)
         ];
 
         ProcessTree.ProcessInstanceSelection selection = ProcessTree.ResolveProcessInstanceIndexes(
@@ -149,8 +149,8 @@ public sealed class ProcessScopeValidationTests
     {
         ProcessTree.ProcessInstanceDescriptor[] processes =
         [
-            new(1, 0, "App", null),
-            new(2, 42, "App", null)
+            new(1, 0, "App", ParentIndex: null),
+            new(2, 42, "App", ParentIndex: null)
         ];
 
         ProcessTree.ProcessInstanceSelection selection = ProcessTree.ResolveProcessInstanceIndexes(
@@ -172,6 +172,7 @@ public sealed class ProcessScopeValidationTests
                 processId,
                 $"Process{processId}",
                 ParentIndex: null))];
+
         ProcessIdSelector selector = new(Enumerable.Range(1, count));
 
         Stopwatch stopwatch = Stopwatch.StartNew();
@@ -179,6 +180,7 @@ public sealed class ProcessScopeValidationTests
             processes,
             selector,
             includeChildren: false);
+
         stopwatch.Stop();
 
         selection.RootIndexes.Should().HaveCount(count);
@@ -201,6 +203,7 @@ public sealed class ProcessScopeValidationTests
             processes,
             new ProcessNameSelector("Root"),
             includeChildren: true);
+
         stopwatch.Stop();
 
         selection.IncludedIndexes.Should().HaveCount(count);
@@ -212,16 +215,17 @@ public sealed class ProcessScopeValidationTests
     {
         ProcessTree.ProcessInstanceDescriptor[] processes =
         [
-            new(1, 42, "App", null),
+                new(1, 42, "App", ParentIndex: null),
             new(2, 43, "Worker", 1),
             new(3, 44, "App.Helper", 2),
-            new(4, 42, "App", null)
+                new(4, 42, "App", ParentIndex: null)
         ];
 
         ProcessTree.CountIndependentRoots(processes, matchedIndexes: [1, 3, 4]).Should().Be(2);
         ProcessTree.NameScopeWarningGuidance([42, 44, 42]).Should()
             .Contain("narrow the capture")
             .And.NotContain("--pid");
+
         ProcessTree.NameScopeWarningGuidance([42, 44]).Should().Contain("--pid");
     }
 
@@ -252,9 +256,9 @@ public sealed class ProcessScopeValidationTests
     {
         ProcessTree.ProcessInstanceDescriptor[] processes =
         [
-            new(1, 42, "App", null),
-            new(2, 43, "EventsOnly", null),
-            new(3, 0, "Idle", null)
+            new(1, 42, "App", ParentIndex: null),
+            new(2, 43, "EventsOnly", ParentIndex: null),
+            new(3, 0, "Idle", ParentIndex: null)
         ];
 
         ProcessTree.NarrowsTheCapture(processes, includedIndexes: [1]).Should().BeTrue();
@@ -270,7 +274,7 @@ public sealed class ProcessScopeValidationTests
             label: "App",
             phrase: "the 'App' process tree",
             warnings: [],
-            appliedScope: new AppliedProcessScope("name", "App", [], [42], [43], true),
+                appliedScope: new AppliedProcessScope("name", "App", [], [42], [43], IncludeChildren: true),
             processNameBounded: false);
 
         resolution.Includes((ProcessIndex)1).Should().BeTrue();
@@ -317,6 +321,7 @@ public sealed class ProcessScopeValidationTests
 
         scope.Selector.Should().BeOfType<ProcessNameSelector>()
             .Which.NameSubstring.Should().Be("HotLoopBench");
+
         scope.IncludeChildren.Should().BeTrue("children are followed by default");
     }
 
@@ -395,7 +400,7 @@ public sealed class ScopeRequestTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void ForProcess_NullOrEmptyName_ThrowsArgument(string? name)
     {
         Action act = () => ScopeRequest.ForProcess(name!);
@@ -418,7 +423,7 @@ public sealed class ScopeRequestTests
     {
         ScopeRequest scope = ScopeRequest.ForProcessIds([4242], includeChildren: false)
             .WithActivity("Order")
-            .WithTimeWindow(1000.0, null);
+            .WithTimeWindow(1000.0, endMSec: null);
 
         scope.Selector.Should().BeOfType<ProcessIdSelector>().Which.ProcessIds.Should().Equal(4242);
         scope.IncludeChildren.Should().BeFalse();
@@ -568,7 +573,7 @@ public sealed class ProcessScopeTests
 
         loaded.Info.Warnings.Should().Contain(w =>
             w.StartsWith("Scoped to pid", StringComparison.Ordinal)
-            && w.Contains("(no children)", StringComparison.Ordinal));
+                && w.Contains("(no children)", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -704,7 +709,7 @@ public sealed class ProcessScopeTests
 
         scoped.Info.Warnings.Should().Contain(w =>
             w.StartsWith("Scoped to the ", StringComparison.Ordinal)
-            && w.Contains("--all-processes", StringComparison.Ordinal));
+                && w.Contains("--all-processes", StringComparison.Ordinal));
     }
 
     [TestMethod]

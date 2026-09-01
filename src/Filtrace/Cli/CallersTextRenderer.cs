@@ -35,10 +35,12 @@ internal static class CallersTextRenderer
 
         output.WriteLine(
             $"{info.Format}  {info.SampleCount} samples  {info.TotalWeight:N1} {unit}  symbols {info.SymbolResolutionRate:P0}");
+
         output.WriteLine();
         output.WriteLine(
             $"{metric.Name} callers of '{callers.Focus}'  -  {callers.TargetWeight:N2} {unit} "
-            + $"({callers.PercentOfScope:N2}% of scope)");
+                + $"({callers.PercentOfScope:N2}% of scope)");
+
         if (callers.ContributingRecordCount is int contributingRecordCount)
         {
             output.WriteLine($"  contributing records {contributingRecordCount}");

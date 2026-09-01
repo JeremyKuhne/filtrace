@@ -35,11 +35,12 @@ internal static class LocalTestingTargetLockProcessProbe
             Environment.GetEnvironmentVariable(DisableFileLockingSwitchVariable),
             StringComparison.Ordinal))
         {
-            AppContext.SetSwitch("System.IO.DisableFileLocking", true);
+            AppContext.SetSwitch("System.IO.DisableFileLocking", isEnabled: true);
         }
 
         using LocalTestingTargetLock targetLock = LocalTestingTargetLock.Acquire(
             ResourcePlan.Create(targetRoot, gitDirectory));
+
         File.WriteAllText(readyPath, string.Empty);
         if (!SpinWait.SpinUntil(() => File.Exists(releasePath), TimeSpan.FromSeconds(15)))
         {

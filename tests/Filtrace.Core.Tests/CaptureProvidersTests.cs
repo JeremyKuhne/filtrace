@@ -14,11 +14,11 @@ public sealed class CaptureProvidersTests
 {
     private const KernelTraceEventParser.Keywords MachineWideNoise =
         KernelTraceEventParser.Keywords.DiskIO
-        | KernelTraceEventParser.Keywords.DiskFileIO
-        | KernelTraceEventParser.Keywords.DiskIOInit
-        | KernelTraceEventParser.Keywords.NetworkTCPIP
-        | KernelTraceEventParser.Keywords.MemoryHardFaults
-        | KernelTraceEventParser.Keywords.ProcessCounters;
+            | KernelTraceEventParser.Keywords.DiskFileIO
+            | KernelTraceEventParser.Keywords.DiskIOInit
+            | KernelTraceEventParser.Keywords.NetworkTCPIP
+            | KernelTraceEventParser.Keywords.MemoryHardFaults
+            | KernelTraceEventParser.Keywords.ProcessCounters;
 
     [TestMethod]
     [DataRow(CollectProfile.Cpu)]
@@ -153,11 +153,13 @@ public sealed class CaptureProvidersTests
 
         // Jit/NGen name the methods, Loader names their modules, and the IL-to-native map
         // is what turns a native address into a source line. Nothing else.
-        providers.ClrKeywords.Should().Be(
-            ClrTraceEventParser.Keywords.Jit
-            | ClrTraceEventParser.Keywords.NGen
-            | ClrTraceEventParser.Keywords.Loader
-            | ClrTraceEventParser.Keywords.JittedMethodILToNativeMap);
+        ClrTraceEventParser.Keywords methodNames =
+            ClrTraceEventParser.Keywords.Jit | ClrTraceEventParser.Keywords.NGen;
+
+        ClrTraceEventParser.Keywords moduleNames =
+            ClrTraceEventParser.Keywords.Loader | ClrTraceEventParser.Keywords.JittedMethodILToNativeMap;
+
+        providers.ClrKeywords.Should().Be(methodNames | moduleNames);
     }
 
     [TestMethod]

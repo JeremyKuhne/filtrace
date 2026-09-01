@@ -95,6 +95,7 @@ internal static class EmbeddedPdbExtractor
 
                     uint uncompressedSize = BinaryPrimitives.ReadUInt32LittleEndian(
                         image.AsSpan(dataOffset + 4, 4));
+
                     if (uncompressedSize == 0 || uncompressedSize > remainingExtractedBytes)
                     {
                         continue;
@@ -106,6 +107,7 @@ internal static class EmbeddedPdbExtractor
                     string pdbPath = Path.Join(
                         tempDirectory,
                         Path.GetFileNameWithoutExtension(dll) + ".pdb");
+
                     temporaryPdbPath = $"{pdbPath}.{Guid.NewGuid():N}.tmp";
 
                     // Layout of the embedded blob: 4-byte 'MPDB' magic, 4-byte
@@ -154,6 +156,7 @@ internal static class EmbeddedPdbExtractor
             {
                 int bytesRead = source.Read(
                     buffer.AsSpan(0, (int)Math.Min(buffer.Length, remainingBytes)));
+
                 if (bytesRead == 0)
                 {
                     throw new InvalidDataException(

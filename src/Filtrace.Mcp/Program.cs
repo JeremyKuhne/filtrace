@@ -25,16 +25,16 @@ builder.Services.AddSingleton<TraceStore>();
 
 builder.Services
     .AddMcpServer(static options =>
-    {
-        options.ServerInfo = new Implementation
         {
-            Name = "filtrace",
-            Version = GetServerVersion()
-        };
+            options.ServerInfo = new Implementation
+            {
+                Name = "filtrace",
+                Version = GetServerVersion()
+            };
 
-        // The workflow summary the client surfaces to the model at initialize time.
-        options.ServerInstructions = TraceServerInstructions.Text;
-    })
+            // The workflow summary the client surfaces to the model at initialize time.
+            options.ServerInstructions = TraceServerInstructions.Text;
+        })
     .WithStdioServerTransport()
     // Register the tools with the shared serializer options so each typed result - its
     // structured content, its text mirror, and the generated output schema - is written
@@ -42,7 +42,7 @@ builder.Services
     // CLI uses.
     .WithTools<TraceTools>(OutputJson.SerializerOptions);
 
-await builder.Build().RunAsync().ConfigureAwait(false);
+await builder.Build().RunAsync().ConfigureAwait(continueOnCapturedContext: false);
 return 0;
 
 // Reports the server version a client sees in serverInfo at initialize time. MinVer

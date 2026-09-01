@@ -109,7 +109,7 @@ public sealed class SpeedscopeReaderTests
         LoadedTrace trace = Read(json);
 
         trace.Info.Analyses["cpu"].Should().Be(
-            new AnalysisAvailability(true, CaptureStatus.Enabled, 0));
+            new AnalysisAvailability(FormatSupported: true, CaptureStatus.Enabled, 0));
     }
 
     [TestMethod]

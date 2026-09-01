@@ -9,5 +9,7 @@ public sealed partial class TimelineProvider
     /// <summary>
     ///  Identifies one process and thread instance that participates in an EE pause.
     /// </summary>
+    /// <param name="ProcessInstanceIndex">The TraceEvent process-instance index.</param>
+    /// <param name="ThreadInstanceIndex">The TraceEvent thread-instance index.</param>
     internal readonly record struct PauseIdentity(int ProcessInstanceIndex, int ThreadInstanceIndex);
 }

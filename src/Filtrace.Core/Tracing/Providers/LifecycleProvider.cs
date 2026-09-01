@@ -121,6 +121,7 @@ public sealed class LifecycleProvider
         {
             warnings?.Add(
                 $"The selector matched {roots.Count} invocations; reporting the first {MaxInvocations} in start order.");
+
             roots = roots[..MaxInvocations];
         }
 
@@ -159,9 +160,9 @@ public sealed class LifecycleProvider
 
         if (cappedInvocations > 0)
         {
-            warnings?.Add(
-                $"{cappedInvocations} invocation(s) launched more than {MaxChildrenPerInvocation} descendants; "
-                + "the listed children are capped in start order, and the phases still span all of them.");
+            warnings?.Add(string.Concat(
+                $"{cappedInvocations} invocation(s) launched more than {MaxChildrenPerInvocation} descendants; ",
+                "the listed children are capped in start order, and the phases still span all of them."));
         }
 
         int measuredCount = invocations.Count(static invocation => invocation.Measurable);
@@ -220,15 +221,25 @@ public sealed class LifecycleProvider
             return report;
         }
 
-        warning = budgetTruncated
-            ? $"Showing {kept.Count} of {report.InvocationCount} invocations in start order; more would exceed "
-                + $"the {OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response "
-                + $"under the {OutputBudget.DefaultCeilingTokens}-token ceiling. The medians still cover all of them."
-            : top == 0
-                ? $"Aggregate only: {report.InvocationCount} invocations were not listed; the medians cover all "
-                    + "of them. Ask again with a positive top for the per-invocation detail."
-                : $"Showing the first {top} of {report.InvocationCount} invocations in start order; "
-                    + "the medians cover all of them.";
+        if (budgetTruncated)
+        {
+            warning = string.Concat(
+                $"Showing {kept.Count} of {report.InvocationCount} invocations in start order; more would exceed ",
+                $"the {OutputBudget.DefaultRowBudgetTokens}-token detail budget that holds the whole response ",
+                $"under the {OutputBudget.DefaultCeilingTokens}-token ceiling. The medians still cover all of them.");
+        }
+        else if (top == 0)
+        {
+            warning = string.Concat(
+                $"Aggregate only: {report.InvocationCount} invocations were not listed; the medians cover all ",
+                "of them. Ask again with a positive top for the per-invocation detail.");
+        }
+        else
+        {
+            warning = string.Concat(
+                $"Showing the first {top} of {report.InvocationCount} invocations in start order; ",
+                "the medians cover all of them.");
+        }
 
         return report with { Invocations = kept };
     }
@@ -271,9 +282,10 @@ public sealed class LifecycleProvider
         {
             return string.IsNullOrEmpty(result.Scope)
                 ? [
-                    "The trace carries no process the report could use as an invocation root. "
-                    + "Check that the capture enabled the Process kernel keyword and that it "
-                    + "recorded CPU samples for a named process."
+                    string.Concat(
+                        "The trace carries no process the report could use as an invocation root. ",
+                        "Check that the capture enabled the Process kernel keyword and that it ",
+                        "recorded CPU samples for a named process.")
                 ]
                 : [$"No process matching '{result.Scope}' was found in the trace."];
         }
@@ -281,15 +293,17 @@ public sealed class LifecycleProvider
         if (result.MeasuredCount == 0)
         {
             return [
-                "No invocation had both its start and its stop recorded, so no phase medians are "
-                + "reported; every lifetime shown is a lower bound clipped to the capture window."
+                string.Concat(
+                    "No invocation had both its start and its stop recorded, so no phase medians are ",
+                    "reported; every lifetime shown is a lower bound clipped to the capture window.")
             ];
         }
 
         return result.MeasuredCount < result.InvocationCount
             ? [
-                $"{result.InvocationCount - result.MeasuredCount} of {result.InvocationCount} invocations were "
-                + "clipped to the capture window and are excluded from the phase medians."
+                string.Concat(
+                    $"{result.InvocationCount - result.MeasuredCount} of {result.InvocationCount} invocations were ",
+                    "clipped to the capture window and are excluded from the phase medians.")
             ]
             : [];
     }
@@ -299,7 +313,7 @@ public sealed class LifecycleProvider
     private static bool TryResolveRootSelector(
         TraceLog traceLog,
         ScopeRequest? scope,
-        [NotNullWhen(true)] out ProcessSelector? selector)
+            [NotNullWhen(returnValue: true)] out ProcessSelector? selector)
     {
         selector = scope?.Selector;
         if (selector is not null)
@@ -316,6 +330,11 @@ public sealed class LifecycleProvider
         return false;
     }
 
+    /// <summary>
+    ///  Produces the bounded process-scope label shown in a lifecycle result.
+    /// </summary>
+    /// <param name="selector">The resolved invocation-root selector.</param>
+    /// <returns>A comma-separated id label or the selector's bounded process name.</returns>
     internal static string Describe(ProcessSelector selector) => selector is ProcessIdSelector ids
         ? $"pids {string.Join(", ", ids.ProcessIds)}"
         : ((ProcessNameSelector)selector).DisplayName;

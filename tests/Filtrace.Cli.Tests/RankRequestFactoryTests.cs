@@ -91,8 +91,11 @@ public sealed class RankRequestFactoryTests
     [TestMethod]
     public void TryResolveScope_NoOptions_IsAutomatic()
     {
-        RankRequestFactory.TryResolveScope("", null, Children.Include, allProcesses: false, out ScopeRequest scope, out string? error)
-            .Should().BeTrue();
+        bool resolved = RankRequestFactory.TryResolveScope(
+            "", processIds: null, Children.Include, allProcesses: false, out ScopeRequest scope, out string? error);
+
+        resolved.Should().BeTrue();
+
         error.Should().BeNull();
         scope.Should().BeSameAs(ScopeRequest.Auto);
     }
@@ -100,16 +103,22 @@ public sealed class RankRequestFactoryTests
     [TestMethod]
     public void TryResolveScope_AllProcesses_IsTheOptOut()
     {
-        RankRequestFactory.TryResolveScope("", null, Children.Include, allProcesses: true, out ScopeRequest scope, out _)
-            .Should().BeTrue();
+        bool resolved = RankRequestFactory.TryResolveScope(
+            "", processIds: null, Children.Include, allProcesses: true, out ScopeRequest scope, out _);
+
+        resolved.Should().BeTrue();
+
         scope.Should().BeSameAs(ScopeRequest.AllProcesses);
     }
 
     [TestMethod]
     public void TryResolveScope_ProcessName_BuildsAnExplicitScope()
     {
-        RankRequestFactory.TryResolveScope("MyApp", null, Children.Include, allProcesses: false, out ScopeRequest scope, out _)
-            .Should().BeTrue();
+        bool resolved = RankRequestFactory.TryResolveScope(
+            "MyApp", processIds: null, Children.Include, allProcesses: false, out ScopeRequest scope, out _);
+
+        resolved.Should().BeTrue();
+
         scope.Selector.Should().BeOfType<ProcessNameSelector>().Which.NameSubstring.Should().Be("MyApp");
         scope.IncludeAll.Should().BeFalse();
     }
@@ -119,6 +128,7 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveScope("", [42, 7], Children.Include, allProcesses: false, out ScopeRequest scope, out _)
             .Should().BeTrue();
+
         scope.Selector.Should().BeOfType<ProcessIdSelector>().Which.ProcessIds.Should().Equal(7, 42);
         scope.IncludeChildren.Should().BeTrue();
     }
@@ -128,11 +138,15 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveScope("", [42], Children.Exclude, allProcesses: false, out ScopeRequest byId, out _)
             .Should().BeTrue();
-        RankRequestFactory.TryResolveScope("MyApp", null, Children.Exclude, allProcesses: false, out ScopeRequest byName, out _)
-            .Should().BeTrue();
-        RankRequestFactory.TryResolveScope("", null, Children.Exclude, allProcesses: false, out ScopeRequest automatic, out _)
-            .Should().BeTrue();
 
+        bool byNameResolved = RankRequestFactory.TryResolveScope(
+            "MyApp", processIds: null, Children.Exclude, allProcesses: false, out ScopeRequest byName, out _);
+
+        bool automaticResolved = RankRequestFactory.TryResolveScope(
+            "", processIds: null, Children.Exclude, allProcesses: false, out ScopeRequest automatic, out _);
+
+        byNameResolved.Should().BeTrue();
+        automaticResolved.Should().BeTrue();
         byId.IncludeChildren.Should().BeFalse();
         byName.IncludeChildren.Should().BeFalse();
         automatic.IncludeChildren.Should().BeFalse("the automatic scope picks a process, and that choice is still a tree");
@@ -145,14 +159,18 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveScope("", [processId], Children.Include, allProcesses: false, out _, out string? error)
             .Should().BeFalse();
+
         error.Should().Contain("not a valid process id");
     }
 
     [TestMethod]
     public void TryResolveScope_ChildrenWithAllProcesses_IsAUsageError()
     {
-        RankRequestFactory.TryResolveScope("", null, Children.Exclude, allProcesses: true, out _, out string? error)
-            .Should().BeFalse();
+        bool resolved = RankRequestFactory.TryResolveScope(
+            "", processIds: null, Children.Exclude, allProcesses: true, out _, out string? error);
+
+        resolved.Should().BeFalse();
+
         error.Should().Contain("--all-processes already reads every process");
     }
 
@@ -165,6 +183,7 @@ public sealed class RankRequestFactoryTests
         RankRequestFactory.TryResolveScope(
             process, withPid ? [42] : null, Children.Include, allProcesses, out _, out string? error)
             .Should().BeFalse();
+
         error.Should().Contain("only one of --process, --pid, and --all-processes");
     }
 
@@ -173,6 +192,7 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveRoot("", benchmark: false, out string root, out string? error)
             .Should().BeTrue();
+
         error.Should().BeNull();
         root.Should().BeEmpty();
     }
@@ -182,6 +202,7 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveRoot("MyMethod", benchmark: false, out string root, out _)
             .Should().BeTrue();
+
         root.Should().Be("MyMethod");
     }
 
@@ -190,6 +211,7 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveRoot("", benchmark: true, out string root, out _)
             .Should().BeTrue();
+
         root.Should().Be(FrameNames.BenchmarkWorkloadFrame);
     }
 
@@ -198,6 +220,7 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveRoot("MyMethod", benchmark: true, out _, out string? error)
             .Should().BeFalse();
+
         error.Should().Contain("only one of --root and --benchmark");
     }
 
@@ -208,6 +231,7 @@ public sealed class RankRequestFactoryTests
         // reaches a symbol server.
         RankRequestFactory.TryResolveSymbolOptions(nativeSymbols: false, symbolCache: "", out SymbolOptions options, out _)
             .Should().BeTrue();
+
         options.Should().BeSameAs(SymbolOptions.None);
     }
 
@@ -216,6 +240,7 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveSymbolOptions(nativeSymbols: true, symbolCache: "", out SymbolOptions options, out _)
             .Should().BeTrue();
+
         options.ResolveNativeRuntime.Should().BeTrue();
     }
 
@@ -224,6 +249,7 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveSymbolOptions(nativeSymbols: true, symbolCache: @"C:\sym", out SymbolOptions options, out _)
             .Should().BeTrue();
+
         options.ResolveNativeRuntime.Should().BeTrue();
         options.CacheDirectory.Should().Be(@"C:\sym");
     }
@@ -235,6 +261,7 @@ public sealed class RankRequestFactoryTests
         // rejects it, and this must surface as a clean usage error, not an unhandled exception.
         RankRequestFactory.TryResolveSymbolOptions(nativeSymbols: true, symbolCache: "bad*cache", out _, out string? error)
             .Should().BeFalse();
+
         error.Should().Contain("cannot contain '*'");
     }
 
@@ -245,6 +272,7 @@ public sealed class RankRequestFactoryTests
         // built-in default fold list.
         RankRequestFactory.TryResolveFold(fold: null, noFold: false, out string[]? patterns, out string? error)
             .Should().BeTrue();
+
         error.Should().BeNull();
         patterns.Should().BeNull();
     }
@@ -254,6 +282,7 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveFold(fold: null, noFold: true, out string[]? patterns, out _)
             .Should().BeTrue();
+
         // Marker-only: the synthetic sample markers stay folded, but the JIT-helper
         // thunks (Memmove, WriteBarrier, JIT_) do not, so native leaves rank raw.
         patterns.Should().BeEquivalentTo(FrameNames.MarkerOnlyFoldPatterns);
@@ -265,6 +294,7 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveFold(fold: ["MyHelper"], noFold: false, out string[]? patterns, out _)
             .Should().BeTrue();
+
         patterns.Should().BeEquivalentTo(["MyHelper"]);
     }
 
@@ -273,6 +303,7 @@ public sealed class RankRequestFactoryTests
     {
         RankRequestFactory.TryResolveFold(fold: ["MyHelper"], noFold: true, out _, out string? error)
             .Should().BeFalse();
+
         error.Should().Contain("only one of --fold and --no-fold");
     }
 }

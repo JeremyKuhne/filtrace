@@ -11,6 +11,7 @@ internal sealed class TemporaryDirectory : IDisposable
         Path = System.IO.Path.Join(
             System.IO.Path.GetTempPath(),
             $"filtrace-local-testing-{Guid.NewGuid():N}");
+
         Directory.CreateDirectory(Path);
     }
 

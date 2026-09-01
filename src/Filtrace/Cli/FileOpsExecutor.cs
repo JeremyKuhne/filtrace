@@ -43,11 +43,7 @@ internal static class FileOpsExecutor
             output.WriteLine($"ETLX cache {state}: {result.Path} ({bytes:N0} bytes).");
             return ExitCodes.Success;
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or ArgumentException)
+        catch (Exception ex) when (IsFileOperationException(ex))
         {
             error.WriteLine(ex.Message);
             return ExitCodes.InputError;
@@ -69,13 +65,10 @@ internal static class FileOpsExecutor
             output.WriteLine(deleted is null
                 ? "No ETLX cache to remove."
                 : $"Removed {deleted}.");
+
             return ExitCodes.Success;
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or ArgumentException)
+        catch (Exception ex) when (IsFileOperationException(ex))
         {
             error.WriteLine(ex.Message);
             return ExitCodes.InputError;
@@ -90,4 +83,12 @@ internal static class FileOpsExecutor
         EtlxCacheState.Recovered => "recovered",
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown ETLX cache state.")
     };
+
+    private static bool IsFileOperationException(Exception exception)
+    {
+        return exception is IOException
+            || exception is UnauthorizedAccessException
+            || exception is NotSupportedException
+            || exception is ArgumentException;
+    }
 }

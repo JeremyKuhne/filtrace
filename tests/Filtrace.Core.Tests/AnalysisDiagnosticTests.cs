@@ -81,7 +81,7 @@ public sealed class AnalysisDiagnosticTests
     {
         string message =
             $"Only {new string('9', 100)} periodic CPU records contribute to this method-level result; "
-            + "use at least 200 for directional confidence or capture longer.";
+                + "use at least 200 for directional confidence or capture longer.";
 
         AnalysisDiagnostic diagnostic = AnalysisDiagnostic.FromWarning(message);
 

@@ -75,7 +75,7 @@ public sealed class ThreadPoolProviderTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Read_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         ThreadPoolProvider provider = new();

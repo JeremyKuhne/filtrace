@@ -25,6 +25,7 @@ public sealed class GcStatsProviderTests
         // seven, so the report is built directly rather than read from it.
         GcRecord[] collections = [.. Enumerable.Range(0, 3_000).Select(static index => new GcRecord(
             index, 2, "BackgroundBlockingCollection", "AllocLargeObjectHeap", 1.5, 128.0, 4.0))];
+
         GcStatsResult wide = new(3_000, 0, 0, 3_000, 0, 4500.0, 1.5, 1.5, 12.0, 128.0, 12000.0, collections);
 
         GcStatsResult limited = GcStatsProvider.LimitDetail(wide, top: 100_000, out string? warning);
@@ -107,7 +108,7 @@ public sealed class GcStatsProviderTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void Read_NullOrEmptyPath_ThrowsArgument(string? path)
     {
         GcStatsProvider provider = new();

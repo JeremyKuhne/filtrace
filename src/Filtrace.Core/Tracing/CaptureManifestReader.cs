@@ -44,6 +44,8 @@ public static class CaptureManifestReader
     /// <summary>
     ///  Whether a path names the capture helper's manifest artifact.
     /// </summary>
+    /// <param name="path">The candidate file path.</param>
+    /// <returns><see langword="true"/> when the final path segment is <c>manifest.json</c>, ignoring case.</returns>
     public static bool IsManifestPath(string path) =>
         string.Equals(Path.GetFileName(path), "manifest.json", StringComparison.OrdinalIgnoreCase);
 
@@ -83,6 +85,7 @@ public static class CaptureManifestReader
             using JsonDocument document = JsonDocument.Parse(
                 utf8,
                 new JsonDocumentOptions { MaxDepth = 16 });
+
             JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
@@ -138,33 +141,43 @@ public static class CaptureManifestReader
                     caseElement,
                     "benchmark",
                     MaxBenchmarkLength);
+
                 string display = OptionalBoundedString(
                     caseElement,
                     "benchmarkDisplay",
                     MaxDisplayLength) ?? benchmark ?? id;
+
                 string parameters = OptionalBoundedString(
                     caseElement,
                     "parameters",
                     MaxParametersLength,
                     allowEmpty: true) ?? ExtractParameters(display);
+
                 if (parameters.Length > MaxParametersLength)
                 {
                     throw new InvalidDataException(
                         $"Capture manifest field 'parameters' must contain 0-{MaxParametersLength} characters.");
                 }
+
                 string? trace = OptionalBoundedString(caseElement, "trace", MaxDisplayLength);
                 string? speedscope = OptionalBoundedString(
                     caseElement,
                     "speedscope",
                     MaxDisplayLength);
-                string analysisPath = ResolvePath(
-                    manifestDirectory,
-                    trace ?? speedscope
-                        ?? throw new InvalidDataException($"Capture case '{id}' has no trace or speedscope path."));
+
+                string? recordedPath = trace ?? speedscope;
+                if (recordedPath is null)
+                {
+                    throw new InvalidDataException($"Capture case '{id}' has no trace or speedscope path.");
+                }
+
+                string analysisPath = ResolvePath(manifestDirectory, recordedPath);
+
                 string? symbols = OptionalBoundedString(
                     caseElement,
                     "symbolsDirectory",
                     MaxDisplayLength);
+
                 double? operationCount = OptionalPositiveFiniteDouble(caseElement, "operationCount");
                 string? operationUnit = OptionalBoundedString(
                     caseElement,
@@ -191,14 +204,15 @@ public static class CaptureManifestReader
         {
             throw;
         }
-        catch (Exception exception) when (
-            exception is JsonException
-            or InvalidOperationException
-            or FormatException
-            or OverflowException)
+        catch (Exception exception) when (IsMalformedJsonException(exception))
         {
             throw new InvalidDataException("Capture manifest JSON is malformed.", exception);
         }
+    }
+
+    private static bool IsMalformedJsonException(Exception exception)
+    {
+        return exception is JsonException or InvalidOperationException or FormatException or OverflowException;
     }
 
     /// <summary>
@@ -294,6 +308,11 @@ public static class CaptureManifestReader
         return timestamp;
     }
 
+    /// <summary>
+    ///  Extracts the parameter segment from BenchmarkDotNet display text in parenthesized or bracketed form.
+    /// </summary>
+    /// <param name="display">The benchmark display text.</param>
+    /// <returns>The extracted parameter text, or an empty string when the display has no recognized segment.</returns>
     internal static string ExtractParameters(string display)
     {
         string trimmedDisplay = display.TrimEnd();
@@ -318,7 +337,7 @@ public static class CaptureManifestReader
 
     private static string RequiredBoundedString(JsonElement element, string name, int maxLength) =>
         OptionalBoundedString(element, name, maxLength)
-        ?? throw new InvalidDataException($"Capture manifest field '{name}' is required.");
+            ?? throw new InvalidDataException($"Capture manifest field '{name}' is required.");
 
     private static string? OptionalBoundedString(
         JsonElement element,

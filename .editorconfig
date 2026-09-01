@@ -28,8 +28,14 @@ dotnet_diagnostic.TOUKI0022.severity = warning
 # Format XML documentation as nested XML (TOUKI0024)
 dotnet_diagnostic.TOUKI0024.severity = warning
 
+# Use configured Allman formatting (TOUKI0027)
+dotnet_diagnostic.TOUKI0027.severity = warning
+
+# Format statement breaks around operators (TOUKI0028)
+dotnet_diagnostic.TOUKI0028.severity = warning
+
+# Name literal arguments (TOUKI0029)
+dotnet_diagnostic.TOUKI0029.severity = warning
+
 # Naming rule violation (TOUKI0041)
 dotnet_diagnostic.TOUKI0041.severity = warning
-
-# Declare one type per file (TOUKI0020)
-dotnet_diagnostic.TOUKI0020.severity = warning

@@ -56,8 +56,8 @@ internal static class ExportExecutor
             RootScopeCoverage coverage = trace.Aggregator.GetRootScopeCoverage(request.Root);
             error.WriteLine(
                 $"! Root scope uses stack ancestry and retained {coverage.RetainedWeight:0.###} of "
-                + $"{coverage.AvailableWeight:0.###} {trace.Aggregator.Metric.Unit}; stacks without the selected "
-                + "frame are excluded, including sibling worker stacks.");
+                    + $"{coverage.AvailableWeight:0.###} {trace.Aggregator.Metric.Unit}; stacks without the selected "
+                    + "frame are excluded, including sibling worker stacks.");
         }
 
         StackSampleSource scoped = RootScope.Apply(trace.Source, request.Root);
@@ -78,12 +78,7 @@ internal static class ExportExecutor
         {
             File.WriteAllText(request.Output, exported);
         }
-        catch (Exception ex) when (
-            ex is IOException
-            or UnauthorizedAccessException
-            or NotSupportedException
-            or System.Security.SecurityException
-            or ArgumentException)
+        catch (Exception ex) when (IsWriteException(ex))
         {
             // A bad or unwritable output path fails with a defined exit code rather
             // than crashing the process.
@@ -93,5 +88,14 @@ internal static class ExportExecutor
 
         output.WriteLine($"Wrote {request.Format.ToString().ToLowerInvariant()} export to {request.Output}");
         return ExitCodes.Success;
+    }
+
+    private static bool IsWriteException(Exception exception)
+    {
+        return exception is IOException
+            || exception is UnauthorizedAccessException
+            || exception is NotSupportedException
+            || exception is System.Security.SecurityException
+            || exception is ArgumentException;
     }
 }

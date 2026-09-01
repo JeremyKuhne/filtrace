@@ -40,7 +40,7 @@ public sealed class SymbolOptionsTests
 
     [TestMethod]
     [DataRow("")]
-    [DataRow(null)]
+    [DataRow(stringArrayData: null)]
     public void WithCache_EmptyDirectory_FallsBackToTheDefault(string? dir)
     {
         // An empty or null directory is normalized to null so the reader uses the

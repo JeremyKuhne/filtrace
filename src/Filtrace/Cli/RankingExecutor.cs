@@ -52,9 +52,9 @@ internal static class RankingExecutor
             }
             catch (Exception exception) when (
                 exception is IOException
-                or UnauthorizedAccessException
-                or InvalidDataException
-                or ArgumentException)
+                    or UnauthorizedAccessException
+                    or InvalidDataException
+                    or ArgumentException)
             {
                 error.WriteLine($"Could not resolve manifest case '{caseId}': {exception.Message}");
                 return ExitCodes.InputError;
@@ -71,6 +71,7 @@ internal static class RankingExecutor
         RankingResult ranked = request.Measure == Measure.Inclusive
             ? trace.Aggregator.InclusiveTime(request.Root, request.Fold, request.Top)
             : trace.Aggregator.SelfTime(request.Root, request.Fold, request.Top);
+
         RankingResult ranking = FoldingAggregator.LimitRows(ranked, out string? budgetWarning);
         List<string> warnings = [.. TraceExecution.ResultWarnings(info)];
         if (budgetWarning is not null)

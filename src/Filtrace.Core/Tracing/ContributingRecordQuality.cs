@@ -22,22 +22,36 @@ public static class ContributingRecordQuality
     /// <summary>
     ///  Produces a thin-scope warning for a method-level periodic CPU result.
     /// </summary>
+    /// <param name="semantics">The meaning of each source record.</param>
+    /// <param name="contributingRecordCount">The records retained by the method-level query, when available.</param>
+    /// <param name="warning">The directional-confidence warning when the result is thin.</param>
+    /// <param name="minimumRecords">The smallest record count treated as directionally useful.</param>
+    /// <returns><see langword="true"/> when a warning was produced; otherwise <see langword="false"/>.</returns>
     public static bool TryGetMethodWarning(
         StackRecordSemantics semantics,
         int? contributingRecordCount,
         out string? warning,
-        int minimumRecords = DefaultMinimumMethodRecords) =>
-        TryGetWarning(semantics, contributingRecordCount, minimumRecords, "method-level", out warning);
+        int minimumRecords = DefaultMinimumMethodRecords)
+    {
+        return TryGetWarning(semantics, contributingRecordCount, minimumRecords, "method-level", out warning);
+    }
 
     /// <summary>
     ///  Produces a thin-scope warning for a source-line periodic CPU result.
     /// </summary>
+    /// <param name="semantics">The meaning of each source record.</param>
+    /// <param name="attributedRecordCount">The records mapped to source lines, when available.</param>
+    /// <param name="warning">The directional-confidence warning when source attribution is thin.</param>
+    /// <param name="minimumRecords">The smallest attributed record count treated as directionally useful.</param>
+    /// <returns><see langword="true"/> when a warning was produced; otherwise <see langword="false"/>.</returns>
     public static bool TryGetLineWarning(
         StackRecordSemantics semantics,
         int? attributedRecordCount,
         out string? warning,
-        int minimumRecords = DefaultMinimumLineRecords) =>
-        TryGetWarning(semantics, attributedRecordCount, minimumRecords, "line-level", out warning);
+        int minimumRecords = DefaultMinimumLineRecords)
+    {
+        return TryGetWarning(semantics, attributedRecordCount, minimumRecords, "line-level", out warning);
+    }
 
     private static bool TryGetWarning(
         StackRecordSemantics semantics,
@@ -58,7 +72,8 @@ public static class ContributingRecordQuality
 
         warning =
             $"Only {recordCount.Value} periodic CPU records contribute to this {level} result; "
-            + $"use at least {minimumRecords} for directional confidence or capture longer.";
+                + $"use at least {minimumRecords} for directional confidence or capture longer.";
+
         return true;
     }
 }

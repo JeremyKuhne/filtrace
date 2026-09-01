@@ -43,9 +43,11 @@ internal static class JitStatsTextRenderer
 
         output.WriteLine(
             $"  {report.MethodCount} methods   compile total {report.TotalCompileMs:N2} ms   "
-            + $"max {report.MaxCompileMs:N2} ms   mean {report.MeanCompileMs:N2} ms");
+                + $"max {report.MaxCompileMs:N2} ms   mean {report.MeanCompileMs:N2} ms");
+
         output.WriteLine(
             $"  size    IL {report.TotalILSize:N0} B   native {report.TotalNativeSize:N0} B");
+
         output.WriteLine();
 
         output.WriteLine($"  {"compile(ms)",12}  {"IL(B)",8}  {"native(B)",10}  {"tier",-16}  method");
@@ -53,7 +55,7 @@ internal static class JitStatsTextRenderer
         {
             output.WriteLine(
                 $"  {method.CompileMs,12:N2}  {method.ILSize,8}  {method.NativeSize,10}  "
-                + $"{method.OptimizationTier,-16}  {method.MethodName}");
+                    + $"{method.OptimizationTier,-16}  {method.MethodName}");
         }
 
         RenderWarnings(envelope, output);

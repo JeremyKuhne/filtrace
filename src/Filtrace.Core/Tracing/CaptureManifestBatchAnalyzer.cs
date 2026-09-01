@@ -52,20 +52,22 @@ public static class CaptureManifestBatchAnalyzer
                 CaptureManifestOutput.AddWarning(
                     warnings,
                     "benchmark identity is unresolved; manifest batch skipped this case; analyze the trace directly");
+
                 cases.Add(new BatchRankingCaseResult(
                     benchmark,
                     captureCase.Parameters,
                     captureCase.TracePath,
                     0.0,
                     string.Empty,
-                    null,
+                        TopFrame: null,
                     0.0,
                     0.0,
-                    null,
+                        ContributingRecordCount: null,
                     warnings)
                 {
                     CaseId = captureCase.Id
                 });
+
                 continue;
             }
 
@@ -75,6 +77,7 @@ public static class CaptureManifestBatchAnalyzer
                 RankingResult ranking = inclusive
                     ? trace.Aggregator.InclusiveTime(root, foldPatterns, 1)
                     : trace.Aggregator.SelfTime(root, foldPatterns, 1);
+
                 AddQualityWarnings(warnings, trace, ranking, root);
                 RankRow? top = ranking.Rows.FirstOrDefault();
                 string? operationUnit = null;
@@ -123,10 +126,10 @@ public static class CaptureManifestBatchAnalyzer
                     captureCase.TracePath,
                     0.0,
                     string.Empty,
-                    null,
+                        TopFrame: null,
                     0.0,
                     0.0,
-                    null,
+                        ContributingRecordCount: null,
                     warnings)
                 {
                     CaseId = captureCase.Id
@@ -207,6 +210,7 @@ public static class CaptureManifestBatchAnalyzer
                 trace.Source,
                 root,
                 FrameMatchSelection.Outermost);
+
             if (report.Matches.Count == 0)
             {
                 CaptureManifestOutput.AddWarning(warnings, $"root '{root}' matched no frames");
@@ -222,9 +226,9 @@ public static class CaptureManifestBatchAnalyzer
 
     private static bool IsCaseFailure(Exception exception) =>
         exception is IOException
-        or UnauthorizedAccessException
-        or NotSupportedException
-        or InvalidOperationException
-        or FormatException
-        or ArgumentException;
+            or UnauthorizedAccessException
+            or NotSupportedException
+            or InvalidOperationException
+            or FormatException
+            or ArgumentException;
 }

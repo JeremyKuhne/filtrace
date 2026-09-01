@@ -7,6 +7,10 @@ using System.Text.Json;
 
 namespace Filtrace.Benchmarks;
 
+/// <summary>
+///  Runs repeatable out-of-process CLI campaigns and atomically writes a validated
+///  JSON report for startup-cost comparisons.
+/// </summary>
 internal static partial class CliTelemetryCommand
 {
     private const int DefaultIterations = 25;
@@ -18,27 +22,48 @@ internal static partial class CliTelemetryCommand
     };
     private static readonly System.Text.UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
+    /// <summary>
+    ///  The accepted telemetry command syntax printed for help requests.
+    /// </summary>
     public const string Usage =
         "Usage: --cli-telemetry --scenario NAME --trace PATH --output PATH "
-        + "[--iterations N] [--filtrace PATH]";
+            + "[--iterations N] [--filtrace PATH]";
 
+    /// <summary>
+    ///  Detects the private telemetry mode before BenchmarkDotNet parses the arguments.
+    /// </summary>
+    /// <param name="args">The process command-line arguments.</param>
+    /// <returns><see langword="true"/> when the first token selects telemetry mode.</returns>
     public static bool IsRequested(string[] args) =>
         args.Length > 0 && string.Equals(args[0], "--cli-telemetry", StringComparison.Ordinal);
 
+    /// <summary>
+    ///  Detects the two supported help forms for the private telemetry mode.
+    /// </summary>
+    /// <param name="args">The process command-line arguments.</param>
+    /// <returns><see langword="true"/> when telemetry mode is followed only by <c>--help</c> or <c>-h</c>.</returns>
     public static bool IsHelpRequested(string[] args) =>
         args is ["--cli-telemetry", "--help" or "-h"];
 
+    /// <summary>
+    ///  Validates a campaign, prepares reusable or per-launch corpora, collects every
+    ///  child observation, and writes and reads back the report.
+    /// </summary>
+    /// <param name="args">The telemetry selector and its scenario, trace, output, and launch options.</param>
+    /// <returns>A task that completes after the report has been atomically persisted and validated.</returns>
     public static async Task RunAsync(string[] args)
     {
         TelemetryOptions options = Parse(args);
         string executable = Path.GetFullPath(
             options.FiltracePath ?? CliProcessRunner.FindFiltraceExecutable());
+
         string trace = Path.GetFullPath(options.TracePath);
         string output = Path.GetFullPath(options.OutputPath);
         string etlx = Path.GetFullPath(TraceConverter.EtlxPathFor(trace));
         StringComparison pathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
             ? StringComparison.OrdinalIgnoreCase
             : StringComparison.Ordinal;
+
         if (string.Equals(trace, output, pathComparison)
             || string.Equals(etlx, output, pathComparison)
             || string.Equals(executable, output, pathComparison))
@@ -67,6 +92,7 @@ internal static partial class CliTelemetryCommand
                     definition.CaseCount,
                     definition.IsPaired,
                     preconvert: true);
+
                 sharedArguments = CliBenchmarkScenarios.CreateArguments(
                     definition,
                     trace,
@@ -78,10 +104,12 @@ internal static partial class CliTelemetryCommand
                 symbolCorpus = EmbeddedPdbCorpus.Create(
                     definition.SymbolDllCount,
                     hitRatePercent: 100);
+
                 sharedArguments = CliBenchmarkScenarios.CreateArguments(
                     definition,
                     trace,
                     symbolsDirectory: symbolCorpus.DirectoryPath);
+
                 TraceConverter.Convert(trace);
             }
             else
@@ -107,7 +135,7 @@ internal static partial class CliTelemetryCommand
                     launch = await CliProcessRunner.RunTelemetryAsync(
                         executable,
                         sharedArguments!,
-                        iteration).ConfigureAwait(false);
+                            iteration).ConfigureAwait(continueOnCapturedContext: false);
                 }
                 else if (definition.IsManifest)
                 {
@@ -115,7 +143,7 @@ internal static partial class CliTelemetryCommand
                         executable,
                         trace,
                         definition,
-                        iteration).ConfigureAwait(false);
+                            iteration).ConfigureAwait(continueOnCapturedContext: false);
                 }
                 else
                 {
@@ -123,7 +151,7 @@ internal static partial class CliTelemetryCommand
                         executable,
                         trace,
                         definition,
-                        iteration).ConfigureAwait(false);
+                            iteration).ConfigureAwait(continueOnCapturedContext: false);
                 }
 
                 launches.Add(launch);
@@ -142,11 +170,13 @@ internal static partial class CliTelemetryCommand
             options.Iterations,
             executable,
             launches);
+
         Directory.CreateDirectory(outputDirectory);
         string json = JsonSerializer.Serialize(report, JsonOptions);
         string temporaryOutput = Path.Join(
             outputDirectory,
             $".{outputName}.{Guid.NewGuid():N}.tmp");
+
         try
         {
             File.WriteAllText(temporaryOutput, $"{json}{Environment.NewLine}", Utf8);
@@ -163,6 +193,7 @@ internal static partial class CliTelemetryCommand
         CliTelemetryReport? readBack = JsonSerializer.Deserialize<CliTelemetryReport>(
             File.ReadAllText(output),
             JsonOptions);
+
         if (readBack is null
             || readBack.SchemaVersion != 1
             || readBack.Launches.Count != options.Iterations
@@ -185,7 +216,8 @@ internal static partial class CliTelemetryCommand
         CliProcessTelemetry telemetry = await CliProcessRunner.RunTelemetryAsync(
             executable,
             arguments,
-            iteration).ConfigureAwait(false);
+                iteration).ConfigureAwait(continueOnCapturedContext: false);
+
         corpus.ValidateConverted();
         return telemetry;
     }
@@ -201,19 +233,23 @@ internal static partial class CliTelemetryCommand
             definition.CaseCount,
             definition.IsPaired,
             preconvert: false);
+
         string[] arguments = CliBenchmarkScenarios.CreateArguments(
             definition,
             sourceTrace,
             corpus.BeforeManifest,
             corpus.AfterManifest);
+
         CliProcessTelemetry telemetry = await CliProcessRunner.RunTelemetryAsync(
             executable,
             arguments,
-            iteration).ConfigureAwait(false);
+                iteration).ConfigureAwait(continueOnCapturedContext: false);
+
         corpus.Validate(
             definition.CaseCount,
             definition.IsPaired,
             expectConverted: true);
+
         return telemetry;
     }
 

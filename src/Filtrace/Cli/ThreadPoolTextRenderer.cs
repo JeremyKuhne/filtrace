@@ -44,9 +44,11 @@ internal static class ThreadPoolTextRenderer
 
         output.WriteLine(
             $"  worker-thread adjustments: {report.AdjustmentCount}   (starvation: {report.StarvationCount})");
+
         output.WriteLine(
             $"  worker threads: {report.MinWorkerThreadCount} -> {report.MaxWorkerThreadCount}   "
-            + $"(configured min {report.ConfiguredMinWorkerThreads}, max {report.ConfiguredMaxWorkerThreads})");
+                + $"(configured min {report.ConfiguredMinWorkerThreads}, max {report.ConfiguredMaxWorkerThreads})");
+
         output.WriteLine();
 
         output.WriteLine("  by reason");

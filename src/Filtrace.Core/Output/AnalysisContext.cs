@@ -94,7 +94,7 @@ public sealed record AnalysisContext(string Operation)
             Metric = MetricSelector(metric),
             Measure = measure,
             Unit = metric.Unit,
-            Scope = AnalysisScopeContext.Create(root, null, null, null, null)
+            Scope = AnalysisScopeContext.Create(root, processScope: null, activityName: null, window: null, rootCoverage: null)
         };
     }
 
