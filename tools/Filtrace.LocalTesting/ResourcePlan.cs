@@ -23,6 +23,9 @@ internal sealed record ResourcePlan
         SkillBackupPath = Path.Join(ArtifactsDirectory, "skill-baseline");
         McpConfigurationPath = Path.Join(targetRoot, ".vscode", "mcp.json");
         SkillDestination = Path.Join(targetRoot, ".agents", "skills", "filtrace");
+        string agents = Path.Join(targetRoot, ".agents");
+        SkillStagingPath = Path.Join(agents, ".filtrace-skill-staging");
+        SkillRetiredPath = Path.Join(agents, ".filtrace-skill-retired");
     }
 
     /// <summary>
@@ -74,6 +77,16 @@ internal sealed record ResourcePlan
     ///  Gets the target worktree's installed Filtrace skill directory.
     /// </summary>
     public string SkillDestination { get; }
+
+    /// <summary>
+    ///  Gets the fixed hidden path used to stage a replacement skill.
+    /// </summary>
+    public string SkillStagingPath { get; }
+
+    /// <summary>
+    ///  Gets the fixed hidden path used to retire the prior skill during replacement.
+    /// </summary>
+    public string SkillRetiredPath { get; }
 
     /// <summary>
     ///  Canonicalizes repository paths and derives every resource managed by local testing.

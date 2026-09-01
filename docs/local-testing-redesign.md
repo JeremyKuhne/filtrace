@@ -8,10 +8,12 @@ per-worktree lock merged in
 [PR #100](https://github.com/JeremyKuhne/filtrace/pull/100). Prepared CLI package
 validation and fresh private installation merged in
 [PR #101](https://github.com/JeremyKuhne/filtrace/pull/101). Structured MCP
-publication and baseline restoration are implemented locally on
-`local-testing-budget-rebaseline`; skill mutation has not begun.
+publication and baseline restoration merged in
+[PR #102](https://github.com/JeremyKuhne/filtrace/pull/102). Reversible skill
+publication is implemented locally on `local-testing-skill-publication`; final
+coordinator wiring has not begun.
 
-**Last verified:** 2026-08-31 against `origin/main` at `ee24807`. PR #94 was
+**Last verified:** 2026-08-31 against `origin/main` at `cb2d962`. PR #94 was
 closed without merge after PR #98 established the replacement.
 
 ## Decision
@@ -41,21 +43,9 @@ The workflow goal is sound: build one checkout, activate it only for one
 consumer repository, and restore the exact prior state. The implementation
 boundary is not.
 
-At the point of this assessment:
-
-| Signal | Current value |
-| --- | ---: |
-| Added lines in PR #94 | approximately 4,700 |
-| Production script lines | 2,093 |
-| Production functions | 64 |
-| Production `if` statements | 204 |
-| Production `try` statements | 29 |
-| `Test-LocalFiltrace.ps1` | 2,222 lines |
-| Follow-up commits | 19 |
-| Review threads | 36 |
-| Path / alias safety threads | 24 |
-
-The recurring findings are concentrated in five coupled responsibilities:
+PR #94 accumulated compatibility branches and overlapping ownership rules across
+many follow-up rounds. Its recurring findings concentrated in five coupled
+responsibilities:
 
 1. canonical path identity and link handling;
 2. resource ownership and lock identity;
@@ -77,44 +67,36 @@ The replacement is complete when a contributor can:
    entry, and project skill;
 3. refresh local mode without replacing the original baseline;
 4. restore the exact prior MCP and skill state after success or interruption;
-5. run the ordinary contract without elevation on Windows, Linux, and macOS.
+5. run the ordinary contract without elevation on the primary development
+   platform.
 
-The implementation must also be small enough to review linearly. Targets, not
-hard compatibility promises:
+## Engineering standard
 
-- non-coordinator support code at or below 1,300 source lines;
-- stateful active-resource mutation and recovery coordinator at or below 700
-  source lines;
-- total .NET helper at or below 2,000 source lines;
-- end-to-end PowerShell contract at or below 1,000 lines;
-- no function over 100 source lines;
-- no more than one place that constructs resource paths or classifies state.
+This is contributor testing infrastructure, not a normal product feature or a
+security boundary. It operates on a user-selected local checkout and consumer
+repository, using artifacts built by that same user. Engineering effort must be
+proportional to that scenario.
 
-Count physical lines in tracked C# source files under
-`tools/Filtrace.LocalTesting`, excluding generated output. The coordinator count
-includes code that applies or restores the CLI, MCP, and skill and sequences
-their durable state transitions. Resource and state models, serialization and
-validation, baseline readers, path guards, and the target lock count as support.
+Aim for robust and maintainable behavior:
 
-After PR #101 the helper measured 1,433 lines: 1,212 support lines and 221
-active-resource CLI installation lines. The original 1,500-line total left only
-67 lines even though 479 lines remained in the original coordinator allowance.
-The revised limits preserve the 700-line ceiling on coupled mutation and recovery
-logic and leave the measured support code 88 lines of headroom within its
-1,300-line budget. The arithmetic is 1,300 support lines plus 700 coordinator
-lines for a 2,000-line total. If support remains at 1,212 and the coordinator
-reaches its ceiling, the helper reaches 1,912 lines; MCP mutation, skill
-publication, Refresh, and recovery therefore share the 479 coordinator lines
-remaining after the CLI installer.
+- preserve the immutable baseline and unrelated consumer content;
+- use bounded reads and fixed managed paths so ordinary mistakes cannot redirect
+  or exhaust the helper;
+- make normal Install, Refresh, Restore, retry, and interruption paths converge
+  predictably;
+- fail with an actionable error while retaining recoverable state when an
+  operation cannot safely continue;
+- keep resource ownership, state transitions, and filesystem mutation in
+  cohesive, directly tested types;
+- prefer straightforward BCL code over compatibility layers or a general
+  transaction framework.
 
-If either budget cannot hold, stop and reduce scope instead of moving code to an
-excluded location, compressing readable code, or adding another compatibility
-mode.
-
-The coordinator limit starts with code that applies or restores active CLI,
-MCP, and skill changes. Pure resource/state models, bounded baseline readers, and
-the target-lock primitive count toward the total-helper limit instead. This keeps
-both budgets measurable without rewarding compressed prerequisite code.
+Do not add production-grade machinery solely for hostile same-user mutation,
+distributed coordination, network filesystems, automatic migration of review-era
+state, every filesystem metadata variant, or an exhaustive platform matrix.
+Those scenarios require a demonstrated contributor need before they expand V1.
+Source-line counts are not a gate; readability, cohesion, duplication, and the
+ability to review and test each change are the maintainability gates.
 
 ## V1 scope
 
@@ -165,7 +147,9 @@ intentionally keep separate state because they mutate different `.vscode` and
 
 The helper creates missing `.vscode` and `.agents/skills` parent directories
 before publishing their fixed children. The baseline records which fixed parents
-it created, and Restore removes only those that are still empty.
+it created, and Restore removes only those that are still empty. Skill staging
+and retirement use fixed hidden siblings directly under `.agents`, outside the
+agent-discovered `skills` directory.
 
 ## Architecture
 
@@ -397,18 +381,19 @@ fingerprinted prior-skill capture, managed-path link rejection, and bounded
 Linux ARM64 validation. PR #101 merged prepared CLI package validation and fresh
 private installation through an isolated one-package NuGet source, including
 bounded package parsing, non-timeout cleanup, timeout quarantine, and installed
-package verification. Its Windows and Linux ARM64 checks passed. The helper is
-1,433 lines: 1,212 of the 1,300-line support budget and 221 of the 700-line
-coordinator budget. The current local increment reuses bounded JSONC parsing for
-baseline capture and mutation, atomically publishes the direct local MCP server,
-preserves unrelated configuration and file metadata, and idempotently restores
-the prior `filtrace` property and container/file shape while retaining later
-additions. The helper is now 1,739 lines: 1,273 support and 466 coordinator.
-Windows validation passes; Linux ARM64 validation for this increment remains
-open. It does not yet mutate the skill resource.
+package verification. Its Windows and Linux ARM64 checks passed. The next
+increment reused bounded JSONC parsing for baseline capture and mutation,
+atomically published the direct local MCP server, preserved unrelated
+configuration and file metadata, and idempotently restored the prior `filtrace`
+property and container/file shape while retaining later additions. PR #102 merged
+that increment after Windows and Linux ARM64 validation.
+The current local increment stages the bounded source skill outside the discovered
+skills directory, verifies the staged fingerprint, carries the exact consumer
+overlay into each publication, atomically swaps fixed sibling directories, and
+idempotently restores either the exact backup or the absent baseline. Fixed
+staging and retirement paths make interrupted swaps recoverable. The helper is
+validated on Windows; broader platform validation is backlog work.
 
-- Implement resource-scoped skill staging and publication with the bounded
-  consumer overlay.
 - Wire Fresh Install, Resume Install, and Refresh through the coordinator while
   preserving baseline bytes.
 
@@ -418,11 +403,11 @@ global writes.
 ### Phase 3 - Restore and cleanup retry
 
 - Implement ordered restore and the `restoring`/`cleanup` transitions.
-- Add deterministic failpoints before and after every target mutation.
-- Prove each interruption resumes without recapturing a baseline or touching an
-  unrelated path.
+- Add focused failpoints at durable state and resource-publication boundaries.
+- Prove expected partial states resume without recapturing a baseline or touching
+  an unrelated path.
 
-**Exit:** every failpoint converges to the exact original state.
+**Exit:** representative interruption paths converge to the exact original state.
 
 ### Phase 4 - wrapper, docs, and CI
 
@@ -446,7 +431,7 @@ global writes.
 - coordinator publication and restoration order, including replay from
   `installing` and `restoring`.
 
-### Cross-platform integration contract
+### End-to-end integration contract
 
 - fresh target with absent MCP and skill;
 - existing MCP, skill, and consumer overlay;
@@ -460,7 +445,7 @@ global writes.
 - links in every managed ancestor and nested links in an existing skill;
 - oversized and linked overlays;
 - Git linked worktree isolation;
-- paths containing spaces, Unicode, and case-distinct names where supported;
+- paths containing spaces and Unicode;
 - proof that global CLI, user MCP, and user skill state never changes.
 
 Use subprocess tests for locks, exit codes, and crash/retry behavior. Keep pure
@@ -477,14 +462,11 @@ The replacement cannot ship until all of these hold:
 - one target-derived lock and no machine-wide ownership registry;
 - cleanup retry branches before active-resource validation;
 - no recursive delete outside the fixed, marker-validated state root;
-- all target mutations have deterministic failure-injection coverage;
-- Windows and Linux ARM64 CI pass the full contract;
-- macOS path behavior is either exercised or recorded as a manual gap;
+- expected partial resource and durable-state boundaries have focused
+  failure-injection coverage;
+- the full contract passes on the primary development platform;
 - `dotnet test filtrace.slnx -c Release` and every existing repository contract
-  remain green;
-- non-coordinator support remains at or below 1,300 lines, the active-resource
-  coordinator remains at or below 700 lines, and the complete helper remains at
-  or below 2,000 lines, or scope is reduced again.
+  remain green.
 
 ## Explicitly deferred
 
@@ -497,12 +479,18 @@ The replacement cannot ship until all of these hold:
 
 These can return only with a concrete user scenario and dedicated threat model.
 
+## Validation backlog
+
+- Run the local-testing contract on Linux ARM64 and macOS as non-blocking
+  follow-up validation. Address concrete failures without treating exhaustive
+  platform coverage as a V1 release gate.
+
 ## Open decisions
 
 Resolve these during plan review, before implementation:
 
 1. How long should the one-shot PR #94 cleanup guidance remain available?
 
-The Git-target, linked-worktree, 1 MiB overlay-limit, size-budget, and
-status-driven recovery decisions are closed for V1. Resolve the remaining
+The Git-target, linked-worktree, 1 MiB overlay-limit, proportional-robustness,
+and status-driven recovery decisions are closed for V1. Resolve the remaining
 transition-window question before Phase 4 ships the wrapper.

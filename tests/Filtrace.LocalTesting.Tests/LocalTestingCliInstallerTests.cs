@@ -177,6 +177,46 @@ public sealed class LocalTestingCliInstallerTests
 
     [TestMethod]
     [DoNotParallelize]
+    public void InstallFresh_ProcessEnvironment_DisablesGlobalToolsPathMutation()
+    {
+        using TemporaryDirectory directory = new();
+        string packagePath = CreateMetadataPackage(directory.Path);
+        ResourcePlan plan = CreatePlan(directory.Path);
+        Directory.CreateDirectory(plan.StateRoot);
+        string outputPath = Path.Join(directory.Path, "environment.txt");
+        const string dotnetVariable = "DOTNET_ADD_GLOBAL_TOOLS_TO_PATH";
+        string? previousDotnet = Environment.GetEnvironmentVariable(dotnetVariable);
+        string? previousOutput = Environment.GetEnvironmentVariable(
+            LocalTestingCliInstallerProcessProbe.EnvironmentOutputVariable);
+
+        try
+        {
+            Environment.SetEnvironmentVariable(dotnetVariable, "true");
+            Environment.SetEnvironmentVariable(
+                LocalTestingCliInstallerProcessProbe.EnvironmentOutputVariable,
+                outputPath);
+
+            Action install = () => new LocalTestingCliInstaller().InstallFresh(
+                plan,
+                packagePath,
+                GetTestExecutablePath());
+
+            install.Should().Throw<InvalidOperationException>()
+                .WithMessage("*exited with code 9*");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(dotnetVariable, previousDotnet);
+            Environment.SetEnvironmentVariable(
+                LocalTestingCliInstallerProcessProbe.EnvironmentOutputVariable,
+                previousOutput);
+        }
+
+        File.ReadAllText(outputPath).Should().Be("false");
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
     [Timeout(10_000)]
     public void InstallFresh_ProcessTimeout_IsEndToEndBoundedAndQuarantinesOperation()
     {

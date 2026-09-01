@@ -38,8 +38,12 @@ internal sealed class LocalTestingBaselineCapturer
 
         ManagedPathGuard.EnsureNoLinks(plan.TargetRoot, plan.McpConfigurationPath);
         ManagedPathGuard.EnsureNoLinks(plan.TargetRoot, plan.SkillDestination);
+        ManagedPathGuard.EnsureNoLinks(plan.TargetRoot, plan.SkillStagingPath);
+        ManagedPathGuard.EnsureNoLinks(plan.TargetRoot, plan.SkillRetiredPath);
         ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.ArtifactsDirectory);
         ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.SkillBackupPath);
+        EnsurePathAbsent(plan.SkillStagingPath, "Skill staging path");
+        EnsurePathAbsent(plan.SkillRetiredPath, "Retired skill path");
 
         McpBaseline mcp = McpConfigurationDocument.Capture(plan.McpConfigurationPath);
         SkillBaseline skill = CaptureSkill(plan.SkillDestination, plan.SkillBackupPath);
@@ -72,6 +76,7 @@ internal sealed class LocalTestingBaselineCapturer
 
         DirectorySnapshot sourceSnapshot = DirectorySnapshot.Create(
             source,
+            "Skill destination",
             MaxSkillEntries,
             MaxSkillBytes);
 
@@ -81,6 +86,7 @@ internal sealed class LocalTestingBaselineCapturer
             sourceSnapshot.CopyTo(source, staging);
             DirectorySnapshot backupSnapshot = DirectorySnapshot.Create(
                 staging,
+                "Skill backup",
                 MaxSkillEntries,
                 MaxSkillBytes);
 
@@ -128,6 +134,14 @@ internal sealed class LocalTestingBaselineCapturer
         if (!Directory.Exists(path))
         {
             throw new DirectoryNotFoundException($"{description} does not exist: '{path}'.");
+        }
+    }
+
+    private static void EnsurePathAbsent(string path, string description)
+    {
+        if (Directory.Exists(path) || RegularFileGuard.Exists(path, description))
+        {
+            throw new InvalidDataException($"{description} already exists: '{path}'.");
         }
     }
 }

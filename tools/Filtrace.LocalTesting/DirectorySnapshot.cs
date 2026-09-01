@@ -30,10 +30,15 @@ internal sealed class DirectorySnapshot
     ///  Inventories a directory while enforcing entry-count, byte-size, and link-safety limits.
     /// </summary>
     /// <param name="root">The directory to inventory.</param>
+    /// <param name="description">The resource description used in validation errors.</param>
     /// <param name="maxEntries">The maximum number of files and directories to retain.</param>
     /// <param name="maxBytes">The maximum aggregate file length in bytes.</param>
     /// <returns>An immutable snapshot ordered by relative path.</returns>
-    public static DirectorySnapshot Create(string root, int maxEntries, long maxBytes)
+    public static DirectorySnapshot Create(
+        string root,
+        string description,
+        int maxEntries,
+        long maxBytes)
     {
         List<DirectorySnapshotEntry> entries = new();
         Stack<string> pending = new();
@@ -49,7 +54,7 @@ internal sealed class DirectorySnapshot
                     || item.LinkTarget is not null)
                 {
                     throw new InvalidDataException(
-                        $"Skill destination must not contain links: '{item.FullName}'.");
+                        $"{description} must not contain links: '{item.FullName}'.");
                 }
 
                 string relativePath = Path.GetRelativePath(root, item.FullName).Replace(
@@ -63,17 +68,17 @@ internal sealed class DirectorySnapshot
                 }
                 else if (item is FileInfo file)
                 {
-                    if (!RegularFileGuard.Exists(file.FullName, "Skill destination entry"))
+                    if (!RegularFileGuard.Exists(file.FullName, $"{description} entry"))
                     {
                         throw new IOException(
-                            $"Skill destination entry disappeared: '{file.FullName}'.");
+                            $"{description} entry disappeared: '{file.FullName}'.");
                     }
 
                     totalBytes = checked(totalBytes + file.Length);
                     if (totalBytes > maxBytes)
                     {
                         throw new InvalidDataException(
-                            $"Skill destination exceeds the {maxBytes} byte safety limit: '{root}'.");
+                            $"{description} exceeds the {maxBytes} byte safety limit: '{root}'.");
                     }
 
                     using FileStream stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -86,13 +91,13 @@ internal sealed class DirectorySnapshot
                 else
                 {
                     throw new InvalidDataException(
-                        $"Skill destination contains an unsupported entry: '{item.FullName}'.");
+                        $"{description} contains an unsupported entry: '{item.FullName}'.");
                 }
 
                 if (entries.Count > maxEntries)
                 {
                     throw new InvalidDataException(
-                        $"Skill destination exceeds the {maxEntries} entry safety limit: '{root}'.");
+                        $"{description} exceeds the {maxEntries} entry safety limit: '{root}'.");
                 }
             }
         }

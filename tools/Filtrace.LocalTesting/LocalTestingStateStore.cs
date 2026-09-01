@@ -162,24 +162,10 @@ internal sealed class LocalTestingStateStore
         }
 
         ValidateMcpBaseline(baseline.Mcp);
-        if (baseline.Skill is null)
-        {
-            throw new InvalidDataException("Local-testing skill baseline is missing.");
-        }
-
+        ValidateSkillBaseline(baseline.Skill);
         if (baseline.CreatedDirectories is null)
         {
             throw new InvalidDataException("Local-testing created-directory baseline is missing.");
-        }
-
-        if (baseline.Skill.Existed)
-        {
-            ValidateSha256(baseline.Skill.BackupSha256, "Skill backup");
-        }
-        else if (baseline.Skill.BackupSha256 is not null)
-        {
-            throw new InvalidDataException(
-                "An absent skill baseline cannot contain a backup hash.");
         }
 
         if (baseline.CreatedDirectories.Agents && !baseline.CreatedDirectories.Skills)
@@ -221,6 +207,28 @@ internal sealed class LocalTestingStateStore
         {
             throw new InvalidDataException(
                 "An existing MCP servers baseline requires an existing file.");
+        }
+    }
+
+    /// <summary>
+    ///  Verifies that skill existence and backup identity describe a possible prior directory.
+    /// </summary>
+    /// <param name="baseline">The baseline to validate.</param>
+    internal static void ValidateSkillBaseline(SkillBaseline? baseline)
+    {
+        if (baseline is null)
+        {
+            throw new InvalidDataException("Local-testing skill baseline is missing.");
+        }
+
+        if (baseline.Existed)
+        {
+            ValidateSha256(baseline.BackupSha256, "Skill backup");
+        }
+        else if (baseline.BackupSha256 is not null)
+        {
+            throw new InvalidDataException(
+                "An absent skill baseline cannot contain a backup hash.");
         }
     }
 
