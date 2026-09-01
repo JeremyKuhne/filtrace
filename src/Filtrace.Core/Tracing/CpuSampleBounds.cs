@@ -116,20 +116,16 @@ public static class CpuSampleBounds
             maximumMSec = timer.MaxInterval / TicksPerMillisecond;
             return true;
         }
-        catch (Exception ex) when (IsProfileSourceUnavailable(ex))
+        catch (Exception ex) when (
+            ex is InvalidOperationException
+                or NotSupportedException
+                or ApplicationException
+                or System.ComponentModel.Win32Exception
+                or System.Runtime.InteropServices.COMException)
         {
             // An older or restricted platform that cannot report profile sources leaves the
             // request unclamped rather than failing a capture that would otherwise work.
             return false;
         }
-    }
-
-    private static bool IsProfileSourceUnavailable(Exception exception)
-    {
-        return exception is InvalidOperationException
-            || exception is NotSupportedException
-            || exception is ApplicationException
-            || exception is System.ComponentModel.Win32Exception
-            || exception is System.Runtime.InteropServices.COMException;
     }
 }

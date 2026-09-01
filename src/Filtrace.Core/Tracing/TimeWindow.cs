@@ -99,11 +99,9 @@ public readonly struct TimeWindow
     /// </summary>
     /// <param name="relativeMSec">The event's timestamp in milliseconds relative to the start of the trace.</param>
     /// <returns><see langword="true"/> when the time is inside the window.</returns>
-    public bool Contains(double relativeMSec)
-    {
-        return (StartMSec is not double start || relativeMSec >= start)
+    public bool Contains(double relativeMSec) =>
+        (StartMSec is not double start || relativeMSec >= start)
             && (EndMSec is not double end || relativeMSec <= end);
-    }
 
     /// <summary>
     ///  Renders the window as <c>[start, end] ms</c>, with an open bound shown as the

@@ -245,13 +245,10 @@ internal sealed class LocalTestingCliInstaller
                 .Select(LocalTestingCliPackage.ReadInstalled)
         ];
 
-        static bool PackageDiffers(LocalTestingCliPackage package, LocalTestingCliPackage expectedPackage)
-        {
-            return !package.Version.Equals(expectedPackage.Version, StringComparison.Ordinal)
-                || !package.Sha256.Equals(expectedPackage.Sha256, StringComparison.Ordinal);
-        }
-
-        if (installed.Length is 0 || installed.Any(package => PackageDiffers(package, expected)))
+        if (installed.Length is 0
+            || installed.Any(package =>
+                !package.Version.Equals(expected.Version, StringComparison.Ordinal)
+                    || !package.Sha256.Equals(expected.Sha256, StringComparison.Ordinal)))
         {
             throw new InvalidDataException(
                 "Installed Filtrace CLI package does not match the prepared package bytes.");

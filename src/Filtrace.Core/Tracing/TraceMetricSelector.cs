@@ -24,10 +24,8 @@ public static class TraceMetricSelector
     ///  The canonical selector names, lowest-level first, for help and error text.
     ///  The <c>alloc</c> selector also accepts the <c>allocations</c> alias.
     /// </summary>
-    public static IReadOnlyList<string> Selectors
-    {
-        get;
-    } = ["cpu", "threadtime", "alloc", "exceptions", "contention", "wait", "activity"];
+    public static IReadOnlyList<string> Selectors { get; } =
+        ["cpu", "threadtime", "alloc", "exceptions", "contention", "wait", "activity"];
 
     /// <summary>
     ///  Resolves a <c>metric</c> selector string to the provider view it names.

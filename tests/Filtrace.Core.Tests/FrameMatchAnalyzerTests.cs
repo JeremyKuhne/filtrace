@@ -55,9 +55,7 @@ public sealed class FrameMatchAnalyzerTests
         benchmark.SelectedStackCount.Should().Be(2);
     }
 
-    private static StackSampleSource Source()
-    {
-        return new StackSampleSource(
+    private static StackSampleSource Source() => new(
             MetricInfo.Cpu,
             [
                 new SampleStack(
@@ -78,5 +76,4 @@ public sealed class FrameMatchAnalyzerTests
                     ],
                     20.0)
             ]);
-    }
 }

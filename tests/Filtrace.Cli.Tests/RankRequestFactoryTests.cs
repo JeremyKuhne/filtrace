@@ -91,10 +91,9 @@ public sealed class RankRequestFactoryTests
     [TestMethod]
     public void TryResolveScope_NoOptions_IsAutomatic()
     {
-        bool resolved = RankRequestFactory.TryResolveScope(
-            "", processIds: null, Children.Include, allProcesses: false, out ScopeRequest scope, out string? error);
-
-        resolved.Should().BeTrue();
+        RankRequestFactory.TryResolveScope(
+            "", processIds: null, Children.Include, allProcesses: false, out ScopeRequest scope, out string? error)
+            .Should().BeTrue();
 
         error.Should().BeNull();
         scope.Should().BeSameAs(ScopeRequest.Auto);
@@ -103,10 +102,9 @@ public sealed class RankRequestFactoryTests
     [TestMethod]
     public void TryResolveScope_AllProcesses_IsTheOptOut()
     {
-        bool resolved = RankRequestFactory.TryResolveScope(
-            "", processIds: null, Children.Include, allProcesses: true, out ScopeRequest scope, out _);
-
-        resolved.Should().BeTrue();
+        RankRequestFactory.TryResolveScope(
+            "", processIds: null, Children.Include, allProcesses: true, out ScopeRequest scope, out _)
+            .Should().BeTrue();
 
         scope.Should().BeSameAs(ScopeRequest.AllProcesses);
     }
@@ -114,10 +112,9 @@ public sealed class RankRequestFactoryTests
     [TestMethod]
     public void TryResolveScope_ProcessName_BuildsAnExplicitScope()
     {
-        bool resolved = RankRequestFactory.TryResolveScope(
-            "MyApp", processIds: null, Children.Include, allProcesses: false, out ScopeRequest scope, out _);
-
-        resolved.Should().BeTrue();
+        RankRequestFactory.TryResolveScope(
+            "MyApp", processIds: null, Children.Include, allProcesses: false, out ScopeRequest scope, out _)
+            .Should().BeTrue();
 
         scope.Selector.Should().BeOfType<ProcessNameSelector>().Which.NameSubstring.Should().Be("MyApp");
         scope.IncludeAll.Should().BeFalse();
@@ -139,14 +136,14 @@ public sealed class RankRequestFactoryTests
         RankRequestFactory.TryResolveScope("", [42], Children.Exclude, allProcesses: false, out ScopeRequest byId, out _)
             .Should().BeTrue();
 
-        bool byNameResolved = RankRequestFactory.TryResolveScope(
-            "MyApp", processIds: null, Children.Exclude, allProcesses: false, out ScopeRequest byName, out _);
+        RankRequestFactory.TryResolveScope(
+            "MyApp", processIds: null, Children.Exclude, allProcesses: false, out ScopeRequest byName, out _)
+            .Should().BeTrue();
 
-        bool automaticResolved = RankRequestFactory.TryResolveScope(
-            "", processIds: null, Children.Exclude, allProcesses: false, out ScopeRequest automatic, out _);
+        RankRequestFactory.TryResolveScope(
+            "", processIds: null, Children.Exclude, allProcesses: false, out ScopeRequest automatic, out _)
+            .Should().BeTrue();
 
-        byNameResolved.Should().BeTrue();
-        automaticResolved.Should().BeTrue();
         byId.IncludeChildren.Should().BeFalse();
         byName.IncludeChildren.Should().BeFalse();
         automatic.IncludeChildren.Should().BeFalse("the automatic scope picks a process, and that choice is still a tree");
@@ -166,10 +163,9 @@ public sealed class RankRequestFactoryTests
     [TestMethod]
     public void TryResolveScope_ChildrenWithAllProcesses_IsAUsageError()
     {
-        bool resolved = RankRequestFactory.TryResolveScope(
-            "", processIds: null, Children.Exclude, allProcesses: true, out _, out string? error);
-
-        resolved.Should().BeFalse();
+        RankRequestFactory.TryResolveScope(
+            "", processIds: null, Children.Exclude, allProcesses: true, out _, out string? error)
+            .Should().BeFalse();
 
         error.Should().Contain("--all-processes already reads every process");
     }

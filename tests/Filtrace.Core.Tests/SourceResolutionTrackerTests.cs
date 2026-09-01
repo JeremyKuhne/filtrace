@@ -263,10 +263,11 @@ public sealed class SourceResolutionTrackerTests
             module => module.Contains("HotLoopBench", StringComparison.OrdinalIgnoreCase));
 
         source.PdbIdentityMismatchModules.Should().BeEmpty();
-        IEnumerable<string> names = source.HighestUnmappedModules.Select(
-            static module => module.Split(" (", StringSplitOptions.None)[0]);
-
-        string[] moduleNames = [.. names];
+        string[] moduleNames =
+        [
+            .. source.HighestUnmappedModules
+                .Select(static module => module.Split(" (", StringSplitOptions.None)[0])
+        ];
 
         moduleNames.Distinct(StringComparer.OrdinalIgnoreCase)
             .Should().HaveCount(moduleNames.Length);

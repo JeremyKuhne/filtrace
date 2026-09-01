@@ -490,10 +490,8 @@ public sealed class TraceLoader
 
     private static IReadOnlyDictionary<string, int> AnalysisRecordCounts(
         string analysis,
-        int recordCount)
-    {
-        return new Dictionary<string, int>(StringComparer.Ordinal) { [analysis] = recordCount };
-    }
+        int recordCount) =>
+            new Dictionary<string, int>(StringComparer.Ordinal) { [analysis] = recordCount };
 
     private ITraceReader? ResolveReader(string path)
     {

@@ -87,12 +87,11 @@ public sealed class TraceTools
         bool children = true,
         CancellationToken cancellationToken = default)
     {
-        ScopeRequest? scope = ResolveScope(process, pid, children);
         TraceStoreLoadResult load = await LoadAsync(
             store,
             path,
             NullIfEmpty(symbols),
-            scope: scope,
+            scope: ResolveScope(process, pid, children),
             cancellationToken: cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 
         TraceInfo info = load.Trace.Info;
@@ -304,7 +303,11 @@ public sealed class TraceTools
                 resolvedSymbols ??= captureCase.SymbolsDirectory;
                 scope = manifest.ResolveCaseScope(captureCase, scope);
             }
-            catch (Exception exception) when (IsManifestInputException(exception))
+            catch (Exception exception) when (
+                exception is IOException
+                    or UnauthorizedAccessException
+                    or InvalidDataException
+                    or ArgumentException)
             {
                 throw new McpException(exception.Message);
             }
@@ -482,12 +485,11 @@ public sealed class TraceTools
     {
         RequirePositiveTop(top);
         IReadOnlyList<string> foldPatterns = ResolveFold(fold);
-        ScopeRequest? scope = ResolveScope(process, pid, children);
         TraceStoreLoadResult load = await LoadAsync(
             store,
             path,
             NullIfEmpty(symbols),
-            scope: scope,
+            scope: ResolveScope(process, pid, children),
             cancellationToken: cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 
         LoadedTrace trace = load.Trace;
@@ -654,7 +656,11 @@ public sealed class TraceTools
                         inclusive ? "inclusive" : "self",
                         resolvedRoot));
             }
-            catch (Exception exception) when (IsManifestInputException(exception))
+            catch (Exception exception) when (
+                exception is IOException
+                    or UnauthorizedAccessException
+                    or InvalidDataException
+                    or ArgumentException)
             {
                 throw new McpException(exception.Message);
             }
@@ -771,7 +777,11 @@ public sealed class TraceTools
                     inclusive ? "inclusive" : "self",
                     resolvedRoot));
         }
-        catch (Exception exception) when (IsManifestInputException(exception))
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or InvalidDataException
+                or ArgumentException)
         {
             throw new McpException(exception.Message);
         }
@@ -1507,7 +1517,15 @@ public sealed class TraceTools
         {
             return store.Get(path, symbols, metric, scope, symbolOptions);
         }
-        catch (Exception ex) when (IsTraceLoadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or JsonException
+                or KeyNotFoundException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // Missing, unreadable, or malformed trace input - including a format that
             // does not carry the selected metric's data (NotSupportedException) -
@@ -1535,7 +1553,15 @@ public sealed class TraceTools
                 symbolOptions,
                     cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
         }
-        catch (Exception ex) when (IsTraceLoadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or JsonException
+                or KeyNotFoundException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             throw new McpException(ex.Message);
         }
@@ -1594,57 +1620,18 @@ public sealed class TraceTools
             File.WriteAllText(fullPath, content);
             return fullPath;
         }
-        catch (Exception ex) when (IsExportWriteException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or System.Security.SecurityException
+                or ArgumentException)
         {
             // A bad or unwritable output path (missing directory, permission denied,
             // invalid characters) surfaces as a clean tool error rather than an
             // unhandled exception.
             throw new McpException($"Could not write '{output}': {ex.Message}");
         }
-    }
-
-    private static bool IsManifestInputException(Exception exception)
-    {
-        return exception is IOException
-            || exception is UnauthorizedAccessException
-            || exception is InvalidDataException
-            || exception is ArgumentException;
-    }
-
-    private static bool IsTraceLoadException(Exception exception)
-    {
-        return exception is IOException
-            || exception is UnauthorizedAccessException
-            || exception is NotSupportedException
-            || exception is JsonException
-            || exception is KeyNotFoundException
-            || exception is InvalidOperationException
-            || exception is FormatException
-            || exception is ArgumentException;
-    }
-
-    private static bool IsExportWriteException(Exception exception)
-    {
-        return exception is IOException
-            || exception is UnauthorizedAccessException
-            || exception is NotSupportedException
-            || exception is System.Security.SecurityException
-            || exception is ArgumentException;
-    }
-
-    private static bool IsReportReadException(Exception exception)
-    {
-        return exception is IOException
-            || exception is UnauthorizedAccessException
-            || exception is NotSupportedException
-            || exception is InvalidOperationException
-            || exception is FormatException
-            || exception is ArgumentException;
-    }
-
-    private static bool IsSnapshotReadException(Exception exception)
-    {
-        return exception is InvalidDataException || IsReportReadException(exception);
     }
 
     private static void RequirePositiveTop(int top)
@@ -1678,7 +1665,13 @@ public sealed class TraceTools
         {
             return new TimelineProvider().Read(path, window, lanes, buckets, scope);
         }
-        catch (Exception ex) when (IsReportReadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // A missing, unreadable, or malformed trace - or an .etl read attempted off
             // Windows (PlatformNotSupportedException derives from NotSupportedException) -
@@ -1710,7 +1703,14 @@ public sealed class TraceTools
         {
             return read();
         }
-        catch (Exception ex) when (IsSnapshotReadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or InvalidDataException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             throw new McpException(ex.Message);
         }
@@ -1755,7 +1755,13 @@ public sealed class TraceTools
         {
             return new GcStatsProvider().Read(path);
         }
-        catch (Exception ex) when (IsReportReadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // A missing, unreadable, or malformed .nettrace surfaces as a clean tool
             // error rather than an unhandled exception.
@@ -1775,7 +1781,13 @@ public sealed class TraceTools
         {
             return new ThreadPoolProvider().Read(path);
         }
-        catch (Exception ex) when (IsReportReadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // A missing, unreadable, or malformed .nettrace surfaces as a clean tool
             // error rather than an unhandled exception.
@@ -1795,7 +1807,13 @@ public sealed class TraceTools
         {
             return new JitStatsProvider().Read(path);
         }
-        catch (Exception ex) when (IsReportReadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // A missing, unreadable, or malformed .nettrace surfaces as a clean tool
             // error rather than an unhandled exception.
@@ -1817,7 +1835,13 @@ public sealed class TraceTools
         {
             return new EventQueryProvider().Query(path, name, skip, take, maxPayload, payload, pid, tid);
         }
-        catch (Exception ex) when (IsReportReadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // A missing, unreadable, or malformed trace - or an .etl read attempted off
             // Windows (PlatformNotSupportedException derives from NotSupportedException) -
@@ -1874,7 +1898,13 @@ public sealed class TraceTools
         {
             return new DiskIoProvider().Read(path);
         }
-        catch (Exception ex) when (IsReportReadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // A missing, unreadable, or malformed .etl surfaces as a clean tool error.
             throw new McpException(ex.Message);
@@ -1897,7 +1927,13 @@ public sealed class TraceTools
         {
             return new LifecycleProvider().Read(path, scope, images, warnings);
         }
-        catch (Exception ex) when (IsReportReadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // A missing, unreadable, or malformed .etl - or a reused process id the
             // selector cannot disambiguate - surfaces as a clean tool error.

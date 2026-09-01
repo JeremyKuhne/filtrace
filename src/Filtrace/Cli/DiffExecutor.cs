@@ -117,15 +117,9 @@ internal static class DiffExecutor
         }
 
         // The strict gate trips when either trace crosses the symbol-quality threshold.
-        bool beforeBelowThreshold = SymbolGate.IsBelowThreshold(
-            before.Info.SymbolResolutionRate,
-            before.Info.SampleCount);
-
-        bool afterBelowThreshold = SymbolGate.IsBelowThreshold(
-            after.Info.SymbolResolutionRate,
-            after.Info.SampleCount);
-
-        bool belowThreshold = beforeBelowThreshold || afterBelowThreshold;
+        bool belowThreshold =
+            SymbolGate.IsBelowThreshold(before.Info.SymbolResolutionRate, before.Info.SampleCount)
+                || SymbolGate.IsBelowThreshold(after.Info.SymbolResolutionRate, after.Info.SampleCount);
 
         return request.Strict && belowThreshold ? ExitCodes.QualityGate : ExitCodes.Success;
     }
@@ -185,19 +179,15 @@ internal static class DiffExecutor
 
             return request.Strict && belowThreshold ? ExitCodes.QualityGate : ExitCodes.Success;
         }
-        catch (Exception exception) when (IsManifestInputException(exception))
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or InvalidDataException
+                or ArgumentException)
         {
             error.WriteLine(exception.Message);
             return ExitCodes.InputError;
         }
-    }
-
-    private static bool IsManifestInputException(Exception exception)
-    {
-        return exception is IOException
-            || exception is UnauthorizedAccessException
-            || exception is InvalidDataException
-            || exception is ArgumentException;
     }
 
     // Rank every frame (no row cap) so the diff is not skewed by per-side truncation;

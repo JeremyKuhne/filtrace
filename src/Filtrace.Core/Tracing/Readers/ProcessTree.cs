@@ -167,10 +167,8 @@ internal static partial class ProcessTree
     /// <returns><see langword="true"/> when at least one process with a positive id is excluded.</returns>
     internal static bool NarrowsTheCapture(
         IEnumerable<ProcessInstanceDescriptor> processes,
-        HashSet<int> includedIndexes)
-    {
-        return processes.Any(process => process.ProcessId > 0 && !includedIndexes.Contains(process.Index));
-    }
+        HashSet<int> includedIndexes) =>
+            processes.Any(process => process.ProcessId > 0 && !includedIndexes.Contains(process.Index));
 
     /// <summary>
     ///  Resolves name or id roots to exact trace-local process instances and optionally expands their descendants.
@@ -635,12 +633,10 @@ internal static partial class ProcessTree
             // CLI and MCP heads surface this message verbatim.
             if (sameId.Count > 1)
             {
-                IEnumerable<string> processDescriptions = sameId.Select(static process =>
-                    $"'{process.Name}' started at {process.StartTimeRelativeMsec.ToString("F3", CultureInfo.InvariantCulture)} ms");
-
                 throw new ArgumentException(
                     $"Process id {processId} was reused in this trace by {sameId.Count} processes "
-                        + $"({string.Join("; ", processDescriptions)}). "
+                        + $"({string.Join("; ", sameId.Select(static process =>
+                            $"'{process.Name}' started at {process.StartTimeRelativeMsec.ToString("F3", CultureInfo.InvariantCulture)} ms"))}). "
                         + "Scope to a time window that contains only one of them, or select by process name.");
             }
 

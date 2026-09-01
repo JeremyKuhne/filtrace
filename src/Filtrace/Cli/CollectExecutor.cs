@@ -128,21 +128,17 @@ internal static class CollectExecutor
             output.WriteLine($"  filtrace classify \"{trace}\" --process \"{result.ProcessName}\" --native-symbols");
             return ExitCodes.Success;
         }
-        catch (Exception ex) when (IsCollectionException(ex))
+        catch (Exception ex) when (
+            ex is PlatformNotSupportedException
+                or UnauthorizedAccessException
+                or ArgumentException
+                or InvalidOperationException
+                or IOException
+                or System.ComponentModel.Win32Exception)
         {
             error.WriteLine(ex.Message);
             return ExitCodes.InputError;
         }
-    }
-
-    private static bool IsCollectionException(Exception exception)
-    {
-        return exception is PlatformNotSupportedException
-            || exception is UnauthorizedAccessException
-            || exception is ArgumentException
-            || exception is InvalidOperationException
-            || exception is IOException
-            || exception is System.ComponentModel.Win32Exception;
     }
 
     // Sub-millisecond intervals are the point of the widened range, so the format has to

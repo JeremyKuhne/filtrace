@@ -77,19 +77,15 @@ internal static class BatchExecutor
 
             return request.Strict && belowThreshold ? ExitCodes.QualityGate : ExitCodes.Success;
         }
-        catch (Exception exception) when (IsInputException(exception))
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or InvalidDataException
+                or ArgumentException)
         {
             error.WriteLine(exception.Message);
             return ExitCodes.InputError;
         }
-    }
-
-    private static bool IsInputException(Exception exception)
-    {
-        return exception is IOException
-            || exception is UnauthorizedAccessException
-            || exception is InvalidDataException
-            || exception is ArgumentException;
     }
 
     private static string MetricSelector(TraceMetric metric) => metric switch

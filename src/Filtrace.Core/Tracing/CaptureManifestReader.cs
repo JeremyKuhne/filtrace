@@ -165,13 +165,11 @@ public static class CaptureManifestReader
                     "speedscope",
                     MaxDisplayLength);
 
-                string? recordedPath = trace ?? speedscope;
-                if (recordedPath is null)
-                {
-                    throw new InvalidDataException($"Capture case '{id}' has no trace or speedscope path.");
-                }
-
-                string analysisPath = ResolvePath(manifestDirectory, recordedPath);
+                string analysisPath = ResolvePath(
+                    manifestDirectory,
+                    trace
+                        ?? speedscope
+                        ?? throw new InvalidDataException($"Capture case '{id}' has no trace or speedscope path."));
 
                 string? symbols = OptionalBoundedString(
                     caseElement,
@@ -204,15 +202,14 @@ public static class CaptureManifestReader
         {
             throw;
         }
-        catch (Exception exception) when (IsMalformedJsonException(exception))
+        catch (Exception exception) when (
+            exception is JsonException
+                or InvalidOperationException
+                or FormatException
+                or OverflowException)
         {
             throw new InvalidDataException("Capture manifest JSON is malformed.", exception);
         }
-    }
-
-    private static bool IsMalformedJsonException(Exception exception)
-    {
-        return exception is JsonException or InvalidOperationException or FormatException or OverflowException;
     }
 
     /// <summary>
