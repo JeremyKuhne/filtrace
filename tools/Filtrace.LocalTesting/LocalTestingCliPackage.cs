@@ -82,13 +82,12 @@ internal sealed record LocalTestingCliPackage(string Path, string Version, strin
             archive.Entries.Select(entry => entry.Length),
             fullPath);
 
-        static bool IsRootNuspec(ZipArchiveEntry entry)
-        {
-            return entry.Name.Equals(entry.FullName, StringComparison.Ordinal)
-                && entry.Name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase);
-        }
-
-        ZipArchiveEntry[] nuspecs = [.. archive.Entries.Where(IsRootNuspec)];
+        ZipArchiveEntry[] nuspecs =
+        [
+            .. archive.Entries.Where(entry =>
+                entry.Name.Equals(entry.FullName, StringComparison.Ordinal)
+                    && entry.Name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase))
+        ];
 
         if (nuspecs.Length is not 1)
         {

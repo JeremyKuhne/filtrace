@@ -78,7 +78,12 @@ internal static class ExportExecutor
         {
             File.WriteAllText(request.Output, exported);
         }
-        catch (Exception ex) when (IsWriteException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or System.Security.SecurityException
+                or ArgumentException)
         {
             // A bad or unwritable output path fails with a defined exit code rather
             // than crashing the process.
@@ -88,14 +93,5 @@ internal static class ExportExecutor
 
         output.WriteLine($"Wrote {request.Format.ToString().ToLowerInvariant()} export to {request.Output}");
         return ExitCodes.Success;
-    }
-
-    private static bool IsWriteException(Exception exception)
-    {
-        return exception is IOException
-            || exception is UnauthorizedAccessException
-            || exception is NotSupportedException
-            || exception is System.Security.SecurityException
-            || exception is ArgumentException;
     }
 }

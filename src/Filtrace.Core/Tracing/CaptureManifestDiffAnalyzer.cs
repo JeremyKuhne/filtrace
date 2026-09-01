@@ -159,12 +159,10 @@ public static class CaptureManifestDiffAnalyzer
         LoadedTrace trace,
         bool inclusive,
         string root,
-        IReadOnlyList<string> foldPatterns)
-    {
-        return inclusive
-            ? trace.Aggregator.InclusiveTime(root, foldPatterns, int.MaxValue)
-            : trace.Aggregator.SelfTime(root, foldPatterns, int.MaxValue);
-    }
+        IReadOnlyList<string> foldPatterns) =>
+            inclusive
+                ? trace.Aggregator.InclusiveTime(root, foldPatterns, int.MaxValue)
+                : trace.Aggregator.SelfTime(root, foldPatterns, int.MaxValue);
 
     private static RankingDiffResult Diff(
         RankingResult before,
@@ -210,30 +208,28 @@ public static class CaptureManifestDiffAnalyzer
         RankingDiffResult diff,
         IReadOnlyList<string> warnings,
         RootScopeCoverage? beforeRootCoverage,
-        RootScopeCoverage? afterRootCoverage)
-    {
-        return new RankingDiffCaseResult(
-            pair.Before.Benchmark!,
-            pair.Before.Parameters,
-            diff.BeforeScopeWeight,
-            diff.AfterScopeWeight,
-            diff.ScopeDelta,
-            diff.Rows.Select(static row => row with
+        RootScopeCoverage? afterRootCoverage) =>
+            new(
+                pair.Before.Benchmark!,
+                pair.Before.Parameters,
+                diff.BeforeScopeWeight,
+                diff.AfterScopeWeight,
+                diff.ScopeDelta,
+                diff.Rows.Select(static row => row with
+                {
+                    Frame = CaptureManifestOutput.BoundFrame(row.Frame)
+                }).ToArray(),
+                warnings)
             {
-                Frame = CaptureManifestOutput.BoundFrame(row.Frame)
-            }).ToArray(),
-            warnings)
-        {
-            BeforeContributingRecordCount = diff.BeforeContributingRecordCount,
-            AfterContributingRecordCount = diff.AfterContributingRecordCount,
-            BeforeRootCoverage = beforeRootCoverage,
-            AfterRootCoverage = afterRootCoverage,
-            OperationUnit = diff.OperationUnit,
-            BeforeScopeWeightPerOperation = diff.BeforeScopeWeightPerOperation,
-            AfterScopeWeightPerOperation = diff.AfterScopeWeightPerOperation,
-            ScopeWeightPerOperationDelta = diff.ScopeWeightPerOperationDelta
-        };
-    }
+                BeforeContributingRecordCount = diff.BeforeContributingRecordCount,
+                AfterContributingRecordCount = diff.AfterContributingRecordCount,
+                BeforeRootCoverage = beforeRootCoverage,
+                AfterRootCoverage = afterRootCoverage,
+                OperationUnit = diff.OperationUnit,
+                BeforeScopeWeightPerOperation = diff.BeforeScopeWeightPerOperation,
+                AfterScopeWeightPerOperation = diff.AfterScopeWeightPerOperation,
+                ScopeWeightPerOperationDelta = diff.ScopeWeightPerOperationDelta
+            };
 
     private static void AddQualityWarnings(
         List<string> warnings,

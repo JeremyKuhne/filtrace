@@ -65,10 +65,8 @@ internal static class TraceExecution
         string path,
         string? symbols,
         TextWriter error,
-        [NotNullWhen(returnValue: true)] out LoadedTrace? trace)
-    {
-        return TryLoad(path, TraceMetric.Cpu, symbols, error, out trace);
-    }
+        [NotNullWhen(returnValue: true)] out LoadedTrace? trace) =>
+            TryLoad(path, TraceMetric.Cpu, symbols, error, out trace);
 
     /// <summary>
     ///  Loads the <paramref name="metric"/> view of the trace at <paramref name="path"/>,
@@ -104,7 +102,15 @@ internal static class TraceExecution
             trace = new TraceStore().Get(path, symbols, metric, scope, symbolOptions);
             return true;
         }
-        catch (Exception ex) when (IsTraceLoadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or JsonException
+                or KeyNotFoundException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // Missing, unreadable, or malformed trace input - including a format that
             // does not carry the selected metric's data (NotSupportedException) -
@@ -166,7 +172,13 @@ internal static class TraceExecution
             result = read();
             return true;
         }
-        catch (Exception ex) when (IsReportReadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // A missing, unreadable, or malformed .nettrace terminates with a defined
             // exit code rather than crashing the process; a corrupt EventPipe stream
@@ -222,7 +234,13 @@ internal static class TraceExecution
             result = read();
             return true;
         }
-        catch (Exception ex) when (IsReportReadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // A missing, unreadable, or malformed .etl terminates with a defined exit code
             // rather than crashing the process.
@@ -280,7 +298,14 @@ internal static class TraceExecution
             result = read();
             return true;
         }
-        catch (Exception ex) when (IsDualFormatReadException(ex))
+        catch (Exception ex) when (
+            ex is IOException
+                or InvalidDataException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
         {
             // A missing, unreadable, or malformed trace - or an .etl read attempted off
             // Windows (PlatformNotSupportedException derives from NotSupportedException) -
@@ -289,28 +314,6 @@ internal static class TraceExecution
             result = null;
             return false;
         }
-    }
-
-    private static bool IsTraceLoadException(Exception exception)
-    {
-        return IsReportReadException(exception)
-            || exception is JsonException
-            || exception is KeyNotFoundException;
-    }
-
-    private static bool IsReportReadException(Exception exception)
-    {
-        return exception is IOException
-            || exception is UnauthorizedAccessException
-            || exception is NotSupportedException
-            || exception is InvalidOperationException
-            || exception is FormatException
-            || exception is ArgumentException;
-    }
-
-    private static bool IsDualFormatReadException(Exception exception)
-    {
-        return exception is InvalidDataException || IsReportReadException(exception);
     }
 
     /// <summary>

@@ -31,10 +31,8 @@ public static class ContributingRecordQuality
         StackRecordSemantics semantics,
         int? contributingRecordCount,
         out string? warning,
-        int minimumRecords = DefaultMinimumMethodRecords)
-    {
-        return TryGetWarning(semantics, contributingRecordCount, minimumRecords, "method-level", out warning);
-    }
+        int minimumRecords = DefaultMinimumMethodRecords) =>
+            TryGetWarning(semantics, contributingRecordCount, minimumRecords, "method-level", out warning);
 
     /// <summary>
     ///  Produces a thin-scope warning for a source-line periodic CPU result.
@@ -48,10 +46,8 @@ public static class ContributingRecordQuality
         StackRecordSemantics semantics,
         int? attributedRecordCount,
         out string? warning,
-        int minimumRecords = DefaultMinimumLineRecords)
-    {
-        return TryGetWarning(semantics, attributedRecordCount, minimumRecords, "line-level", out warning);
-    }
+        int minimumRecords = DefaultMinimumLineRecords) =>
+            TryGetWarning(semantics, attributedRecordCount, minimumRecords, "line-level", out warning);
 
     private static bool TryGetWarning(
         StackRecordSemantics semantics,

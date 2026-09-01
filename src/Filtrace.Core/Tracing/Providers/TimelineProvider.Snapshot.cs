@@ -150,53 +150,47 @@ public sealed partial class TimelineProvider
         SnapshotGcSummary gc = gcCollector.Build(gcPauses, out bool gcNamesTruncated);
         detailTruncated |= gcCollector.DetailTruncated;
         namesTruncated |= gcNamesTruncated;
-        SnapshotCpuMethod SelectCpuMethod(KeyValuePair<string, long> pair)
-        {
-            string name = BoundSnapshotName(pair.Key, out bool truncated);
-            namesTruncated |= truncated;
-            return new SnapshotCpuMethod(
-                name,
-                pair.Value,
-                cpuSampleCount > 0 ? Math.Round(100.0 * pair.Value / cpuSampleCount, 2) : 0.0);
-        }
-
         SnapshotCpuMethod[] topCpu = [.. cpuMethods
             .OrderByDescending(static pair => pair.Value)
             .ThenBy(static pair => pair.Key, StringComparer.Ordinal)
             .Take(SnapshotDetailLimit)
-            .Select(SelectCpuMethod)];
+            .Select(pair =>
+                {
+                    string name = BoundSnapshotName(pair.Key, out bool truncated);
+                    namesTruncated |= truncated;
+                    return new SnapshotCpuMethod(
+                        name,
+                        pair.Value,
+                        cpuSampleCount > 0 ? Math.Round(100.0 * pair.Value / cpuSampleCount, 2) : 0.0);
+                })];
 
         SnapshotCountRow[] topExceptions = TopCounts(exceptionTypes, out bool exceptionNamesTruncated);
         namesTruncated |= exceptionNamesTruncated;
-        SnapshotAllocationType SelectAllocation(KeyValuePair<string, (long Count, long Bytes)> pair)
-        {
-            string name = BoundSnapshotName(pair.Key, out bool truncated);
-            namesTruncated |= truncated;
-            return new SnapshotAllocationType(name, pair.Value.Count, pair.Value.Bytes);
-        }
-
         SnapshotAllocationType[] topAllocations = [.. allocationTypes
             .OrderByDescending(static pair => pair.Value.Bytes)
             .ThenBy(static pair => pair.Key, StringComparer.Ordinal)
             .Take(SnapshotDetailLimit)
-            .Select(SelectAllocation)];
+            .Select(pair =>
+                {
+                    string name = BoundSnapshotName(pair.Key, out bool truncated);
+                    namesTruncated |= truncated;
+                    return new SnapshotAllocationType(name, pair.Value.Count, pair.Value.Bytes);
+                })];
 
         SnapshotCountRow[] topJit = TopCounts(jitMethods, out bool jitNamesTruncated);
         namesTruncated |= jitNamesTruncated;
-        SnapshotEventType SelectEvent(KeyValuePair<(string Provider, string Name), long> pair)
-        {
-            string provider = BoundSnapshotName(pair.Key.Provider, out bool providerTruncated);
-            string name = BoundSnapshotName(pair.Key.Name, out bool nameTruncated);
-            namesTruncated |= providerTruncated || nameTruncated;
-            return new SnapshotEventType(provider, name, pair.Value);
-        }
-
         SnapshotEventType[] topEvents = [.. eventTypes
             .OrderByDescending(static pair => pair.Value)
             .ThenBy(static pair => pair.Key.Provider, StringComparer.Ordinal)
             .ThenBy(static pair => pair.Key.Name, StringComparer.Ordinal)
             .Take(SnapshotDetailLimit)
-            .Select(SelectEvent)];
+            .Select(pair =>
+                {
+                    string provider = BoundSnapshotName(pair.Key.Provider, out bool providerTruncated);
+                    string name = BoundSnapshotName(pair.Key.Name, out bool nameTruncated);
+                    namesTruncated |= providerTruncated || nameTruncated;
+                    return new SnapshotEventType(provider, name, pair.Value);
+                })];
 
         TimelineSnapshot snapshot = new(
             atMs,
@@ -413,11 +407,9 @@ public sealed partial class TimelineProvider
     /// </summary>
     /// <param name="value">The trace-relative millisecond value to inspect.</param>
     /// <returns><see langword="true"/> when the value is supported; otherwise <see langword="false"/>.</returns>
-    public static bool IsSnapshotGeometryRepresentable(double value)
-    {
-        return double.IsFinite(value)
+    public static bool IsSnapshotGeometryRepresentable(double value) =>
+        double.IsFinite(value)
             && value == Math.Round(value, OutputJson.DoublePrecision, MidpointRounding.AwayFromZero);
-    }
 
     /// <summary>
     ///  Resolves a centered snapshot window, clamping its start to zero and rounding an overrun end up to trace precision.
@@ -518,12 +510,10 @@ public sealed partial class TimelineProvider
         PauseRestartResult restartResult,
         double timestamp,
         double windowStartMs,
-        double windowEndMs)
-    {
-        return restartResult == PauseRestartResult.MissingStart
-            && timestamp >= windowStartMs
-            && timestamp <= windowEndMs;
-    }
+        double windowEndMs) =>
+            restartResult == PauseRestartResult.MissingStart
+                && timestamp >= windowStartMs
+                && timestamp <= windowEndMs;
 
     /// <summary>
     ///  Merges overlapping pauses independently per process instance and computes their overlap with a snapshot window.
@@ -1020,11 +1010,9 @@ public sealed partial class TimelineProvider
     internal static bool IsMissingPauseIdentityGcIncomplete(
         GCSuspendEEReason reason,
         double timestamp,
-        double windowEndMs)
-    {
-        return IsGcPauseReason(reason)
-            && (!double.IsFinite(timestamp) || timestamp <= windowEndMs);
-    }
+        double windowEndMs) =>
+            IsGcPauseReason(reason)
+                && (!double.IsFinite(timestamp) || timestamp <= windowEndMs);
 
     private static AppliedProcessScope? FollowUpProcessScope(ScopeResolution resolved) =>
         resolved.AppliedScope.Mode == "automatic" && resolved.Label is null

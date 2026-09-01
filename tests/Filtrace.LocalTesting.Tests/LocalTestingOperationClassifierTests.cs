@@ -18,9 +18,7 @@ public sealed class LocalTestingOperationClassifierTests
     public void Classify_NoStateRestore_Throws()
     {
         Action action = () =>
-        {
             LocalTestingOperationClassifier.Classify(LocalTestingAction.Restore, state: null);
-        };
 
         action.Should().Throw<InvalidOperationException>()
             .WithMessage("*requires existing*");

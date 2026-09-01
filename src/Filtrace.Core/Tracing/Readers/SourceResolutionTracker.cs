@@ -432,22 +432,17 @@ internal sealed partial class SourceResolutionTracker
     private static PdbMatchStatus GetPdbMatchStatus(
         SymbolReader reader,
         TraceModuleFile? module,
-        string? candidateDirectory)
-    {
-        if (module is null)
-        {
-            return PdbMatchStatus.NotFound;
-        }
-
-        return GetPdbMatchStatus(
-            reader,
-            candidateDirectory,
-            module.PdbName,
-            module.PdbSignature,
-            module.PdbAge,
-            module.FilePath,
-            module.FileVersion);
-    }
+        string? candidateDirectory) =>
+            module is null
+                ? PdbMatchStatus.NotFound
+                : GetPdbMatchStatus(
+                    reader,
+                    candidateDirectory,
+                    module.PdbName,
+                    module.PdbSignature,
+                    module.PdbAge,
+                    module.FilePath,
+                    module.FileVersion);
 
     private static PdbMatchStatus GetPdbMatchStatus(
         SymbolReader reader,

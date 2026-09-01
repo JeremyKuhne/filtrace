@@ -44,10 +44,12 @@ public sealed class ScopeRequest
     ///  The default: let the loader scope a multi-process capture to the busiest
     ///  process tree automatically.
     /// </summary>
-    public static ScopeRequest Auto
-    {
-        get;
-    } = new(includeAll: false, selector: null, includeChildren: true, activityName: null, window: null);
+    public static ScopeRequest Auto { get; } = new(
+        includeAll: false,
+        selector: null,
+        includeChildren: true,
+        activityName: null,
+        window: null);
 
     /// <summary>
     ///  The automatic busiest-process scope, choosing whether to follow the chosen
@@ -61,10 +63,12 @@ public sealed class ScopeRequest
     /// <summary>
     ///  Read every process - the opt-out from automatic scenario scoping.
     /// </summary>
-    public static ScopeRequest AllProcesses
-    {
-        get;
-    } = new(includeAll: true, selector: null, includeChildren: true, activityName: null, window: null);
+    public static ScopeRequest AllProcesses { get; } = new(
+        includeAll: true,
+        selector: null,
+        includeChildren: true,
+        activityName: null,
+        window: null);
 
     /// <summary>
     ///  Scope to the process(es) whose name contains <paramref name="processName"/>,

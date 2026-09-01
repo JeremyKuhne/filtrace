@@ -37,13 +37,11 @@ internal sealed record CaptureProviders(
     // Just enough of the CLR to keep managed frames readable: Jit and NGen name the
     // methods, Loader names their modules, and JittedMethodILToNativeMap carries the
     // IL offsets that turn a native address into a source line.
-    private const ClrTraceEventParser.Keywords MethodNamingClrKeywords =
-        ClrTraceEventParser.Keywords.Jit | ClrTraceEventParser.Keywords.NGen;
-
-    private const ClrTraceEventParser.Keywords ModuleNamingClrKeywords =
-        ClrTraceEventParser.Keywords.Loader | ClrTraceEventParser.Keywords.JittedMethodILToNativeMap;
-
-    private const ClrTraceEventParser.Keywords NamingClrKeywords = MethodNamingClrKeywords | ModuleNamingClrKeywords;
+    private const ClrTraceEventParser.Keywords NamingClrKeywords =
+        ClrTraceEventParser.Keywords.Jit
+            | ClrTraceEventParser.Keywords.NGen
+            | ClrTraceEventParser.Keywords.Loader
+            | ClrTraceEventParser.Keywords.JittedMethodILToNativeMap;
 
     // The naming set plus the two keywords an .etl analysis reads beyond it: GC feeds the
     // timeline's gc and alloc lanes, Exception feeds its exception lane.

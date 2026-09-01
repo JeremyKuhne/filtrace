@@ -80,7 +80,11 @@ internal static class CaptureMetadataReader
 
             return statuses;
         }
-        catch (Exception exception) when (IsMetadataReadException(exception))
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or JsonException
+                or InvalidDataException)
         {
             warnings.Add(
                 $"Capture metadata '{metadataPath}' could not be read: {exception.Message} "
@@ -88,11 +92,6 @@ internal static class CaptureMetadataReader
 
             return null;
         }
-    }
-
-    private static bool IsMetadataReadException(Exception exception)
-    {
-        return exception is IOException or UnauthorizedAccessException or JsonException or InvalidDataException;
     }
 
     private static byte[] ReadBounded(string path)
