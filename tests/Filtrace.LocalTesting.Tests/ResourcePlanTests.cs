@@ -26,6 +26,12 @@ public sealed class ResourcePlanTests
         plan.McpConfigurationPath.Should().Be(Path.Join(targetRoot, ".vscode", "mcp.json"));
         plan.SkillDestination.Should().Be(
             Path.Join(targetRoot, ".agents", "skills", "filtrace"));
+
+        plan.SkillStagingPath.Should().Be(
+            Path.Join(targetRoot, ".agents", ".filtrace-skill-staging"));
+
+        plan.SkillRetiredPath.Should().Be(
+            Path.Join(targetRoot, ".agents", ".filtrace-skill-retired"));
     }
 
     [TestMethod]
