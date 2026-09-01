@@ -207,9 +207,9 @@ public sealed class LocalTestingCliPackageTests
         {
             ZipArchiveEntry entry = archive.CreateEntry("package.nuspec");
             using StreamWriter writer = new(entry.Open());
-            writer.Write(string.Concat(
-                $"<!DOCTYPE package [<!ENTITY secret SYSTEM \"{new Uri(secretPath).AbsoluteUri}\">]>",
-                "<package><metadata><id>&secret;</id><version>1.2.3</version></metadata></package>"));
+            writer.Write(
+                $"<!DOCTYPE package [<!ENTITY secret SYSTEM \"{new Uri(secretPath).AbsoluteUri}\">]>"
+                    + "<package><metadata><id>&secret;</id><version>1.2.3</version></metadata></package>");
         }
 
         Action read = () => LocalTestingCliPackage.Read(packagePath);

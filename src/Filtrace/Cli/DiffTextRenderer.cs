@@ -46,9 +46,9 @@ internal static class DiffTextRenderer
             $"current   {after.Format}  {after.SampleCount} samples  symbols {after.SymbolResolutionRate:P0}");
 
         output.WriteLine();
-        output.WriteLine(string.Concat(
-            $"{metric.Name} {measureLabel} diff  -  scope {diff.BeforeScopeWeight:N2} -> {diff.AfterScopeWeight:N2} {unit} ",
-            $"(delta {Signed(diff.ScopeDelta)} {unit})"));
+        output.WriteLine(
+            $"{metric.Name} {measureLabel} diff  -  scope {diff.BeforeScopeWeight:N2} -> {diff.AfterScopeWeight:N2} {unit} "
+                + $"(delta {Signed(diff.ScopeDelta)} {unit})");
 
         if (diff.Rows.Count == 0)
         {
@@ -94,16 +94,16 @@ internal static class DiffTextRenderer
 
             output.WriteLine();
             output.WriteLine(identity);
-            output.WriteLine(string.Concat(
-                $"  scope {captureCase.BeforeScopeWeight:N2} -> {captureCase.AfterScopeWeight:N2} {metric.Unit} ",
-                $"(delta {Signed(captureCase.ScopeDelta)} {metric.Unit})"));
+            output.WriteLine(
+                $"  scope {captureCase.BeforeScopeWeight:N2} -> {captureCase.AfterScopeWeight:N2} {metric.Unit} "
+                    + $"(delta {Signed(captureCase.ScopeDelta)} {metric.Unit})");
 
             if (captureCase.OperationUnit is not null)
             {
-                output.WriteLine(string.Concat(
-                    $"  per {captureCase.OperationUnit}: {captureCase.BeforeScopeWeightPerOperation:N4} -> ",
-                    $"{captureCase.AfterScopeWeightPerOperation:N4} {metric.Unit} ",
-                    $"(delta {Signed(captureCase.ScopeWeightPerOperationDelta!.Value)} {metric.Unit})"));
+                output.WriteLine(
+                    $"  per {captureCase.OperationUnit}: {captureCase.BeforeScopeWeightPerOperation:N4} -> "
+                        + $"{captureCase.AfterScopeWeightPerOperation:N4} {metric.Unit} "
+                        + $"(delta {Signed(captureCase.ScopeWeightPerOperationDelta!.Value)} {metric.Unit})");
             }
 
             if (captureCase.Rows.Count == 0)
@@ -138,23 +138,23 @@ internal static class DiffTextRenderer
         string? operationUnit,
         TextWriter output)
     {
-        output.WriteLine(string.Concat(
-            $"  {"before",WeightColumnWidth}  {"after",WeightColumnWidth}  {"delta",WeightColumnWidth}  ",
-            $"{"before %",PercentColumnWidth}  {"after %",PercentColumnWidth}  {"pp",PercentColumnWidth}  kind  frame"));
+        output.WriteLine(
+            $"  {"before",WeightColumnWidth}  {"after",WeightColumnWidth}  {"delta",WeightColumnWidth}  "
+                + $"{"before %",PercentColumnWidth}  {"after %",PercentColumnWidth}  {"pp",PercentColumnWidth}  kind  frame");
 
         foreach (DiffRow row in rows)
         {
-            output.WriteLine(string.Concat(
-                $"  {$"{row.BeforeWeight:N2} {unit}",WeightColumnWidth}  {$"{row.AfterWeight:N2} {unit}",WeightColumnWidth}  ",
-                $"{$"{Signed(row.Delta)} {unit}",WeightColumnWidth}  {row.BeforePercentOfScope,PercentColumnWidth:N2}  ",
-                $"{row.AfterPercentOfScope,PercentColumnWidth:N2}  {Signed(row.PercentagePointChange),PercentColumnWidth}  ",
-                $"{row.ChangeKind,-11}  {row.Frame}"));
+            output.WriteLine(
+                $"  {$"{row.BeforeWeight:N2} {unit}",WeightColumnWidth}  {$"{row.AfterWeight:N2} {unit}",WeightColumnWidth}  "
+                    + $"{$"{Signed(row.Delta)} {unit}",WeightColumnWidth}  {row.BeforePercentOfScope,PercentColumnWidth:N2}  "
+                    + $"{row.AfterPercentOfScope,PercentColumnWidth:N2}  {Signed(row.PercentagePointChange),PercentColumnWidth}  "
+                    + $"{row.ChangeKind,-11}  {row.Frame}");
 
             if (operationUnit is not null)
             {
-                output.WriteLine(string.Concat(
-                    $"  {"",WeightColumnWidth}  per {operationUnit}: {row.BeforeWeightPerOperation:N4} -> ",
-                    $"{row.AfterWeightPerOperation:N4} {unit} (delta {Signed(row.PerOperationDelta!.Value)} {unit})"));
+                output.WriteLine(
+                    $"  {"",WeightColumnWidth}  per {operationUnit}: {row.BeforeWeightPerOperation:N4} -> "
+                        + $"{row.AfterWeightPerOperation:N4} {unit} (delta {Signed(row.PerOperationDelta!.Value)} {unit})");
             }
         }
     }

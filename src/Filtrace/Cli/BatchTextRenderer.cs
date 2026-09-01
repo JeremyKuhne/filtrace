@@ -26,13 +26,13 @@ internal static class BatchTextRenderer
     public static void Render(AnalysisResult<BatchRankingResult> envelope, TextWriter output)
     {
         BatchRankingResult result = envelope.Result;
-        output.WriteLine(string.Concat(
-            $"{result.Metric} {result.Measure} manifest batch  -  {result.Cases.Count} case(s)",
-            string.IsNullOrEmpty(result.RootFrame) ? string.Empty : $"  root={result.RootFrame}"));
+        output.WriteLine(
+            $"{result.Metric} {result.Measure} manifest batch  -  {result.Cases.Count} case(s)"
+                + (string.IsNullOrEmpty(result.RootFrame) ? string.Empty : $"  root={result.RootFrame}"));
 
-        output.WriteLine(string.Concat(
-            $"  {"benchmark / parameters",-IdentityWidth}  {"scope",WeightWidth}  {"top",WeightWidth}  ",
-            $"{"top %",PercentWidth}  {"records",RecordsWidth}  frame"));
+        output.WriteLine(
+            $"  {"benchmark / parameters",-IdentityWidth}  {"scope",WeightWidth}  {"top",WeightWidth}  "
+                + $"{"top %",PercentWidth}  {"records",RecordsWidth}  frame");
 
         foreach (BatchRankingCaseResult captureCase in result.Cases)
         {
@@ -41,18 +41,18 @@ internal static class BatchTextRenderer
                 : $"{captureCase.Benchmark} ({captureCase.Parameters})";
 
             string records = captureCase.ContributingRecordCount?.ToString() ?? "n/a";
-            output.WriteLine(string.Concat(
-                $"  {Trim(identity, IdentityWidth),-IdentityWidth}  ",
-                $"{$"{captureCase.ScopeWeight:N2} {captureCase.Unit}",WeightWidth}  ",
-                $"{$"{captureCase.TopWeight:N2} {captureCase.Unit}",WeightWidth}  ",
-                $"{captureCase.TopPercentOfScope,PercentWidth:N2}  {records,RecordsWidth}  ",
-                $"{captureCase.TopFrame ?? "(none)"}"));
+            output.WriteLine(
+                $"  {Trim(identity, IdentityWidth),-IdentityWidth}  "
+                    + $"{$"{captureCase.ScopeWeight:N2} {captureCase.Unit}",WeightWidth}  "
+                    + $"{$"{captureCase.TopWeight:N2} {captureCase.Unit}",WeightWidth}  "
+                    + $"{captureCase.TopPercentOfScope,PercentWidth:N2}  {records,RecordsWidth}  "
+                    + $"{captureCase.TopFrame ?? "(none)"}");
 
             if (captureCase.OperationUnit is not null)
             {
-                output.WriteLine(string.Concat(
-                    $"  {"",-IdentityWidth}  per {captureCase.OperationUnit}: ",
-                    $"scope {captureCase.ScopeWeightPerOperation:N4}, top {captureCase.TopWeightPerOperation:N4} {captureCase.Unit}"));
+                output.WriteLine(
+                    $"  {"",-IdentityWidth}  per {captureCase.OperationUnit}: "
+                        + $"scope {captureCase.ScopeWeightPerOperation:N4}, top {captureCase.TopWeightPerOperation:N4} {captureCase.Unit}");
             }
 
             foreach (string warning in captureCase.Warnings)

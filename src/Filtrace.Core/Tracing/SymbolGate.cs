@@ -64,10 +64,10 @@ public static class SymbolGate
         // the locale-dependent space the "P" format inserts before "%".
         int resolvedPct = (int)(resolutionRate * 100);
         int thresholdPct = (int)(MinimumResolutionRate * 100);
-        warning = string.Concat(
-            $"Only {resolvedPct}% of frames resolved to a method name (< {thresholdPct}%); native frames may be unresolved. ",
-            "Managed method names normally come from CLR rundown; inspect unresolved rows before trusting names. ",
-            "For CPU .etl analysis, --native-symbols can name runtime frames; --symbols supplies local PDBs for source lines.");
+        warning =
+            $"Only {resolvedPct}% of frames resolved to a method name (< {thresholdPct}%); native frames may be unresolved. "
+                + "Managed method names normally come from CLR rundown; inspect unresolved rows before trusting names. "
+                + "For CPU .etl analysis, --native-symbols can name runtime frames; --symbols supplies local PDBs for source lines.";
 
         return true;
     }

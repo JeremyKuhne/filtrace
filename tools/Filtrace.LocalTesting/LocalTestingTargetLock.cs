@@ -30,9 +30,8 @@ internal sealed class LocalTestingTargetLock : IDisposable
         if (!OperatingSystem.IsWindows() && IsRuntimeFileLockingDisabled())
         {
             throw new InvalidOperationException(
-                string.Concat(
-                    $"Local testing requires .NET file locking. Disable '{DisableFileLockingSwitch}' ",
-                    $"and unset '{DisableFileLockingVariable}'."));
+                $"Local testing requires .NET file locking. Disable '{DisableFileLockingSwitch}' "
+                    + $"and unset '{DisableFileLockingVariable}'.");
         }
 
         if (!Directory.Exists(plan.GitDirectory))
@@ -79,9 +78,8 @@ internal sealed class LocalTestingTargetLock : IDisposable
         catch (IOException exception)
         {
             throw new InvalidOperationException(
-                string.Concat(
-                    $"Could not acquire the local-testing lock for '{plan.TargetRoot}'. ",
-                    "Another local-testing operation may already be running."),
+                $"Could not acquire the local-testing lock for '{plan.TargetRoot}'. "
+                    + "Another local-testing operation may already be running.",
                 exception);
         }
 

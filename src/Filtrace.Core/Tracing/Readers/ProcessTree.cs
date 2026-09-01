@@ -487,10 +487,10 @@ internal static partial class ProcessTree
         if (independentRoots > 1)
         {
             string guidance = NameScopeWarningGuidance(matchedProcessIds);
-            warnings.Add(string.Concat(
-                $"The name '{selector.DisplayName}' matched {independentRoots} unrelated process trees ",
-                $"({FormatIds([.. matchedProcessIds.Order()])}); ",
-                $"they are ranked together. {guidance}"));
+            warnings.Add(
+                $"The name '{selector.DisplayName}' matched {independentRoots} unrelated process trees "
+                    + $"({FormatIds([.. matchedProcessIds.Order()])}); "
+                    + $"they are ranked together. {guidance}");
         }
     }
 
@@ -639,10 +639,9 @@ internal static partial class ProcessTree
                     $"'{process.Name}' started at {process.StartTimeRelativeMsec.ToString("F3", CultureInfo.InvariantCulture)} ms");
 
                 throw new ArgumentException(
-                    string.Concat(
-                        $"Process id {processId} was reused in this trace by {sameId.Count} processes ",
-                        $"({string.Join("; ", processDescriptions)}). ",
-                        "Scope to a time window that contains only one of them, or select by process name."));
+                    $"Process id {processId} was reused in this trace by {sameId.Count} processes "
+                        + $"({string.Join("; ", processDescriptions)}). "
+                        + "Scope to a time window that contains only one of them, or select by process name.");
             }
 
             roots.Add(processId);
@@ -652,9 +651,9 @@ internal static partial class ProcessTree
         // partial match would otherwise look like an ordinary thin result.
         if (warnings is not null && unmatched.Count > 0)
         {
-            warnings.Add(string.Concat(
-                $"{FormatIds(unmatched)} {(unmatched.Count == 1 ? "was" : "were")} not found in this trace and ",
-                "contributed nothing to the scope."));
+            warnings.Add(
+                $"{FormatIds(unmatched)} {(unmatched.Count == 1 ? "was" : "were")} not found in this trace and "
+                    + "contributed nothing to the scope.");
         }
     }
 

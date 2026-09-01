@@ -464,12 +464,11 @@ public sealed partial class TimelineProvider
         ArgumentNullException.ThrowIfNull(result);
 
         return result.Snapshot?.DetailTruncated == true
-            ? string.Concat(
-                $"Snapshot detail was truncated at the {MaxSnapshotRetainedKeysPerFamily}-key-per-family aggregation budget. ",
-                "Aggregate event, CPU-sample, exception, allocation-tick/byte, and JIT-compilation totals remain ",
-                "complete; retained distinct-name counts are lower bounds, retained CPU-method and raw-event-type ",
-                "row counts and percentages may be undercounted, top rows may omit later keys, and GC pause/collection ",
-                "detail may be incomplete.")
+            ? $"Snapshot detail was truncated at the {MaxSnapshotRetainedKeysPerFamily}-key-per-family aggregation budget. "
+                + "Aggregate event, CPU-sample, exception, allocation-tick/byte, and JIT-compilation totals remain "
+                + "complete; retained distinct-name counts are lower bounds, retained CPU-method and raw-event-type "
+                + "row counts and percentages may be undercounted, top rows may omit later keys, and GC pause/collection "
+                + "detail may be incomplete."
             : null;
     }
 
