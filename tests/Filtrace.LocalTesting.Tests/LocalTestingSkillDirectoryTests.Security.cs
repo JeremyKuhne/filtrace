@@ -112,6 +112,40 @@ public sealed partial class LocalTestingSkillDirectoryTests
     }
 
     [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    public void Publish_SourceOverlapsReservedPath_ThrowsBeforeRecovery(int variation)
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        string source = variation switch
+        {
+            0 => plan.SkillStagingPath,
+            1 => Path.Join(plan.SkillRetiredPath, "nested"),
+            _ => Path.GetDirectoryName(plan.SkillStagingPath)!
+        };
+
+        CreateSkillAt(source, "source skill");
+        if (variation is 2)
+        {
+            CreateSkillAt(plan.SkillStagingPath, "reserved staging");
+        }
+
+        Action publish = () => new LocalTestingSkillDirectory().Publish(plan, source);
+
+        publish.Should().Throw<InvalidDataException>()
+            .WithMessage("*must not overlap a reserved operation path*");
+
+        File.ReadAllText(Path.Join(source, "SKILL.md")).Should().Be("source skill");
+        if (variation is 2)
+        {
+            File.ReadAllText(Path.Join(plan.SkillStagingPath, "SKILL.md"))
+                .Should().Be("reserved staging");
+        }
+    }
+
+    [TestMethod]
     public void Publish_LinkInsideSource_ThrowsWithoutTargetMutation()
     {
         using TemporaryDirectory directory = new();
@@ -123,7 +157,9 @@ public sealed partial class LocalTestingSkillDirectoryTests
 
         Action publish = () => new LocalTestingSkillDirectory().Publish(plan, source);
 
-        publish.Should().Throw<InvalidDataException>().WithMessage("*must not contain links*");
+        publish.Should().Throw<InvalidDataException>()
+            .WithMessage("Filtrace skill source must not contain links*");
+
         Directory.Exists(plan.SkillDestination).Should().BeFalse();
     }
 
@@ -198,7 +234,9 @@ public sealed partial class LocalTestingSkillDirectoryTests
 
         Action publish = () => new LocalTestingSkillDirectory().Publish(plan, source);
 
-        publish.Should().Throw<InvalidDataException>().WithMessage("*safety limit*");
+        publish.Should().Throw<InvalidDataException>()
+            .WithMessage("Filtrace skill source exceeds*byte safety limit*");
+
         File.ReadAllText(Path.Join(plan.SkillDestination, "SKILL.md"))
             .Should().Be("consumer skill");
 
@@ -279,7 +317,9 @@ public sealed partial class LocalTestingSkillDirectoryTests
 
         Action publish = () => new LocalTestingSkillDirectory().Publish(plan, source);
 
-        publish.Should().Throw<InvalidDataException>().WithMessage("*safety limit*");
+        publish.Should().Throw<InvalidDataException>()
+            .WithMessage("Skill staging directory exceeds*byte safety limit*");
+
         File.ReadAllText(Path.Join(plan.SkillDestination, "SKILL.md"))
             .Should().Be("consumer skill");
 
@@ -382,6 +422,27 @@ public sealed partial class LocalTestingSkillDirectoryTests
             .Should().Be("active skill");
 
         AssertNoOperationDirectories(plan);
+    }
+
+    [TestMethod]
+    public void Restore_LinkInsideBackup_ReportsBackupAndLeavesActiveDestination()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        CreateDestination(plan, "prior skill", overlay: null);
+        SkillBaseline baseline = CaptureSkillBaseline(plan);
+        string external = Path.Join(directory.Path, "external.txt");
+        File.WriteAllText(external, "external");
+        TryCreateFileLink(Path.Join(plan.SkillBackupPath, "linked.txt"), external);
+        File.WriteAllText(Path.Join(plan.SkillDestination, "SKILL.md"), "active skill");
+
+        Action restore = () => new LocalTestingSkillDirectory().Restore(plan, baseline);
+
+        restore.Should().Throw<InvalidDataException>()
+            .WithMessage("Skill backup must not contain links*");
+
+        File.ReadAllText(Path.Join(plan.SkillDestination, "SKILL.md"))
+            .Should().Be("active skill");
     }
 
     [TestMethod]

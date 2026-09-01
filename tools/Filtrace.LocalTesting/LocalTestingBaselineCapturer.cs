@@ -76,6 +76,7 @@ internal sealed class LocalTestingBaselineCapturer
 
         DirectorySnapshot sourceSnapshot = DirectorySnapshot.Create(
             source,
+            "Skill destination",
             MaxSkillEntries,
             MaxSkillBytes);
 
@@ -85,6 +86,7 @@ internal sealed class LocalTestingBaselineCapturer
             sourceSnapshot.CopyTo(source, staging);
             DirectorySnapshot backupSnapshot = DirectorySnapshot.Create(
                 staging,
+                "Skill backup",
                 MaxSkillEntries,
                 MaxSkillBytes);
 

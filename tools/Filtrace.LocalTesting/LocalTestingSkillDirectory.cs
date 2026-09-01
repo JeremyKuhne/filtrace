@@ -30,6 +30,7 @@ internal sealed class LocalTestingSkillDirectory(
         }
 
         string source = Path.GetFullPath(sourceSkillDirectory);
+    EnsureSourceDoesNotOverlapOperationPaths(source, plan);
         RecoverInterruptedMutation(plan);
         DirectorySnapshot sourceSnapshot = ReadDirectory(source, "Filtrace skill source")
             ?? throw new DirectoryNotFoundException($"Filtrace skill source does not exist: '{source}'.");
@@ -233,6 +234,7 @@ internal sealed class LocalTestingSkillDirectory(
 
         return DirectorySnapshot.Create(
             path,
+            description,
             maxEntries,
             maxBytes);
     }
@@ -243,5 +245,32 @@ internal sealed class LocalTestingSkillDirectory(
         ManagedPathGuard.EnsureNoLinks(plan.TargetRoot, plan.SkillStagingPath);
         ManagedPathGuard.EnsureNoLinks(plan.TargetRoot, plan.SkillRetiredPath);
         ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.SkillBackupPath);
+    }
+
+    private static void EnsureSourceDoesNotOverlapOperationPaths(
+        string source,
+        ResourcePlan plan)
+    {
+        if (PathsOverlap(source, plan.SkillStagingPath)
+            || PathsOverlap(source, plan.SkillRetiredPath))
+        {
+            throw new InvalidDataException(
+                $"Filtrace skill source must not overlap a reserved operation path: '{source}'.");
+        }
+    }
+
+    private static bool PathsOverlap(string first, string second)
+    {
+        return Contains(first, second) || Contains(second, first);
+    }
+
+    private static bool Contains(string root, string candidate)
+    {
+        string relative = Path.GetRelativePath(root, candidate);
+        return relative.Equals(".", StringComparison.Ordinal)
+            || (!Path.IsPathFullyQualified(relative)
+                && !relative.Equals("..", StringComparison.Ordinal)
+                && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                && !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
     }
 }

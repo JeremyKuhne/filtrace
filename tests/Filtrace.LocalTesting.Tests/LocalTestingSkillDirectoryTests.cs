@@ -104,6 +104,7 @@ public sealed partial class LocalTestingSkillDirectoryTests
 
         DirectorySnapshot restored = DirectorySnapshot.Create(
             plan.SkillDestination,
+            "Skill destination",
             LocalTestingBaselineCapturer.MaxSkillEntries,
             LocalTestingBaselineCapturer.MaxSkillBytes);
 
@@ -243,6 +244,7 @@ public sealed partial class LocalTestingSkillDirectoryTests
     {
         return DirectorySnapshot.Create(
             path,
+            "Skill destination",
             LocalTestingBaselineCapturer.MaxSkillEntries,
             LocalTestingBaselineCapturer.MaxSkillBytes);
     }
