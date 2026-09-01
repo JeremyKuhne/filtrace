@@ -137,10 +137,7 @@ internal sealed class LocalTestingStateStore
         {
             throw new InvalidDataException("Local-testing baseline is missing.");
         }
-        if (baseline.Mcp is null)
-        {
-            throw new InvalidDataException("Local-testing MCP baseline is missing.");
-        }
+        ValidateMcpBaseline(baseline.Mcp);
         if (baseline.Skill is null)
         {
             throw new InvalidDataException("Local-testing skill baseline is missing.");
@@ -148,28 +145,6 @@ internal sealed class LocalTestingStateStore
         if (baseline.CreatedDirectories is null)
         {
             throw new InvalidDataException("Local-testing created-directory baseline is missing.");
-        }
-
-        if (baseline.Mcp.ServerExisted)
-        {
-            if (!baseline.Mcp.FileExisted
-                || !baseline.Mcp.ServersExisted
-                || baseline.Mcp.Server is null
-                || baseline.Mcp.Server.Value.ValueKind is not JsonValueKind.Object)
-            {
-                throw new InvalidDataException(
-                    "An existing MCP server baseline requires an existing file, an existing 'servers' object, and an object-valued 'filtrace' entry.");
-            }
-        }
-        else if (baseline.Mcp.Server is not null)
-        {
-            throw new InvalidDataException(
-                "An absent MCP server baseline cannot contain a server value.");
-        }
-        if (baseline.Mcp.ServersExisted && !baseline.Mcp.FileExisted)
-        {
-            throw new InvalidDataException(
-                "An existing MCP servers baseline requires an existing file.");
         }
 
         if (baseline.Skill.Existed)
@@ -185,6 +160,35 @@ internal sealed class LocalTestingStateStore
         {
             throw new InvalidDataException(
                 "A created .agents directory requires a created skills directory.");
+        }
+    }
+
+    internal static void ValidateMcpBaseline(McpBaseline? baseline)
+    {
+        if (baseline is null)
+        {
+            throw new InvalidDataException("Local-testing MCP baseline is missing.");
+        }
+        if (baseline.ServerExisted)
+        {
+            if (!baseline.FileExisted
+                || !baseline.ServersExisted
+                || baseline.Server is null
+                || baseline.Server.Value.ValueKind is not JsonValueKind.Object)
+            {
+                throw new InvalidDataException(
+                    "An existing MCP server baseline requires an existing file, an existing 'servers' object, and an object-valued 'filtrace' entry.");
+            }
+        }
+        else if (baseline.Server is not null)
+        {
+            throw new InvalidDataException(
+                "An absent MCP server baseline cannot contain a server value.");
+        }
+        if (baseline.ServersExisted && !baseline.FileExisted)
+        {
+            throw new InvalidDataException(
+                "An existing MCP servers baseline requires an existing file.");
         }
     }
 

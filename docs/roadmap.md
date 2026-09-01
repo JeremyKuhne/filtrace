@@ -1197,9 +1197,11 @@ in [Directory.Packages.props](../Directory.Packages.props)).
 ### LT1 - repository-scoped local checkout activation redesign
 
 **Status:** Phase 1 merged in PR #98, Phase 2 baseline capture and bounded overlay
-input merged in PR #99, and the fixed per-worktree lock merged in PR #100.
-Prepared CLI package validation and fresh private installation are in progress;
-the implementation plan and current validation status are in
+input merged in PR #99, the fixed per-worktree lock merged in PR #100, and
+prepared CLI package validation and fresh private installation merged in PR #101.
+Structured MCP publication and baseline restoration are implemented locally;
+skill publication, Refresh, and coordinated recovery remain. The implementation
+plan and current validation status are in
 [local-testing-redesign.md](local-testing-redesign.md).
 
 Replace PR #94's review-era implementation with one fixed-path, one-schema
@@ -1207,8 +1209,8 @@ workflow rooted in the consumer repository's Git directory. Keep the useful
 failure corpus, but remove arbitrary managed paths, global CLI mutation, implicit
 schema migration, and the machine-wide ownership registry from V1.
 
-**Gate:** review and validate the isolated CLI increment on Linux ARM64 before
-beginning structured MCP and skill mutation.
+**Gate:** review and validate the structured MCP increment on Linux ARM64 before
+beginning skill publication.
 
 ---
 

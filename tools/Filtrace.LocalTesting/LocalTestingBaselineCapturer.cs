@@ -6,13 +6,12 @@ using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 
 namespace Filtrace.LocalTesting;
 
 internal sealed class LocalTestingBaselineCapturer
 {
-    internal const int MaxMcpConfigurationBytes = 1024 * 1024;
+    internal const int MaxMcpConfigurationBytes = McpConfigurationDocument.MaxBytes;
     internal const int MaxSkillEntries = 2048;
     internal const long MaxSkillBytes = 16 * 1024 * 1024;
 
@@ -28,7 +27,7 @@ internal sealed class LocalTestingBaselineCapturer
         ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.ArtifactsDirectory);
         ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.SkillBackupPath);
 
-        McpBaseline mcp = CaptureMcp(plan.McpConfigurationPath);
+        McpBaseline mcp = McpConfigurationDocument.Capture(plan.McpConfigurationPath);
         SkillBaseline skill = CaptureSkill(plan.SkillDestination, plan.SkillBackupPath);
 
         return new()
@@ -37,78 +36,6 @@ internal sealed class LocalTestingBaselineCapturer
             Skill = skill,
             CreatedDirectories = CaptureCreatedDirectories(plan)
         };
-    }
-
-    private static McpBaseline CaptureMcp(string path)
-    {
-        if (Directory.Exists(path))
-        {
-            throw new InvalidDataException(
-                $"VS Code MCP configuration is a directory, not a file: '{path}'.");
-        }
-        if (!RegularFileGuard.Exists(path, "VS Code MCP configuration"))
-        {
-            return new();
-        }
-
-        using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (stream.Length > MaxMcpConfigurationBytes)
-        {
-            throw new InvalidDataException(
-                $"VS Code MCP configuration exceeds the {MaxMcpConfigurationBytes} byte safety limit: '{path}'.");
-        }
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(stream, new()
-            {
-                AllowTrailingCommas = true,
-                CommentHandling = JsonCommentHandling.Skip,
-                MaxDepth = 64
-            });
-            JsonElement root = document.RootElement;
-            if (root.ValueKind is not JsonValueKind.Object)
-            {
-                throw new InvalidDataException(
-                    $"VS Code MCP configuration root must be a JSON object: '{path}'.");
-            }
-
-            bool serversExisted = TryGetUniqueProperty(root, "servers", path, out JsonElement servers);
-            if (!serversExisted)
-            {
-                return new() { FileExisted = true };
-            }
-            if (servers.ValueKind is not JsonValueKind.Object)
-            {
-                throw new InvalidDataException(
-                    $"VS Code MCP configuration property 'servers' must be a JSON object: '{path}'.");
-            }
-
-            bool serverExisted = TryGetUniqueProperty(
-                servers,
-                "filtrace",
-                path,
-                out JsonElement server);
-            if (serverExisted && server.ValueKind is not JsonValueKind.Object)
-            {
-                throw new InvalidDataException(
-                    $"VS Code MCP server 'filtrace' must be a JSON object: '{path}'.");
-            }
-
-            return new()
-            {
-                FileExisted = true,
-                ServersExisted = true,
-                ServerExisted = serverExisted,
-                Server = serverExisted ? server.Clone() : null
-            };
-        }
-        catch (JsonException exception)
-        {
-            throw new InvalidDataException(
-                $"VS Code MCP configuration is not valid JSON: '{path}'.",
-                exception);
-        }
     }
 
     private static SkillBaseline CaptureSkill(string source, string backup)
@@ -175,33 +102,6 @@ internal sealed class LocalTestingBaselineCapturer
             Agents = !Directory.Exists(agents),
             Skills = !Directory.Exists(skills)
         };
-    }
-
-    private static bool TryGetUniqueProperty(
-        JsonElement parent,
-        string propertyName,
-        string path,
-        out JsonElement value)
-    {
-        bool found = false;
-        value = default;
-        foreach (JsonProperty property in parent.EnumerateObject())
-        {
-            if (!property.NameEquals(propertyName))
-            {
-                continue;
-            }
-            if (found)
-            {
-                throw new InvalidDataException(
-                    $"VS Code MCP configuration contains duplicate '{propertyName}' properties: '{path}'.");
-            }
-
-            found = true;
-            value = property.Value;
-        }
-
-        return found;
     }
 
     private static void EnsureDirectory(string path, string description)
