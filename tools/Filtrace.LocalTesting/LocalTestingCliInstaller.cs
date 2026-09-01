@@ -162,6 +162,7 @@ internal sealed class LocalTestingCliInstaller
             UseShellExecute = false
         };
 
+        startInfo.Environment["DOTNET_ADD_GLOBAL_TOOLS_TO_PATH"] = "false";
         startInfo.Environment["DOTNET_CLI_HOME"] = Path.Join(operationRoot, "dotnet-home");
         startInfo.Environment["NUGET_HTTP_CACHE_PATH"] = Path.Join(operationRoot, "http-cache");
         startInfo.Environment["NUGET_PACKAGES"] = Path.Join(operationRoot, "packages");

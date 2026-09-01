@@ -109,7 +109,7 @@ internal sealed class LocalTestingSkillDirectory(
         {
             if (!prepared && Directory.Exists(plan.SkillStagingPath))
             {
-                Directory.Delete(plan.SkillStagingPath, recursive: true);
+                DeleteOperationDirectory(plan.SkillStagingPath);
             }
         }
     }
@@ -151,7 +151,7 @@ internal sealed class LocalTestingSkillDirectory(
 
         if (destinationExisted)
         {
-            Directory.Delete(plan.SkillRetiredPath, recursive: true);
+            DeleteOperationDirectory(plan.SkillRetiredPath);
         }
     }
 
@@ -167,7 +167,7 @@ internal sealed class LocalTestingSkillDirectory(
         Directory.Move(plan.SkillDestination, plan.SkillRetiredPath);
         try
         {
-            Directory.Delete(plan.SkillRetiredPath, recursive: true);
+            DeleteOperationDirectory(plan.SkillRetiredPath);
         }
         catch
         {
@@ -194,7 +194,7 @@ internal sealed class LocalTestingSkillDirectory(
             }
             else
             {
-                Directory.Delete(plan.SkillRetiredPath, recursive: true);
+                DeleteOperationDirectory(plan.SkillRetiredPath);
             }
         }
 
@@ -204,7 +204,34 @@ internal sealed class LocalTestingSkillDirectory(
             LocalTestingBaselineCapturer.MaxSkillEntries + 1,
             LocalTestingBaselineCapturer.MaxSkillBytes + SkillOverlay.MaxBytes) is not null)
         {
-            Directory.Delete(plan.SkillStagingPath, recursive: true);
+            DeleteOperationDirectory(plan.SkillStagingPath);
+        }
+    }
+
+    private static void DeleteOperationDirectory(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            foreach (string entry in Directory.EnumerateFileSystemEntries(
+                path,
+                "*",
+                SearchOption.AllDirectories))
+            {
+                ClearReadOnly(entry);
+            }
+
+            ClearReadOnly(path);
+        }
+
+        Directory.Delete(path, recursive: true);
+    }
+
+    private static void ClearReadOnly(string path)
+    {
+        FileAttributes attributes = File.GetAttributes(path);
+        if ((attributes & FileAttributes.ReadOnly) is not 0)
+        {
+            File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
         }
     }
 

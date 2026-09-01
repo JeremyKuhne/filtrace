@@ -179,6 +179,70 @@ public sealed partial class LocalTestingSkillDirectoryTests
     }
 
     [TestMethod]
+    public void Publish_ReadOnlyDestinationFile_ReplacesAndConverges()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        string first = CreateSkill(directory.Path, "first", "first skill");
+        string second = CreateSkill(directory.Path, "second", "second skill");
+        CreateDestination(plan, "consumer skill", overlay: null);
+        string readOnlyFile = Path.Join(plan.SkillDestination, "read-only.txt");
+        File.WriteAllText(readOnlyFile, "read only");
+        File.SetAttributes(readOnlyFile, FileAttributes.ReadOnly);
+
+        try
+        {
+            LocalTestingSkillDirectory publisher = new();
+            publisher.Publish(plan, first);
+            publisher.Publish(plan, second);
+
+            File.ReadAllText(Path.Join(plan.SkillDestination, "SKILL.md"))
+                .Should().Be("second skill");
+
+            AssertNoOperationDirectories(plan);
+        }
+        finally
+        {
+            ClearReadOnlyIfPresent(Path.Join(plan.SkillDestination, "read-only.txt"));
+            ClearReadOnlyIfPresent(Path.Join(plan.SkillRetiredPath, "read-only.txt"));
+        }
+    }
+
+    [TestMethod]
+    public void Restore_ReadOnlyDestinationFile_RemovesAbsentBaseline()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        CreateDestination(plan, "active skill", overlay: null);
+        string readOnlyFile = Path.Join(plan.SkillDestination, "read-only.txt");
+        File.WriteAllText(readOnlyFile, "read only");
+        File.SetAttributes(readOnlyFile, FileAttributes.ReadOnly);
+
+        try
+        {
+            new LocalTestingSkillDirectory().Restore(plan, new());
+
+            Directory.Exists(plan.SkillDestination).Should().BeFalse();
+            AssertNoOperationDirectories(plan);
+        }
+        finally
+        {
+            ClearReadOnlyIfPresent(Path.Join(plan.SkillDestination, "read-only.txt"));
+            ClearReadOnlyIfPresent(Path.Join(plan.SkillRetiredPath, "read-only.txt"));
+        }
+    }
+
+    [TestMethod]
     [Timeout(5_000)]
     public void Publish_FifoDestination_ThrowsWithoutBlocking()
     {
@@ -568,6 +632,14 @@ public sealed partial class LocalTestingSkillDirectoryTests
         for (int index = 0; index < count; index++)
         {
             Directory.CreateDirectory(Path.Join(root, $"entry-{index:D4}"));
+        }
+    }
+
+    private static void ClearReadOnlyIfPresent(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.SetAttributes(path, FileAttributes.Normal);
         }
     }
 }
