@@ -89,6 +89,28 @@ public sealed class LocalTestingCliInstallerTests
         Directory.Exists(ambientScratch).Should().BeFalse();
         Directory.GetDirectories(plan.StateRoot, ".cli-install-*", SearchOption.TopDirectoryOnly)
             .Should().BeEmpty();
+
+        string priorMarker = Path.Join(plan.CliDirectory, "prior-install.txt");
+        File.WriteAllText(priorMarker, "replace me");
+        if (OperatingSystem.IsWindows())
+        {
+            File.SetAttributes(priorMarker, FileAttributes.ReadOnly);
+        }
+
+        CliInstallation replaced = new LocalTestingCliInstaller().InstallOrReplace(
+            plan,
+            packagePath,
+            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet");
+
+        replaced.Should().BeEquivalentTo(installed);
+        File.Exists(priorMarker).Should().BeFalse();
+        string executablePath = Path.Join(
+            plan.CliDirectory,
+            OperatingSystem.IsWindows() ? "filtrace.exe" : "filtrace");
+
+        File.Exists(executablePath).Should().BeTrue();
+        Directory.GetDirectories(plan.StateRoot, ".cli-install-*", SearchOption.TopDirectoryOnly)
+            .Should().BeEmpty();
     }
 
     [TestMethod]
@@ -177,6 +199,45 @@ public sealed class LocalTestingCliInstallerTests
 
     [TestMethod]
     [DoNotParallelize]
+    public void InstallOrReplace_ProcessFailure_PreservesExistingCli()
+    {
+        using TemporaryDirectory directory = new();
+        string packagePath = CreateMetadataPackage(directory.Path);
+        ResourcePlan plan = CreatePlan(directory.Path);
+        Directory.CreateDirectory(plan.CliDirectory);
+        string markerPath = Path.Join(plan.CliDirectory, "keep.txt");
+        File.WriteAllText(markerPath, "existing");
+        string? previous = Environment.GetEnvironmentVariable(
+            LocalTestingCliInstallerProcessProbe.FailureVariable);
+
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                LocalTestingCliInstallerProcessProbe.FailureVariable,
+                "1");
+
+            Action install = () => new LocalTestingCliInstaller().InstallOrReplace(
+                plan,
+                packagePath,
+                GetTestExecutablePath());
+
+            install.Should().Throw<InvalidOperationException>()
+                .WithMessage("*exited with code 9*");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                LocalTestingCliInstallerProcessProbe.FailureVariable,
+                previous);
+        }
+
+        File.ReadAllText(markerPath).Should().Be("existing");
+        Directory.GetDirectories(plan.StateRoot, ".cli-install-*", SearchOption.TopDirectoryOnly)
+            .Should().BeEmpty();
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
     public void InstallFresh_ProcessEnvironment_DisablesGlobalToolsPathMutation()
     {
         using TemporaryDirectory directory = new();
@@ -246,6 +307,45 @@ public sealed class LocalTestingCliInstallerTests
             Environment.SetEnvironmentVariable(variable, previous);
         }
 
+        string operationRoot = Directory.GetDirectories(
+            plan.StateRoot,
+            ".cli-install-*",
+            SearchOption.TopDirectoryOnly).Single();
+
+        File.Exists(Path.Join(operationRoot, "installer-process-id")).Should().BeTrue();
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    [Timeout(10_000)]
+    public void InstallOrReplace_ProcessTimeout_PreservesExistingCliAndQuarantinesOperation()
+    {
+        using TemporaryDirectory directory = new();
+        string packagePath = CreateMetadataPackage(directory.Path);
+        ResourcePlan plan = CreatePlan(directory.Path);
+        Directory.CreateDirectory(plan.CliDirectory);
+        string markerPath = Path.Join(plan.CliDirectory, "keep.txt");
+        File.WriteAllText(markerPath, "existing");
+        const string variable = "FILTRACE_LOCAL_TESTING_CLI_INSTALLER_TIMEOUT_PROBE";
+        string? previous = Environment.GetEnvironmentVariable(variable);
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, "1");
+            Action install = () => new LocalTestingCliInstaller(
+                TimeSpan.FromMilliseconds(250),
+                TimeSpan.FromSeconds(2)).InstallOrReplace(
+                    plan,
+                    packagePath,
+                    GetTestExecutablePath());
+
+            install.Should().Throw<TimeoutException>();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, previous);
+        }
+
+        File.ReadAllText(markerPath).Should().Be("existing");
         string operationRoot = Directory.GetDirectories(
             plan.StateRoot,
             ".cli-install-*",

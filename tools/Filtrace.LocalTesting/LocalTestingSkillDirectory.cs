@@ -30,7 +30,7 @@ internal sealed class LocalTestingSkillDirectory(
         }
 
         string source = Path.GetFullPath(sourceSkillDirectory);
-    EnsureSourceDoesNotOverlapOperationPaths(source, plan);
+        EnsureSourceDoesNotOverlapOperationPaths(source, plan);
         RecoverInterruptedMutation(plan);
         DirectorySnapshot sourceSnapshot = ReadDirectory(source, "Filtrace skill source")
             ?? throw new DirectoryNotFoundException($"Filtrace skill source does not exist: '{source}'.");
@@ -50,30 +50,57 @@ internal sealed class LocalTestingSkillDirectory(
     {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(baseline);
-        LocalTestingStateStore.ValidateSkillBaseline(baseline);
+        DirectorySnapshot? backup = ValidateBaseline(plan, baseline);
         RecoverInterruptedMutation(plan);
         if (!baseline.Existed)
         {
-            if (ReadDirectory(plan.SkillBackupPath, "Skill backup") is not null)
+            RemoveDestination(plan);
+            return;
+        }
+
+        PrepareStaging(plan, plan.SkillBackupPath, backup!, overlay: null);
+        PublishStaging(plan);
+    }
+
+    /// <summary>
+    ///  Verifies that the private skill backup still matches its immutable baseline identity.
+    /// </summary>
+    /// <param name="plan">The target's normalized local-testing resource paths.</param>
+    /// <param name="baseline">The skill state captured before publication.</param>
+    /// <returns>The verified backup snapshot, or <see langword="null"/> for an absent baseline.</returns>
+    internal static DirectorySnapshot? ValidateBaseline(
+        ResourcePlan plan,
+        SkillBaseline baseline)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(baseline);
+        LocalTestingStateStore.ValidateSkillBaseline(baseline);
+        ValidateManagedPaths(plan);
+        DirectorySnapshot? backup = ReadDirectory(plan.SkillBackupPath, "Skill backup");
+        if (!baseline.Existed)
+        {
+            if (backup is not null)
             {
                 throw new InvalidDataException(
                     $"Absent skill baseline has an unexpected backup: '{plan.SkillBackupPath}'.");
             }
 
-            RemoveDestination(plan);
-            return;
+            return null;
         }
 
-        DirectorySnapshot backup = ReadDirectory(plan.SkillBackupPath, "Skill backup")
-            ?? throw new DirectoryNotFoundException($"Skill backup does not exist: '{plan.SkillBackupPath}'.");
+        if (backup is null)
+        {
+            throw new DirectoryNotFoundException(
+                $"Skill backup does not exist: '{plan.SkillBackupPath}'.");
+        }
 
         if (!backup.Fingerprint.Equals(baseline.BackupSha256, StringComparison.Ordinal))
         {
-            throw new InvalidDataException($"Skill backup does not match its baseline: '{plan.SkillBackupPath}'.");
+            throw new InvalidDataException(
+                $"Skill backup does not match its baseline: '{plan.SkillBackupPath}'.");
         }
 
-        PrepareStaging(plan, plan.SkillBackupPath, backup, overlay: null);
-        PublishStaging(plan);
+        return backup;
     }
 
     private void PrepareStaging(
@@ -109,7 +136,7 @@ internal sealed class LocalTestingSkillDirectory(
         {
             if (!prepared && Directory.Exists(plan.SkillStagingPath))
             {
-                DeleteOperationDirectory(plan.SkillStagingPath);
+                LocalTestingDirectory.DeleteTree(plan.SkillStagingPath);
             }
         }
     }
@@ -151,7 +178,7 @@ internal sealed class LocalTestingSkillDirectory(
 
         if (destinationExisted)
         {
-            DeleteOperationDirectory(plan.SkillRetiredPath);
+            LocalTestingDirectory.DeleteTree(plan.SkillRetiredPath);
         }
     }
 
@@ -167,7 +194,7 @@ internal sealed class LocalTestingSkillDirectory(
         Directory.Move(plan.SkillDestination, plan.SkillRetiredPath);
         try
         {
-            DeleteOperationDirectory(plan.SkillRetiredPath);
+            LocalTestingDirectory.DeleteTree(plan.SkillRetiredPath);
         }
         catch
         {
@@ -194,7 +221,7 @@ internal sealed class LocalTestingSkillDirectory(
             }
             else
             {
-                DeleteOperationDirectory(plan.SkillRetiredPath);
+                LocalTestingDirectory.DeleteTree(plan.SkillRetiredPath);
             }
         }
 
@@ -204,34 +231,7 @@ internal sealed class LocalTestingSkillDirectory(
             LocalTestingBaselineCapturer.MaxSkillEntries + 1,
             LocalTestingBaselineCapturer.MaxSkillBytes + SkillOverlay.MaxBytes) is not null)
         {
-            DeleteOperationDirectory(plan.SkillStagingPath);
-        }
-    }
-
-    private static void DeleteOperationDirectory(string path)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            foreach (string entry in Directory.EnumerateFileSystemEntries(
-                path,
-                "*",
-                SearchOption.AllDirectories))
-            {
-                ClearReadOnly(entry);
-            }
-
-            ClearReadOnly(path);
-        }
-
-        Directory.Delete(path, recursive: true);
-    }
-
-    private static void ClearReadOnly(string path)
-    {
-        FileAttributes attributes = File.GetAttributes(path);
-        if ((attributes & FileAttributes.ReadOnly) is not 0)
-        {
-            File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+            LocalTestingDirectory.DeleteTree(plan.SkillStagingPath);
         }
     }
 

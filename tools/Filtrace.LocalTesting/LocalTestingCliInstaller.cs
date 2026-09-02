@@ -56,6 +56,30 @@ internal sealed class LocalTestingCliInstaller
     /// <returns>The exact version and SHA-256 identity of the installed package.</returns>
     public CliInstallation InstallFresh(ResourcePlan plan, string packagePath, string dotnetPath)
     {
+        return Install(plan, packagePath, dotnetPath, replaceExisting: false);
+    }
+
+    /// <summary>
+    ///  Installs one validated package and atomically replaces the CLI owned by existing local-testing state.
+    /// </summary>
+    /// <param name="plan">The target's normalized local-testing resource paths.</param>
+    /// <param name="packagePath">The canonically named Filtrace CLI package to install.</param>
+    /// <param name="dotnetPath">The <c>dotnet</c> host path or command name.</param>
+    /// <returns>The exact version and SHA-256 identity of the installed package.</returns>
+    public CliInstallation InstallOrReplace(
+        ResourcePlan plan,
+        string packagePath,
+        string dotnetPath)
+    {
+        return Install(plan, packagePath, dotnetPath, replaceExisting: true);
+    }
+
+    private CliInstallation Install(
+        ResourcePlan plan,
+        string packagePath,
+        string dotnetPath,
+        bool replaceExisting)
+    {
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentException.ThrowIfNullOrWhiteSpace(dotnetPath);
         LocalTestingCliPackage package = LocalTestingCliPackage.Read(packagePath);
@@ -77,8 +101,14 @@ internal sealed class LocalTestingCliInstaller
         }
 
         ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.CliDirectory);
-        if (Directory.Exists(plan.CliDirectory)
-            || RegularFileGuard.Exists(plan.CliDirectory, "Local-testing CLI path"))
+        bool destinationExists = Directory.Exists(plan.CliDirectory);
+        if (RegularFileGuard.Exists(plan.CliDirectory, "Local-testing CLI path"))
+        {
+            throw new InvalidDataException(
+                $"Local-testing CLI path is a file, not a directory: '{plan.CliDirectory}'.");
+        }
+
+        if (destinationExists && !replaceExisting)
         {
             throw new InvalidOperationException(
                 $"Local-testing CLI path already exists: '{plan.CliDirectory}'.");
@@ -88,8 +118,9 @@ internal sealed class LocalTestingCliInstaller
         string feedDirectory = Path.Join(operationRoot, "feed");
         string feedPackagePath = Path.Join(feedDirectory, Path.GetFileName(package.Path));
         string configPath = Path.Join(operationRoot, "NuGet.config");
+        string installationDirectory = Path.Join(operationRoot, "tools");
+        string retiredDirectory = Path.Join(operationRoot, "retired-tools");
         bool cleanupOperation = true;
-        bool installSucceeded = false;
         try
         {
             Directory.CreateDirectory(feedDirectory);
@@ -98,13 +129,19 @@ internal sealed class LocalTestingCliInstaller
             RunDotnetInstall(
                 dotnetPath,
                 plan,
+                installationDirectory,
                 operationRoot,
                 configPath,
                 package.Version,
                 ref cleanupOperation);
 
-            VerifyInstallation(plan.CliDirectory, package);
-            installSucceeded = true;
+            VerifyInstallation(installationDirectory, package);
+            PublishInstallation(
+                plan,
+                installationDirectory,
+                retiredDirectory,
+                replaceExisting);
+
             return new()
             {
                 PackageVersion = package.Version,
@@ -115,12 +152,7 @@ internal sealed class LocalTestingCliInstaller
         {
             if (cleanupOperation && Directory.Exists(operationRoot))
             {
-                if (!installSucceeded && Directory.Exists(plan.CliDirectory))
-                {
-                    Directory.Delete(plan.CliDirectory, recursive: true);
-                }
-
-                Directory.Delete(operationRoot, recursive: true);
+                LocalTestingDirectory.DeleteTree(operationRoot);
             }
         }
     }
@@ -151,6 +183,7 @@ internal sealed class LocalTestingCliInstaller
     private void RunDotnetInstall(
         string dotnetPath,
         ResourcePlan plan,
+        string installationDirectory,
         string operationRoot,
         string configPath,
         string version,
@@ -170,7 +203,7 @@ internal sealed class LocalTestingCliInstaller
         startInfo.Environment["NUGET_SCRATCH"] = Path.Join(operationRoot, "scratch");
         string[] arguments =
         [
-            "tool", "install", "--tool-path", plan.CliDirectory,
+            "tool", "install", "--tool-path", installationDirectory,
             "--configfile", configPath, "--version", version, "--no-cache",
             LocalTestingCliPackage.PackageId
         ];
@@ -218,6 +251,51 @@ internal sealed class LocalTestingCliInstaller
         {
             throw new InvalidOperationException(
                 $"dotnet tool install exited with code {process.ExitCode}. See dotnet output above.");
+        }
+    }
+
+    private static void PublishInstallation(
+        ResourcePlan plan,
+        string installationDirectory,
+        string retiredDirectory,
+        bool replaceExisting)
+    {
+        ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.CliDirectory);
+        bool destinationExists = Directory.Exists(plan.CliDirectory);
+        if (RegularFileGuard.Exists(plan.CliDirectory, "Local-testing CLI path"))
+        {
+            throw new InvalidDataException(
+                $"Local-testing CLI path is a file, not a directory: '{plan.CliDirectory}'.");
+        }
+
+        if (destinationExists && !replaceExisting)
+        {
+            throw new InvalidOperationException(
+                $"Local-testing CLI path already exists: '{plan.CliDirectory}'.");
+        }
+
+        if (destinationExists)
+        {
+            Directory.Move(plan.CliDirectory, retiredDirectory);
+        }
+
+        try
+        {
+            Directory.Move(installationDirectory, plan.CliDirectory);
+        }
+        catch
+        {
+            if (destinationExists && !Directory.Exists(plan.CliDirectory))
+            {
+                Directory.Move(retiredDirectory, plan.CliDirectory);
+            }
+
+            throw;
+        }
+
+        if (destinationExists)
+        {
+            LocalTestingDirectory.DeleteTree(retiredDirectory);
         }
     }
 
