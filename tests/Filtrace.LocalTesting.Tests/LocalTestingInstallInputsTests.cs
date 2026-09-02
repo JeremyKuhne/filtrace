@@ -117,6 +117,35 @@ public sealed class LocalTestingInstallInputsTests
     }
 
     [TestMethod]
+    public void Create_LinkedSourceCheckoutAncestor_UsesFinalTargetIdentity()
+    {
+        using TemporaryDirectory directory = new();
+        string physicalParent = Path.Join(directory.Path, "physical-parent");
+        LocalTestingInstallInputs original = LocalTestingInstallTestData.CreateInputs(
+            physicalParent);
+
+        string linkedParent = Path.Join(directory.Path, "linked-parent");
+        try
+        {
+            Directory.CreateSymbolicLink(linkedParent, physicalParent);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            Assert.Inconclusive($"Symbolic links are unavailable: {exception.Message}");
+        }
+
+        LocalTestingInstallInputs aliased = LocalTestingInstallInputs.Create(
+            Path.Join(linkedParent, "source"),
+            original.CliPackagePath,
+            original.DotnetPath,
+            original.McpDllPath,
+            original.SkillDirectory);
+
+        aliased.SourceCheckout.Should().Be(original.SourceCheckout);
+    }
+
+    [TestMethod]
     public void Create_OversizedSkillSource_Throws()
     {
         using TemporaryDirectory directory = new();

@@ -127,7 +127,28 @@ internal sealed record LocalTestingInstallInputs
 
     private static string ResolveDirectory(DirectoryInfo directory)
     {
-        FileSystemInfo resolved = directory.ResolveLinkTarget(returnFinalTarget: true) ?? directory;
-        return Path.GetFullPath(resolved.FullName);
+        string fullPath = Path.GetFullPath(directory.FullName);
+        string root = Path.GetPathRoot(fullPath)
+            ?? throw new InvalidDataException($"Directory has no path root: '{fullPath}'.");
+
+        string relativePath = Path.GetRelativePath(root, fullPath);
+        if (relativePath.Equals(".", StringComparison.Ordinal))
+        {
+            return root;
+        }
+
+        string current = root;
+        foreach (string component in relativePath.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries))
+        {
+            DirectoryInfo candidate = new(Path.Join(current, component));
+            FileSystemInfo resolved = candidate.ResolveLinkTarget(returnFinalTarget: true)
+                ?? candidate;
+
+            current = resolved.FullName;
+        }
+
+        return Path.GetFullPath(current);
     }
 }
