@@ -16,6 +16,8 @@ internal sealed class LocalTestingCliInstaller
     private readonly TimeSpan _installTimeout;
     private readonly TimeSpan _killGrace;
     private readonly Func<Process, int, bool> _waitForExit;
+    private readonly Action? _beforePublish;
+    private readonly Action? _beforeRollback;
 
     /// <summary>
     ///  Creates an installer with a 90-second process timeout and a five-second termination grace period.
@@ -24,7 +26,9 @@ internal sealed class LocalTestingCliInstaller
         : this(
             installTimeout: TimeSpan.FromSeconds(90),
             killGrace: TimeSpan.FromSeconds(5),
-            waitForExit: null)
+            waitForExit: null,
+            beforePublish: null,
+            beforeRollback: null)
     {
     }
 
@@ -34,17 +38,26 @@ internal sealed class LocalTestingCliInstaller
     /// <param name="installTimeout">The maximum duration allowed for <c>dotnet tool install</c>.</param>
     /// <param name="killGrace">The time allowed to observe process exit after termination is requested.</param>
     /// <param name="waitForExit">An optional process wait implementation used to test timeout recovery.</param>
+    /// <param name="beforePublish">An optional hook invoked before the staged CLI is published.</param>
+    /// <param name="beforeRollback">An optional hook invoked before a prior CLI is restored.</param>
     internal LocalTestingCliInstaller(
         TimeSpan installTimeout,
         TimeSpan killGrace,
-        Func<Process, int, bool>? waitForExit = null)
+        Func<Process, int, bool>? waitForExit = null,
+        Action? beforePublish = null,
+        Action? beforeRollback = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(installTimeout, TimeSpan.Zero);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(killGrace, TimeSpan.Zero);
         _installTimeout = installTimeout;
         _killGrace = killGrace;
         _waitForExit = waitForExit ?? (static (process, milliseconds) =>
-            process.WaitForExit(milliseconds));
+        {
+            return process.WaitForExit(milliseconds);
+        });
+
+        _beforePublish = beforePublish;
+        _beforeRollback = beforeRollback;
     }
 
     /// <summary>
@@ -150,7 +163,9 @@ internal sealed class LocalTestingCliInstaller
         }
         finally
         {
-            if (cleanupOperation && Directory.Exists(operationRoot))
+            if (cleanupOperation
+                && Directory.Exists(operationRoot)
+                && !Directory.Exists(retiredDirectory))
             {
                 LocalTestingDirectory.DeleteTree(operationRoot);
             }
@@ -254,7 +269,7 @@ internal sealed class LocalTestingCliInstaller
         }
     }
 
-    private static void PublishInstallation(
+    private void PublishInstallation(
         ResourcePlan plan,
         string installationDirectory,
         string retiredDirectory,
@@ -281,13 +296,33 @@ internal sealed class LocalTestingCliInstaller
 
         try
         {
+            _beforePublish?.Invoke();
             Directory.Move(installationDirectory, plan.CliDirectory);
         }
-        catch
+        catch (Exception publishException)
         {
-            if (destinationExists && !Directory.Exists(plan.CliDirectory))
+            if (!destinationExists)
             {
+                throw;
+            }
+
+            try
+            {
+                if (Directory.Exists(plan.CliDirectory))
+                {
+                    throw new IOException(
+                        $"The local-testing CLI path reappeared before rollback: '{plan.CliDirectory}'.");
+                }
+
+                _beforeRollback?.Invoke();
                 Directory.Move(retiredDirectory, plan.CliDirectory);
+            }
+            catch (Exception rollbackException)
+            {
+                throw new InvalidOperationException(
+                    "Could not publish the staged local-testing CLI or restore the prior CLI. "
+                        + $"The prior CLI and operation were retained for manual recovery: '{retiredDirectory}'.",
+                    new AggregateException(publishException, rollbackException));
             }
 
             throw;
@@ -295,7 +330,17 @@ internal sealed class LocalTestingCliInstaller
 
         if (destinationExists)
         {
-            LocalTestingDirectory.DeleteTree(retiredDirectory);
+            try
+            {
+                LocalTestingDirectory.DeleteTree(retiredDirectory);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException(
+                    "The new local-testing CLI was published, but the prior CLI could not be removed. "
+                        + $"The operation was retained for manual recovery: '{retiredDirectory}'.",
+                    exception);
+            }
         }
     }
 
