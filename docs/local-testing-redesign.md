@@ -10,10 +10,12 @@ validation and fresh private installation merged in
 [PR #101](https://github.com/JeremyKuhne/filtrace/pull/101). Structured MCP
 publication and baseline restoration merged in
 [PR #102](https://github.com/JeremyKuhne/filtrace/pull/102). Reversible skill
-publication is implemented locally on `local-testing-skill-publication`; final
-coordinator wiring has not begun.
+publication merged in
+[PR #105](https://github.com/JeremyKuhne/filtrace/pull/105). Fresh Install,
+Resume Install, and Refresh coordinator wiring is implemented locally on
+`local-testing-coordinator`; Phase 3 restore and cleanup wiring has not begun.
 
-**Last verified:** 2026-08-31 against `origin/main` at `cb2d962`. PR #94 was
+**Last verified:** 2026-09-01 against `origin/main` at `7e4d970`. PR #94 was
 closed without merge after PR #98 established the replacement.
 
 ## Decision
@@ -392,7 +394,12 @@ skills directory, verifies the staged fingerprint, carries the exact consumer
 overlay into each publication, atomically swaps fixed sibling directories, and
 idempotently restores either the exact backup or the absent baseline. Fixed
 staging and retirement paths make interrupted swaps recoverable. The helper is
-validated on Windows; broader platform validation is backlog work.
+validated on Windows; broader platform validation is backlog work. PR #105 merged
+that increment. The current increment wires Fresh Install, Resume Install, and
+Refresh through the coordinator while preserving the first baseline. CLI
+replacement is staged beside the fixed private tool directory so an install
+failure or timeout leaves the prior CLI intact and retains the operation
+quarantine when manual recovery is required.
 
 - Wire Fresh Install, Resume Install, and Refresh through the coordinator while
   preserving baseline bytes.

@@ -108,7 +108,7 @@ internal sealed class LocalTestingBaselineCapturer
         {
             if (Directory.Exists(staging))
             {
-                Directory.Delete(staging, recursive: true);
+                LocalTestingDirectory.DeleteTree(staging);
             }
         }
     }

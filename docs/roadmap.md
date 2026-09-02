@@ -1200,8 +1200,10 @@ in [Directory.Packages.props](../Directory.Packages.props)).
 input merged in PR #99, the fixed per-worktree lock merged in PR #100, and
 prepared CLI package validation and fresh private installation merged in PR #101.
 Structured MCP publication and baseline restoration merged in PR #102.
-Reversible skill publication is implemented locally; Refresh and coordinated
-recovery remain. The implementation plan and current validation status are in
+Reversible skill publication merged in PR #105. Fresh Install, Resume Install,
+and Refresh coordinator wiring is implemented locally on
+`local-testing-coordinator`. The implementation plan and current validation
+status are in
 [local-testing-redesign.md](local-testing-redesign.md).
 
 Replace PR #94's review-era implementation with one fixed-path, one-schema
@@ -1209,8 +1211,8 @@ workflow rooted in the consumer repository's Git directory. Keep the useful
 failure corpus, but remove arbitrary managed paths, global CLI mutation, implicit
 schema migration, and the machine-wide ownership registry from V1.
 
-**Gate:** wire Fresh Install, Resume Install, and Refresh through the coordinator
-without recapturing the immutable baseline. Dedicated non-Windows validation is
+**Gate:** review and merge the coordinator increment, then implement ordered
+Restore and Cleanup Retry transitions. Dedicated non-Windows validation is
 backlog work for this contributor testing feature.
 
 ---
