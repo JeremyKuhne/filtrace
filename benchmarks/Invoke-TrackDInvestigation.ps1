@@ -825,10 +825,16 @@ try {
         }
         [string] $previousFiltracePath = [Environment]::GetEnvironmentVariable(
             $filtracePathEnvironmentVariable)
+        [string] $previousFastTraceRoot = [Environment]::GetEnvironmentVariable(
+            'FastTraceRepoRoot')
         [Environment]::SetEnvironmentVariable(
             $filtracePathEnvironmentVariable,
             $subjectExecutable)
         $commandLog.Add("[env] $filtracePathEnvironmentVariable=$subjectExecutable")
+        if ($arm.Name -eq 'candidate' -and $null -ne $candidateDependencyPath) {
+            [Environment]::SetEnvironmentVariable('FastTraceRepoRoot', $candidateDependencyPath)
+            $commandLog.Add("[env] FastTraceRepoRoot=$candidateDependencyPath")
+        }
         try {
             Invoke-NativeChecked `
                 $script:dotnet `
@@ -840,6 +846,9 @@ try {
             [Environment]::SetEnvironmentVariable(
                 $filtracePathEnvironmentVariable,
                 $previousFiltracePath)
+            [Environment]::SetEnvironmentVariable(
+                'FastTraceRepoRoot',
+                $previousFastTraceRoot)
         }
 
         [string] $telemetryDirectory = Join-Path $armDirectory 'cli-benchmark'
