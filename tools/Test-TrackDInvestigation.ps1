@@ -126,6 +126,28 @@ try {
         ($duplicatePathResult.sdkVersion -eq 'first-path-match') `
         'Multiple PATH matches did not select the first executable.'
 
+    [string] $dependencyMismatch = Join-Path $temporaryRoot 'dependency-mismatch'
+    [bool] $dependencyMismatchFailed = $false
+    try {
+        & $script `
+            -InputCorpusDirectory $corpus `
+            -BaselineCheckout $root `
+            -CandidateCheckout $root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $dependencyMismatch `
+            -NoBuild `
+            -CandidateDependencyRoot $root `
+            -CandidateDependencyCommit '0000000000000000000000000000000000000000' `
+            -TestAdapterPath $adapter
+    }
+    catch {
+        $dependencyMismatchFailed = $_.Exception.Message.Contains(
+            'resolve candidate dependency commit exited with code',
+            [StringComparison]::Ordinal)
+    }
+
+    Assert-True $dependencyMismatchFailed 'A mismatched candidate dependency commit unexpectedly ran.'
+
     [string] $success = Join-Path $temporaryRoot 'success'
     & $script `
         -InputCorpusDirectory $corpus `

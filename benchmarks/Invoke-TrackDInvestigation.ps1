@@ -27,6 +27,13 @@
 .PARAMETER CandidateCommit
   Candidate product commit. Defaults to HarnessCommit for a no-op comparison.
 
+.PARAMETER CandidateDependencyRoot
+    Optional clean repository checkout consumed only by the candidate arm. The wrapper
+    passes it as FastTraceRepoRoot and builds candidate subjects directly in Release.
+
+.PARAMETER CandidateDependencyCommit
+    Required with CandidateDependencyRoot. Exact dependency commit the candidate must use.
+
 .PARAMETER BaselineCheckout
   Existing checkout used instead of creating a detached baseline worktree. Test-only.
 
@@ -80,6 +87,8 @@ param(
     [string] $HarnessCommit = 'HEAD',
     [string] $BaselineCommit,
     [string] $CandidateCommit,
+    [string] $CandidateDependencyRoot,
+    [string] $CandidateDependencyCommit,
     [string] $BaselineCheckout,
     [string] $CandidateCheckout,
     [switch] $AllowDirtyCheckouts,
@@ -628,6 +637,38 @@ if ([string]$corpusManifest.archive.sha256 -cne $archiveHash) {
 
 if ([string]::IsNullOrEmpty($BaselineCommit)) { $BaselineCommit = $HarnessCommit }
 if ([string]::IsNullOrEmpty($CandidateCommit)) { $CandidateCommit = $HarnessCommit }
+if ([string]::IsNullOrEmpty($CandidateDependencyRoot) -ne [string]::IsNullOrEmpty($CandidateDependencyCommit)) {
+    throw 'CandidateDependencyRoot and CandidateDependencyCommit must be supplied together.'
+}
+
+$candidateDependencyPath = $null
+$candidateDependencyHead = $null
+$candidateDependencyStatus = $null
+if (-not [string]::IsNullOrEmpty($CandidateDependencyRoot)) {
+    $candidateDependencyPath = (Resolve-Path -LiteralPath $CandidateDependencyRoot).Path
+    $candidateDependencyHead = Invoke-NativeText `
+        $script:git `
+        @('rev-parse', 'HEAD') `
+        $candidateDependencyPath `
+        'read candidate dependency commit'
+    [string] $resolvedDependencyCommit = Invoke-NativeText `
+        $script:git `
+        @('rev-parse', "$CandidateDependencyCommit^{commit}") `
+        $candidateDependencyPath `
+        'resolve candidate dependency commit'
+    if ($candidateDependencyHead -cne $resolvedDependencyCommit) {
+        throw "Candidate dependency is at $candidateDependencyHead; expected $resolvedDependencyCommit."
+    }
+
+    $candidateDependencyStatus = Invoke-NativeText `
+        $script:git `
+        @('status', '--porcelain') `
+        $candidateDependencyPath `
+        'read candidate dependency status'
+    if ($candidateDependencyStatus.Length -ne 0) {
+        throw 'Candidate dependency checkout must be clean for a retained run.'
+    }
+}
 if ([string]::IsNullOrEmpty($OutputDirectory)) {
     [string] $stamp = [DateTimeOffset]::UtcNow.ToString('yyyyMMdd-HHmmss')
     $OutputDirectory = Join-Path $root "artifacts/perf/Phase-0/noop-$stamp"
@@ -740,11 +781,24 @@ try {
         }
 
         if (-not $NoBuild) {
-            Invoke-NativeChecked `
-                $script:dotnet `
-                @('build', 'filtrace.slnx', '-c', 'Release') `
-                $arm.Checkout `
-                "$($arm.Name) build"
+            if ($arm.Name -eq 'candidate' -and $null -ne $candidateDependencyPath) {
+                foreach ($project in @('benchmarks/Filtrace.Benchmarks', 'src/Filtrace/Filtrace.csproj')) {
+                    Invoke-NativeChecked `
+                        $script:dotnet `
+                        @(
+                            'build', $project, '-c', 'Release',
+                            "-p:FastTraceRepoRoot=$candidateDependencyPath") `
+                        $arm.Checkout `
+                        "$($arm.Name) build $project"
+                }
+            }
+            else {
+                Invoke-NativeChecked `
+                    $script:dotnet `
+                    @('build', 'filtrace.slnx', '-c', 'Release') `
+                    $arm.Checkout `
+                    "$($arm.Name) build"
+            }
         }
 
         Test-TelemetryCapability $arm.Checkout $arm.Name
@@ -841,6 +895,12 @@ try {
         harnessCommit = $HarnessCommit
         baselineCommit = $baselineHead
         candidateCommit = $candidateHead
+        candidateDependencyCommit = $candidateDependencyHead
+        candidateDependencyDirty = if ($null -eq $candidateDependencyStatus) {
+            $null
+        } else {
+            $candidateDependencyStatus.Length -ne 0
+        }
         baselineDirty = $baselineStatus.Length -ne 0
         candidateDirty = $candidateStatus.Length -ne 0
         benchmarkTreeSha256 = $baselineHarnessHash
