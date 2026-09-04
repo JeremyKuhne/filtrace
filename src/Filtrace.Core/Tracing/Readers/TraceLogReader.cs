@@ -12,7 +12,7 @@ using FastTrace.Parsers.Kernel;
 namespace Filtrace.Tracing.Readers;
 
 /// <summary>
-///  Shared core for the TraceEvent-backed readers. Converts an ETW (<c>.etl</c>)
+///  Shared core for the FastTrace-backed readers. Converts an ETW (<c>.etl</c>)
 ///  or EventPipe (<c>.nettrace</c>) trace into the normalized weighted-sample
 ///  model by walking the call stack of every sampled-profile event.
 /// </summary>
@@ -67,11 +67,11 @@ internal abstract class TraceLogReader : ITraceReader
         using SymbolReader symbolReader = new(TextWriter.Null, "", httpClientDelegatingHandler: null);
 
         // touki and its sibling assemblies ship embedded portable PDBs, which
-        // TraceEvent's SymbolReader cannot read, and BenchmarkDotNet's ephemeral
+        // SymbolReader cannot read, and BenchmarkDotNet's ephemeral
         // run directory is gone by analysis time. When the caller points us at a
         // build-output directory we re-materialize those embedded PDBs as
         // standalone files in a temp directory and add it to the symbol path so
-        // TraceEvent can match a module by its PDB GUID and resolve source lines.
+        // the reader can match a module by its PDB GUID and resolve source lines.
         string? extractedPdbDirectory = symbolsDirectory is null
             ? null
             : EmbeddedPdbExtractor.Extract(symbolsDirectory);

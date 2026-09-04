@@ -6,10 +6,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A small, agent-shaped CLI and MCP server for analyzing .NET CPU, allocation,
-blocking, and wall-clock traces. Built on the
-`Microsoft.Diagnostics.Tracing.TraceEvent` library; reads EventPipe
-(`.nettrace` / `.speedscope.json`) and ETW (`.etl`) captures from both .NET and
-.NET Framework runs.
+blocking, and wall-clock traces. Built on FastTrace; reads EventPipe (`.nettrace`
+/ `.speedscope.json`) and ETW (`.etl`) captures from both .NET and .NET Framework
+runs.
 
 ## Install
 
@@ -216,7 +215,7 @@ For an EventPipe (`.nettrace`) capture - cross-platform, no elevation - use the
 first-party `dotnet-trace` (`dotnet tool install -g dotnet-trace`, then
 `dotnet-trace collect -- <app>`); `collect` is ETW-only.
 
-**File ops** - manage the ETLX conversion cache TraceEvent keeps beside a trace:
+**File ops** - manage the version-specific ETLX conversion cache Filtrace keeps beside a trace:
 
 | Command | Purpose | Example |
 |---|---|---|
@@ -226,6 +225,11 @@ ETLX conversion is coordinated per canonical trace path across threads and
 processes, with unique temporary files and atomic publication. Same-trace MCP
 queries may run in parallel; `trace_info.etlxCacheState` and `cache --action convert` report
 `hit`, `waited`, `converted`, or `recovered`.
+
+ETLX files are private caches, not supported input files. Filtrace rebuilds an
+unreadable or incompatible cache from its raw `.etl` or `.nettrace` source; it
+does not promise direct interoperability with ETLX files written by another
+reader version.
 
 ### Preview alias migration
 

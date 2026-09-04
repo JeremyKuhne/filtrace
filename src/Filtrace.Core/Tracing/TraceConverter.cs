@@ -10,17 +10,18 @@ namespace Filtrace.Tracing;
 
 /// <summary>
 ///  Builds, opens, and removes the <c>.etlx</c> conversion cache beside a
-///  <c>.nettrace</c> or <c>.etl</c> trace, backing every TraceEvent reader and the
+///  <c>.nettrace</c> or <c>.etl</c> trace, backing every trace reader and the
 ///  <c>convert</c> / <c>clean</c> file-op verbs.
 /// </summary>
 /// <remarks>
 ///  <para>
-///   Every analysis of a <c>.nettrace</c> or <c>.etl</c> first converts it to an
-///   ETLX file (the indexed form TraceEvent reads). TraceEvent caches that ETLX
-///   beside the source and reuses it on the next read, so converting up front makes
-///   the first real query fast, and cleaning it forces a rebuild when a stale cache
-///   is suspected. A speedscope export carries no ETLX (it is parsed as JSON), so
-///   neither operation applies to it.
+///   Every analysis of a <c>.nettrace</c> or <c>.etl</c> first converts it to a
+///   Filtrace-owned ETLX cache beside the source and reuses it on the next read.
+///   ETLX files are version-specific implementation details, not supported input
+///   files. An unreadable or incompatible cache is rebuilt from the raw trace.
+///   Converting up front makes the first real query fast, and cleaning forces a
+///   rebuild when a stale cache is suspected. A speedscope export carries no ETLX
+///   (it is parsed as JSON), so neither operation applies to it.
 ///  </para>
 ///  <para>
 ///   Conversion is coordinated per canonical source path across processes, written

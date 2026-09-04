@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+extern alias Oracle;
+
 using FastTrace.Etlx;
+
+using OracleEtlx = Oracle::Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing;
 
@@ -82,6 +86,99 @@ public sealed class TraceConverterTests
         }
         finally
         {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void OpenTraceLog_CurrentTraceEventV77Cache_RebuildsFromRawTrace()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        string etlx = trace + ".etlx";
+        try
+        {
+            OracleEtlx.TraceLog.CreateFromEventPipeDataFile(trace, etlx);
+            // Make the foreign cache current by timestamp so only reader incompatibility can trigger recovery.
+            File.SetLastWriteTimeUtc(etlx, DateTime.UtcNow.AddMinutes(1));
+            byte[] rawHash = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(trace));
+            byte[] foreignCacheHash = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx));
+
+            using TraceLog traceLog = TraceConverter.OpenTraceLog(trace, out EtlxCacheState state);
+
+            state.Should().Be(EtlxCacheState.Recovered);
+            traceLog.EventCount.Should().BeGreaterThan(0);
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(trace)).Should().Equal(rawHash);
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx)).Should().NotEqual(foreignCacheHash);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void ConvertWithState_ReadOnlySource_SucceedsWithoutModifyingSource()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        FileAttributes originalAttributes = File.GetAttributes(trace);
+        byte[] rawHash = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(trace));
+        try
+        {
+            File.SetAttributes(trace, originalAttributes | FileAttributes.ReadOnly);
+
+            EtlxCacheResult result = TraceConverter.ConvertWithState(trace);
+
+            result.State.Should().Be(EtlxCacheState.Converted);
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(trace)).Should().Equal(rawHash);
+            File.Exists(result.Path).Should().BeTrue();
+        }
+        finally
+        {
+            File.SetAttributes(trace, originalAttributes);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void ConvertWithState_UnwritableDestination_PreservesExistingCache()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        string etlx = trace + ".etlx";
+        TraceConverter.Convert(trace);
+        byte[] cacheHash = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx));
+        File.SetLastWriteTimeUtc(trace, DateTime.UtcNow.AddMinutes(1));
+        FileAttributes originalCacheAttributes = File.GetAttributes(etlx);
+        UnixFileMode originalDirectoryMode = default;
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                File.SetAttributes(etlx, originalCacheAttributes | FileAttributes.ReadOnly);
+            }
+            else
+            {
+                originalDirectoryMode = File.GetUnixFileMode(tempDir);
+                File.SetUnixFileMode(tempDir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            }
+
+            Action convert = () => TraceConverter.ConvertWithState(trace);
+
+            Exception exception = convert.Should().Throw<Exception>().Which;
+            (exception is IOException or UnauthorizedAccessException).Should().BeTrue();
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx)).Should().Equal(cacheHash);
+            Directory.EnumerateFiles(tempDir, ".filtrace-etlx-*").Should().BeEmpty();
+        }
+        finally
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                File.SetAttributes(etlx, originalCacheAttributes);
+            }
+            else
+            {
+                File.SetUnixFileMode(tempDir, originalDirectoryMode);
+            }
+
             Directory.Delete(tempDir, recursive: true);
         }
     }
@@ -257,6 +354,23 @@ public sealed class TraceConverterTests
         Action act = () => TraceConverter.Convert(FixturePath("folding.speedscope.json"));
 
         act.Should().Throw<NotSupportedException>();
+    }
+
+    [TestMethod]
+    public void Convert_EtlxInput_ThrowsNotSupported()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        string etlx = TraceConverter.Convert(trace);
+        try
+        {
+            Action convert = () => TraceConverter.Convert(etlx);
+
+            convert.Should().Throw<NotSupportedException>();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [TestMethod]
