@@ -147,6 +147,7 @@ try {
     }
 
     Assert-True $dependencyMismatchFailed 'A mismatched candidate dependency commit unexpectedly ran.'
+    $global:LASTEXITCODE = 0
 
     [string] $success = Join-Path $temporaryRoot 'success'
     & $script `

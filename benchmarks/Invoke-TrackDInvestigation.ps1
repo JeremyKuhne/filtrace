@@ -58,6 +58,9 @@
 .PARAMETER TelemetryIterations
   Child telemetry launches per arm. Defaults to 3; retained runs use 25.
 
+.PARAMETER ArmOrder
+    Execution order for thermal-bias control. BaselineFirst is B-A; CandidateFirst is A-B.
+
 .PARAMETER TraceArchivePath
   Trace path inside input-corpus.zip. Defaults to inputs/cpu-10k-d20.nettrace.
 
@@ -97,6 +100,7 @@ param(
     [ValidateSet('default', 'short', 'dry')][string] $BenchmarkJob = 'dry',
     [string] $CliScenario = 'info-warm',
     [ValidateRange(1, 100)][int] $TelemetryIterations = 3,
+    [ValidateSet('BaselineFirst', 'CandidateFirst')][string] $ArmOrder = 'BaselineFirst',
     [string] $TraceArchivePath = 'inputs/cpu-10k-d20.nettrace',
     [string] $DotnetPath = 'dotnet',
     [string] $GitPath = 'git',
@@ -752,9 +756,14 @@ try {
     Copy-Item -LiteralPath $inputArchive -Destination (Join-Path $runDirectory 'input-corpus.zip')
     Copy-Item -LiteralPath $inputManifest -Destination (Join-Path $runDirectory 'input-corpus.manifest.json')
 
-    foreach ($arm in @(
+    [object[]] $arms = @(
         [pscustomobject]@{ Name = 'baseline'; Checkout = $baselinePath },
-        [pscustomobject]@{ Name = 'candidate'; Checkout = $candidatePath })) {
+        [pscustomobject]@{ Name = 'candidate'; Checkout = $candidatePath })
+    if ($ArmOrder -eq 'CandidateFirst') {
+        [Array]::Reverse($arms)
+    }
+
+    foreach ($arm in $arms) {
         [string] $armDirectory = Join-Path $runDirectory $arm.Name
         [string] $inputRoot = Join-Path $armDirectory 'input-corpus'
         [System.IO.Directory]::CreateDirectory($inputRoot) | Out-Null
@@ -927,6 +936,7 @@ try {
         benchmarkJob = $BenchmarkJob
         cliScenario = $CliScenario
         telemetryIterations = $TelemetryIterations
+        armOrder = $ArmOrder
         sdkVersion = Invoke-NativeText $script:dotnet @('--version') $root 'read SDK version'
         os = [Environment]::OSVersion.VersionString
         architecture = [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
