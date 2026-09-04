@@ -2,8 +2,14 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+extern alias Oracle;
+
 using System.Diagnostics;
 using Filtrace.Tracing;
+
+using FastTrace.Etlx;
+
+using OracleEtlx = Oracle::Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Cli;
 
@@ -72,6 +78,29 @@ public sealed class FileOpsExecutorTests
             output.Should().Contain("ETLX cache converted");
             output.Should().Contain(".etlx");
             File.Exists(trace + ".etlx").Should().BeTrue();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Convert_CurrentTraceEventV77Cache_ReportsRecoveryAndPublishesReadableCache()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        string etlx = trace + ".etlx";
+        try
+        {
+            OracleEtlx.TraceLog.CreateFromEventPipeDataFile(trace, etlx);
+            File.SetLastWriteTimeUtc(etlx, DateTime.UtcNow.AddMinutes(1));
+
+            (int exit, string output, string error) = RunConvert(trace);
+
+            exit.Should().Be(ExitCodes.Success, error);
+            output.Should().Contain("ETLX cache recovered");
+            using TraceLog traceLog = new(etlx);
+            traceLog.EventCount.Should().BeGreaterThan(0);
         }
         finally
         {

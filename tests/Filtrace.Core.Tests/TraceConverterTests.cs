@@ -91,7 +91,7 @@ public sealed class TraceConverterTests
     }
 
     [TestMethod]
-    public void OpenTraceLog_CurrentTraceEventV77Cache_RebuildsFromRawTrace()
+    public void ConvertWithState_CurrentTraceEventV77Cache_RebuildsFromRawTrace()
     {
         string trace = CopyToTemp("alloc.nettrace", out string tempDir);
         string etlx = trace + ".etlx";
@@ -103,12 +103,37 @@ public sealed class TraceConverterTests
             byte[] rawHash = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(trace));
             byte[] foreignCacheHash = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx));
 
+            EtlxCacheResult result = TraceConverter.ConvertWithState(trace);
+            using TraceLog traceLog = new(result.Path);
+
+            result.State.Should().Be(EtlxCacheState.Recovered);
+            traceLog.EventCount.Should().BeGreaterThan(0);
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(trace)).Should().Equal(rawHash);
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx)).Should().NotEqual(foreignCacheHash);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void OpenTraceLog_UnreadableRecoveredCache_RebuildsFromRawTrace()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        string etlx = trace + ".etlx";
+        string staleTemporary = $"{etlx}.new";
+        try
+        {
+            File.WriteAllText(etlx, "not an ETLX file");
+            File.SetLastWriteTimeUtc(etlx, DateTime.UtcNow.AddMinutes(1));
+            File.WriteAllText(staleTemporary, "incomplete");
+
             using TraceLog traceLog = TraceConverter.OpenTraceLog(trace, out EtlxCacheState state);
 
             state.Should().Be(EtlxCacheState.Recovered);
             traceLog.EventCount.Should().BeGreaterThan(0);
-            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(trace)).Should().Equal(rawHash);
-            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx)).Should().NotEqual(foreignCacheHash);
+            File.Exists(staleTemporary).Should().BeFalse();
         }
         finally
         {
@@ -147,6 +172,50 @@ public sealed class TraceConverterTests
         TraceConverter.Convert(trace);
         byte[] cacheHash = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx));
         File.SetLastWriteTimeUtc(trace, DateTime.UtcNow.AddMinutes(1));
+        FileAttributes originalCacheAttributes = File.GetAttributes(etlx);
+        UnixFileMode originalDirectoryMode = default;
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                File.SetAttributes(etlx, originalCacheAttributes | FileAttributes.ReadOnly);
+            }
+            else
+            {
+                originalDirectoryMode = File.GetUnixFileMode(tempDir);
+                File.SetUnixFileMode(tempDir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            }
+
+            Action convert = () => TraceConverter.ConvertWithState(trace);
+
+            Exception exception = convert.Should().Throw<Exception>().Which;
+            (exception is IOException or UnauthorizedAccessException).Should().BeTrue();
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx)).Should().Equal(cacheHash);
+            Directory.EnumerateFiles(tempDir, ".filtrace-etlx-*").Should().BeEmpty();
+        }
+        finally
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                File.SetAttributes(etlx, originalCacheAttributes);
+            }
+            else
+            {
+                File.SetUnixFileMode(tempDir, originalDirectoryMode);
+            }
+
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void ConvertWithState_UnwritableDestination_PreservesIncompatibleCache()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        string etlx = trace + ".etlx";
+        OracleEtlx.TraceLog.CreateFromEventPipeDataFile(trace, etlx);
+        File.SetLastWriteTimeUtc(etlx, DateTime.UtcNow.AddMinutes(1));
+        byte[] cacheHash = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx));
         FileAttributes originalCacheAttributes = File.GetAttributes(etlx);
         UnixFileMode originalDirectoryMode = default;
         try

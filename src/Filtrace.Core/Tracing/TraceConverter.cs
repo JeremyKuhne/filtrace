@@ -60,6 +60,20 @@ public static class TraceConverter
         string path,
         CancellationToken cancellationToken = default)
     {
+        return ConvertWithStateCore(
+            path,
+            cancellationToken,
+            returnOpenLog: false,
+            out _);
+    }
+
+    private static EtlxCacheResult ConvertWithStateCore(
+        string path,
+        CancellationToken cancellationToken,
+        bool returnOpenLog,
+        out TraceLog? openedLog)
+    {
+        openedLog = null;
         string fullPath = ValidateConvertible(path);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -94,11 +108,28 @@ public static class TraceConverter
             recovered |= CleanTemporaryFiles(cachePath, lockKey);
             if (IsCurrent(fullPath, cachePath))
             {
-                EtlxCacheState state = recovered
-                    ? EtlxCacheState.Recovered
-                    : waited ? EtlxCacheState.Waited : EtlxCacheState.Hit;
+                try
+                {
+                    TraceLog currentLog = new(cachePath);
+                    if (returnOpenLog)
+                    {
+                        openedLog = currentLog;
+                    }
+                    else
+                    {
+                        currentLog.Dispose();
+                    }
 
-                return new EtlxCacheResult(cachePath, state);
+                    EtlxCacheState state = recovered
+                        ? EtlxCacheState.Recovered
+                        : waited ? EtlxCacheState.Waited : EtlxCacheState.Hit;
+
+                    return new EtlxCacheResult(cachePath, state);
+                }
+                catch (FastTrace.Serialization.SerializationException)
+                {
+                    recovered = true;
+                }
             }
 
             string temporaryPath = TemporaryPathFor(cachePath, lockKey);
@@ -114,12 +145,21 @@ public static class TraceConverter
                     TraceLog.CreateFromEventTraceLogFile(fullPath, temporaryPath, options);
                 }
 
+                using (TraceLog validationLog = new(temporaryPath))
+                {
+                }
+
                 File.Move(temporaryPath, cachePath, overwrite: true);
             }
             finally
             {
                 TryDelete(temporaryPath);
                 TryDelete($"{temporaryPath}.new");
+            }
+
+            if (returnOpenLog)
+            {
+                openedLog = new TraceLog(cachePath);
             }
 
             return new EtlxCacheResult(
@@ -147,32 +187,15 @@ public static class TraceConverter
         out EtlxCacheState cacheState,
         CancellationToken cancellationToken = default)
     {
-        EtlxCacheResult result = ConvertWithState(path, cancellationToken);
-        FileInfo failedCache = new(result.Path);
-        long failedLength = failedCache.Exists ? failedCache.Length : -1;
-        DateTime failedLastWriteTimeUtc = failedCache.Exists
-            ? failedCache.LastWriteTimeUtc
-            : DateTime.MinValue;
+        EtlxCacheResult result = ConvertWithStateCore(
+            path,
+            cancellationToken,
+            returnOpenLog: true,
+            out TraceLog? traceLog);
 
-        try
-        {
-            cacheState = result.State;
-            return new TraceLog(result.Path);
-        }
-        catch (FastTrace.Serialization.SerializationException)
-            when (result.State is EtlxCacheState.Hit or EtlxCacheState.Waited)
-        {
-            bool invalidated = InvalidateFailedCache(
-                path,
-                result.Path,
-                failedLength,
-                failedLastWriteTimeUtc,
-                cancellationToken);
-
-            result = ConvertWithState(path, cancellationToken);
-            cacheState = invalidated ? EtlxCacheState.Recovered : result.State;
-            return new TraceLog(result.Path);
-        }
+        cacheState = result.State;
+        return traceLog
+            ?? throw new InvalidOperationException("The validated ETLX cache was not opened.");
     }
 
     /// <summary>
@@ -280,51 +303,6 @@ public static class TraceConverter
         return cache.Exists
             && cache.Length > 0
             && cache.LastWriteTimeUtc >= File.GetLastWriteTimeUtc(sourcePath);
-    }
-
-    private static bool InvalidateFailedCache(
-        string sourcePath,
-        string cachePath,
-        long failedLength,
-        DateTime failedLastWriteTimeUtc,
-        CancellationToken cancellationToken)
-    {
-        string lockKey = LockKeyFor(ValidateConvertible(sourcePath));
-        using Mutex conversionMutex = new(initiallyOwned: false, $"filtrace-etlx-{lockKey}");
-        bool lockAcquired = false;
-        try
-        {
-            while (!lockAcquired)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    lockAcquired = conversionMutex.WaitOne(LockWaitSliceMilliseconds);
-                }
-                catch (AbandonedMutexException)
-                {
-                    lockAcquired = true;
-                }
-            }
-
-            FileInfo current = new(cachePath);
-            if (!current.Exists
-                || current.Length != failedLength
-                || current.LastWriteTimeUtc != failedLastWriteTimeUtc)
-            {
-                return false;
-            }
-
-            current.Delete();
-            return true;
-        }
-        finally
-        {
-            if (lockAcquired)
-            {
-                conversionMutex.ReleaseMutex();
-            }
-        }
     }
 
     private static string LockKeyFor(string fullPath)
