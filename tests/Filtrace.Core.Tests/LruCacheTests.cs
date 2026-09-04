@@ -54,6 +54,42 @@ public sealed class LruCacheTests
     }
 
     [TestMethod]
+    public void GetOrAdd_ConcurrentSameKeyMisses_ReportsOnlyStoredValueAdded()
+    {
+        LruCache<string, object> cache = new(capacity: 4);
+        using ManualResetEventSlim bothInside = new();
+        int started = 0;
+
+        object Factory(string _)
+        {
+            if (Interlocked.Increment(ref started) == 2)
+            {
+                bothInside.Set();
+            }
+
+            bothInside.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+            return new object();
+        }
+
+        Task<(object Value, bool Added)> first = Task.Run(() =>
+        {
+            object value = cache.GetOrAdd("k", Factory, out bool added);
+            return (value, added);
+        });
+
+        Task<(object Value, bool Added)> second = Task.Run(() =>
+        {
+            object value = cache.GetOrAdd("k", Factory, out bool added);
+            return (value, added);
+        });
+
+        Task.WaitAll(first, second);
+
+        first.Result.Value.Should().BeSameAs(second.Result.Value);
+        new[] { first.Result.Added, second.Result.Added }.Should().ContainSingle(added => added);
+    }
+
+    [TestMethod]
     public void GetOrAdd_OverCapacity_EvictsLeastRecentlyUsed()
     {
         LruCache<string, int> cache = new(capacity: 2);

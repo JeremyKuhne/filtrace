@@ -22,6 +22,11 @@ internal sealed class EtlReader : TraceLogReader
         path.EndsWith(".etl", StringComparison.OrdinalIgnoreCase);
 
     /// <inheritdoc/>
-    protected override TraceLog OpenTraceLog(string path, out EtlxCacheState cacheState) =>
-        TraceConverter.OpenTraceLog(path, out cacheState);
+    protected override TraceLog OpenTraceLog(
+        string path,
+        out EtlxCacheState cacheState,
+        CancellationToken cancellationToken)
+    {
+        return TraceConverter.OpenTraceLog(path, out cacheState, cancellationToken);
+    }
 }

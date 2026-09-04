@@ -45,10 +45,12 @@ internal interface ITraceReader
     ///  fetches native runtime PDBs from the public symbol server. Ignored by formats
     ///  with no native frames (speedscope).
     /// </param>
+    /// <param name="cancellationToken">Cancels a trace conversion wait.</param>
     /// <returns>The normalized samples and quality signals.</returns>
     TraceReadResult Read(
         string path,
         string? symbolsDirectory = null,
         ScopeRequest? scope = null,
-        SymbolOptions? symbolOptions = null);
+        SymbolOptions? symbolOptions = null,
+        CancellationToken cancellationToken = default);
 }

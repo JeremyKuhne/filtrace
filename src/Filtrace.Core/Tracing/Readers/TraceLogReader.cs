@@ -45,20 +45,25 @@ internal abstract class TraceLogReader : ITraceReader
     /// </summary>
     /// <param name="path">The trace file path.</param>
     /// <param name="cacheState">How the ETLX cache request was satisfied.</param>
+    /// <param name="cancellationToken">Cancels a trace conversion wait.</param>
     /// <returns>The opened trace log.</returns>
-    protected abstract TraceLog OpenTraceLog(string path, out EtlxCacheState cacheState);
+    protected abstract TraceLog OpenTraceLog(
+        string path,
+        out EtlxCacheState cacheState,
+        CancellationToken cancellationToken);
 
     /// <inheritdoc/>
     public TraceReadResult Read(
         string path,
         string? symbolsDirectory = null,
         ScopeRequest? scope = null,
-        SymbolOptions? symbolOptions = null)
+        SymbolOptions? symbolOptions = null,
+        CancellationToken cancellationToken = default)
     {
         symbolsDirectory = NormalizeSymbolsDirectory(symbolsDirectory);
 
         EtlxCacheState cacheState;
-        using TraceLog traceLog = OpenTraceLog(path, out cacheState);
+        using TraceLog traceLog = OpenTraceLog(path, out cacheState, cancellationToken);
 
         // Local-only symbol reader: an empty symbol path never reaches a symbol
         // server, but portable PDBs sitting next to a traced module still

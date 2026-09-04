@@ -67,4 +67,22 @@ public sealed class WaitProvider
             static (traceLog, stackSource) => new WaitHandleWaitLatencyComputer(traceLog, stackSource),
             window,
             out recordCount);
+
+    /// <inheritdoc cref="Read(string, TimeWindow?, out int)"/>
+    internal StackSampleSource Read(
+        string path,
+        TimeWindow? window,
+        out int recordCount,
+        out EtlxCacheState cacheState,
+        CancellationToken cancellationToken)
+    {
+        return LatencyStackReader.Read(
+            path,
+            MetricInfo.Wait,
+            static (traceLog, stackSource) => new WaitHandleWaitLatencyComputer(traceLog, stackSource),
+            window,
+            out recordCount,
+            out cacheState,
+            cancellationToken);
+    }
 }

@@ -63,6 +63,17 @@ public sealed class ActivityProvider
     /// <returns>The activity stack source retained by the requested window.</returns>
     internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount)
     {
+        return Read(path, window, out recordCount, out _, cancellationToken: default);
+    }
+
+    /// <inheritdoc cref="Read(string, TimeWindow?, out int)"/>
+    internal StackSampleSource Read(
+        string path,
+        TimeWindow? window,
+        out int recordCount,
+        out EtlxCacheState cacheState,
+        CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
         string fullPath = Path.GetFullPath(path);
@@ -71,7 +82,7 @@ public sealed class ActivityProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out cacheState, cancellationToken);
         using TraceLogEventSource source = traceLog.Events.GetSource();
 
         // The activity computer needs a symbol reader and a GC-reference computer to

@@ -68,7 +68,61 @@ public sealed class TraceStoreTests
     }
 
     [TestMethod]
-    public async Task GetAsync_CanceledWhileWaitingForInterprocessConversion_ThrowsOperationCanceled()
+    public async Task GetAsync_ParsedCacheHit_DoesNotReopenTheEtlxFile()
+    {
+        TraceStore store = new();
+        string path = CopyToTemp("activity.nettrace", out string tempDirectory);
+        try
+        {
+            TraceStoreLoadResult first = await store.GetAsync(path);
+            string etlx = TraceConverter.EtlxPathFor(path);
+            File.WriteAllText(etlx, "incompatible cache");
+            File.SetLastWriteTimeUtc(etlx, DateTime.UtcNow.AddMinutes(1));
+            byte[] incompatibleCache = File.ReadAllBytes(etlx);
+
+            TraceStoreLoadResult second = await store.GetAsync(path);
+
+            second.Trace.Should().BeSameAs(first.Trace);
+            second.EtlxCacheState.Should().BeNull();
+            File.ReadAllBytes(etlx).Should().Equal(incompatibleCache);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAsync_NonCpuParsedCacheHit_PreservesInitialStateAndDoesNotReopenEtlx()
+    {
+        TraceStore store = new();
+        string path = CopyToTemp("alloc.nettrace", out string tempDirectory);
+        try
+        {
+            TraceStoreLoadResult first = await store.GetAsync(path, metric: TraceMetric.Allocations);
+            string etlx = TraceConverter.EtlxPathFor(path);
+            File.WriteAllText(etlx, "incompatible cache");
+            File.SetLastWriteTimeUtc(etlx, DateTime.UtcNow.AddMinutes(1));
+            byte[] incompatibleCache = File.ReadAllBytes(etlx);
+
+            TraceStoreLoadResult second = await store.GetAsync(path, metric: TraceMetric.Allocations);
+
+            first.EtlxCacheState.Should().Be(EtlxCacheState.Converted);
+            second.Trace.Should().BeSameAs(first.Trace);
+            second.EtlxCacheState.Should().BeNull();
+            File.ReadAllBytes(etlx).Should().Equal(incompatibleCache);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(TraceMetric.Cpu)]
+    [DataRow(TraceMetric.Allocations)]
+    public async Task GetAsync_CanceledWhileWaitingForInterprocessConversion_ThrowsOperationCanceled(
+        TraceMetric metric)
     {
         TraceStore store = new();
         string path = CopyToTemp("alloc.nettrace", out string tempDirectory);
@@ -100,7 +154,11 @@ public sealed class TraceStoreTests
         try
         {
             mutexHeld.Wait(SynchronizationTimeout).Should().BeTrue();
-            Task<TraceStoreLoadResult> load = store.GetAsync(path, cancellationToken: cancellation.Token);
+            Task<TraceStoreLoadResult> load = store.GetAsync(
+                path,
+                metric: metric,
+                cancellationToken: cancellation.Token);
+
             cancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
 
             Func<Task> wait = async () => await load;
