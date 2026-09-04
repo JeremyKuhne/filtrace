@@ -4,7 +4,7 @@
 
 using System.Globalization;
 using Filtrace.Tracing.Readers;
-using Microsoft.Diagnostics.Tracing.Etlx;
+using FastTrace.Etlx;
 using Touki;
 
 namespace Filtrace.Tracing;

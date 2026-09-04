@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.EventPipe;
-using Microsoft.Diagnostics.Tracing.Parsers.Clr;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
+using FastTrace;
+using FastTrace.EventPipe;
+using FastTrace.Parsers.Clr;
+using FastTrace.Parsers.Kernel;
 
 namespace Filtrace.Tracing;
 

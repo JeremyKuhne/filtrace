@@ -3,8 +3,8 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Output;
-using Microsoft.Diagnostics.Tracing;
-using Etlx = Microsoft.Diagnostics.Tracing.Etlx;
+using FastTrace;
+using Etlx = FastTrace.Etlx;
 
 namespace Filtrace.Tracing.Providers;
 

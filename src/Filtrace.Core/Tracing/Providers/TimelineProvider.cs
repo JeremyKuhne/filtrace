@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Analysis;
-using Microsoft.Diagnostics.Tracing.Analysis.GC;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers.Clr;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
-using Microsoft.Diagnostics.Tracing.EventPipe;
+using FastTrace;
+using FastTrace.Analysis;
+using FastTrace.Analysis.GC;
+using FastTrace.Etlx;
+using FastTrace.Parsers.Clr;
+using FastTrace.Parsers.Kernel;
+using FastTrace.EventPipe;
 using Filtrace.Tracing.Readers;
-using Etlx = Microsoft.Diagnostics.Tracing.Etlx;
-using TraceProcess = Microsoft.Diagnostics.Tracing.Analysis.TraceProcess;
+using Etlx = FastTrace.Etlx;
+using TraceProcess = FastTrace.Analysis.TraceProcess;
 
 namespace Filtrace.Tracing.Providers;
 

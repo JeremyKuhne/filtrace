@@ -7,7 +7,7 @@ using System.Globalization;
 using Filtrace.Output;
 using Filtrace.Tracing.Providers;
 using Filtrace.Tracing.Readers;
-using Microsoft.Diagnostics.Tracing.Etlx;
+using FastTrace.Etlx;
 
 namespace Filtrace.Tracing;
 

@@ -5,13 +5,13 @@
 using System.Security.Cryptography;
 using Filtrace.Output;
 using Filtrace.Tracing.Readers;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.EventPipe;
-using Microsoft.Diagnostics.Tracing.Parsers;
-using Microsoft.Diagnostics.Tracing.Parsers.Clr;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
-using Etlx = Microsoft.Diagnostics.Tracing.Etlx;
+using FastTrace;
+using FastTrace.Etlx;
+using FastTrace.EventPipe;
+using FastTrace.Parsers;
+using FastTrace.Parsers.Clr;
+using FastTrace.Parsers.Kernel;
+using Etlx = FastTrace.Etlx;
 
 namespace Filtrace.Tracing.Providers;
 

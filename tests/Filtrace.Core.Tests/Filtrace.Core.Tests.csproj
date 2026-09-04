@@ -21,6 +21,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Filtrace.Core\Filtrace.Core.csproj" />
+    <ProjectReference Include="$(FastTraceRepoRoot)\src\fasttrace\fasttrace.csproj"
+                      SetConfiguration="Configuration=$(Configuration)"
+                      Condition="'$(FastTraceRepoRoot)' != ''" />
   </ItemGroup>
 
   <ItemGroup>

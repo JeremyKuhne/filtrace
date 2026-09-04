@@ -4,10 +4,10 @@
 
 using System.Globalization;
 using System.Text.RegularExpressions;
-using Microsoft.Diagnostics.Symbols;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Stacks;
+using FastTrace.Symbols;
+using FastTrace;
+using FastTrace.Etlx;
+using FastTrace.Stacks;
 using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Tracing.Providers;

@@ -5,7 +5,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Filtrace.Output;
 using Filtrace.Tracing.Readers;
-using Microsoft.Diagnostics.Tracing.Etlx;
+using FastTrace.Etlx;
 
 namespace Filtrace.Tracing.Providers;
 

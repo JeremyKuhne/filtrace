@@ -21,6 +21,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Filtrace.Mcp\Filtrace.Mcp.csproj" />
+    <ProjectReference Include="$(FastTraceRepoRoot)\src\fasttrace\fasttrace.csproj"
+                      Condition="'$(FastTraceRepoRoot)' != ''" />
   </ItemGroup>
 
   <!-- Reuse the fixtures committed under Filtrace.Core.Tests rather than duplicate them. -->

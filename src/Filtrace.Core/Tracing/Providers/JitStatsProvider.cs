@@ -3,12 +3,12 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Output;
-using Microsoft.Diagnostics.Tracing.Analysis;
-using Microsoft.Diagnostics.Tracing.Analysis.JIT;
-using TraceLog = Microsoft.Diagnostics.Tracing.Etlx.TraceLog;
-using TraceLogEventSource = Microsoft.Diagnostics.Tracing.Etlx.TraceLogEventSource;
-using TraceLogOptions = Microsoft.Diagnostics.Tracing.Etlx.TraceLogOptions;
-using TraceProcess = Microsoft.Diagnostics.Tracing.Analysis.TraceProcess;
+using FastTrace.Analysis;
+using FastTrace.Analysis.JIT;
+using TraceLog = FastTrace.Etlx.TraceLog;
+using TraceLogEventSource = FastTrace.Etlx.TraceLogEventSource;
+using TraceLogOptions = FastTrace.Etlx.TraceLogOptions;
+using TraceProcess = FastTrace.Analysis.TraceProcess;
 
 namespace Filtrace.Tracing.Providers;
 

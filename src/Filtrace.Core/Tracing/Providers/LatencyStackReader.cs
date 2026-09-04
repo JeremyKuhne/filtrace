@@ -3,9 +3,9 @@
 // See LICENSE file in the project root for full license information
 
 using System.Text.RegularExpressions;
-using Microsoft.Diagnostics.Tracing.Computers;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Stacks;
+using FastTrace.Computers;
+using FastTrace.Etlx;
+using FastTrace.Stacks;
 
 namespace Filtrace.Tracing.Providers;
 

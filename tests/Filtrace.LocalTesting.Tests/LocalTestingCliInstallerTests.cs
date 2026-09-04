@@ -21,6 +21,19 @@ public sealed class LocalTestingCliInstallerTests
         string packageDirectory = Path.Join(directory.Path, "packages");
         Directory.CreateDirectory(packageDirectory);
         string repositoryRoot = FindRepositoryRoot();
+        string fastTraceRoot = Environment.GetEnvironmentVariable("FastTraceRepoRoot")
+            ?? throw new InvalidOperationException("FastTraceRepoRoot is required for the FastTrace candidate.");
+        RunDotnet(
+            fastTraceRoot,
+            "pack",
+            Path.Join(fastTraceRoot, "src", "fasttrace", "fasttrace.csproj"),
+            "--configuration",
+            "Release",
+            "--no-restore",
+            "--output",
+            packageDirectory,
+            "/p:IncludeSymbols=false");
+
         RunDotnet(
             repositoryRoot,
             "pack",
@@ -32,7 +45,8 @@ public sealed class LocalTestingCliInstallerTests
             packageDirectory,
             "/p:IncludeSymbols=false");
 
-        string packagePath = Directory.GetFiles(packageDirectory, "*.nupkg").Single();
+        string packagePath = Directory.GetFiles(packageDirectory, "*.nupkg")
+            .Single(path => Path.GetFileName(path).StartsWith("filtrace.", StringComparison.OrdinalIgnoreCase));
         string renamedPackagePath = Path.Join(packageDirectory, "renamed.nupkg");
         File.Copy(packagePath, renamedPackagePath);
         ResourcePlan plan = CreatePlan(directory.Path);

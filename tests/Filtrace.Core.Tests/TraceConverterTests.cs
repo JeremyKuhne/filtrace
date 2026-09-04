@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Tracing.Etlx;
+using FastTrace.Etlx;
 
 namespace Filtrace.Tracing;
 
@@ -55,6 +55,30 @@ public sealed class TraceConverterTests
             EtlxCacheResult second = TraceConverter.ConvertWithState(trace);
 
             second.State.Should().Be(EtlxCacheState.Hit);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void OpenTraceLog_UnreadableCurrentCache_RebuildsFromRawTrace()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        string etlx = trace + ".etlx";
+        try
+        {
+            File.WriteAllText(etlx, "not an ETLX file");
+            File.SetLastWriteTimeUtc(etlx, DateTime.UtcNow.AddMinutes(1));
+            byte[] unreadableHash = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx));
+
+            using TraceLog traceLog = TraceConverter.OpenTraceLog(trace, out EtlxCacheState state);
+
+            state.Should().Be(EtlxCacheState.Recovered);
+            traceLog.EventCount.Should().BeGreaterThan(0);
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(etlx))
+                .Should().NotEqual(unreadableHash);
         }
         finally
         {

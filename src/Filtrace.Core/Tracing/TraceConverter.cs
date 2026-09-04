@@ -4,7 +4,7 @@
 
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.Diagnostics.Tracing.Etlx;
+using FastTrace.Etlx;
 
 namespace Filtrace.Tracing;
 
@@ -147,8 +147,31 @@ public static class TraceConverter
         CancellationToken cancellationToken = default)
     {
         EtlxCacheResult result = ConvertWithState(path, cancellationToken);
-        cacheState = result.State;
-        return new TraceLog(result.Path);
+        FileInfo failedCache = new(result.Path);
+        long failedLength = failedCache.Exists ? failedCache.Length : -1;
+        DateTime failedLastWriteTimeUtc = failedCache.Exists
+            ? failedCache.LastWriteTimeUtc
+            : DateTime.MinValue;
+
+        try
+        {
+            cacheState = result.State;
+            return new TraceLog(result.Path);
+        }
+        catch (FastTrace.Serialization.SerializationException)
+            when (result.State is EtlxCacheState.Hit or EtlxCacheState.Waited)
+        {
+            bool invalidated = InvalidateFailedCache(
+                path,
+                result.Path,
+                failedLength,
+                failedLastWriteTimeUtc,
+                cancellationToken);
+
+            result = ConvertWithState(path, cancellationToken);
+            cacheState = invalidated ? EtlxCacheState.Recovered : result.State;
+            return new TraceLog(result.Path);
+        }
     }
 
     /// <summary>
@@ -256,6 +279,51 @@ public static class TraceConverter
         return cache.Exists
             && cache.Length > 0
             && cache.LastWriteTimeUtc >= File.GetLastWriteTimeUtc(sourcePath);
+    }
+
+    private static bool InvalidateFailedCache(
+        string sourcePath,
+        string cachePath,
+        long failedLength,
+        DateTime failedLastWriteTimeUtc,
+        CancellationToken cancellationToken)
+    {
+        string lockKey = LockKeyFor(ValidateConvertible(sourcePath));
+        using Mutex conversionMutex = new(initiallyOwned: false, $"filtrace-etlx-{lockKey}");
+        bool lockAcquired = false;
+        try
+        {
+            while (!lockAcquired)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    lockAcquired = conversionMutex.WaitOne(LockWaitSliceMilliseconds);
+                }
+                catch (AbandonedMutexException)
+                {
+                    lockAcquired = true;
+                }
+            }
+
+            FileInfo current = new(cachePath);
+            if (!current.Exists
+                || current.Length != failedLength
+                || current.LastWriteTimeUtc != failedLastWriteTimeUtc)
+            {
+                return false;
+            }
+
+            current.Delete();
+            return true;
+        }
+        finally
+        {
+            if (lockAcquired)
+            {
+                conversionMutex.ReleaseMutex();
+            }
+        }
     }
 
     private static string LockKeyFor(string fullPath)
