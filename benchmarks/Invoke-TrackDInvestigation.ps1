@@ -827,10 +827,14 @@ try {
             $filtracePathEnvironmentVariable)
         [string] $previousFastTraceRoot = [Environment]::GetEnvironmentVariable(
             'FastTraceRepoRoot')
+        [string] $previousBenchmarkTracePath = [Environment]::GetEnvironmentVariable(
+            'FILTRACE_BENCHMARK_TRACE_PATH')
         [Environment]::SetEnvironmentVariable(
             $filtracePathEnvironmentVariable,
             $subjectExecutable)
+        [Environment]::SetEnvironmentVariable('FILTRACE_BENCHMARK_TRACE_PATH', $trace)
         $commandLog.Add("[env] $filtracePathEnvironmentVariable=$subjectExecutable")
+        $commandLog.Add("[env] FILTRACE_BENCHMARK_TRACE_PATH=$trace")
         if ($arm.Name -eq 'candidate' -and $null -ne $candidateDependencyPath) {
             [Environment]::SetEnvironmentVariable('FastTraceRepoRoot', $candidateDependencyPath)
             $commandLog.Add("[env] FastTraceRepoRoot=$candidateDependencyPath")
@@ -849,6 +853,9 @@ try {
             [Environment]::SetEnvironmentVariable(
                 'FastTraceRepoRoot',
                 $previousFastTraceRoot)
+            [Environment]::SetEnvironmentVariable(
+                'FILTRACE_BENCHMARK_TRACE_PATH',
+                $previousBenchmarkTracePath)
         }
 
         [string] $telemetryDirectory = Join-Path $armDirectory 'cli-benchmark'

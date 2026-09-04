@@ -34,7 +34,7 @@ public class CliWarmBenchmarks
     public void Setup()
     {
         _executable = CliProcessRunner.FindFiltraceExecutable();
-        _trace = Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
+        _trace = Environment.GetEnvironmentVariable("FILTRACE_BENCHMARK_TRACE_PATH") ?? Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
         CliScenarioDefinition definition = CliBenchmarkScenarios.Get(Scenario);
         if (definition.IsManifest)
         {

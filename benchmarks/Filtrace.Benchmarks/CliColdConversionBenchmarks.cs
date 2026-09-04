@@ -22,7 +22,7 @@ public class CliColdConversionBenchmarks
     public void Setup()
     {
         _executable = CliProcessRunner.FindFiltraceExecutable();
-        _sourceTrace = Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
+        _sourceTrace = Environment.GetEnvironmentVariable("FILTRACE_BENCHMARK_TRACE_PATH") ?? Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
         if (!File.Exists(_sourceTrace))
         {
             throw new FileNotFoundException("The activity fixture was not copied.", _sourceTrace);
