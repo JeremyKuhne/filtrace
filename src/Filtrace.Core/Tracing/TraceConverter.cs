@@ -141,7 +141,7 @@ public static class TraceConverter
     /// <param name="path">The source <c>.nettrace</c> or <c>.etl</c> path.</param>
     /// <param name="cacheState">How this request obtained the ETLX cache.</param>
     /// <param name="cancellationToken">Cancels waiting for another converter.</param>
-    /// <returns>An open TraceEvent log over the current ETLX cache.</returns>
+    /// <returns>An open trace log over the current ETLX cache.</returns>
     internal static TraceLog OpenTraceLog(
         string path,
         out EtlxCacheState cacheState,
@@ -221,7 +221,7 @@ public static class TraceConverter
     }
 
     /// <summary>
-    ///  The ETLX cache path TraceEvent uses for the trace at <paramref name="path"/>.
+    ///  The ETLX cache path filtrace uses for the trace at <paramref name="path"/>.
     /// </summary>
     /// <param name="path">The trace file path.</param>
     /// <returns>The ETLX file path.</returns>

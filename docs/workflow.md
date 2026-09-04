@@ -352,7 +352,7 @@ meaningful zero:
 |---|---|
 | `collect` | launch an executable and record a CPU / thread-time `.etl` (Windows, Administrator) |
 
-**File ops** - manage the ETLX conversion cache TraceEvent keeps beside a trace:
+**File ops** - manage the version-specific ETLX conversion cache filtrace keeps beside a trace:
 
 | Verb | Does |
 |---|---|
