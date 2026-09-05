@@ -17,6 +17,9 @@ indent_size = 2
 indent_size = 2
 
 [*.cs]
+file_header_template = Copyright (c) Jeremy W Kuhne and contributors\nSPDX-License-Identifier: MIT\nSee LICENSE file in the project root for full license information
+dotnet_diagnostic.IDE0073.severity = warning
+
 # Touki's house-style analyzers ship disabled so consuming repositories opt in
 # deliberately. Filtrace enables the complete analyzer set.
 # Derive disposable classes from DisposableBase (TOUKI0012)
