@@ -101,7 +101,7 @@ the repo build standalone.
 - Use this header on every C# file:
 
 ```c#
-// Copyright (c) 2025 Jeremy W Kuhne
+// Copyright (c) Jeremy W Kuhne and contributors
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 ```
