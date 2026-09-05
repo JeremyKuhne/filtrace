@@ -6,7 +6,7 @@ namespace Filtrace.Cli;
 
 [TestClass]
 [OSCondition(OperatingSystems.Windows)]
-public sealed class DiskIoExecutorTests
+public sealed partial class DiskIoExecutorTests
 {
     private static string FixturePath(string name) =>
         Path.Join(AppContext.BaseDirectory, "Fixtures", name);
@@ -28,6 +28,12 @@ public sealed class DiskIoExecutorTests
         int exit = DiskIoExecutor.Run(request, output, error);
         return (exit, output.ToString(), error.ToString());
     }
+
+    [GeneratedRegex("\"fileName\":")]
+    private static partial Regex FileNamePropertyRegex();
+
+    [GeneratedRegex("\"writeCount\":(\\d+)")]
+    private static partial Regex WriteCountPropertyRegex();
 
     [TestMethod]
     public void Run_TextFormat_WritesTheSummary()
@@ -59,12 +65,12 @@ public sealed class DiskIoExecutorTests
         (int exit, string output, _) = Run(Request(DiskIo, top: 1, format: OutputFormat.Json));
 
         exit.Should().Be(ExitCodes.Success);
-        int shown = Regex.Matches(output, "\"fileName\":").Count;
+        int shown = FileNamePropertyRegex().Matches(output).Count;
 
         // The per-file detail is capped to top, but the aggregate write count reflects
         // every operation.
         shown.Should().BeLessThanOrEqualTo(1);
-        int writeCount = int.Parse(Regex.Match(output, "\"writeCount\":(\\d+)").Groups[1].Value);
+        int writeCount = int.Parse(WriteCountPropertyRegex().Match(output).Groups[1].Value);
         writeCount.Should().BeGreaterThan(0);
         output.Should().Contain("Showing the top 1");
     }

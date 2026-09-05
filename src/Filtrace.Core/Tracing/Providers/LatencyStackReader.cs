@@ -28,13 +28,13 @@ namespace Filtrace.Tracing.Providers;
 ///   unchanged.
 ///  </para>
 /// </remarks>
-internal static class LatencyStackReader
+internal static partial class LatencyStackReader
 {
-    private static readonly Regex s_processFrame =
-        new(@"^Process\d*\s+.+\s+\(\d+\)", RegexOptions.Compiled);
+    [GeneratedRegex(@"^Process\d*\s+.+\s+\(\d+\)")]
+    private static partial Regex ProcessFrameRegex();
 
-    private static readonly Regex s_threadFrame =
-        new(@"^Thread\s+\(\d+\)", RegexOptions.Compiled);
+    [GeneratedRegex(@"^Thread\s+\(\d+\)")]
+    private static partial Regex ThreadFrameRegex();
 
     /// <summary>
     ///  Runs a start/stop latency computer over the EventPipe trace at
@@ -113,8 +113,8 @@ internal static class LatencyStackReader
                 // path only, leafed at the site that blocked.
                 if (frame.StartsWith("EventData ", StringComparison.Ordinal)
                     || frame.StartsWith("BROKEN", StringComparison.Ordinal)
-                    || s_threadFrame.IsMatch(frame)
-                    || s_processFrame.IsMatch(frame))
+                    || ThreadFrameRegex().IsMatch(frame)
+                    || ProcessFrameRegex().IsMatch(frame))
                 {
                     continue;
                 }

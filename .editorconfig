@@ -23,6 +23,9 @@ dotnet_diagnostic.IDE0073.severity = warning
 # Remove unnecessary using directives (IDE0005)
 dotnet_diagnostic.IDE0005.severity = warning
 
+# Use source-generated regular expressions when possible (SYSLIB1045)
+dotnet_diagnostic.SYSLIB1045.severity = warning
+
 # Touki's house-style analyzers ship disabled so consuming repositories opt in
 # deliberately. Filtrace enables the complete analyzer set.
 # Derive disposable classes from DisposableBase (TOUKI0012)

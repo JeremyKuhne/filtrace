@@ -34,16 +34,16 @@ namespace Filtrace.Tracing.Providers;
 ///   workload tree.
 ///  </para>
 /// </remarks>
-public sealed class ThreadTimeProvider
+public sealed partial class ThreadTimeProvider
 {
     // The thread-time computer roots each stack at a process pseudo-frame formatted
     // "Process<bits> <name> (<pid>) Args: <args>" and a thread pseudo-frame
     // "Thread (<tid>) CPU=<n>ms (<name>)". These extract the ids and a clean label.
-    private static readonly Regex s_processFrame =
-        new(@"^Process\d*\s+(?<name>.+?)\s+\((?<pid>\d+)\)(?:\s+Args:.*)?$", RegexOptions.Compiled);
+    [GeneratedRegex(@"^Process\d*\s+(?<name>.+?)\s+\((?<pid>\d+)\)(?:\s+Args:.*)?$")]
+    private static partial Regex ProcessFrameRegex();
 
-    private static readonly Regex s_threadFrame =
-        new(@"^Thread\s+\((?<tid>\d+)\)", RegexOptions.Compiled);
+    [GeneratedRegex(@"^Thread\s+\((?<tid>\d+)\)")]
+    private static partial Regex ThreadFrameRegex();
 
     /// <summary>
     ///  Reads the thread-time stack-sample source from the ETW trace at
@@ -184,7 +184,7 @@ public sealed class ThreadTimeProvider
                 {
                     frame = process;
                 }
-                else if (i == 1 && s_threadFrame.Match(frame) is { Success: true } threadMatch)
+                else if (i == 1 && ThreadFrameRegex().Match(frame) is { Success: true } threadMatch)
                 {
                     thread = threadMatch.Groups["tid"].Value;
                     frame = $"Thread ({thread})";
@@ -218,7 +218,7 @@ public sealed class ThreadTimeProvider
     // pid is parsed and reformatted invariantly so the label stays ASCII-stable.
     private static string NormalizeProcessFrame(string frame, out int pid)
     {
-        Match match = s_processFrame.Match(frame);
+        Match match = ProcessFrameRegex().Match(frame);
         if (!match.Success
             || !int.TryParse(match.Groups["pid"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
         {
