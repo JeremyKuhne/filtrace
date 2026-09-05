@@ -62,6 +62,47 @@ internal sealed class LocalTestingCoordinator
         };
     }
 
+    /// <summary>
+    ///  Restores the immutable target baseline and removes private local-testing state.
+    /// </summary>
+    /// <param name="plan">The target's normalized local-testing resource paths.</param>
+    public void Restore(ResourcePlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        using LocalTestingTargetLock targetLock = LocalTestingTargetLock.Acquire(plan);
+        ValidateStatePaths(plan);
+        LocalTestingState? state = _stateStore.Read(plan.StatePath);
+        LocalTestingOperation operation = LocalTestingOperationClassifier.Classify(
+            LocalTestingAction.Restore,
+            state);
+
+        if (operation is LocalTestingOperation.CleanupRetry)
+        {
+            Cleanup(plan);
+            return;
+        }
+
+        ValidatePrivatePaths(plan);
+        _resources.ValidateBaseline(plan, state!.Baseline);
+        LocalTestingState restoring = state with
+        {
+            Status = LocalTestingStatus.Restoring
+        };
+
+        _stateStore.Write(plan.StatePath, restoring);
+        _resources.RestoreCli(plan);
+        _resources.RestoreMcp(plan, restoring.Baseline.Mcp);
+        _resources.RestoreSkill(plan, restoring.Baseline.Skill);
+        _resources.RestoreCreatedDirectories(plan, restoring.Baseline.CreatedDirectories);
+        LocalTestingState cleanup = restoring with
+        {
+            Status = LocalTestingStatus.Cleanup
+        };
+
+        _stateStore.Write(plan.StatePath, cleanup);
+        Cleanup(plan);
+    }
+
     private LocalTestingState FreshInstall(
         ResourcePlan plan,
         LocalTestingInstallInputs inputs)
@@ -145,8 +186,7 @@ internal sealed class LocalTestingCoordinator
 
     private static void ValidatePrivatePaths(ResourcePlan plan)
     {
-        ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.StateRoot);
-        ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.StatePath);
+        ValidateStatePaths(plan);
         ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.ArtifactsDirectory);
         ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.SkillBackupPath);
         ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.CliDirectory);
@@ -159,10 +199,32 @@ internal sealed class LocalTestingCoordinator
         _ = RegularFileGuard.Exists(plan.StatePath, "Local-testing state");
     }
 
+    private static void ValidateStatePaths(ResourcePlan plan)
+    {
+        ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.StateRoot);
+        ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.StatePath);
+    }
+
     private static void PreparePrivateDirectories(ResourcePlan plan)
     {
         Directory.CreateDirectory(plan.ArtifactsDirectory);
         ValidatePrivatePaths(plan);
+    }
+
+    private void Cleanup(ResourcePlan plan)
+    {
+        _resources.CleanupPrivateArtifacts(plan);
+        _stateStore.DeleteCleanupState(plan.StatePath);
+        try
+        {
+            Directory.Delete(plan.StateRoot, recursive: false);
+        }
+        catch (Exception exception) when (
+            exception is DirectoryNotFoundException
+                or IOException
+                or UnauthorizedAccessException)
+        {
+        }
     }
 
     private static bool PathsEqual(string first, string second)

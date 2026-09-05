@@ -472,6 +472,46 @@ public sealed class LocalTestingCliInstallerTests
             .WithMessage("*incomplete local-testing CLI operation requires manual recovery*");
     }
 
+    [TestMethod]
+    public void Restore_PrivateCli_RemovesTreeAndIsIdempotent()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory.Path);
+        Directory.CreateDirectory(plan.CliDirectory);
+        string marker = Path.Join(plan.CliDirectory, "marker.txt");
+        File.WriteAllText(marker, "private CLI");
+        if (OperatingSystem.IsWindows())
+        {
+            File.SetAttributes(marker, FileAttributes.ReadOnly);
+        }
+
+        LocalTestingCliInstaller installer = new();
+        installer.Restore(plan);
+        installer.Restore(plan);
+
+        Directory.Exists(plan.CliDirectory).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void Restore_IncompleteOperation_PreservesCliAndQuarantine()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory.Path);
+        Directory.CreateDirectory(plan.CliDirectory);
+        string marker = Path.Join(plan.CliDirectory, "marker.txt");
+        File.WriteAllText(marker, "private CLI");
+        string quarantine = Path.Join(plan.StateRoot, ".cli-install-incomplete");
+        Directory.CreateDirectory(quarantine);
+
+        Action restore = () => new LocalTestingCliInstaller().Restore(plan);
+
+        restore.Should().Throw<InvalidOperationException>()
+            .WithMessage("*incomplete local-testing CLI operation requires manual recovery*");
+
+        File.ReadAllText(marker).Should().Be("private CLI");
+        Directory.Exists(quarantine).Should().BeTrue();
+    }
+
     private static ResourcePlan CreatePlan(string root)
     {
         string targetRoot = Path.Join(root, "target");

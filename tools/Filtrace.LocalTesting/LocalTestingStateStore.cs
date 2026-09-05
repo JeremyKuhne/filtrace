@@ -118,6 +118,24 @@ internal sealed class LocalTestingStateStore
         }
     }
 
+    /// <summary>
+    ///  Removes a validated schema-1 cleanup manifest after private artifacts have been deleted.
+    /// </summary>
+    /// <param name="statePath">The cleanup-state JSON path.</param>
+    public void DeleteCleanupState(string statePath)
+    {
+        LocalTestingState state = Read(statePath)
+            ?? throw new InvalidOperationException("Cleanup requires existing local-testing state.");
+
+        if (state.Status is not LocalTestingStatus.Cleanup)
+        {
+            throw new InvalidOperationException(
+                $"Local-testing state must be 'Cleanup' before deletion, not '{state.Status}'.");
+        }
+
+        File.Delete(statePath);
+    }
+
     private static void Validate(LocalTestingState state)
     {
         if (state.SchemaVersion != LocalTestingState.CurrentSchemaVersion)

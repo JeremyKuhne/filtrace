@@ -48,4 +48,37 @@ internal interface ILocalTestingInstallResources
     /// <param name="plan">The target's fixed resource plan.</param>
     /// <param name="inputs">The validated source-built inputs.</param>
     void PublishSkill(ResourcePlan plan, LocalTestingInstallInputs inputs);
+
+    /// <summary>
+    ///  Removes the private CLI after rejecting an incomplete installation quarantine.
+    /// </summary>
+    /// <param name="plan">The target's fixed resource plan.</param>
+    void RestoreCli(ResourcePlan plan);
+
+    /// <summary>
+    ///  Restores the target's captured MCP baseline.
+    /// </summary>
+    /// <param name="plan">The target's fixed resource plan.</param>
+    /// <param name="baseline">The captured MCP baseline.</param>
+    void RestoreMcp(ResourcePlan plan, McpBaseline baseline);
+
+    /// <summary>
+    ///  Restores the target's captured skill baseline.
+    /// </summary>
+    /// <param name="plan">The target's fixed resource plan.</param>
+    /// <param name="baseline">The captured skill baseline.</param>
+    void RestoreSkill(ResourcePlan plan, SkillBaseline baseline);
+
+    /// <summary>
+    ///  Removes managed parent directories that installation created and that remain empty.
+    /// </summary>
+    /// <param name="plan">The target's fixed resource plan.</param>
+    /// <param name="baseline">The captured created-directory baseline.</param>
+    void RestoreCreatedDirectories(ResourcePlan plan, CreatedDirectoryBaseline baseline);
+
+    /// <summary>
+    ///  Deletes private baseline artifacts after target restoration is durable.
+    /// </summary>
+    /// <param name="plan">The target's fixed resource plan.</param>
+    void CleanupPrivateArtifacts(ResourcePlan plan);
 }

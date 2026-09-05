@@ -300,6 +300,251 @@ public sealed class LocalTestingCoordinatorTests
         resources.Calls.Should().BeEmpty();
     }
 
+    [TestMethod]
+    public void Restore_Active_WritesRestoringBeforeResourcesAndCleanupAfterResources()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        LocalTestingInstallInputs inputs = LocalTestingInstallTestData.CreateInputs(directory.Path);
+        LocalTestingStateStore store = new();
+        RecordingLocalTestingInstallResources resources = new();
+        WriteState(plan, store, inputs, LocalTestingStatus.Active, resources.Baseline);
+        resources.BeforeCall = (operation, currentPlan) =>
+        {
+            LocalTestingStatus expected = operation switch
+            {
+                "validate" => LocalTestingStatus.Active,
+                "cleanup" => LocalTestingStatus.Cleanup,
+                _ => LocalTestingStatus.Restoring
+            };
+
+            store.Read(currentPlan.StatePath)!.Status.Should().Be(expected);
+        };
+
+        new LocalTestingCoordinator(store, resources).Restore(plan);
+
+        resources.Calls.Should().Equal(
+            "validate",
+            "cli:restore",
+            "mcp:restore",
+            "skill:restore",
+            "parents",
+            "cleanup");
+
+        store.Read(plan.StatePath).Should().BeNull();
+    }
+
+    [TestMethod]
+    [DataRow("cli:restore")]
+    [DataRow("mcp:restore")]
+    [DataRow("skill:restore")]
+    [DataRow("parents")]
+    public void Restore_ResourceFailure_LeavesRestoringAndReplaysAllResources(string failure)
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        LocalTestingInstallInputs inputs = LocalTestingInstallTestData.CreateInputs(directory.Path);
+        LocalTestingStateStore store = new();
+        RecordingLocalTestingInstallResources resources = new()
+        {
+            FailAt = failure
+        };
+
+        WriteState(plan, store, inputs, LocalTestingStatus.Active, resources.Baseline);
+
+        Action restore = () => new LocalTestingCoordinator(store, resources).Restore(plan);
+
+        restore.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*Injected {failure} failure*");
+
+        store.Read(plan.StatePath)!.Status.Should().Be(LocalTestingStatus.Restoring);
+        resources.Calls.Clear();
+        resources.FailAt = null;
+
+        new LocalTestingCoordinator(store, resources).Restore(plan);
+
+        resources.Calls.Should().Equal(
+            "validate",
+            "cli:restore",
+            "mcp:restore",
+            "skill:restore",
+            "parents",
+            "cleanup");
+
+        store.Read(plan.StatePath).Should().BeNull();
+    }
+
+    [TestMethod]
+    public void Restore_CleanupFailure_LeavesCleanupAndRetrySkipsActiveValidation()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        LocalTestingInstallInputs inputs = LocalTestingInstallTestData.CreateInputs(directory.Path);
+        LocalTestingStateStore store = new();
+        RecordingLocalTestingInstallResources resources = new()
+        {
+            FailAt = "cleanup"
+        };
+
+        WriteState(plan, store, inputs, LocalTestingStatus.Active, resources.Baseline);
+
+        Action restore = () => new LocalTestingCoordinator(store, resources).Restore(plan);
+
+        restore.Should().Throw<InvalidOperationException>();
+        store.Read(plan.StatePath)!.Status.Should().Be(LocalTestingStatus.Cleanup);
+        resources.Calls.Clear();
+        resources.FailAt = "validate";
+
+        new LocalTestingCoordinator(store, resources).Restore(plan);
+
+        resources.Calls.Should().Equal("cleanup");
+        store.Read(plan.StatePath).Should().BeNull();
+    }
+
+    [TestMethod]
+    public void Restore_CleanupRetry_DoesNotInspectChangedOrMissingActiveResources()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        LocalTestingInstallInputs inputs = LocalTestingInstallTestData.CreateInputs(directory.Path);
+        LocalTestingStateStore store = new();
+        LocalTestingBaseline baseline = TestState.Create(LocalTestingStatus.Cleanup).Baseline with
+        {
+            Skill = new()
+            {
+                Existed = true,
+                BackupSha256 = TestState.Hash
+            }
+        };
+
+        WriteState(plan, store, inputs, LocalTestingStatus.Cleanup, baseline);
+        Directory.CreateDirectory(Path.GetDirectoryName(plan.McpConfigurationPath)!);
+        File.WriteAllText(plan.McpConfigurationPath, "not json");
+        Directory.CreateDirectory(Path.GetDirectoryName(plan.SkillDestination)!);
+        File.WriteAllText(plan.SkillDestination, "not a directory");
+
+        new LocalTestingCoordinator(store, new LocalTestingInstallResources()).Restore(plan);
+
+        File.ReadAllText(plan.McpConfigurationPath).Should().Be("not json");
+        File.ReadAllText(plan.SkillDestination).Should().Be("not a directory");
+        store.Read(plan.StatePath).Should().BeNull();
+    }
+
+    [TestMethod]
+    public void Restore_ConcreteResources_RemovesOwnedStateAndPreservesConsumerContent()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        LocalTestingInstallInputs inputs = LocalTestingInstallTestData.CreateInputs(directory.Path);
+        Directory.CreateDirectory(plan.ArtifactsDirectory);
+        LocalTestingBaseline baseline = new LocalTestingBaselineCapturer().Capture(plan);
+        Directory.CreateDirectory(plan.CliDirectory);
+        File.WriteAllText(Path.Join(plan.CliDirectory, "filtrace"), "private CLI");
+        Directory.CreateDirectory(Path.GetDirectoryName(plan.McpConfigurationPath)!);
+        File.WriteAllText(
+            plan.McpConfigurationPath,
+            """
+            {
+              "inputs": ["consumer"],
+              "servers": {
+                "other": { "command": "other" },
+                "filtrace": { "command": "dotnet" }
+              }
+            }
+            """);
+
+        Directory.CreateDirectory(plan.SkillDestination);
+        File.WriteAllText(Path.Join(plan.SkillDestination, "SKILL.md"), "local skill");
+        string consumerDirectory = Path.Join(plan.TargetRoot, ".agents", "consumer");
+        Directory.CreateDirectory(consumerDirectory);
+        File.WriteAllText(Path.Join(consumerDirectory, "keep.txt"), "consumer");
+        LocalTestingStateStore store = new();
+        WriteState(plan, store, inputs, LocalTestingStatus.Active, baseline);
+
+        new LocalTestingCoordinator(store, new LocalTestingInstallResources()).Restore(plan);
+
+        Directory.Exists(plan.CliDirectory).Should().BeFalse();
+        Directory.Exists(plan.SkillDestination).Should().BeFalse();
+        Directory.Exists(Path.GetDirectoryName(plan.SkillDestination)!).Should().BeFalse();
+        File.ReadAllText(Path.Join(consumerDirectory, "keep.txt")).Should().Be("consumer");
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(plan.McpConfigurationPath));
+        document.RootElement.GetProperty("inputs")[0].GetString().Should().Be("consumer");
+        JsonElement servers = document.RootElement.GetProperty("servers");
+        servers.TryGetProperty("other", out _).Should().BeTrue();
+        servers.TryGetProperty("filtrace", out _).Should().BeFalse();
+        Directory.Exists(plan.ArtifactsDirectory).Should().BeFalse();
+        Directory.Exists(plan.StateRoot).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void Restore_CleanupArtifactLink_LeavesCleanupStateAndExternalContent()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        LocalTestingInstallInputs inputs = LocalTestingInstallTestData.CreateInputs(directory.Path);
+        LocalTestingStateStore store = new();
+        WriteState(
+            plan,
+            store,
+            inputs,
+            LocalTestingStatus.Cleanup,
+            TestState.Create(LocalTestingStatus.Cleanup).Baseline);
+
+        string external = Path.Join(directory.Path, "external-artifacts");
+        Directory.CreateDirectory(external);
+        string marker = Path.Join(external, "keep.txt");
+        File.WriteAllText(marker, "external");
+        try
+        {
+            Directory.CreateSymbolicLink(plan.ArtifactsDirectory, external);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            Assert.Inconclusive($"Symbolic links are unavailable: {exception.Message}");
+        }
+
+        Action restore = () => new LocalTestingCoordinator(
+            store,
+            new LocalTestingInstallResources()).Restore(plan);
+
+        restore.Should().Throw<InvalidDataException>()
+            .WithMessage("*must not contain links*");
+
+        File.ReadAllText(marker).Should().Be("external");
+        store.Read(plan.StatePath)!.Status.Should().Be(LocalTestingStatus.Cleanup);
+    }
+
+    [TestMethod]
+    public void Restore_LinkedStateRoot_RejectsBeforeCleanup()
+    {
+        using TemporaryDirectory directory = new();
+        ResourcePlan plan = CreatePlan(directory);
+        string externalState = Path.Join(directory.Path, "external-state");
+        Directory.CreateDirectory(externalState);
+        string externalManifest = Path.Join(externalState, "state.json");
+        LocalTestingStateStore store = new();
+        store.Write(externalManifest, TestState.Create(LocalTestingStatus.Cleanup));
+        try
+        {
+            Directory.CreateSymbolicLink(plan.StateRoot, externalState);
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            Assert.Inconclusive($"Symbolic links are unavailable: {exception.Message}");
+        }
+
+        Action restore = () => new LocalTestingCoordinator(
+            store,
+            new LocalTestingInstallResources()).Restore(plan);
+
+        restore.Should().Throw<InvalidDataException>()
+            .WithMessage("*must not contain links*");
+
+        store.Read(externalManifest)!.Status.Should().Be(LocalTestingStatus.Cleanup);
+    }
+
     private static ResourcePlan CreatePlan(TemporaryDirectory directory)
     {
         string targetRoot = Path.Join(directory.Path, "target");

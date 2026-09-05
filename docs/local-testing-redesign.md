@@ -12,11 +12,13 @@ publication and baseline restoration merged in
 [PR #102](https://github.com/JeremyKuhne/filtrace/pull/102). Reversible skill
 publication merged in
 [PR #105](https://github.com/JeremyKuhne/filtrace/pull/105). Fresh Install,
-Resume Install, and Refresh coordinator wiring is implemented locally on
-`local-testing-coordinator`; Phase 3 restore and cleanup wiring has not begun.
+Resume Install, and Refresh coordinator wiring merged in
+[PR #107](https://github.com/JeremyKuhne/filtrace/pull/107). Phase 3 restore and
+cleanup coordinator wiring is implemented; the Phase 4 wrapper remains pending.
 
-**Last verified:** 2026-09-01 against `origin/main` at `7e4d970`. PR #94 was
-closed without merge after PR #98 established the replacement.
+**Last verified:** 2026-09-05 for Phase 3 on `pp01-local-testing-restore`, based
+on `bc6752b`. The 242 local-testing tests pass in Debug and Release on Windows.
+PR #94 was closed without merge after PR #98 established the replacement.
 
 ## Decision
 
@@ -409,10 +411,15 @@ global writes.
 
 ### Phase 3 - Restore and cleanup retry
 
-- Implement ordered restore and the `restoring`/`cleanup` transitions.
-- Add focused failpoints at durable state and resource-publication boundaries.
-- Prove expected partial states resume without recapturing a baseline or touching
-  an unrelated path.
+**Status:** Implemented and locally validated. The coordinator writes `restoring`
+before target mutations, restores CLI/MCP/skill and baseline-created empty parents,
+then writes `cleanup`. Private artifacts are deleted before the state manifest.
+Cleanup retry branches before active-resource and baseline inspection.
+
+Failure-injection tests cover each coordinator resource boundary, retry from
+`restoring`, and cleanup-only retry with changed active resources. CLI cleanup
+honors timeout quarantine and remains limited to the fixed private directory.
+Real UAC and hostile same-user filesystem races are not covered by these tests.
 
 **Exit:** representative interruption paths converge to the exact original state.
 
