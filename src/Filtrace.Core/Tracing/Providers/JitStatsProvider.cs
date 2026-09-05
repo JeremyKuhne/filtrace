@@ -3,12 +3,6 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Output;
-using Microsoft.Diagnostics.Tracing.Analysis;
-using Microsoft.Diagnostics.Tracing.Analysis.JIT;
-using TraceLog = Microsoft.Diagnostics.Tracing.Etlx.TraceLog;
-using TraceLogEventSource = Microsoft.Diagnostics.Tracing.Etlx.TraceLogEventSource;
-using TraceLogOptions = Microsoft.Diagnostics.Tracing.Etlx.TraceLogOptions;
-using TraceProcess = Microsoft.Diagnostics.Tracing.Analysis.TraceProcess;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -49,7 +43,7 @@ public sealed class JitStatsProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
 
         // The JIT analysis layer reconstructs per-method records from the raw method
         // events as the source is processed; request it before draining the events.
@@ -58,7 +52,7 @@ public sealed class JitStatsProvider
         source.Process();
 
         List<JitMethodRecord> records = [];
-        foreach (TraceProcess process in source.Processes())
+        foreach (AnalysisTraceProcess process in source.Processes())
         {
             TraceLoadedDotNetRuntime? runtime = process.LoadedDotNetRuntime();
             if (runtime is null)

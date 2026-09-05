@@ -11,12 +11,6 @@ using BenchmarkDotNet.Environments;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers;
-using Microsoft.Diagnostics.Tracing.Parsers.Clr;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
-using Microsoft.Diagnostics.Tracing.Parsers.Symbol;
 
 namespace TraceQ.Fixtures.HotLoopBench;
 
@@ -354,7 +348,7 @@ internal sealed class WaitCaptureConfig : ManualConfig
             .WithIterationCount(1)
             .WithInvocationCount(1));
 
-        Microsoft.Diagnostics.NETCore.Client.EventPipeProvider runtime = new(
+        EventPipeProvider runtime = new(
             ClrTraceEventParser.ProviderName,
             System.Diagnostics.Tracing.EventLevel.Verbose,
             (long)(ClrTraceEventParser.Keywords.Default | ClrTraceEventParser.Keywords.WaitHandle));
@@ -676,7 +670,7 @@ internal static class DiskIoCapture
             return 1;
         }
 
-        if (Microsoft.Diagnostics.Tracing.Session.TraceEventSession.IsElevated() != true)
+        if (TraceEventSession.IsElevated() != true)
         {
             Console.Error.WriteLine("ETW capture needs Administrator. Re-run elevated.");
             return 1;
@@ -716,7 +710,7 @@ internal static class DiskIoCapture
         string sessionName = "filtrace-diskio-capture-"
             + System.Diagnostics.Process.GetCurrentProcess().Id.ToString();
 
-        using (Microsoft.Diagnostics.Tracing.Session.TraceEventSession session =
+        using (TraceEventSession session =
             new(sessionName, fullPath) { StopOnDispose = true })
         {
             session.EnableKernelProvider(kernelKeywords, stackKeywords);
@@ -920,14 +914,14 @@ internal static class Program
         HashSet<int> keepThreadIds = [];
         HashSet<ulong> referencedFileKeys = [];
         List<string> keptNames = [];
-        using (TraceLog traceLog = OpenAnyTrace(inEtlPath))
+        using (EtlxTraceLog traceLog = OpenAnyTrace(inEtlPath))
         {
             // The roots are every process whose name contains the substring. For
             // BenchmarkDotNet both the host ("HotLoopBench") and each job child
             // ("HotLoopBench-Job-...") match, but the descendant walk below also picks
             // up children with unrelated names (the "profile my app" case).
             HashSet<int> roots = [];
-            foreach (TraceProcess process in traceLog.Processes)
+            foreach (EtlxTraceProcess process in traceLog.Processes)
             {
                 if (process.Name is not null
                     && process.Name.IndexOf(processNameSubstring, StringComparison.OrdinalIgnoreCase) >= 0)
@@ -936,7 +930,7 @@ internal static class Program
                 }
             }
 
-            foreach (TraceProcess process in traceLog.Processes)
+            foreach (EtlxTraceProcess process in traceLog.Processes)
             {
                 bool keep = roots.Contains(process.ProcessID);
 
@@ -945,7 +939,7 @@ internal static class Program
                 // shallow (host -> job), so this is cheap.
                 if (!keep && includeChildren)
                 {
-                    for (TraceProcess? ancestor = process.Parent; ancestor is not null; ancestor = ancestor.Parent)
+                    for (EtlxTraceProcess? ancestor = process.Parent; ancestor is not null; ancestor = ancestor.Parent)
                     {
                         if (roots.Contains(ancestor.ProcessID))
                         {
@@ -959,7 +953,7 @@ internal static class Program
                 {
                     keepPids.Add(process.ProcessID);
                     keptNames.Add($"{process.Name}({process.ProcessID})");
-                    foreach (TraceThread thread in process.Threads)
+                    foreach (EtlxTraceThread thread in process.Threads)
                     {
                         keepThreadIds.Add(thread.ThreadID);
                     }
@@ -1167,19 +1161,19 @@ internal static class Program
 
     // Opens a trace of either format as a TraceLog: ETW (.etl) via OpenOrConvert,
     // EventPipe (.nettrace) via CreateFromEventPipeDataFile.
-    private static TraceLog OpenAnyTrace(string tracePath)
+    private static EtlxTraceLog OpenAnyTrace(string tracePath)
     {
         if (tracePath.EndsWith(".etl", StringComparison.OrdinalIgnoreCase))
         {
-            return TraceLog.OpenOrConvert(tracePath, new TraceLogOptions { ContinueOnError = true });
+            return EtlxTraceLog.OpenOrConvert(tracePath, new TraceLogOptions { ContinueOnError = true });
         }
 
-        string etlxPath = TraceLog.CreateFromEventPipeDataFile(
+        string etlxPath = EtlxTraceLog.CreateFromEventPipeDataFile(
             tracePath,
             null,
             new TraceLogOptions { ContinueOnError = true });
 
-        return new TraceLog(etlxPath);
+        return new EtlxTraceLog(etlxPath);
     }
 
     private static int Convert(string etlPath, string outEtlxPath)
@@ -1192,7 +1186,7 @@ internal static class Program
 
         // CreateFromEventTraceLogFile writes the ETLX next to the ETL by default;
         // direct it to the requested output path so make-fixtures controls the name.
-        string etlxPath = TraceLog.CreateFromEventTraceLogFile(
+        string etlxPath = EtlxTraceLog.CreateFromEventTraceLogFile(
             etlPath,
             outEtlxPath,
             new TraceLogOptions { ContinueOnError = true });
@@ -1242,7 +1236,7 @@ internal static class Program
             return 1;
         }
 
-        using TraceLog traceLog = OpenAnyTrace(tracePath);
+        using EtlxTraceLog traceLog = OpenAnyTrace(tracePath);
 
         Dictionary<string, int> byType = new(StringComparer.Ordinal);
         int allocTicks = 0;

@@ -2,10 +2,6 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers.Clr;
-using Etlx = Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -381,7 +377,7 @@ public sealed partial class TimelineProvider
 
         private static bool TryGetProcessInstanceIndex(TraceEvent data, out int processInstanceIndex)
         {
-            if (data.ProcessID > 0 && TraceLogExtensions.Process(data) is Etlx.TraceProcess process)
+            if (data.ProcessID > 0 && TraceLogExtensions.Process(data) is EtlxTraceProcess process)
             {
                 processInstanceIndex = (int)process.ProcessIndex;
                 return true;

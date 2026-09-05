@@ -5,13 +5,6 @@
 using System.Security.Cryptography;
 using Filtrace.Output;
 using Filtrace.Tracing.Readers;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.EventPipe;
-using Microsoft.Diagnostics.Tracing.Parsers;
-using Microsoft.Diagnostics.Tracing.Parsers.Clr;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
-using Etlx = Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -101,7 +94,7 @@ public sealed partial class TimelineProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using Etlx.TraceLog traceLog = OpenTrace(fullPath);
+        using EtlxTraceLog traceLog = OpenTrace(fullPath);
         double traceEnd = traceLog.SessionDuration.TotalMilliseconds;
         if (atMs > traceEnd)
         {
@@ -141,7 +134,7 @@ public sealed partial class TimelineProvider
         bool gcPauseDataIncomplete = false;
         bool unknownPauseDataIncomplete = false;
 
-        using Etlx.TraceLogEventSource source = traceLog.Events.GetSource();
+        using TraceLogEventSource source = traceLog.Events.GetSource();
         source.AllEvents += Accumulate;
         source.Process();
         gcPauseDataIncomplete |= pauseStarts.Values.Any(static start => start.IsGc);
@@ -983,8 +976,8 @@ public sealed partial class TimelineProvider
     private static bool TryGetPauseIdentity(TraceEvent data, out PauseIdentity identity)
     {
         // ETLX process/thread indexes distinguish OS id reuse within the trace.
-        Etlx.TraceProcess? process = TraceLogExtensions.Process(data);
-        Etlx.TraceThread? thread = data.Thread();
+        EtlxTraceProcess? process = TraceLogExtensions.Process(data);
+        EtlxTraceThread? thread = data.Thread();
         if (process is null || thread is null)
         {
             identity = default;

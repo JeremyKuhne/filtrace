@@ -3,8 +3,6 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Output;
-using Microsoft.Diagnostics.Tracing;
-using Etlx = Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -119,7 +117,7 @@ public sealed class EventQueryProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using Etlx.TraceLog traceLog = OpenTrace(fullPath);
+        using EtlxTraceLog traceLog = OpenTrace(fullPath);
 
         int matched = 0;
         int pageTokens = 0;
@@ -214,7 +212,7 @@ public sealed class EventQueryProvider
     // Opens either supported format through the shared concurrency-safe ETLX cache.
     // ETW conversion remains Windows-only; the event loop over TraceLog.Events is
     // identical for both, so the raw query spans EventPipe and ETW alike.
-    private static Etlx.TraceLog OpenTrace(string fullPath) =>
+    private static EtlxTraceLog OpenTrace(string fullPath) =>
         TraceConverter.OpenTraceLog(fullPath, out _);
 
     // Whether any of the event's payload values contains the filter (case-insensitive).

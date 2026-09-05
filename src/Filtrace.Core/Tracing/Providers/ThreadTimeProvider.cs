@@ -4,10 +4,6 @@
 
 using System.Globalization;
 using System.Text.RegularExpressions;
-using Microsoft.Diagnostics.Symbols;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Stacks;
 using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Tracing.Providers;
@@ -101,7 +97,7 @@ public sealed class ThreadTimeProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
         recordCount = CountContextSwitches(traceLog);
 
         using SymbolReader symbolReader = new(TextWriter.Null, "", httpClientDelegatingHandler: null);
@@ -164,7 +160,7 @@ public sealed class ThreadTimeProvider
             string rootFrame = leafToRoot[^1];
             string process = NormalizeProcessFrame(rootFrame, out int pid);
 
-            TraceProcess? processInstance = pid < 0
+            EtlxTraceProcess? processInstance = pid < 0
                 ? null
                 : traceLog.Processes.GetProcess(pid, sample.TimeRelativeMSec);
 
@@ -203,7 +199,7 @@ public sealed class ThreadTimeProvider
         return new StackSampleSource(MetricInfo.ThreadTime, samples);
     }
 
-    private static int CountContextSwitches(TraceLog traceLog)
+    private static int CountContextSwitches(EtlxTraceLog traceLog)
     {
         long count = 0;
         foreach (TraceEventCounts eventCounts in traceLog.Stats)

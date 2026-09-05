@@ -3,9 +3,6 @@
 // See LICENSE file in the project root for full license information
 
 using System.Text.RegularExpressions;
-using Microsoft.Diagnostics.Tracing.Computers;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Stacks;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -46,7 +43,7 @@ internal static class LatencyStackReader
     /// <param name="path">The <c>.nettrace</c> file path.</param>
     /// <param name="metric">The metric the computer's weights are measured in.</param>
     /// <param name="createComputer">
-    ///  Builds the concrete latency computer over the trace's <see cref="TraceLog"/> and
+    ///  Builds the concrete latency computer over the trace's <see cref="EtlxTraceLog"/> and
     ///  a <see cref="MutableTraceEventStackSource"/> (for example a
     ///  <see cref="ContentionLatencyComputer"/> or a
     ///  <see cref="WaitHandleWaitLatencyComputer"/>).
@@ -62,7 +59,7 @@ internal static class LatencyStackReader
     public static StackSampleSource Read(
         string path,
         MetricInfo metric,
-        Func<TraceLog, MutableTraceEventStackSource, StartStopLatencyComputer> createComputer,
+        Func<EtlxTraceLog, MutableTraceEventStackSource, StartStopLatencyComputer> createComputer,
         TimeWindow? window,
         out int recordCount)
     {
@@ -74,7 +71,7 @@ internal static class LatencyStackReader
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
 
         MutableTraceEventStackSource stackSource = new(traceLog);
         StartStopLatencyComputer computer = createComputer(traceLog, stackSource);

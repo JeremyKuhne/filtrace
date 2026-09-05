@@ -20,11 +20,13 @@
     -->
     <TargetFramework></TargetFramework>
     <TargetFrameworks>net10.0;net481</TargetFrameworks>
+    <DefineConstants>$(DefineConstants);FILTRACE_HOT_LOOP_BENCH</DefineConstants>
     <!-- Release is mandatory for EventPipe profiling to reflect optimized code. -->
     <Optimize>true</Optimize>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\src\Filtrace.Core\GlobalDiagnosticsUsings.cs" Link="GlobalDiagnosticsUsings.cs" />
     <PackageReference Include="BenchmarkDotNet" />
     <!-- Used by the `inspect` verb to confirm a capture carries the expected event types. -->
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" />

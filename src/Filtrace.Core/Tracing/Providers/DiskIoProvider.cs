@@ -3,9 +3,6 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Output;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -55,7 +52,7 @@ public sealed partial class DiskIoProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
 
         Dictionary<string, FileTally> byFile = new(StringComparer.OrdinalIgnoreCase);
         int readCount = 0;

@@ -3,7 +3,6 @@
 // See LICENSE file in the project root for full license information
 
 using System.Runtime.Versioning;
-using Microsoft.Diagnostics.Tracing.Session;
 
 namespace Filtrace.Tracing;
 

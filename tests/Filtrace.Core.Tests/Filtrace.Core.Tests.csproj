@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\src\Filtrace.Core\GlobalDiagnosticsUsings.cs" Link="GlobalDiagnosticsUsings.cs" />
     <ProjectReference Include="..\..\src\Filtrace.Core\Filtrace.Core.csproj" />
   </ItemGroup>
 

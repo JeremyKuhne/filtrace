@@ -11,8 +11,6 @@ using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Environments;
 using BenchmarkDotNet.Jobs;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace TraceQ.Fixtures.HotLoopBench;
 
@@ -88,7 +86,7 @@ internal sealed class ActivityCaptureConfig : ManualConfig
             .WithIterationCount(1)
             .WithInvocationCount(1));
 
-        Microsoft.Diagnostics.NETCore.Client.EventPipeProvider activities = new(
+        EventPipeProvider activities = new(
             "Filtrace-ActivityBench",
             System.Diagnostics.Tracing.EventLevel.Verbose,
             unchecked((long)0xFFFFFFFFFFFFFFFF));
@@ -185,15 +183,15 @@ internal static class ActivityInspector
             return 1;
         }
 
-        string etlxPath = TraceLog.CreateFromEventPipeDataFile(
+        string etlxPath = EtlxTraceLog.CreateFromEventPipeDataFile(
             tracePath,
             null,
             new TraceLogOptions { ContinueOnError = true });
 
-        using TraceLog traceLog = new(etlxPath);
+        using EtlxTraceLog traceLog = new(etlxPath);
         using TraceLogEventSource source = traceLog.Events.GetSource();
 
-        using Microsoft.Diagnostics.Symbols.SymbolReader symbolReader = new(System.IO.TextWriter.Null);
+        using SymbolReader symbolReader = new(System.IO.TextWriter.Null);
         GCReferenceComputer gcReferences = new(source);
         ActivityComputer activityComputer = new(source, symbolReader, gcReferences);
         StartStopActivityComputer startStop = new(source, activityComputer, ignoreApplicationInsightsRequestsWithRelatedActivityId: false);

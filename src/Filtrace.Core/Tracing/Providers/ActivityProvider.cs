@@ -2,9 +2,6 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Symbols;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -71,7 +68,7 @@ public sealed class ActivityProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
         using TraceLogEventSource source = traceLog.Events.GetSource();
 
         // The activity computer needs a symbol reader and a GC-reference computer to

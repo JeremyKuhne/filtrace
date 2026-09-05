@@ -4,8 +4,6 @@
 
 using System.Diagnostics;
 using Filtrace.Output;
-using Microsoft.Diagnostics.Tracing.Parsers;
-using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 
 namespace Filtrace.Tracing.Providers;
 

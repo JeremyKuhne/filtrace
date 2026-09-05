@@ -5,7 +5,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Filtrace.Output;
 using Filtrace.Tracing.Readers;
-using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -83,7 +82,7 @@ public sealed class LifecycleProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
 
         if (!TryResolveRootSelector(traceLog, scope, out ProcessSelector? selector))
         {
@@ -104,8 +103,8 @@ public sealed class LifecycleProvider
             return Empty(scopeLabel);
         }
 
-        List<TraceProcess> roots = [];
-        foreach (TraceProcess process in traceLog.Processes)
+        List<EtlxTraceProcess> roots = [];
+        foreach (EtlxTraceProcess process in traceLog.Processes)
         {
             // The resolved set is process ids, which cannot separate an id from a later,
             // unrelated process that reused it - so the selector's own identity test is
@@ -125,7 +124,7 @@ public sealed class LifecycleProvider
             roots = roots[..MaxInvocations];
         }
 
-        Dictionary<ProcessIndex, List<TraceProcess>> childrenByRoot = MapDescendants(traceLog, roots);
+        Dictionary<EtlxProcessIndex, List<EtlxTraceProcess>> childrenByRoot = MapDescendants(traceLog, roots);
 
         double sessionEndMs = traceLog.SessionEndTimeRelativeMSec;
         List<LifecycleInvocation> invocations = new(roots.Count);
@@ -135,12 +134,12 @@ public sealed class LifecycleProvider
 
         for (int index = 0; index < roots.Count; index++)
         {
-            TraceProcess root = roots[index];
-            List<TraceProcess> descendants = childrenByRoot.GetValueOrDefault(root.ProcessIndex) ?? [];
+            EtlxTraceProcess root = roots[index];
+            List<EtlxTraceProcess> descendants = childrenByRoot.GetValueOrDefault(root.ProcessIndex) ?? [];
             descendants.Sort(static (left, right) => left.StartTimeRelativeMsec.CompareTo(right.StartTimeRelativeMsec));
 
             totalRootCpuMs += root.CPUMSec;
-            foreach (TraceProcess child in descendants)
+            foreach (EtlxTraceProcess child in descendants)
             {
                 totalChildCpuMs += child.CPUMSec;
             }
@@ -148,7 +147,7 @@ public sealed class LifecycleProvider
             // The phases span every descendant even when the reported list is capped: the
             // last child to stop may be one the cap dropped, and a child span measured
             // from a truncated set would understate the invocation.
-            List<TraceProcess> reported = descendants;
+            List<EtlxTraceProcess> reported = descendants;
             if (descendants.Count > MaxChildrenPerInvocation)
             {
                 reported = descendants[..MaxChildrenPerInvocation];
@@ -298,7 +297,7 @@ public sealed class LifecycleProvider
     // The selector that chooses invocation roots. An explicit selector wins; otherwise
     // the busiest process's name stands in, matching how every other verb auto-scopes.
     private static bool TryResolveRootSelector(
-        TraceLog traceLog,
+        EtlxTraceLog traceLog,
         ScopeRequest? scope,
             [NotNullWhen(returnValue: true)] out ProcessSelector? selector)
     {
@@ -329,7 +328,7 @@ public sealed class LifecycleProvider
     // Whether a process instance satisfies the selector in its own right. An id selector
     // needs no test: ProcessTree refuses a requested id that more than one process in the
     // trace carries, so a surviving id identifies exactly one instance.
-    private static bool Matches(TraceProcess process, ProcessSelector selector) => selector switch
+    private static bool Matches(EtlxTraceProcess process, ProcessSelector selector) => selector switch
     {
         ProcessNameSelector name => process.Name is not null
             && process.Name.Contains(name.NameSubstring, StringComparison.OrdinalIgnoreCase),
@@ -337,16 +336,16 @@ public sealed class LifecycleProvider
     };
 
     // Group every process under the root instance it descends from. Keying on
-    // ProcessIndex rather than the process id keeps invocations apart when a capture
+    // EtlxProcessIndex rather than the process id keeps invocations apart when a capture
     // matrix reuses ids across runs.
-    private static Dictionary<ProcessIndex, List<TraceProcess>> MapDescendants(
-        TraceLog traceLog,
-        List<TraceProcess> roots)
+    private static Dictionary<EtlxProcessIndex, List<EtlxTraceProcess>> MapDescendants(
+        EtlxTraceLog traceLog,
+        List<EtlxTraceProcess> roots)
     {
-        HashSet<ProcessIndex> rootIndexes = [.. roots.Select(static root => root.ProcessIndex)];
-        Dictionary<ProcessIndex, List<TraceProcess>> descendants = [];
+        HashSet<EtlxProcessIndex> rootIndexes = [.. roots.Select(static root => root.ProcessIndex)];
+        Dictionary<EtlxProcessIndex, List<EtlxTraceProcess>> descendants = [];
 
-        foreach (TraceProcess process in traceLog.Processes)
+        foreach (EtlxTraceProcess process in traceLog.Processes)
         {
             if (rootIndexes.Contains(process.ProcessIndex))
             {
@@ -355,11 +354,11 @@ public sealed class LifecycleProvider
 
             // The parent chain is shallow (host -> apphost -> worker), so walking it per
             // process costs less than materializing a child index.
-            for (TraceProcess? ancestor = process.Parent; ancestor is not null; ancestor = ancestor.Parent)
+            for (EtlxTraceProcess? ancestor = process.Parent; ancestor is not null; ancestor = ancestor.Parent)
             {
                 if (rootIndexes.Contains(ancestor.ProcessIndex))
                 {
-                    if (!descendants.TryGetValue(ancestor.ProcessIndex, out List<TraceProcess>? list))
+                    if (!descendants.TryGetValue(ancestor.ProcessIndex, out List<EtlxTraceProcess>? list))
                     {
                         list = [];
                         descendants[ancestor.ProcessIndex] = list;
@@ -376,9 +375,9 @@ public sealed class LifecycleProvider
 
     private static LifecycleInvocation BuildInvocation(
         int ordinal,
-        TraceProcess root,
-        List<TraceProcess> allDescendants,
-        List<TraceProcess> reportedDescendants,
+        EtlxTraceProcess root,
+        List<EtlxTraceProcess> allDescendants,
+        List<EtlxTraceProcess> reportedDescendants,
         double sessionEndMs)
     {
         LifecycleProcess rootRecord = Describe(root, sessionEndMs);
@@ -408,7 +407,7 @@ public sealed class LifecycleProvider
             measurable);
     }
 
-    private static LifecycleProcess Describe(TraceProcess process, double sessionEndMs)
+    private static LifecycleProcess Describe(EtlxTraceProcess process, double sessionEndMs)
     {
         // TraceEvent clips a process it did not see start to the capture start, and one it
         // did not see exit to the capture end. Both clipped edges make the lifetime a lower
@@ -485,8 +484,8 @@ public sealed class LifecycleProvider
     }
 
     private static IReadOnlyList<LifecycleImageMilestone> SummarizeImages(
-        List<TraceProcess> roots,
-        Dictionary<ProcessIndex, List<TraceProcess>> childrenByRoot,
+        List<EtlxTraceProcess> roots,
+        Dictionary<EtlxProcessIndex, List<EtlxTraceProcess>> childrenByRoot,
         IReadOnlyList<string>? images)
     {
         if (images is not { Count: > 0 })
@@ -495,14 +494,14 @@ public sealed class LifecycleProvider
         }
 
         Dictionary<string, List<double>> offsets = new(StringComparer.OrdinalIgnoreCase);
-        foreach (TraceProcess root in roots)
+        foreach (EtlxTraceProcess root in roots)
         {
             if (root.StartTimeRelativeMsec <= 0)
             {
                 continue;
             }
 
-            List<TraceProcess> tree = [root, .. childrenByRoot.GetValueOrDefault(root.ProcessIndex) ?? []];
+            List<EtlxTraceProcess> tree = [root, .. childrenByRoot.GetValueOrDefault(root.ProcessIndex) ?? []];
             foreach (string image in images)
             {
                 if (string.IsNullOrWhiteSpace(image))
@@ -535,10 +534,10 @@ public sealed class LifecycleProvider
         milestones.Sort(static (left, right) => left.MedianOffsetMs.CompareTo(right.MedianOffsetMs));
         return milestones;
 
-        static double? FindFirstLoad(List<TraceProcess> tree, string image)
+        static double? FindFirstLoad(List<EtlxTraceProcess> tree, string image)
         {
             double? earliest = null;
-            foreach (TraceProcess process in tree)
+            foreach (EtlxTraceProcess process in tree)
             {
                 foreach (TraceLoadedModule module in process.LoadedModules)
                 {

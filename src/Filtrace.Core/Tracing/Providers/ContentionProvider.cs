@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Tracing.Computers;
 
 namespace Filtrace.Tracing.Providers;
 
