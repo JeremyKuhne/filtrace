@@ -4,7 +4,6 @@
 
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing;
 
@@ -106,11 +105,11 @@ public static class TraceConverter
                 TraceLogOptions options = new() { ContinueOnError = true };
                 if (fullPath.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
                 {
-                    TraceLog.CreateFromEventPipeDataFile(fullPath, temporaryPath, options);
+                    EtlxTraceLog.CreateFromEventPipeDataFile(fullPath, temporaryPath, options);
                 }
                 else
                 {
-                    TraceLog.CreateFromEventTraceLogFile(fullPath, temporaryPath, options);
+                    EtlxTraceLog.CreateFromEventTraceLogFile(fullPath, temporaryPath, options);
                 }
 
                 File.Move(temporaryPath, cachePath, overwrite: true);
@@ -141,14 +140,14 @@ public static class TraceConverter
     /// <param name="cacheState">How this request obtained the ETLX cache.</param>
     /// <param name="cancellationToken">Cancels waiting for another converter.</param>
     /// <returns>An open TraceEvent log over the current ETLX cache.</returns>
-    internal static TraceLog OpenTraceLog(
+    internal static EtlxTraceLog OpenTraceLog(
         string path,
         out EtlxCacheState cacheState,
         CancellationToken cancellationToken = default)
     {
         EtlxCacheResult result = ConvertWithState(path, cancellationToken);
         cacheState = result.State;
-        return new TraceLog(result.Path);
+        return new EtlxTraceLog(result.Path);
     }
 
     /// <summary>

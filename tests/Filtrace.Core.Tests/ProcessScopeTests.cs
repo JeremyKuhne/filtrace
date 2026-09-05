@@ -7,7 +7,6 @@ using System.Globalization;
 using Filtrace.Output;
 using Filtrace.Tracing.Providers;
 using Filtrace.Tracing.Readers;
-using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing;
 
@@ -270,16 +269,16 @@ public sealed class ProcessScopeValidationTests
     {
         ScopeResolution resolution = new(
             processIds: [42, 43],
-            processInstanceIndexes: [(ProcessIndex)1, (ProcessIndex)2],
+            processInstanceIndexes: [(EtlxProcessIndex)1, (EtlxProcessIndex)2],
             label: "App",
             phrase: "the 'App' process tree",
             warnings: [],
                 appliedScope: new AppliedProcessScope("name", "App", [], [42], [43], IncludeChildren: true),
             processNameBounded: false);
 
-        resolution.Includes((ProcessIndex)1).Should().BeTrue();
-        resolution.Includes((ProcessIndex)2).Should().BeTrue();
-        resolution.Includes((ProcessIndex)3).Should().BeFalse();
+        resolution.Includes((EtlxProcessIndex)1).Should().BeTrue();
+        resolution.Includes((EtlxProcessIndex)2).Should().BeTrue();
+        resolution.Includes((EtlxProcessIndex)3).Should().BeFalse();
     }
 
     [TestMethod]

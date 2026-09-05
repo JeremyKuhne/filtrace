@@ -4,7 +4,6 @@
 
 using System.Globalization;
 using Filtrace.Tracing.Readers;
-using Microsoft.Diagnostics.Tracing.Etlx;
 using Touki;
 
 namespace Filtrace.Tracing;
@@ -137,7 +136,7 @@ public sealed class NativeSymbolResolutionTests
     // not every native module in a capture carries symbol identity.
     private static string? FindRecordedPdbName(string moduleName)
     {
-        using TraceLog traceLog = TraceLog.OpenOrConvert(EtwFixture);
+        using EtlxTraceLog traceLog = EtlxTraceLog.OpenOrConvert(EtwFixture);
         foreach (TraceModuleFile moduleFile in traceLog.ModuleFiles)
         {
             if (string.Equals(moduleFile.Name, moduleName, StringComparison.OrdinalIgnoreCase)

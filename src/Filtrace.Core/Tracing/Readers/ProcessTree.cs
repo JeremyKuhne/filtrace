@@ -3,10 +3,6 @@
 // See LICENSE file in the project root for full license information
 
 using System.Globalization;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.EventPipe;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 
 namespace Filtrace.Tracing.Readers;
 
@@ -39,7 +35,7 @@ internal static partial class ProcessTree
     /// <exception cref="ArgumentException">
     ///  A requested process id was reused by more than one process in the trace.
     /// </exception>
-    public static ScopeResolution ResolveScope(TraceLog traceLog, ScopeRequest request)
+    public static ScopeResolution ResolveScope(EtlxTraceLog traceLog, ScopeRequest request)
     {
         if (request.IncludeAll)
         {
@@ -75,8 +71,8 @@ internal static partial class ProcessTree
             selector,
             request.IncludeChildren);
 
-        HashSet<ProcessIndex> processInstanceIndexes = [.. instanceSelection.IncludedIndexes.Select(
-            static index => (ProcessIndex)index)];
+        HashSet<EtlxProcessIndex> processInstanceIndexes = [.. instanceSelection.IncludedIndexes.Select(
+            static index => (EtlxProcessIndex)index)];
 
         HashSet<int> keep = [.. processInstances
             .Where(process => instanceSelection.IncludedIndexes.Contains(process.Index))
@@ -244,7 +240,7 @@ internal static partial class ProcessTree
     /// </returns>
     /// <remarks>
     ///  <para>
-    ///   "Busiest" is ranked by <em>CPU sample count</em>, not <see cref="TraceProcess.CPUMSec"/>.
+    ///   "Busiest" is ranked by <em>CPU sample count</em>, not <see cref="EtlxTraceProcess.CPUMSec"/>.
     ///   The rankings this scope feeds are built from CPU samples, so the process that
     ///   owns the most samples is by definition the one the analysis is about. CPUMSec
     ///   can disagree sharply on a machine-wide capture: a long-lived background service
@@ -261,13 +257,13 @@ internal static partial class ProcessTree
     ///   child is covered.
     ///  </para>
     /// </remarks>
-    public static string? FindBusiestProcessName(TraceLog traceLog)
+    public static string? FindBusiestProcessName(EtlxTraceLog traceLog)
     {
         // Count CPU samples per process instance. The predicate mirrors the CPU-sample
         // selection in TraceLogReader exactly (ETW SampledProfileTraceData, EventPipe
         // ClrThreadSampleTraceData excluding error samples) so the busiest process is
         // chosen by the same events the rankings are built from.
-        Dictionary<ProcessIndex, int> samplesByProcess = [];
+        Dictionary<EtlxProcessIndex, int> samplesByProcess = [];
         foreach (TraceEvent data in traceLog.Events)
         {
             if (data is ClrThreadSampleTraceData clrSample)
@@ -282,7 +278,7 @@ internal static partial class ProcessTree
                 continue;
             }
 
-            TraceProcess? process = data.ProcessID <= 0 ? null : TraceLogExtensions.Process(data);
+            EtlxTraceProcess? process = data.ProcessID <= 0 ? null : TraceLogExtensions.Process(data);
             if (process is not null)
             {
                 samplesByProcess[process.ProcessIndex] =
@@ -299,7 +295,7 @@ internal static partial class ProcessTree
         // cannot be matched by a name substring later - skip both.
         string? busiest = null;
         int maxSamples = 0;
-        foreach (TraceProcess process in traceLog.Processes)
+        foreach (EtlxTraceProcess process in traceLog.Processes)
         {
             if (process.ProcessID == 0 || string.IsNullOrEmpty(process.Name))
             {
@@ -332,14 +328,14 @@ internal static partial class ProcessTree
     /// <exception cref="ArgumentException">
     ///  A requested process id was reused by more than one process in the trace.
     /// </exception>
-    public static HashSet<int> ResolvePids(TraceLog traceLog, ProcessScope scope, List<string>? warnings = null)
+    public static HashSet<int> ResolvePids(EtlxTraceLog traceLog, ProcessScope scope, List<string>? warnings = null)
     {
         HashSet<int> roots = ResolveRoots(traceLog, scope.Selector, warnings);
         return scope.IncludeChildren ? IncludeDescendants(traceLog, roots) : roots;
     }
 
     private static HashSet<int> ResolveRoots(
-        TraceLog traceLog,
+        EtlxTraceLog traceLog,
         ProcessSelector selector,
         List<string>? warnings)
     {
@@ -357,10 +353,10 @@ internal static partial class ProcessTree
         return roots;
     }
 
-    private static HashSet<int> IncludeDescendants(TraceLog traceLog, HashSet<int> roots)
+    private static HashSet<int> IncludeDescendants(EtlxTraceLog traceLog, HashSet<int> roots)
     {
         HashSet<int> keep = [.. roots];
-        foreach (TraceProcess process in traceLog.Processes)
+        foreach (EtlxTraceProcess process in traceLog.Processes)
         {
             if (keep.Contains(process.ProcessID))
             {
@@ -369,7 +365,7 @@ internal static partial class ProcessTree
 
             // A process is in scope when any ancestor is a root. The chain is shallow
             // (host -> job), so walking it per process is cheap.
-            for (TraceProcess? ancestor = process.Parent; ancestor is not null; ancestor = ancestor.Parent)
+            for (EtlxTraceProcess? ancestor = process.Parent; ancestor is not null; ancestor = ancestor.Parent)
             {
                 if (roots.Contains(ancestor.ProcessID))
                 {
@@ -443,7 +439,7 @@ internal static partial class ProcessTree
         selector is ProcessNameSelector nameSelector ? nameSelector.NameSubstring : null;
 
     private static void ResolveNameRoots(
-        TraceLog traceLog,
+        EtlxTraceLog traceLog,
         ProcessNameSelector selector,
         HashSet<int> roots,
         List<string>? warnings)
@@ -451,7 +447,7 @@ internal static partial class ProcessTree
         List<ProcessInstanceDescriptor> processes = [];
         HashSet<int> matchedIndexes = [];
         List<int> matchedProcessIds = [];
-        foreach (TraceProcess process in traceLog.Processes)
+        foreach (EtlxTraceProcess process in traceLog.Processes)
         {
             ProcessInstanceDescriptor descriptor = new(
                 (int)process.ProcessIndex,
@@ -593,21 +589,21 @@ internal static partial class ProcessTree
     }
 
     private static void ResolveIdRoots(
-        TraceLog traceLog,
+        EtlxTraceLog traceLog,
         ProcessIdSelector selector,
         HashSet<int> roots,
         List<string>? warnings)
     {
         HashSet<int> requested = [.. selector.ProcessIds];
-        Dictionary<int, List<TraceProcess>> matches = [];
-        foreach (TraceProcess process in traceLog.Processes)
+        Dictionary<int, List<EtlxTraceProcess>> matches = [];
+        foreach (EtlxTraceProcess process in traceLog.Processes)
         {
             if (!requested.Contains(process.ProcessID))
             {
                 continue;
             }
 
-            if (!matches.TryGetValue(process.ProcessID, out List<TraceProcess>? sameId))
+            if (!matches.TryGetValue(process.ProcessID, out List<EtlxTraceProcess>? sameId))
             {
                 sameId = [];
                 matches[process.ProcessID] = sameId;
@@ -619,7 +615,7 @@ internal static partial class ProcessTree
         List<int> unmatched = [];
         foreach (int processId in selector.ProcessIds)
         {
-            if (!matches.TryGetValue(processId, out List<TraceProcess>? sameId))
+            if (!matches.TryGetValue(processId, out List<EtlxTraceProcess>? sameId))
             {
                 unmatched.Add(processId);
                 continue;

@@ -2,9 +2,6 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Parsers;
-
 namespace Filtrace.Tracing;
 
 // The profile-to-provider mapping is pure: it opens no session and needs no elevation,

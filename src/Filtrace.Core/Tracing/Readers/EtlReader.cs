@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing.Readers;
 
@@ -22,6 +21,6 @@ internal sealed class EtlReader : TraceLogReader
         path.EndsWith(".etl", StringComparison.OrdinalIgnoreCase);
 
     /// <inheritdoc/>
-    protected override TraceLog OpenTraceLog(string path, out EtlxCacheState cacheState) =>
+    protected override EtlxTraceLog OpenTraceLog(string path, out EtlxCacheState cacheState) =>
         TraceConverter.OpenTraceLog(path, out cacheState);
 }

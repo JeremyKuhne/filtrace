@@ -3,9 +3,6 @@
 // See LICENSE file in the project root for full license information
 
 using System.Globalization;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -67,7 +64,7 @@ public sealed class ExceptionsProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
 
         List<SampleStack> samples = [];
         List<string> leafToRoot = [];

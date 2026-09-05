@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Etlx;
 
 namespace Filtrace.Tracing.Readers;
 
@@ -35,7 +33,7 @@ internal sealed class ScopeResolution
     /// <param name="processNameBounded">Whether trace-derived process text was escaped or shortened.</param>
     public ScopeResolution(
         HashSet<int>? processIds,
-        HashSet<ProcessIndex>? processInstanceIndexes,
+        HashSet<EtlxProcessIndex>? processInstanceIndexes,
         string? label,
         string? phrase,
         IReadOnlyList<string> warnings,
@@ -60,7 +58,7 @@ internal sealed class ScopeResolution
     ///  The exact process instances to keep, or <see langword="null"/> when every
     ///  process is read.
     /// </summary>
-    public HashSet<ProcessIndex>? ProcessInstanceIndexes { get; }
+    public HashSet<EtlxProcessIndex>? ProcessInstanceIndexes { get; }
 
     /// <summary>
     ///  Whether the process instance associated with an event is in scope.
@@ -77,7 +75,7 @@ internal sealed class ScopeResolution
             return true;
         }
 
-        TraceProcess? process = data.ProcessID <= 0 ? null : TraceLogExtensions.Process(data);
+        EtlxTraceProcess? process = data.ProcessID <= 0 ? null : TraceLogExtensions.Process(data);
         return process is not null && ProcessInstanceIndexes.Contains(process.ProcessIndex);
     }
 
@@ -86,7 +84,7 @@ internal sealed class ScopeResolution
     /// </summary>
     /// <param name="process">The process instance to test, or <see langword="null"/> when none can be resolved.</param>
     /// <returns><see langword="true"/> when unscoped or when the instance was included.</returns>
-    public bool Includes(TraceProcess? process) =>
+    public bool Includes(EtlxTraceProcess? process) =>
         ProcessInstanceIndexes is null
             || (process is not null && ProcessInstanceIndexes.Contains(process.ProcessIndex));
 
@@ -95,7 +93,7 @@ internal sealed class ScopeResolution
     /// </summary>
     /// <param name="processIndex">The TraceEvent process index.</param>
     /// <returns><see langword="true"/> when unscoped or when the index was included.</returns>
-    internal bool Includes(ProcessIndex processIndex) =>
+    internal bool Includes(EtlxProcessIndex processIndex) =>
         ProcessInstanceIndexes is null || ProcessInstanceIndexes.Contains(processIndex);
 
     /// <summary>

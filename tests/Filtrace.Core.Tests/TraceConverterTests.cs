@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Tracing.Etlx;
-
 namespace Filtrace.Tracing;
 
 [TestClass]
@@ -82,7 +80,7 @@ public sealed class TraceConverterTests
 
             results.Should().ContainSingle(result => result.State == EtlxCacheState.Converted);
             results.Select(result => result.Path).Should().OnlyContain(path => path == trace + ".etlx");
-            using TraceLog traceLog = new(trace + ".etlx");
+            using EtlxTraceLog traceLog = new(trace + ".etlx");
             traceLog.EventCount.Should().BeGreaterThan(0);
             Directory.EnumerateFiles(tempDir, "*.new").Should().BeEmpty();
             Directory.EnumerateFiles(tempDir, ".filtrace-etlx-*").Should().BeEmpty();
@@ -106,7 +104,7 @@ public sealed class TraceConverterTests
 
             result.State.Should().Be(EtlxCacheState.Recovered);
             File.Exists(staleTemporary).Should().BeFalse();
-            using TraceLog traceLog = new(result.Path);
+            using EtlxTraceLog traceLog = new(result.Path);
             traceLog.EventCount.Should().BeGreaterThan(0);
         }
         finally
@@ -131,7 +129,7 @@ public sealed class TraceConverterTests
             EtlxCacheResult result = TraceConverter.ConvertWithState(trace);
 
             File.Exists(result.Path).Should().BeTrue();
-            using TraceLog traceLog = new(result.Path);
+            using EtlxTraceLog traceLog = new(result.Path);
             traceLog.EventCount.Should().BeGreaterThan(0);
         }
         finally

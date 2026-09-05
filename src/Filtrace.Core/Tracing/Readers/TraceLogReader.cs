@@ -3,11 +3,6 @@
 // See LICENSE file in the project root for full license information
 
 using System.Globalization;
-using Microsoft.Diagnostics.Symbols;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.EventPipe;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 
 namespace Filtrace.Tracing.Readers;
 
@@ -18,7 +13,7 @@ namespace Filtrace.Tracing.Readers;
 /// </summary>
 /// <remarks>
 ///  <para>
-///   Both formats normalize, through <see cref="TraceLog"/>, onto the same
+///   Both formats normalize, through <see cref="EtlxTraceLog"/>, onto the same
 ///   <see cref="SampledProfileTraceData"/> CPU-sample event with a resolvable
 ///   <see cref="TraceCallStack"/>. Managed method names resolve from the CLR
 ///   rundown embedded in the trace, so no external symbol server is needed for
@@ -41,12 +36,12 @@ internal abstract class TraceLogReader : ITraceReader
 
     /// <summary>
     ///  Converts the trace at <paramref name="path"/> to an ETLX
-    ///  <see cref="TraceLog"/> the caller then reads.
+    ///  <see cref="EtlxTraceLog"/> the caller then reads.
     /// </summary>
     /// <param name="path">The trace file path.</param>
     /// <param name="cacheState">How the ETLX cache request was satisfied.</param>
     /// <returns>The opened trace log.</returns>
-    protected abstract TraceLog OpenTraceLog(string path, out EtlxCacheState cacheState);
+    protected abstract EtlxTraceLog OpenTraceLog(string path, out EtlxCacheState cacheState);
 
     /// <inheritdoc/>
     public TraceReadResult Read(
@@ -58,7 +53,7 @@ internal abstract class TraceLogReader : ITraceReader
         symbolsDirectory = NormalizeSymbolsDirectory(symbolsDirectory);
 
         EtlxCacheState cacheState;
-        using TraceLog traceLog = OpenTraceLog(path, out cacheState);
+        using EtlxTraceLog traceLog = OpenTraceLog(path, out cacheState);
 
         // Local-only symbol reader: an empty symbol path never reaches a symbol
         // server, but portable PDBs sitting next to a traced module still
@@ -119,7 +114,7 @@ internal abstract class TraceLogReader : ITraceReader
             // automatic default - the same as ScopeRequest.Auto - so a caller that passes
             // nothing still gets scenario scope. Null instance membership means no
             // scoping (the all-processes opt-out). This is lossless: the trace is fully
-            // symbol-resolved by TraceLog before any sample is dropped.
+            // symbol-resolved by EtlxTraceLog before any sample is dropped.
             ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
 
             // When an activity scope is requested, pre-pass the trace to find which CPU
@@ -205,11 +200,11 @@ internal abstract class TraceLogReader : ITraceReader
     // Runs the start-stop activity computer over the trace and returns the set of CPU
     // sample events (by index) taken while a thread was inside an activity whose task
     // name matches, or inside one nested under it. This is a pre-pass over the same
-    // TraceLog the main read then walks; consulting each sample's current start-stop
+    // EtlxTraceLog the main read then walks; consulting each sample's current start-stop
     // activity (rather than a per-thread time window) keeps it correct across the async
     // thread hops an activity makes.
     private static HashSet<EventIndex> ComputeActivitySampleFilter(
-        TraceLog traceLog,
+        EtlxTraceLog traceLog,
         SymbolReader symbolReader,
         string activityName)
     {
@@ -226,7 +221,7 @@ internal abstract class TraceLogReader : ITraceReader
                 return;
             }
 
-            TraceThread? thread = data.Thread();
+            EtlxTraceThread? thread = data.Thread();
             if (thread is null)
             {
                 return;
@@ -252,7 +247,7 @@ internal abstract class TraceLogReader : ITraceReader
     }
 
     private static TraceReadResult ReadCore(
-        TraceLog traceLog,
+        EtlxTraceLog traceLog,
         SymbolReader symbolReader,
         ScopeResolution resolvedScope,
         HashSet<EventIndex>? activitySamples,
@@ -502,7 +497,7 @@ internal abstract class TraceLogReader : ITraceReader
     ///  </para>
     /// </remarks>
     private static void ResolveNativeRuntimeSymbols(
-        TraceLog traceLog,
+        EtlxTraceLog traceLog,
         SymbolReader symbolReader,
         SymbolOptions options)
     {

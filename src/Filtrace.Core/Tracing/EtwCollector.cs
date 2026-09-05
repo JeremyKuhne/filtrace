@@ -4,9 +4,6 @@
 
 using System.Diagnostics;
 using System.Runtime.Versioning;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Parsers;
-using Microsoft.Diagnostics.Tracing.Session;
 
 namespace Filtrace.Tracing;
 

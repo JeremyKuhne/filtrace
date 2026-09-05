@@ -2,11 +2,6 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Symbols;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.EventPipe;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 
 namespace Filtrace.Tracing.Readers;
 
@@ -131,7 +126,7 @@ internal static class NativeSymbolResolution
     ///  unresolved frame count. Empty when the trace has no unresolved native frames.
     /// </returns>
     public static IReadOnlyList<NativeModuleSymbolStatus> ResolveLocal(
-        TraceLog traceLog,
+        EtlxTraceLog traceLog,
         SymbolReader symbolReader,
         string? symbolsDirectory)
     {
@@ -192,7 +187,7 @@ internal static class NativeSymbolResolution
     ///  Attempts the lookup for one module and classifies the outcome.
     /// </summary>
     private static NativeSymbolStatus Attempt(
-        TraceLog traceLog,
+        EtlxTraceLog traceLog,
         SymbolReader symbolReader,
         TraceModuleFile moduleFile,
         string? symbolsDirectory)
@@ -269,7 +264,7 @@ internal static class NativeSymbolResolution
     /// <summary>
     ///  Counts unique code addresses with no resolved method, keyed by module index.
     /// </summary>
-    private static Dictionary<int, int> CountUnresolvedAddressesByModule(TraceLog traceLog)
+    private static Dictionary<int, int> CountUnresolvedAddressesByModule(EtlxTraceLog traceLog)
     {
         Dictionary<int, int> counts = [];
         TraceCodeAddresses codeAddresses = traceLog.CodeAddresses;
@@ -298,7 +293,7 @@ internal static class NativeSymbolResolution
     /// <summary>
     ///  Counts unique code addresses with no resolved method in one module.
     /// </summary>
-    private static int CountUnresolvedAddressesInModule(TraceLog traceLog, TraceModuleFile moduleFile)
+    private static int CountUnresolvedAddressesInModule(EtlxTraceLog traceLog, TraceModuleFile moduleFile)
     {
         int count = 0;
         TraceCodeAddresses codeAddresses = traceLog.CodeAddresses;
@@ -321,7 +316,7 @@ internal static class NativeSymbolResolution
     ///  distinct addresses can still dominate the samples.
     /// </summary>
     private static Dictionary<int, int> CountUnresolvedFramesByModule(
-        TraceLog traceLog,
+        EtlxTraceLog traceLog,
         Dictionary<int, int> candidates)
     {
         Dictionary<int, int> counts = [];

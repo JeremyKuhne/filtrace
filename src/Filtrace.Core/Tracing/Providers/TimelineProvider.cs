@@ -2,16 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Analysis;
-using Microsoft.Diagnostics.Tracing.Analysis.GC;
-using Microsoft.Diagnostics.Tracing.Etlx;
-using Microsoft.Diagnostics.Tracing.Parsers.Clr;
-using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
-using Microsoft.Diagnostics.Tracing.EventPipe;
 using Filtrace.Tracing.Readers;
-using Etlx = Microsoft.Diagnostics.Tracing.Etlx;
-using TraceProcess = Microsoft.Diagnostics.Tracing.Analysis.TraceProcess;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -204,7 +195,7 @@ public sealed partial class TimelineProvider
 
         int buckets = ClampBucketCount(bucketCount, out _);
 
-        using Etlx.TraceLog traceLog = OpenTrace(fullPath);
+        using EtlxTraceLog traceLog = OpenTrace(fullPath);
 
         // Scope to exact process instances: an explicit name or PID set, or the
         // automatic busiest process on a multi-process ETL. The all-processes opt-out
@@ -274,7 +265,7 @@ public sealed partial class TimelineProvider
     // both on one source and calling Process() once keeps a gc+cpu timeline to a single
     // scan instead of one pass per mechanism.
     private static (IReadOnlyList<GcBucket>? Gc, EventLanes Events) BuildLanes(
-        Etlx.TraceLog traceLog,
+        EtlxTraceLog traceLog,
         ScopeResolution resolvedScope,
         HashSet<string> requested,
         double startMs,
@@ -305,7 +296,7 @@ public sealed partial class TimelineProvider
             ? []
             : null;
 
-        using Etlx.TraceLogEventSource source = traceLog.Events.GetSource();
+        using TraceLogEventSource source = traceLog.Events.GetSource();
 
         // The GC lane needs the .NET runtime analysis registered before the pass runs;
         // its per-collection records are read back from the processed source afterward.
@@ -347,7 +338,7 @@ public sealed partial class TimelineProvider
             }
 
             if (scopedAnalysisProcessIndexes is not null
-                && TraceProcessesExtensions.Process(data) is TraceProcess scopedProcess)
+                && TraceProcessesExtensions.Process(data) is AnalysisTraceProcess scopedProcess)
             {
                 // Includes() admitted the exact ETLX instance; this second process model
                 // owns TraceGC, so retain its corresponding index for reconstruction.
@@ -427,7 +418,7 @@ public sealed partial class TimelineProvider
     // runtime analysis gathered during the shared pass. The source must already have
     // been processed (with NeedLoadedDotNetRuntimes registered) before this reads it.
     private static GcBucket[] BuildGcLane(
-        Etlx.TraceLogEventSource source,
+        TraceLogEventSource source,
         HashSet<int>? scopedProcessInstanceIndexes,
         double startMs,
         double endMs,
@@ -439,7 +430,7 @@ public sealed partial class TimelineProvider
         double[] maxPause = new double[buckets];
         bool[] hasGen2 = new bool[buckets];
 
-        foreach (TraceProcess process in source.Processes())
+        foreach (AnalysisTraceProcess process in source.Processes())
         {
             if (scopedProcessInstanceIndexes is not null
                 && !scopedProcessInstanceIndexes.Contains((int)process.ProcessIndex))
@@ -543,7 +534,7 @@ public sealed partial class TimelineProvider
 
     // Builds the "module!Method(sig)" frame name FrameNames.Short expects, matching the
     // CPU reader's naming so the shortened leaf reads the same as a ranking's rows.
-    private static string QualifyFrame(Etlx.TraceCodeAddress address)
+    private static string QualifyFrame(TraceCodeAddress address)
     {
         string method = address.FullMethodName;
         string module = address.ModuleName;
@@ -593,6 +584,6 @@ public sealed partial class TimelineProvider
     // Opens either supported format through the shared concurrency-safe ETLX cache.
     // ETW conversion remains Windows-only. Mirrors the event-query provider so the
     // timeline spans EventPipe and ETW alike.
-    private static Etlx.TraceLog OpenTrace(string fullPath) =>
+    private static EtlxTraceLog OpenTrace(string fullPath) =>
         TraceConverter.OpenTraceLog(fullPath, out _);
 }
