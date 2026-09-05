@@ -12,6 +12,11 @@ core-pin: v0.14.0
   re-review require either explicit publication approval or an active user-confirmed
   continuous, plan-scoped authorization. The latter covers routine review rounds
   without another approval request; its scope and exact-head gates still apply.
+- During active continuous mode, this overlay overrides the core's stop-before-
+  staging and fresh-publishing-verb checkpoints and its final user-merge handoff.
+  Stage, commit, push, reply, resolve, and obtain the next review within that scope;
+  squash merge only after required exact-head checks and reviews pass, then continue
+  to the next eligible plan item. Outside continuous mode, keep the core checkpoints.
 - Re-run the affected tests first, then the full Release suite and applicable
   CLI/MCP/docs/eval/agent-skill gates before proposing a push.
 - If feedback touches `.agents/`, hand off to agent-files-review as part of the
