@@ -161,8 +161,8 @@ public sealed class TraceLoader
                 $"The allocation metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new AllocationProvider().Read(
-            fullPath, scope?.Window, out int recordCount);
+        StackSampleSource source = new AllocationProvider().ReadWithCacheState(
+            fullPath, scope?.Window, out int recordCount, out EtlxCacheState cacheState);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -177,7 +177,7 @@ public sealed class TraceLoader
         // --strict gate are CPU-reader concerns that do not apply to this family.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("alloc", recordCount),
+            warnings, AnalysisRecordCounts("alloc", recordCount), cacheState,
             appliedTimeWindow: scope?.Window);
 
         return new LoadedTrace(info, source);
@@ -194,8 +194,8 @@ public sealed class TraceLoader
                 $"The exceptions metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new ExceptionsProvider().Read(
-            fullPath, scope?.Window, out int recordCount);
+        StackSampleSource source = new ExceptionsProvider().ReadWithCacheState(
+            fullPath, scope?.Window, out int recordCount, out EtlxCacheState cacheState);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -209,7 +209,7 @@ public sealed class TraceLoader
         // does not apply.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("exceptions", recordCount),
+            warnings, AnalysisRecordCounts("exceptions", recordCount), cacheState,
             appliedTimeWindow: scope?.Window);
 
         return new LoadedTrace(info, source);
@@ -228,8 +228,8 @@ public sealed class TraceLoader
                 $"The contention metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new ContentionProvider().Read(
-            fullPath, scope?.Window, out int recordCount);
+        StackSampleSource source = new ContentionProvider().ReadWithCacheState(
+            fullPath, scope?.Window, out int recordCount, out EtlxCacheState cacheState);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -244,7 +244,7 @@ public sealed class TraceLoader
         // --strict gate does not apply.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("contention", recordCount),
+            warnings, AnalysisRecordCounts("contention", recordCount), cacheState,
             appliedTimeWindow: scope?.Window);
 
         return new LoadedTrace(info, source);
@@ -261,8 +261,8 @@ public sealed class TraceLoader
                 $"The wait metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new WaitProvider().Read(
-            fullPath, scope?.Window, out int recordCount);
+        StackSampleSource source = new WaitProvider().ReadWithCacheState(
+            fullPath, scope?.Window, out int recordCount, out EtlxCacheState cacheState);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -278,7 +278,7 @@ public sealed class TraceLoader
         // --strict gate does not apply.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("wait", recordCount),
+            warnings, AnalysisRecordCounts("wait", recordCount), cacheState,
             appliedTimeWindow: scope?.Window);
 
         return new LoadedTrace(info, source);
@@ -297,8 +297,8 @@ public sealed class TraceLoader
                 $"The activity metric requires a .nettrace EventPipe trace; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new ActivityProvider().Read(
-            fullPath, scope?.Window, out int recordCount);
+        StackSampleSource source = new ActivityProvider().ReadWithCacheState(
+            fullPath, scope?.Window, out int recordCount, out EtlxCacheState cacheState);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -312,7 +312,7 @@ public sealed class TraceLoader
         // complete and the --strict gate does not apply.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("activity", recordCount),
+            warnings, AnalysisRecordCounts("activity", recordCount), cacheState,
             appliedTimeWindow: scope?.Window);
 
         return new LoadedTrace(info, source);
@@ -329,8 +329,8 @@ public sealed class TraceLoader
                 $"The thread-time metric requires an .etl ETW capture; '{fullPath}' is {reader.Format}.");
         }
 
-        StackSampleSource source = new ThreadTimeProvider().Read(
-            fullPath, scope, out ScopeResolution resolved, out int recordCount);
+        StackSampleSource source = new ThreadTimeProvider().ReadWithCacheState(
+            fullPath, scope, out ScopeResolution resolved, out int recordCount, out EtlxCacheState cacheState);
 
         string? appliedScope = resolved.Phrase;
 
@@ -389,7 +389,7 @@ public sealed class TraceLoader
         // apply. The total weight BuildInfo sums is elapsed milliseconds.
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.Etl, source.Samples, symbolResolutionRate: 1.0,
-            warnings, AnalysisRecordCounts("threadtime", recordCount),
+            warnings, AnalysisRecordCounts("threadtime", recordCount), cacheState,
             appliedProcessScope: resolved.AppliedScope,
             appliedTimeWindow: scope?.Window);
 

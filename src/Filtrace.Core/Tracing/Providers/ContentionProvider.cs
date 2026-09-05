@@ -58,10 +58,28 @@ public sealed class ContentionProvider
     /// </param>
     /// <returns>The contention stack source retained by the requested window.</returns>
     internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount) =>
-        LatencyStackReader.Read(
+        ReadWithCacheState(path, window, out recordCount, out _);
+
+    /// <summary>
+    ///  Reads contention stacks and retains the state of the ETLX cache used by this request.
+    /// </summary>
+    /// <param name="path">The EventPipe trace path.</param>
+    /// <param name="window">An optional trace-relative contention-start filter.</param>
+    /// <param name="recordCount">The completed contention count before filtering.</param>
+    /// <param name="cacheState">How the request obtained the ETLX cache.</param>
+    /// <returns>The contention stack source retained by the requested window.</returns>
+    internal StackSampleSource ReadWithCacheState(
+        string path,
+        TimeWindow? window,
+        out int recordCount,
+        out EtlxCacheState cacheState)
+    {
+        return LatencyStackReader.Read(
             path,
             MetricInfo.Contention,
             static (traceLog, stackSource) => new ContentionLatencyComputer(traceLog, stackSource),
             window,
-            out recordCount);
+            out recordCount,
+            out cacheState);
+    }
 }

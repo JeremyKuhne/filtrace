@@ -1,10 +1,13 @@
 # TraceEvent surface assessment
 
 **Status:** Dependency reference for the pinned package. It records what
-`Microsoft.Diagnostics.Tracing.TraceEvent` **3.2.3** (`lib/netstandard2.0`) does and
+`Microsoft.Diagnostics.Tracing.TraceEvent` **3.2.6** (`lib/netstandard2.0`) does and
 does not provide, and which [roadmap.md](roadmap.md) items that gates.
 
-**Last verified:** 2026-08-01, by reflection over the referenced assembly.
+**Last verified:** 2026-09-05. The missing-type inventory and unused exception, GC,
+and PMC members were rechecked from the four restored assembly metadata tables.
+Capture measurements remain historical observations, not new measurements of this
+package version.
 
 This is not a second roadmap. Schedule and priority for every unshipped item belong
 only in [roadmap.md](roadmap.md); the design constraints they are judged against are
@@ -28,9 +31,9 @@ in [design.md](design.md).
 | Capture | `TraceEventSession`, `KernelTraceEventParser.Keywords`, `TraceEventProfileSources` |
 | Fixture trim | `ETWReloggerTraceEventSource` |
 
-## Verified absent from 3.2.3
+## Verified absent from 3.2.6
 
-Each of these was checked by reflecting over all four DLLs in the package
+Each of these was checked across all four DLLs in the package
 (`TraceEvent`, `FastSerialization`, `Dia2Lib`, `TraceReloggerLib`). They are the
 reason several roadmap items are dependency-gated rather than merely unwritten.
 
@@ -77,12 +80,25 @@ These are VC8-class enrichments in [roadmap.md](roadmap.md).
   whatever was last *set*, so neither can detect a clamp; only the reported range
   or sample density can.
 
+## Cache migration from 3.2.3
+
+TraceEvent 3.2.6 requires ETLX format 78 and rejects format-77 caches from 3.2.3.
+Filtrace rebuilds an unreadable adjacent cache from its raw `.nettrace` or `.etl`
+when opening it, and reports `recovered`. Explicit cache conversion also verifies
+that the returned cache can be opened. Failed regeneration preserves the previous
+cache, and the raw trace is not replaced.
+
+Keep separate trace/cache paths when comparing old and new binaries. A timestamp
+alone does not make one version's ETLX readable by the other, and this recovery
+does not establish standalone ETLX interoperability.
+
 ## Re-verifying
 
-Reflect over the referenced assembly - no project needed:
+Reflect over the referenced assembly in a disposable PowerShell session - no
+project needed. Loaded assemblies remain locked until that session exits:
 
 ```pwsh
-$dll = Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.diagnostics.tracing.traceevent\3.2.3" `
+$dll = Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.diagnostics.tracing.traceevent\3.2.6" `
     -Recurse -Filter 'Microsoft.Diagnostics.Tracing.TraceEvent.dll' |
     Where-Object FullName -match 'netstandard2.0' | Select-Object -First 1
 $asm = [System.Reflection.Assembly]::LoadFrom($dll.FullName)

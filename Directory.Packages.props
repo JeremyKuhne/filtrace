@@ -12,7 +12,7 @@
 
   <ItemGroup>
     <!-- Trace parsing and analysis core. -->
-    <PackageVersion Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.3" />
+    <PackageVersion Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.6" />
 
     <!--
       Touki's shared utilities (ValueStringBuilder, StringSegment, the allocation-

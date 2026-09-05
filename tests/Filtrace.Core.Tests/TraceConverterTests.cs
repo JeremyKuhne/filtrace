@@ -61,6 +61,64 @@ public sealed class TraceConverterTests
     }
 
     [TestMethod]
+    public void ConvertWithState_UnreadableCurrentCache_RebuildsAndReportsRecovery()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        string cachePath = TraceConverter.EtlxPathFor(trace);
+        try
+        {
+            File.WriteAllText(cachePath, "obsolete ETLX cache");
+            File.SetLastWriteTimeUtc(cachePath, File.GetLastWriteTimeUtc(trace).AddSeconds(1));
+            Action openCache = () =>
+            {
+                using EtlxTraceLog traceLog = new(cachePath);
+            };
+
+            openCache.Should().Throw<FastSerialization.SerializationException>();
+
+            EtlxCacheResult result = TraceConverter.ConvertWithState(trace);
+
+            result.Path.Should().Be(cachePath);
+            result.State.Should().Be(EtlxCacheState.Recovered);
+            using (EtlxTraceLog traceLog = new(result.Path))
+            {
+                traceLog.EventCount.Should().BeGreaterThan(0);
+            }
+
+            TraceConverter.ConvertWithState(trace).State.Should().Be(EtlxCacheState.Hit);
+            Directory.EnumerateFiles(tempDir, ".filtrace-etlx-*").Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void ConvertWithState_FailedRecovery_PreservesTheExistingCache()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        string cachePath = TraceConverter.EtlxPathFor(trace);
+        const string CacheContents = "obsolete ETLX cache";
+        try
+        {
+            File.WriteAllText(trace, "invalid nettrace");
+            File.WriteAllText(cachePath, CacheContents);
+            File.SetLastWriteTimeUtc(cachePath, File.GetLastWriteTimeUtc(trace).AddSeconds(1));
+
+            Action convert = () => TraceConverter.ConvertWithState(trace);
+
+            convert.Should().Throw<Exception>();
+            File.ReadAllText(cachePath).Should().Be(CacheContents);
+            Directory.EnumerateFiles(tempDir, ".filtrace-etlx-*").Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void ConvertWithState_ConcurrentSameTrace_ConvertsOnceAndPublishesValidCache()
     {
         string trace = CopyToTemp("alloc.nettrace", out string tempDir);

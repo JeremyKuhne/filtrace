@@ -56,6 +56,23 @@ public sealed class ExceptionsProvider
     /// <returns>The exception stack source retained by the requested window.</returns>
     internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount)
     {
+        return ReadWithCacheState(path, window, out recordCount, out _);
+    }
+
+    /// <summary>
+    ///  Reads exception stacks and retains the state of the ETLX cache used by this request.
+    /// </summary>
+    /// <param name="path">The EventPipe trace path.</param>
+    /// <param name="window">An optional trace-relative throw-time filter.</param>
+    /// <param name="recordCount">The exception throw count before filtering.</param>
+    /// <param name="cacheState">How the request obtained the ETLX cache.</param>
+    /// <returns>The exception stack source retained by the requested window.</returns>
+    internal StackSampleSource ReadWithCacheState(
+        string path,
+        TimeWindow? window,
+        out int recordCount,
+        out EtlxCacheState cacheState)
+    {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
         string fullPath = Path.GetFullPath(path);
@@ -64,7 +81,7 @@ public sealed class ExceptionsProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out cacheState);
 
         List<SampleStack> samples = [];
         List<string> leafToRoot = [];

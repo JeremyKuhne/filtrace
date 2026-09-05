@@ -68,6 +68,79 @@ public sealed class TraceStoreTests
     }
 
     [TestMethod]
+    [DataRow("activity.nettrace", TraceMetric.Cpu)]
+    [DataRow("alloc.nettrace", TraceMetric.Allocations)]
+    [DataRow("exceptions.nettrace", TraceMetric.Exceptions)]
+    [DataRow("contention.nettrace", TraceMetric.Contention)]
+    [DataRow("wait.nettrace", TraceMetric.Wait)]
+    [DataRow("activity.nettrace", TraceMetric.Activity)]
+    [DataRow("etw.etl", TraceMetric.ThreadTime)]
+    public async Task GetAsync_UnreadableCache_ReportsRecoveryOnlyForTheRecoveringRequest(
+        string fixture,
+        TraceMetric metric)
+    {
+        if (metric == TraceMetric.ThreadTime && !OperatingSystem.IsWindows())
+        {
+            Assert.Inconclusive("ETW reading requires Windows.");
+        }
+
+        TraceStore store = new();
+        string path = CopyToTemp(fixture, out string tempDirectory);
+        string cachePath = TraceConverter.EtlxPathFor(path);
+        try
+        {
+            File.WriteAllText(cachePath, "obsolete ETLX cache");
+            File.SetLastWriteTimeUtc(cachePath, File.GetLastWriteTimeUtc(path).AddSeconds(1));
+
+            TraceStoreLoadResult recovered = await store.GetAsync(path, metric: metric);
+            TraceStoreLoadResult hit = await store.GetAsync(path, metric: metric);
+
+            recovered.EtlxCacheState.Should().Be(EtlxCacheState.Recovered);
+            recovered.Trace.Info.SampleCount.Should().BeGreaterThan(0);
+            hit.EtlxCacheState.Should().Be(EtlxCacheState.Hit);
+            hit.Trace.Should().BeSameAs(recovered.Trace);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("activity.nettrace", TraceMetric.Cpu)]
+    [DataRow("alloc.nettrace", TraceMetric.Allocations)]
+    [DataRow("exceptions.nettrace", TraceMetric.Exceptions)]
+    [DataRow("contention.nettrace", TraceMetric.Contention)]
+    [DataRow("wait.nettrace", TraceMetric.Wait)]
+    [DataRow("activity.nettrace", TraceMetric.Activity)]
+    [DataRow("etw.etl", TraceMetric.ThreadTime)]
+    public async Task GetAsync_CachedModel_DoesNotReopenTheEtlx(string fixture, TraceMetric metric)
+    {
+        if (metric == TraceMetric.ThreadTime && !OperatingSystem.IsWindows())
+        {
+            Assert.Inconclusive("ETW reading requires Windows.");
+        }
+
+        TraceStore store = new();
+        string path = CopyToTemp(fixture, out string tempDirectory);
+        try
+        {
+            TraceStoreLoadResult first = await store.GetAsync(path, metric: metric);
+            using FileStream cacheLock = new(
+                TraceConverter.EtlxPathFor(path), FileMode.Open, FileAccess.Read, FileShare.None);
+
+            TraceStoreLoadResult second = await store.GetAsync(path, metric: metric);
+
+            second.Trace.Should().BeSameAs(first.Trace);
+            second.EtlxCacheState.Should().Be(EtlxCacheState.Hit);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task GetAsync_CanceledWhileWaitingForInterprocessConversion_ThrowsOperationCanceled()
     {
         TraceStore store = new();

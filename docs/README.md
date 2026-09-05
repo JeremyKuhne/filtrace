@@ -12,7 +12,7 @@ decision records.
 | [local-testing-redesign.md](local-testing-redesign.md) | Replacement plan for a smaller repository-scoped local checkout activation workflow. |
 | [workflow.md](workflow.md) | How to drive filtrace: capture, orient, rank, drill, compare, plus the command and tool catalogs. |
 | [traps.md](traps.md) | The reasoning errors a trace invites, and how to avoid them. |
-| [traceevent-surface-assessment.md](traceevent-surface-assessment.md) | What the pinned TraceEvent 3.2.3 package does and does not provide, and which roadmap items that gates. |
+| [traceevent-surface-assessment.md](traceevent-surface-assessment.md) | What the pinned TraceEvent 3.2.6 package does and does not provide, and which roadmap items that gates. |
 | [filtrace-etl-trimming.md](filtrace-etl-trimming.md) | Why the ETW process-tree relog is a fixture tool rather than a shipped verb. |
 
 Shipped work is not documented here. Git history and the release tags record what
