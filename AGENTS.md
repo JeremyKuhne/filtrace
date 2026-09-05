@@ -108,8 +108,24 @@ the repo build standalone.
 
 ## Publishing changes
 
-Never `git push` or open / merge a pull request without an explicit instruction
-in the user's most recent message - an explicit verb such as `push`,
-`commit and push`, `open the PR`, `ship it`, or an equivalent. Local commits on a
-feature branch are reversible and fine; publishing is not. When in doubt, stop
-and ask one short yes/no question.
+Publishing changes is opt-in. Outside the continuous mode below, never `git push`
+or open / merge a pull request without an explicit instruction in the user's most
+recent message - an explicit verb such as `push`, `commit and push`, `open the PR`,
+`ship it`, or an equivalent. Local commits on a feature branch are reversible and
+fine; publishing is not. When in doubt, stop and ask one short yes/no question.
+
+A user may explicitly confirm continuous execution of a bounded slice of the
+[canonical primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md).
+Within that slice, choose task-derived branch names and PR metadata; commit, push,
+and open PRs; address CI, reviews, and discussions; and squash merge after required
+checks pass and required exact-head reviews approve the commit being merged. Do not
+ask again at every step. This authorization survives status questions and context
+resumes until the user pauses or changes it, or the slice completes. It does not
+authorize unrelated work.
+
+Neither mode implies permission to force-push, rewrite history, or perform
+destructive cleanup. Do not change repository visibility, publish a new package,
+create release or version tags, or trigger a publish workflow. Local build, pack,
+and AOT compilation are validation, not permission to distribute artifacts.
+Checkpoint with the user before changing contracts or scope, bypassing or proceeding
+past an unresolved required gate, or acting with uncertain repository rights.
