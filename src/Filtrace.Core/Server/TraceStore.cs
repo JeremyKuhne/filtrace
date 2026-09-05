@@ -104,9 +104,11 @@ public sealed partial class TraceStore
                 cancellationToken,
                 out bool cacheHit);
 
-            EtlxCacheState? state = cacheHit
-                ? lease.Waited ? EtlxCacheState.Waited : null
-                : trace.Info.EtlxCacheState;
+            EtlxCacheState? state = cacheHit ? null : trace.Info.EtlxCacheState;
+            if (lease.Waited && (cacheHit || state == EtlxCacheState.Hit))
+            {
+                state = EtlxCacheState.Waited;
+            }
 
             return new TraceStoreLoadResult(trace, state);
         }, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);

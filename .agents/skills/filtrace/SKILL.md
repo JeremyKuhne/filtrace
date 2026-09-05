@@ -208,10 +208,13 @@ workload:
 Same-trace conversions are coordinated by canonical path across threads and
 processes. filtrace converts to a unique sibling temporary file and atomically
 publishes the completed cache, so MCP calls against one trace may run in parallel;
-different traces remain independent. `trace_info.etlxCacheState` and
-`cache --action convert` report `hit`, `waited`, `converted`, or `recovered`
-(`null` for speedscope). `cache --action clean` waits for an active conversion
-before removing its cache.
+different traces remain independent. `trace_info.etlxCacheState` describes the
+current request: `hit`, `waited`, `converted`, or `recovered`. It is `null` for
+speedscope and for an already parsed in-memory hit that did not wait for
+same-trace work; neither opens ETLX. A request that waits for another same-trace
+load reports `waited` when reusing its result or ETLX cache, including a different
+metric or scope. `cache --action convert` reports the four ETLX states above.
+`cache --action clean` waits for an active conversion before removing its cache.
 <!-- filtrace:end verbs -->
 
 Run `filtrace <verb> --help` for the full option set of any verb.

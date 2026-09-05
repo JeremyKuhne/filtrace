@@ -133,6 +133,7 @@ public static class TraceConverter
             }
 
             string temporaryPath = TemporaryPathFor(cachePath, lockKey);
+            TraceLog? validatedLog = null;
             try
             {
                 TraceLogOptions options = new() { ContinueOnError = true };
@@ -145,21 +146,19 @@ public static class TraceConverter
                     TraceLog.CreateFromEventTraceLogFile(fullPath, temporaryPath, options);
                 }
 
-                using (TraceLog validationLog = new(temporaryPath))
-                {
-                }
-
+                validatedLog = new TraceLog(temporaryPath);
                 File.Move(temporaryPath, cachePath, overwrite: true);
+                if (returnOpenLog)
+                {
+                    openedLog = validatedLog;
+                    validatedLog = null;
+                }
             }
             finally
             {
+                validatedLog?.Dispose();
                 TryDelete(temporaryPath);
                 TryDelete($"{temporaryPath}.new");
-            }
-
-            if (returnOpenLog)
-            {
-                openedLog = new TraceLog(cachePath);
             }
 
             return new EtlxCacheResult(
@@ -181,7 +180,7 @@ public static class TraceConverter
     /// <param name="path">The source <c>.nettrace</c> or <c>.etl</c> path.</param>
     /// <param name="cacheState">How this request obtained the ETLX cache.</param>
     /// <param name="cancellationToken">Cancels waiting for another converter.</param>
-    /// <returns>An open trace log over the current ETLX cache.</returns>
+    /// <returns>The validated trace log, retained across cache publication when converted.</returns>
     internal static TraceLog OpenTraceLog(
         string path,
         out EtlxCacheState cacheState,

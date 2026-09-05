@@ -67,6 +67,30 @@ public sealed class TraceConverterTests
     }
 
     [TestMethod]
+    public void OpenTraceLog_NewCache_ReturnedLogRemainsReadableAfterPublication()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDirectory);
+        try
+        {
+            using TraceLog opened = TraceConverter.OpenTraceLog(trace, out EtlxCacheState state);
+            using TraceLog published = new(TraceConverter.EtlxPathFor(trace));
+
+            state.Should().Be(EtlxCacheState.Converted);
+            opened.EventCount.Should().BeGreaterThan(0);
+            opened.Events.Select(traceEvent => traceEvent.EventName)
+                .Should().Equal(published.Events.Select(traceEvent => traceEvent.EventName));
+
+            opened.CallStacks.Count.Should().Be(published.CallStacks.Count);
+            opened.CodeAddresses.Count.Should().Be(published.CodeAddresses.Count);
+            Directory.EnumerateFiles(tempDirectory, ".filtrace-etlx-*").Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void OpenTraceLog_UnreadableCurrentCache_RebuildsFromRawTrace()
     {
         string trace = CopyToTemp("alloc.nettrace", out string tempDir);
@@ -209,7 +233,9 @@ public sealed class TraceConverterTests
     }
 
     [TestMethod]
-    public void ConvertWithState_UnwritableDestination_PreservesIncompatibleCache()
+    [DataRow(data: false)]
+    [DataRow(data: true)]
+    public void ConvertWithState_UnwritableDestination_PreservesIncompatibleCache(bool returnOpenLog)
     {
         string trace = CopyToTemp("alloc.nettrace", out string tempDir);
         string etlx = trace + ".etlx";
@@ -230,7 +256,17 @@ public sealed class TraceConverterTests
                 File.SetUnixFileMode(tempDir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
             }
 
-            Action convert = () => TraceConverter.ConvertWithState(trace);
+            Action convert = () =>
+            {
+                if (returnOpenLog)
+                {
+                    using TraceLog opened = TraceConverter.OpenTraceLog(trace, out _);
+                }
+                else
+                {
+                    TraceConverter.ConvertWithState(trace);
+                }
+            };
 
             Exception exception = convert.Should().Throw<Exception>().Which;
             (exception is IOException or UnauthorizedAccessException).Should().BeTrue();
