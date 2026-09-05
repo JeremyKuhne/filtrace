@@ -55,6 +55,22 @@ try {
         [ref]$tokens,
         [ref]$parseErrors)
     Assert-True ($parseErrors.Count -eq 0) 'Capture helper could not be parsed for command-contract tests.'
+    $testElevatedDefinitions = @(
+        $captureAst.FindAll(
+            { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-Elevated' },
+            $true)
+    )
+    Assert-True ($testElevatedDefinitions.Count -eq 1) 'Capture helper did not contain exactly one Test-Elevated function.'
+    $testElevatedDefinition = $testElevatedDefinitions[0]
+    $testCaptureSource =
+        $captureSource.Substring(0, $testElevatedDefinition.Extent.StartOffset) +
+        'function Test-Elevated { return $false }' +
+        $captureSource.Substring($testElevatedDefinition.Extent.EndOffset)
+    $testCaptureScript = Join-Path $temporaryRoot 'Capture-BenchmarkTrace.ps1'
+    [System.IO.File]::WriteAllText(
+        $testCaptureScript,
+        $testCaptureSource,
+        [System.Text.UTF8Encoding]::new($false))
     $commandFunctionNames = @(
         'ConvertTo-RuntimeSummary',
         'ConvertTo-PowerShellArgument',
@@ -937,6 +953,9 @@ param(
     [string]$RunId,
     [ValidateSet('Text', 'Json')]
     [string]$OutputFormat,
+    [string]$LaunchSentinel,
+    [ValidateSet('Absent', 'Success', 'Nonzero', 'Malformed', 'Timeout')]
+    [string]$LaunchOutcome,
     [switch]$Quiet)
 
 function Start-Process {
@@ -948,12 +967,30 @@ function Start-Process {
         [string]$WorkingDirectory,
         [object[]]$ArgumentList)
 
-    # Force the bounded wait to time out without a UAC prompt. Real elevation remains
-    # a manual Windows check; this fake pins the parent process's output contract.
-    $process = [pscustomobject]@{ HasExited = $false; ExitCode = 0 }
+    # Exercise the parent handoff without launching a process or showing a UAC prompt.
+    [System.IO.File]::WriteAllText($LaunchSentinel, $LaunchOutcome)
+    if ($LaunchOutcome -eq 'Absent') { return $null }
+
+    if ($LaunchOutcome -in @('Success', 'Malformed')) {
+        $runDirectory = Join-Path $WorkingDirectory "BenchmarkDotNet.Artifacts/filtrace-runs/$RunId"
+        New-Item -ItemType Directory -Force -Path $runDirectory | Out-Null
+        $manifestPath = Join-Path $runDirectory 'manifest.json'
+        $manifestContent = if ($LaunchOutcome -eq 'Success') {
+            [ordered]@{ cases = @() } | ConvertTo-Json -Compress
+        }
+        else {
+            '{not json'
+        }
+        [System.IO.File]::WriteAllText($manifestPath, $manifestContent)
+    }
+
+    $process = [pscustomobject]@{
+        HasExited = $LaunchOutcome -ne 'Timeout'
+        ExitCode = if ($LaunchOutcome -eq 'Nonzero') { 23 } else { 0 }
+    }
     $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {
         param([int]$Milliseconds)
-        return $false
+        return $this.HasExited
     }
     return $process
 }
@@ -970,27 +1007,41 @@ $captureParameters = @{
 }
 if ($Quiet) { $captureParameters.Quiet = $true }
 . $CaptureScript @captureParameters
+exit $LASTEXITCODE
 '@
         [System.IO.File]::WriteAllText($timeoutWrapper, $timeoutWrapperText)
+        $timeoutDotnetArgs = Join-Path $temporaryRoot 'timeout-dotnet-args.txt'
+        $timeoutJsonLaunch = Join-Path $temporaryRoot 'timeout-json-launch.txt'
+        $timeoutTextLaunch = Join-Path $temporaryRoot 'timeout-text-launch.txt'
+        $timeoutQuietLaunch = Join-Path $temporaryRoot 'timeout-quiet-launch.txt'
+        $env:FILTRACE_CAPTURE_ARGS = $timeoutDotnetArgs
         Push-Location $temporaryRoot
         try {
-            $timeoutJson = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $captureScript `
+            $timeoutJson = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
                 -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
-                -RunId 'timeout-json-run' -OutputFormat Json | Out-String -Width 4096
+                -RunId 'timeout-json-run' -OutputFormat Json -LaunchSentinel $timeoutJsonLaunch `
+                -LaunchOutcome Timeout | Out-String -Width 4096
             $timeoutExitCode = $LASTEXITCODE
-            $timeoutText = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $captureScript `
+            $timeoutText = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
                 -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
-                -RunId 'timeout-text-run' -OutputFormat Text 2>&1 | Out-String -Width 4096
+                -RunId 'timeout-text-run' -OutputFormat Text -LaunchSentinel $timeoutTextLaunch `
+                -LaunchOutcome Timeout 2>&1 | Out-String -Width 4096
             $timeoutTextExitCode = $LASTEXITCODE
-            $timeoutQuiet = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $captureScript `
+            $timeoutQuiet = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
                 -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
-                -RunId 'timeout-quiet-run' -OutputFormat Text -Quiet 2>&1 | Out-String -Width 4096
+                -RunId 'timeout-quiet-run' -OutputFormat Text -LaunchSentinel $timeoutQuietLaunch `
+                -LaunchOutcome Timeout -Quiet 2>&1 | Out-String -Width 4096
             $timeoutQuietExitCode = $LASTEXITCODE
         }
         finally {
             Pop-Location
+            $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
         }
 
+        Assert-True (Test-Path -LiteralPath $timeoutJsonLaunch) 'Elevated JSON timeout did not use fake Start-Process.'
+        Assert-True (Test-Path -LiteralPath $timeoutTextLaunch) 'Elevated text timeout did not use fake Start-Process.'
+        Assert-True (Test-Path -LiteralPath $timeoutQuietLaunch) 'Elevated quiet timeout did not use fake Start-Process.'
+        Assert-True (-not (Test-Path -LiteralPath $timeoutDotnetArgs)) 'Elevated timeout launched the fake BenchmarkDotNet workload.'
         Assert-True ($timeoutExitCode -eq 0) 'Elevated timeout did not preserve its non-fatal exit status.'
         $timeoutResult = $timeoutJson | ConvertFrom-Json
         $timeoutLog = Join-Path $globalArtifacts 'filtrace-runs/timeout-json-run/capture.log'
@@ -1007,6 +1058,70 @@ if ($Quiet) { $captureParameters.Quiet = $true }
         Assert-True ($timeoutQuietExitCode -eq 0) 'Elevated quiet timeout did not preserve its non-fatal exit status.'
         Assert-True (Test-StringContains $timeoutQuiet 'did not signal completion') 'Elevated quiet timeout suppressed its warning.'
         Assert-True (-not (Test-StringContains $timeoutQuiet 'Captured ')) 'Elevated quiet timeout emitted a capture summary.'
+
+        $launchCases = @(
+            [ordered]@{
+                outcome = 'Absent'
+                expectedExitCode = 1
+                expectedError = 'returned no process handle'
+            },
+            [ordered]@{
+                outcome = 'Success'
+                expectedExitCode = 0
+                expectedError = $null
+            },
+            [ordered]@{
+                outcome = 'Nonzero'
+                expectedExitCode = 23
+                expectedError = 'Elevated capture failed (exit 23)'
+            },
+            [ordered]@{
+                outcome = 'Malformed'
+                expectedExitCode = 1
+                expectedError = 'ConvertFrom-Json'
+            }
+        )
+        foreach ($launchCase in $launchCases) {
+            $launchName = $launchCase.outcome.ToLowerInvariant()
+            $launchRunId = "launch-$launchName-run"
+            $launchSentinel = Join-Path $temporaryRoot "launch-$launchName-sentinel.txt"
+            $launchDotnetArgs = Join-Path $temporaryRoot "launch-$launchName-dotnet-args.txt"
+            $launchErrorPath = Join-Path $temporaryRoot "launch-$launchName-stderr.txt"
+            $env:FILTRACE_CAPTURE_ARGS = $launchDotnetArgs
+            Push-Location $temporaryRoot
+            try {
+                $launchOutput = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
+                    -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                    -RunId $launchRunId -OutputFormat Json -LaunchSentinel $launchSentinel `
+                    -LaunchOutcome $launchCase.outcome 2> $launchErrorPath | Out-String -Width 4096
+                $launchExitCode = $LASTEXITCODE
+            }
+            finally {
+                Pop-Location
+                $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+            }
+
+            Assert-True (Test-Path -LiteralPath $launchSentinel) "Launch outcome '$($launchCase.outcome)' did not use fake Start-Process."
+            Assert-True ((Get-Content -LiteralPath $launchSentinel -Raw) -eq $launchCase.outcome) "Launch outcome '$($launchCase.outcome)' wrote the wrong sentinel."
+            Assert-True (-not (Test-Path -LiteralPath $launchDotnetArgs)) "Launch outcome '$($launchCase.outcome)' started the fake BenchmarkDotNet workload."
+            [string]$launchError = ''
+            if (Test-Path -LiteralPath $launchErrorPath) {
+                $launchError = Get-Content -LiteralPath $launchErrorPath -Raw
+            }
+            Assert-True ($launchExitCode -eq $launchCase.expectedExitCode) "Launch outcome '$($launchCase.outcome)' returned exit $launchExitCode instead of $($launchCase.expectedExitCode). Stderr: $($launchError.Trim())"
+            Assert-True ([Text.Encoding]::UTF8.GetByteCount($launchError) -lt 20KB) "Launch outcome '$($launchCase.outcome)' emitted unbounded stderr."
+            if ($launchCase.outcome -eq 'Success') {
+                $launchResult = $launchOutput | ConvertFrom-Json
+                Assert-True ($launchResult.status -eq 'completed') 'Successful elevated handoff did not report completed status.'
+                Assert-True ($launchResult.runId -eq $launchRunId) 'Successful elevated handoff omitted the run ID.'
+                Assert-True ($launchResult.cases.Count -eq 0) 'Successful elevated handoff fabricated capture cases.'
+                Assert-True ([string]::IsNullOrWhiteSpace($launchError)) 'Successful elevated handoff emitted stderr.'
+            }
+            else {
+                Assert-True ([string]::IsNullOrWhiteSpace($launchOutput)) "Failed launch outcome '$($launchCase.outcome)' polluted JSON stdout."
+                Assert-True (Test-StringContains $launchError $launchCase.expectedError) "Launch outcome '$($launchCase.outcome)' omitted its diagnostic error."
+            }
+        }
     }
 
     Assert-True ($quietExitCode -eq 0) 'Quiet capture failed.'
