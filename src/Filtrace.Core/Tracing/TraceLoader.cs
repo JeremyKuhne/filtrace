@@ -14,12 +14,25 @@ namespace Filtrace.Tracing;
 /// </summary>
 public sealed class TraceLoader
 {
-    private readonly IReadOnlyList<ITraceReader> _readers =
-    [
-        new SpeedscopeReader(),
-        new NetTraceReader(),
-        new EtlReader()
-    ];
+    private readonly IReadOnlyList<ITraceReader> _readers;
+
+    /// <summary>
+    ///  Initializes a loader with the supported trace readers.
+    /// </summary>
+    public TraceLoader()
+        : this([new SpeedscopeReader(), new NetTraceReader(), new EtlReader()])
+    {
+    }
+
+    /// <summary>
+    ///  Initializes a loader with the supplied format readers.
+    /// </summary>
+    /// <param name="readers">The readers to consult when resolving a trace format.</param>
+    internal TraceLoader(IReadOnlyList<ITraceReader> readers)
+    {
+        ArgumentNullException.ThrowIfNull(readers);
+        _readers = readers;
+    }
 
     /// <summary>
     ///  Loads the CPU view of the trace at <paramref name="path"/>.

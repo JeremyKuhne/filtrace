@@ -27,7 +27,7 @@ public sealed partial class TraceStore
     /// </summary>
     public const int DefaultCapacity = 16;
 
-    private readonly TraceLoader _loader = new();
+    private readonly TraceLoader _loader;
     private readonly Lock _conversionGatesLock = new();
     private readonly Dictionary<string, ConversionGate> _conversionGates;
 
@@ -51,7 +51,19 @@ public sealed partial class TraceStore
     /// </summary>
     /// <param name="capacity">The maximum number of parsed traces to retain. Must be positive.</param>
     internal TraceStore(int capacity)
+        : this(capacity, new TraceLoader())
     {
+    }
+
+    /// <summary>
+    ///  Initializes a bounded store using the supplied trace loader.
+    /// </summary>
+    /// <param name="capacity">The maximum number of parsed traces to retain. Must be positive.</param>
+    /// <param name="loader">The loader used on parsed-cache misses.</param>
+    internal TraceStore(int capacity, TraceLoader loader)
+    {
+        ArgumentNullException.ThrowIfNull(loader);
+        _loader = loader;
         StringComparer pathComparer = OperatingSystem.IsLinux()
             ? StringComparer.Ordinal
             : StringComparer.OrdinalIgnoreCase;
@@ -102,10 +114,9 @@ public sealed partial class TraceStore
                 scope,
                 symbolOptions,
                 cancellationToken,
-                out bool cacheHit);
+                out EtlxCacheState? state);
 
-            EtlxCacheState? state = cacheHit ? null : trace.Info.EtlxCacheState;
-            if (lease.Waited && (cacheHit || state == EtlxCacheState.Hit))
+            if (lease.Waited && (state is null or EtlxCacheState.Hit))
             {
                 state = EtlxCacheState.Waited;
             }
@@ -169,7 +180,7 @@ public sealed partial class TraceStore
         ScopeRequest? scope,
         SymbolOptions? symbolOptions,
         CancellationToken cancellationToken,
-        out bool cacheHit)
+        out EtlxCacheState? cacheState)
     {
         string fullPath = Path.GetFullPath(path);
 
@@ -213,18 +224,22 @@ public sealed partial class TraceStore
         // sharing one cache entry. Loading uses the normalized symbols path so a relative
         // symbolsDirectory resolves exactly the way it was keyed.
         string key = $"{(int)metric}:{scopeKey}:{timeKey}:{symbolKey}:{fullPath.Length}|{fullPath}{fullSymbols}";
+        EtlxCacheState? loadedState = null;
         LoadedTrace trace = _cache.GetOrAdd(key, _ =>
         {
-            return _loader.Load(
+            LoadedTrace loaded = _loader.Load(
                 fullPath,
                 metric,
                 fullSymbols,
                 scope,
                 symbolOptions,
                 cancellationToken);
-            }, out bool added);
 
-            cacheHit = !added;
+            loadedState = loaded.Info.EtlxCacheState;
+            return loaded;
+        });
+
+        cacheState = loadedState;
         return trace;
     }
 

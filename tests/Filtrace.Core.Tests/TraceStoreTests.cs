@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Tracing;
+using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Server;
 
@@ -21,6 +22,14 @@ public sealed class TraceStoreTests
         string destination = Path.Join(tempDirectory, fixture);
         File.Copy(FixturePath(fixture), destination);
         return destination;
+    }
+
+    [TestMethod]
+    public void Ctor_NullLoader_ThrowsArgumentNull()
+    {
+        Action create = () => new TraceStore(TraceStore.DefaultCapacity, loader: null!);
+
+        create.Should().Throw<ArgumentNullException>().WithParameterName("loader");
     }
 
     [TestMethod]
@@ -134,6 +143,95 @@ public sealed class TraceStoreTests
             }
 
             Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(EtlxCacheState.Converted, true)]
+    [DataRow(EtlxCacheState.Converted, false)]
+    [DataRow(EtlxCacheState.Recovered, true)]
+    [DataRow(EtlxCacheState.Recovered, false)]
+    [DataRow(EtlxCacheState.Hit, true)]
+    [DataRow(EtlxCacheState.Hit, false)]
+    public async Task GetAsync_CompetingSynchronousLoad_PreservesOwnStateAndSharesWinningModel(
+        EtlxCacheState firstLoadState,
+        bool asyncFirst)
+    {
+        string path = CopyToTemp("activity.nettrace", out string tempDirectory);
+        using ManualResetEventSlim firstLoaded = new(initialState: false);
+        using ManualResetEventSlim releaseFirst = new(initialState: false);
+        GatedTraceReader reader = new(firstLoaded, releaseFirst);
+        TraceStore store = new(TraceStore.DefaultCapacity, new TraceLoader([reader]));
+        Task<LoadedTrace>? synchronousLoad = null;
+        Task<TraceStoreLoadResult>? asynchronousLoad = null;
+        try
+        {
+            if (firstLoadState == EtlxCacheState.Hit)
+            {
+                TraceConverter.Convert(path);
+            }
+            else if (firstLoadState == EtlxCacheState.Recovered)
+            {
+                string cachePath = TraceConverter.EtlxPathFor(path);
+                File.WriteAllText(cachePath, "incompatible cache");
+                File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow.AddMinutes(1));
+            }
+
+            if (asyncFirst)
+            {
+                asynchronousLoad = store.GetAsync(path);
+            }
+            else
+            {
+                synchronousLoad = Task.Run(() => store.Get(path));
+            }
+
+            firstLoaded.Wait(SynchronizationTimeout).Should().BeTrue();
+            if (asyncFirst)
+            {
+                synchronousLoad = Task.Run(() => store.Get(path));
+                await synchronousLoad.WaitAsync(SynchronizationTimeout);
+            }
+            else
+            {
+                asynchronousLoad = store.GetAsync(path);
+                await asynchronousLoad.WaitAsync(SynchronizationTimeout);
+            }
+
+            releaseFirst.Set();
+            LoadedTrace synchronous = await synchronousLoad!.WaitAsync(SynchronizationTimeout);
+            TraceStoreLoadResult asynchronous = await asynchronousLoad!.WaitAsync(SynchronizationTimeout);
+
+            reader.ReadCount.Should().Be(2);
+            asynchronous.Trace.Should().BeSameAs(synchronous);
+            asynchronous.Trace.Info.EtlxCacheState.Should().Be(EtlxCacheState.Hit);
+            asynchronous.EtlxCacheState.Should().Be(asyncFirst ? firstLoadState : EtlxCacheState.Hit);
+
+            TraceStoreLoadResult parsedHit = await store.GetAsync(path);
+
+            parsedHit.Trace.Should().BeSameAs(synchronous);
+            parsedHit.EtlxCacheState.Should().BeNull();
+            reader.ReadCount.Should().Be(2);
+        }
+        finally
+        {
+            releaseFirst.Set();
+            try
+            {
+                if (synchronousLoad is not null)
+                {
+                    await synchronousLoad;
+                }
+
+                if (asynchronousLoad is not null)
+                {
+                    await asynchronousLoad;
+                }
+            }
+            finally
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
         }
     }
 
@@ -429,5 +527,39 @@ public sealed class TraceStoreTests
         LoadedTrace reloaded = store.Get(path, AppContext.BaseDirectory);
 
         reloaded.Should().NotBeSameAs(first);
+    }
+
+    private sealed class GatedTraceReader(
+        ManualResetEventSlim firstLoaded,
+        ManualResetEventSlim releaseFirst) : ITraceReader
+    {
+        private readonly NetTraceReader _reader = new();
+        private int _readCount;
+
+        public int ReadCount => _readCount;
+
+        public TraceFormat Format => _reader.Format;
+
+        public bool CanRead(string path) => _reader.CanRead(path);
+
+        public TraceReadResult Read(
+            string path,
+            string? symbolsDirectory = null,
+            ScopeRequest? scope = null,
+            SymbolOptions? symbolOptions = null,
+            CancellationToken cancellationToken = default)
+        {
+            TraceReadResult result = _reader.Read(path, symbolsDirectory, scope, symbolOptions, cancellationToken);
+            if (Interlocked.Increment(ref _readCount) == 1)
+            {
+                firstLoaded.Set();
+                if (!releaseFirst.Wait(SynchronizationTimeout))
+                {
+                    throw new TimeoutException("Timed out waiting to release the first trace load.");
+                }
+            }
+
+            return result;
+        }
     }
 }

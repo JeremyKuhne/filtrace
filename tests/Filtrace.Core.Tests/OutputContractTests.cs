@@ -638,7 +638,12 @@ public sealed class OutputContractTests
     }
 
     [TestMethod]
-    public void FromTraceInfo_MapsSharedCliMcpView()
+    [DataRow(EtlxCacheState.Hit, "hit")]
+    [DataRow(EtlxCacheState.Waited, "waited")]
+    [DataRow(EtlxCacheState.Converted, "converted")]
+    [DataRow(EtlxCacheState.Recovered, "recovered")]
+    [DataRow(null, null)]
+    public void FromTraceInfo_MapsSharedCliMcpView(EtlxCacheState? requestState, string? expectedState)
     {
         IReadOnlyDictionary<string, AnalysisAvailability> analyses =
             TraceCapabilities.AvailabilityFor(
@@ -659,7 +664,8 @@ public sealed class OutputContractTests
             [],
             [],
             TraceCapabilities.AnalysesFor(TraceFormat.NetTrace),
-            analyses)
+            analyses,
+            etlxCacheState: EtlxCacheState.Converted)
         {
             SourceResolution = new SourceResolutionInfo(
                 ["/symbols"],
@@ -669,9 +675,9 @@ public sealed class OutputContractTests
                 ["OtherLibrary (0/75 mapped)"])
         };
 
-        TraceInfoView view = TraceInfoView.FromTraceInfo(info, EtlxCacheState.Waited);
+        TraceInfoView view = TraceInfoView.FromTraceInfo(info, requestState);
 
-        view.EtlxCacheState.Should().Be("waited");
+        view.EtlxCacheState.Should().Be(expectedState);
         view.Analyses!["cpu"].Should().Be(new AnalysisAvailabilityView("enabled", 42));
         view.Analyses["alloc"].Should().Be(new AnalysisAvailabilityView("disabled", EventCount: null));
         view.Analyses["wait"].Should().Be(new AnalysisAvailabilityView("unknown", EventCount: null));
