@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace Filtrace.Cli;
 
 [TestClass]
-public sealed class EventsExecutorTests
+public sealed partial class EventsExecutorTests
 {
     private static string FixturePath(string name) =>
         Path.Join(AppContext.BaseDirectory, "Fixtures", name);
@@ -38,6 +38,9 @@ public sealed class EventsExecutorTests
         return (exit, output.ToString(), error.ToString());
     }
 
+    [GeneratedRegex("\"eventName\":")]
+    private static partial Regex EventNamePropertyRegex();
+
     [TestMethod]
     public void Run_TextFormat_WritesMatchedEvents()
     {
@@ -67,7 +70,7 @@ public sealed class EventsExecutorTests
 
         exit.Should().Be(ExitCodes.Success);
         // The page carries at most take events, each rendered with an eventName field.
-        Regex.Matches(output, "\"eventName\":").Count.Should().BeLessThanOrEqualTo(3);
+        EventNamePropertyRegex().Matches(output).Count.Should().BeLessThanOrEqualTo(3);
     }
 
     [TestMethod]

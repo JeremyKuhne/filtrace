@@ -5,7 +5,7 @@
 namespace Filtrace.Cli;
 
 [TestClass]
-public sealed class JitStatsExecutorTests
+public sealed partial class JitStatsExecutorTests
 {
     private static string FixturePath(string name) =>
         Path.Join(AppContext.BaseDirectory, "Fixtures", name);
@@ -24,6 +24,12 @@ public sealed class JitStatsExecutorTests
         int exit = JitStatsExecutor.Run(request, output, error);
         return (exit, output.ToString(), error.ToString());
     }
+
+    [GeneratedRegex("\"methodCount\":(\\d+)")]
+    private static partial Regex MethodCountPropertyRegex();
+
+    [GeneratedRegex("\"methodName\":")]
+    private static partial Regex MethodNamePropertyRegex();
 
     [TestMethod]
     public void Run_TextFormat_WritesTheSummary()
@@ -54,8 +60,8 @@ public sealed class JitStatsExecutorTests
         (int exit, string output, _) = Run(Request(Jit, top: 1, format: OutputFormat.Json));
 
         exit.Should().Be(ExitCodes.Success);
-        int methodCount = int.Parse(Regex.Match(output, "\"methodCount\":(\\d+)").Groups[1].Value);
-        int shown = Regex.Matches(output, "\"methodName\":").Count;
+        int methodCount = int.Parse(MethodCountPropertyRegex().Match(output).Groups[1].Value);
+        int shown = MethodNamePropertyRegex().Matches(output).Count;
 
         shown.Should().BeLessThanOrEqualTo(1);
         methodCount.Should().BeGreaterThanOrEqualTo(shown);

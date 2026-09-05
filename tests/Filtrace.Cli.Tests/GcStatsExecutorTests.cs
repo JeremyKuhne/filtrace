@@ -5,7 +5,7 @@
 namespace Filtrace.Cli;
 
 [TestClass]
-public sealed class GcStatsExecutorTests
+public sealed partial class GcStatsExecutorTests
 {
     private static string FixturePath(string name) =>
         Path.Join(AppContext.BaseDirectory, "Fixtures", name);
@@ -26,6 +26,12 @@ public sealed class GcStatsExecutorTests
         int exit = GcStatsExecutor.Run(request, output, error);
         return (exit, output.ToString(), error.ToString());
     }
+
+    [GeneratedRegex("\"gcCount\":(\\d+)")]
+    private static partial Regex GcCountPropertyRegex();
+
+    [GeneratedRegex("\"number\":")]
+    private static partial Regex CollectionNumberPropertyRegex();
 
     [TestMethod]
     public void Run_TextFormat_WritesTheSummary()
@@ -56,8 +62,8 @@ public sealed class GcStatsExecutorTests
         (int exit, string output, _) = Run(Request(Alloc, top: 1, format: OutputFormat.Json));
 
         exit.Should().Be(ExitCodes.Success);
-        int gcCount = int.Parse(Regex.Match(output, "\"gcCount\":(\\d+)").Groups[1].Value);
-        int shown = Regex.Matches(output, "\"number\":").Count;
+        int gcCount = int.Parse(GcCountPropertyRegex().Match(output).Groups[1].Value);
+        int shown = CollectionNumberPropertyRegex().Matches(output).Count;
 
         // The per-collection detail is capped to top, but the aggregate count reflects
         // every collection.
