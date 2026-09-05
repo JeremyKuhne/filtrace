@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <PackageReference Include="AwesomeAssertions" />
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Aliases="Oracle" PrivateAssets="all" />
     <PackageReference Include="MSTest.TestFramework" PrivateAssets="all" />
     <PackageReference Include="MSTest.TestAdapter" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" PrivateAssets="all" />

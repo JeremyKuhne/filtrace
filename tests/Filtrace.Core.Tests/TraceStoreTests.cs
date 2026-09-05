@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Tracing;
+using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Server;
 
@@ -21,6 +22,14 @@ public sealed class TraceStoreTests
         string destination = Path.Join(tempDirectory, fixture);
         File.Copy(FixturePath(fixture), destination);
         return destination;
+    }
+
+    [TestMethod]
+    public void Ctor_NullLoader_ThrowsArgumentNull()
+    {
+        Action create = () => new TraceStore(TraceStore.DefaultCapacity, loader: null!);
+
+        create.Should().Throw<ArgumentNullException>().WithParameterName("loader");
     }
 
     [TestMethod]
@@ -68,10 +77,238 @@ public sealed class TraceStoreTests
     }
 
     [TestMethod]
-    public async Task GetAsync_CanceledWhileWaitingForInterprocessConversion_ThrowsOperationCanceled()
+    [DataRow(TraceMetric.Cpu, TraceMetric.Allocations)]
+    [DataRow(TraceMetric.Allocations, TraceMetric.Cpu)]
+    [DataRow(TraceMetric.Cpu, TraceMetric.Cpu)]
+    [DataRow(TraceMetric.Allocations, TraceMetric.Allocations)]
+    public async Task GetAsync_ConcurrentDifferentViews_ReportsWaitedForTheSecondView(
+        TraceMetric firstMetric,
+        TraceMetric secondMetric)
     {
         TraceStore store = new();
         string path = CopyToTemp("alloc.nettrace", out string tempDirectory);
+        using ManualResetEventSlim mutexHeld = new(initialState: false);
+        using ManualResetEventSlim releaseMutex = new(initialState: false);
+        Task mutexOwner = Task.Run(() =>
+        {
+            using Mutex conversionMutex = new(initiallyOwned: false, TraceConverter.LockNameFor(path));
+            if (!conversionMutex.WaitOne(SynchronizationTimeout))
+            {
+                throw new TimeoutException("Timed out acquiring the ETLX conversion mutex.");
+            }
+
+            try
+            {
+                mutexHeld.Set();
+                if (!releaseMutex.Wait(SynchronizationTimeout))
+                {
+                    throw new TimeoutException("Timed out waiting to release the ETLX conversion mutex.");
+                }
+            }
+            finally
+            {
+                conversionMutex.ReleaseMutex();
+            }
+        });
+
+        Task<TraceStoreLoadResult[]>? loads = null;
+        try
+        {
+            mutexHeld.Wait(SynchronizationTimeout).Should().BeTrue();
+            ScopeRequest? secondScope = firstMetric == secondMetric
+                ? ScopeRequest.Auto.WithTimeWindow(0.0, 1e9)
+                : null;
+
+            Task<TraceStoreLoadResult> first = store.GetAsync(path, metric: firstMetric);
+            Task<TraceStoreLoadResult> second = store.GetAsync(path, metric: secondMetric, scope: secondScope);
+            loads = Task.WhenAll(first, second);
+            loads.IsCompleted.Should().BeFalse();
+            releaseMutex.Set();
+
+            TraceStoreLoadResult[] results = await loads.WaitAsync(SynchronizationTimeout);
+
+            results[0].EtlxCacheState.Should().Be(EtlxCacheState.Converted);
+            results[1].EtlxCacheState.Should().Be(EtlxCacheState.Waited);
+            results[1].Trace.Should().NotBeSameAs(results[0].Trace);
+            results[1].Trace.Info.EtlxCacheState.Should().Be(EtlxCacheState.Hit);
+            Directory.EnumerateFiles(tempDirectory, ".filtrace-etlx-*").Should().BeEmpty();
+        }
+        finally
+        {
+            releaseMutex.Set();
+            await mutexOwner;
+            if (loads is not null)
+            {
+                await loads;
+            }
+
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(EtlxCacheState.Converted, true)]
+    [DataRow(EtlxCacheState.Converted, false)]
+    [DataRow(EtlxCacheState.Recovered, true)]
+    [DataRow(EtlxCacheState.Recovered, false)]
+    [DataRow(EtlxCacheState.Hit, true)]
+    [DataRow(EtlxCacheState.Hit, false)]
+    public async Task GetAsync_CompetingSynchronousLoad_PreservesOwnStateAndSharesWinningModel(
+        EtlxCacheState firstLoadState,
+        bool asyncFirst)
+    {
+        string path = CopyToTemp("activity.nettrace", out string tempDirectory);
+        using ManualResetEventSlim firstLoaded = new(initialState: false);
+        using ManualResetEventSlim releaseFirst = new(initialState: false);
+        GatedTraceReader reader = new(firstLoaded, releaseFirst);
+        TraceStore store = new(TraceStore.DefaultCapacity, new TraceLoader([reader]));
+        Task<LoadedTrace>? synchronousLoad = null;
+        Task<TraceStoreLoadResult>? asynchronousLoad = null;
+        try
+        {
+            if (firstLoadState == EtlxCacheState.Hit)
+            {
+                TraceConverter.Convert(path);
+            }
+            else if (firstLoadState == EtlxCacheState.Recovered)
+            {
+                string cachePath = TraceConverter.EtlxPathFor(path);
+                File.WriteAllText(cachePath, "incompatible cache");
+                File.SetLastWriteTimeUtc(cachePath, DateTime.UtcNow.AddMinutes(1));
+            }
+
+            if (asyncFirst)
+            {
+                asynchronousLoad = store.GetAsync(path);
+            }
+            else
+            {
+                synchronousLoad = Task.Run(() => store.Get(path));
+            }
+
+            firstLoaded.Wait(SynchronizationTimeout).Should().BeTrue();
+            if (asyncFirst)
+            {
+                synchronousLoad = Task.Run(() => store.Get(path));
+                await synchronousLoad.WaitAsync(SynchronizationTimeout);
+            }
+            else
+            {
+                asynchronousLoad = store.GetAsync(path);
+                await asynchronousLoad.WaitAsync(SynchronizationTimeout);
+            }
+
+            releaseFirst.Set();
+            LoadedTrace synchronous = await synchronousLoad!.WaitAsync(SynchronizationTimeout);
+            TraceStoreLoadResult asynchronous = await asynchronousLoad!.WaitAsync(SynchronizationTimeout);
+
+            reader.ReadCount.Should().Be(2);
+            asynchronous.Trace.Should().BeSameAs(synchronous);
+            asynchronous.Trace.Info.EtlxCacheState.Should().Be(EtlxCacheState.Hit);
+            asynchronous.EtlxCacheState.Should().Be(asyncFirst ? firstLoadState : EtlxCacheState.Hit);
+
+            TraceStoreLoadResult parsedHit = await store.GetAsync(path);
+
+            parsedHit.Trace.Should().BeSameAs(synchronous);
+            parsedHit.EtlxCacheState.Should().BeNull();
+            reader.ReadCount.Should().Be(2);
+        }
+        finally
+        {
+            releaseFirst.Set();
+            try
+            {
+                if (synchronousLoad is not null)
+                {
+                    await synchronousLoad;
+                }
+
+                if (asynchronousLoad is not null)
+                {
+                    await asynchronousLoad;
+                }
+            }
+            finally
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [DataRow(TraceMetric.Cpu, "activity.nettrace")]
+    [DataRow(TraceMetric.Allocations, "alloc.nettrace")]
+    [DataRow(TraceMetric.Exceptions, "exceptions.nettrace")]
+    [DataRow(TraceMetric.Contention, "contention.nettrace")]
+    [DataRow(TraceMetric.Wait, "wait.nettrace")]
+    [DataRow(TraceMetric.Activity, "activity.nettrace")]
+    [DataRow(TraceMetric.ThreadTime, "etw.etl")]
+    public async Task GetAsync_CacheLifecycle_PreservesMetricStateAndSkipsEtlxOnParsedHits(
+        TraceMetric metric,
+        string fixture)
+    {
+        if (metric == TraceMetric.ThreadTime && !OperatingSystem.IsWindows())
+        {
+            Assert.Inconclusive("ETW trace reading requires Windows.");
+        }
+
+        TraceStore store = new();
+        string path = CopyToTemp(fixture, out string tempDirectory);
+        try
+        {
+            TraceStoreLoadResult first = await store.GetAsync(path, metric: metric);
+            TraceStoreLoadResult diskHit = await new TraceStore().GetAsync(path, metric: metric);
+
+            first.EtlxCacheState.Should().Be(EtlxCacheState.Converted);
+            first.Trace.Info.SampleCount.Should().BeGreaterThan(0);
+            diskHit.EtlxCacheState.Should().Be(EtlxCacheState.Hit);
+            diskHit.Trace.Should().NotBeSameAs(first.Trace);
+            diskHit.Trace.Info.SampleCount.Should().Be(first.Trace.Info.SampleCount);
+
+            string etlx = TraceConverter.EtlxPathFor(path);
+            File.WriteAllText(etlx, "incompatible cache");
+            File.SetLastWriteTimeUtc(etlx, DateTime.UtcNow.AddMinutes(1));
+            byte[] incompatibleCache = File.ReadAllBytes(etlx);
+
+            TraceStoreLoadResult parsedHit = await store.GetAsync(path, metric: metric);
+
+            parsedHit.Trace.Should().BeSameAs(first.Trace);
+            parsedHit.EtlxCacheState.Should().BeNull();
+            File.ReadAllBytes(etlx).Should().Equal(incompatibleCache);
+
+            TraceStoreLoadResult recovered = await new TraceStore().GetAsync(path, metric: metric);
+
+            recovered.EtlxCacheState.Should().Be(EtlxCacheState.Recovered);
+            recovered.Trace.Info.SampleCount.Should().Be(first.Trace.Info.SampleCount);
+            recovered.Trace.Info.TotalWeight.Should().Be(first.Trace.Info.TotalWeight);
+            recovered.Trace.Info.Analyses.Should().BeEquivalentTo(first.Trace.Info.Analyses);
+            Directory.EnumerateFiles(tempDirectory, ".filtrace-etlx-*").Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(TraceMetric.Cpu, "activity.nettrace")]
+    [DataRow(TraceMetric.Allocations, "alloc.nettrace")]
+    [DataRow(TraceMetric.Exceptions, "exceptions.nettrace")]
+    [DataRow(TraceMetric.Contention, "contention.nettrace")]
+    [DataRow(TraceMetric.Wait, "wait.nettrace")]
+    [DataRow(TraceMetric.Activity, "activity.nettrace")]
+    [DataRow(TraceMetric.ThreadTime, "etw.etl")]
+    public async Task GetAsync_CanceledWhileWaitingForInterprocessConversion_ThrowsOperationCanceled(
+        TraceMetric metric,
+        string fixture)
+    {
+        if (metric == TraceMetric.ThreadTime && !OperatingSystem.IsWindows())
+        {
+            Assert.Inconclusive("ETW trace reading requires Windows.");
+        }
+
+        TraceStore store = new();
+        string path = CopyToTemp(fixture, out string tempDirectory);
         using ManualResetEventSlim mutexHeld = new(initialState: false);
         using ManualResetEventSlim releaseMutex = new(initialState: false);
         using CancellationTokenSource cancellation = new();
@@ -100,13 +337,23 @@ public sealed class TraceStoreTests
         try
         {
             mutexHeld.Wait(SynchronizationTimeout).Should().BeTrue();
-            Task<TraceStoreLoadResult> load = store.GetAsync(path, cancellationToken: cancellation.Token);
+            Task<TraceStoreLoadResult> load = store.GetAsync(
+                path,
+                metric: metric,
+                cancellationToken: cancellation.Token);
+
             cancellation.CancelAfter(TimeSpan.FromMilliseconds(100));
 
             Func<Task> wait = async () => await load;
 
             await wait.Should().ThrowAsync<OperationCanceledException>();
             File.Exists(TraceConverter.EtlxPathFor(path)).Should().BeFalse();
+
+            releaseMutex.Set();
+            await mutexOwner;
+            TraceStoreLoadResult retry = await store.GetAsync(path, metric: metric).WaitAsync(SynchronizationTimeout);
+
+            retry.EtlxCacheState.Should().Be(EtlxCacheState.Converted);
         }
         finally
         {
@@ -280,5 +527,39 @@ public sealed class TraceStoreTests
         LoadedTrace reloaded = store.Get(path, AppContext.BaseDirectory);
 
         reloaded.Should().NotBeSameAs(first);
+    }
+
+    private sealed class GatedTraceReader(
+        ManualResetEventSlim firstLoaded,
+        ManualResetEventSlim releaseFirst) : ITraceReader
+    {
+        private readonly NetTraceReader _reader = new();
+        private int _readCount;
+
+        public int ReadCount => _readCount;
+
+        public TraceFormat Format => _reader.Format;
+
+        public bool CanRead(string path) => _reader.CanRead(path);
+
+        public TraceReadResult Read(
+            string path,
+            string? symbolsDirectory = null,
+            ScopeRequest? scope = null,
+            SymbolOptions? symbolOptions = null,
+            CancellationToken cancellationToken = default)
+        {
+            TraceReadResult result = _reader.Read(path, symbolsDirectory, scope, symbolOptions, cancellationToken);
+            if (Interlocked.Increment(ref _readCount) == 1)
+            {
+                firstLoaded.Set();
+                if (!releaseFirst.Wait(SynchronizationTimeout))
+                {
+                    throw new TimeoutException("Timed out waiting to release the first trace load.");
+                }
+            }
+
+            return result;
+        }
     }
 }

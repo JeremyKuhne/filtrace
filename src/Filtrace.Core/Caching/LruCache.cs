@@ -72,7 +72,20 @@ internal sealed class LruCache<TKey, TValue>
     /// <param name="factory">Produces the value on a miss.</param>
     /// <returns>The cached or newly produced value.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="factory"/> is <see langword="null"/>.</exception>
-    public TValue GetOrAdd(TKey key, Func<TKey, TValue> factory)
+    public TValue GetOrAdd(TKey key, Func<TKey, TValue> factory) =>
+        GetOrAdd(key, factory, out _);
+
+    /// <summary>
+    ///  Returns a cached value or produces one, reporting whether this call's value was added.
+    /// </summary>
+    /// <param name="key">The cache key.</param>
+    /// <param name="factory">Produces the value on a miss.</param>
+    /// <param name="added">
+    ///  <see langword="true"/> when this call added its produced value; otherwise, <see langword="false"/>.
+    /// </param>
+    /// <returns>The cached or newly produced value.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="factory"/> is <see langword="null"/>.</exception>
+    public TValue GetOrAdd(TKey key, Func<TKey, TValue> factory, out bool added)
     {
         ArgumentNullException.ThrowIfNull(factory);
 
@@ -81,6 +94,7 @@ internal sealed class LruCache<TKey, TValue>
             if (_map.TryGetValue(key, out LinkedListNode<KeyValuePair<TKey, TValue>>? hit))
             {
                 Touch(hit);
+                added = false;
                 return hit.Value.Value;
             }
         }
@@ -96,6 +110,7 @@ internal sealed class LruCache<TKey, TValue>
             if (_map.TryGetValue(key, out LinkedListNode<KeyValuePair<TKey, TValue>>? existing))
             {
                 Touch(existing);
+                added = false;
                 return existing.Value.Value;
             }
 
@@ -109,6 +124,7 @@ internal sealed class LruCache<TKey, TValue>
                 _map.Remove(lru.Value.Key);
             }
 
+            added = true;
             return value;
         }
     }

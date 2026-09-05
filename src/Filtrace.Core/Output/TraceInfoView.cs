@@ -35,7 +35,10 @@ namespace Filtrace.Output;
 ///  enablement; use <see cref="Analyses"/> for that.
 /// </param>
 /// <param name="EtlxCacheState">
-///  How this request obtained the ETLX cache, or <see langword="null"/> when ETLX is not used.
+///  This request's ETLX cache activity, or <see langword="null"/> for speedscope
+///  and an already parsed in-memory hit that did not wait for same-trace work.
+///  A request that waited and reused another load's result or ETLX reports
+///  <c>waited</c>, including a different metric or scope.
 /// </param>
 public sealed record TraceInfoView(
     string Path,
@@ -70,7 +73,11 @@ public sealed record TraceInfoView(
     ///  Creates the shared CLI/MCP view of <paramref name="info"/>.
     /// </summary>
     /// <param name="info">The loaded trace information to map.</param>
-    /// <param name="etlxCacheState">How this request obtained the ETLX cache.</param>
+    /// <param name="etlxCacheState">
+    ///  The current request's cache activity from <see cref="Server.TraceStoreLoadResult"/>,
+    ///  including <see langword="null"/> for an uncontended parsed hit or speedscope.
+    ///  This is independent of the original load's state in <paramref name="info"/>.
+    /// </param>
     /// <returns>The agent-facing trace-information view.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="info"/> is <see langword="null"/>.</exception>
     public static TraceInfoView FromTraceInfo(TraceInfo info, EtlxCacheStateValue? etlxCacheState)

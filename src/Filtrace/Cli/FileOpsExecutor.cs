@@ -13,7 +13,7 @@ namespace Filtrace.Cli;
 /// </summary>
 /// <remarks>
 ///  <para>
-///   These verbs manage the ETLX conversion cache TraceEvent keeps beside a
+///   These verbs manage the version-specific ETLX conversion cache Filtrace keeps beside a
 ///   <c>.nettrace</c> or <c>.etl</c>: <c>convert</c> builds it up front so the first
 ///   real query is fast, <c>clean</c> removes it to force a rebuild. They are file
 ///   operations, not analysis, so they bypass the ranking pipeline entirely.

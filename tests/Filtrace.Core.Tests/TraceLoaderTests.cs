@@ -11,6 +11,24 @@ public sealed class TraceLoaderTests
         Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
     [TestMethod]
+    public void Ctor_NullReaders_ThrowsArgumentNull()
+    {
+        Action create = () => new TraceLoader(readers: null!);
+
+        create.Should().Throw<ArgumentNullException>().WithParameterName("readers");
+    }
+
+    [TestMethod]
+    public void Load_NoReaders_ThrowsNotSupported()
+    {
+        TraceLoader loader = new([]);
+
+        Action load = () => loader.Load(FixturePath("folding.speedscope.json"));
+
+        load.Should().Throw<NotSupportedException>();
+    }
+
+    [TestMethod]
     public void Load_MissingFile_ThrowsFileNotFound()
     {
         TraceLoader loader = new();

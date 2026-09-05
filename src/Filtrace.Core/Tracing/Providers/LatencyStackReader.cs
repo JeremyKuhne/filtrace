@@ -66,6 +66,26 @@ internal static class LatencyStackReader
         TimeWindow? window,
         out int recordCount)
     {
+        return Read(
+            path,
+            metric,
+            createComputer,
+            window,
+            out recordCount,
+            out _,
+            cancellationToken: default);
+    }
+
+            /// <inheritdoc cref="Read(string, MetricInfo, Func{TraceLog, MutableTraceEventStackSource, StartStopLatencyComputer}, TimeWindow?, out int)"/>
+    internal static StackSampleSource Read(
+        string path,
+        MetricInfo metric,
+        Func<TraceLog, MutableTraceEventStackSource, StartStopLatencyComputer> createComputer,
+        TimeWindow? window,
+        out int recordCount,
+        out EtlxCacheState cacheState,
+        CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
         string fullPath = Path.GetFullPath(path);
@@ -74,7 +94,7 @@ internal static class LatencyStackReader
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out cacheState, cancellationToken);
 
         MutableTraceEventStackSource stackSource = new(traceLog);
         StartStopLatencyComputer computer = createComputer(traceLog, stackSource);

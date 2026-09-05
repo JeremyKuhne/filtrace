@@ -93,6 +93,24 @@ public sealed class ThreadTimeProvider
         out ScopeResolution scopeResolution,
         out int recordCount)
     {
+        return Read(
+            path,
+            scope,
+            out scopeResolution,
+            out recordCount,
+            out _,
+            cancellationToken: default);
+    }
+
+            /// <inheritdoc cref="Read(string, ScopeRequest?, out ScopeResolution, out int)"/>
+    internal StackSampleSource Read(
+        string path,
+        ScopeRequest? scope,
+        out ScopeResolution scopeResolution,
+        out int recordCount,
+        out EtlxCacheState cacheState,
+        CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
         string fullPath = Path.GetFullPath(path);
@@ -101,7 +119,7 @@ public sealed class ThreadTimeProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using TraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out cacheState, cancellationToken);
         recordCount = CountContextSwitches(traceLog);
 
         using SymbolReader symbolReader = new(TextWriter.Null, "", httpClientDelegatingHandler: null);

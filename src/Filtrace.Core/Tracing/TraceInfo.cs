@@ -160,8 +160,10 @@ public sealed class TraceInfo
     public NativeSymbolInfo? NativeSymbols { get; init; }
 
     /// <summary>
-    ///  How this request obtained the ETLX cache, or <see langword="null"/> for
-    ///  formats such as speedscope that do not use ETLX.
+    ///  How the original load obtained the ETLX cache, or <see langword="null"/>
+    ///  for formats such as speedscope that do not use ETLX. Parsed cache reuse
+    ///  preserves this value; <see cref="Server.TraceStoreLoadResult"/> carries
+    ///  the current request's state.
     /// </summary>
     public EtlxCacheState? EtlxCacheState { get; }
 

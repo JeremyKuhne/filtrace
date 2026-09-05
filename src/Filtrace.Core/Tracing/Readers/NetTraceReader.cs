@@ -20,6 +20,11 @@ internal sealed class NetTraceReader : TraceLogReader
         path.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase);
 
     /// <inheritdoc/>
-    protected override TraceLog OpenTraceLog(string path, out EtlxCacheState cacheState) =>
-        TraceConverter.OpenTraceLog(path, out cacheState);
+    protected override TraceLog OpenTraceLog(
+        string path,
+        out EtlxCacheState cacheState,
+        CancellationToken cancellationToken)
+    {
+        return TraceConverter.OpenTraceLog(path, out cacheState, cancellationToken);
+    }
 }

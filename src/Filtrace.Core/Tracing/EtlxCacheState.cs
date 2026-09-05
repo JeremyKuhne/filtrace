@@ -15,7 +15,7 @@ public enum EtlxCacheState
     Hit,
 
     /// <summary>
-    ///  The request waited for another converter, then reused its cache.
+    ///  The request waited for same-trace work, then reused its parsed result or ETLX cache.
     /// </summary>
     Waited,
 
@@ -25,7 +25,8 @@ public enum EtlxCacheState
     Converted,
 
     /// <summary>
-    ///  The request removed stale conversion state or took over an abandoned conversion lock.
+    ///  The request rebuilt an unreadable cache, removed stale conversion state,
+    ///  or took over an abandoned conversion lock.
     /// </summary>
     Recovered
 }

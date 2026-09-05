@@ -11,6 +11,9 @@ namespace Filtrace.Server;
 /// </summary>
 /// <param name="Trace">The loaded trace.</param>
 /// <param name="EtlxCacheState">
-///  How this request obtained ETLX, or <see langword="null"/> when ETLX is not used.
+///  This request's ETLX cache activity, or <see langword="null"/> for speedscope
+///  and an already parsed in-memory hit that did not wait for same-trace work.
+///  A request that waited and reused another load's result or ETLX reports
+///  <see cref="Tracing.EtlxCacheState.Waited"/>, including a different metric or scope.
 /// </param>
 public sealed record TraceStoreLoadResult(LoadedTrace Trace, EtlxCacheState? EtlxCacheState);

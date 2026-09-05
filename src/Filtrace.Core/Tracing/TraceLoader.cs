@@ -14,12 +14,25 @@ namespace Filtrace.Tracing;
 /// </summary>
 public sealed class TraceLoader
 {
-    private readonly IReadOnlyList<ITraceReader> _readers =
-    [
-        new SpeedscopeReader(),
-        new NetTraceReader(),
-        new EtlReader()
-    ];
+    private readonly IReadOnlyList<ITraceReader> _readers;
+
+    /// <summary>
+    ///  Initializes a loader with the supported trace readers.
+    /// </summary>
+    public TraceLoader()
+        : this([new SpeedscopeReader(), new NetTraceReader(), new EtlReader()])
+    {
+    }
+
+    /// <summary>
+    ///  Initializes a loader with the supplied format readers.
+    /// </summary>
+    /// <param name="readers">The readers to consult when resolving a trace format.</param>
+    internal TraceLoader(IReadOnlyList<ITraceReader> readers)
+    {
+        ArgumentNullException.ThrowIfNull(readers);
+        _readers = readers;
+    }
 
     /// <summary>
     ///  Loads the CPU view of the trace at <paramref name="path"/>.
@@ -95,7 +108,35 @@ public sealed class TraceLoader
         ScopeRequest? scope = null,
         SymbolOptions? symbolOptions = null)
     {
+        return Load(
+            path,
+            metric,
+            symbolsDirectory,
+            scope,
+            symbolOptions,
+            cancellationToken: default);
+    }
+
+    /// <summary>
+    ///  Loads a provider view while allowing an ETLX conversion wait to be canceled.
+    /// </summary>
+    /// <param name="path">The trace file path.</param>
+    /// <param name="metric">The provider view to load.</param>
+    /// <param name="symbolsDirectory">Optional build-output directory for source symbols.</param>
+    /// <param name="scope">Optional process, activity, and time scope.</param>
+    /// <param name="symbolOptions">Optional native-symbol resolution.</param>
+    /// <param name="cancellationToken">Cancels a trace conversion wait.</param>
+    /// <returns>The loaded trace.</returns>
+    internal LoadedTrace Load(
+        string path,
+        TraceMetric metric,
+        string? symbolsDirectory,
+        ScopeRequest? scope,
+        SymbolOptions? symbolOptions,
+        CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrEmpty(path);
+        cancellationToken.ThrowIfCancellationRequested();
 
         string fullPath = Path.GetFullPath(path);
         if (!File.Exists(fullPath))
@@ -109,13 +150,19 @@ public sealed class TraceLoader
 
         return metric switch
         {
-            TraceMetric.Cpu => LoadCpu(fullPath, reader, symbolsDirectory, scope, symbolOptions),
-            TraceMetric.Allocations => LoadAllocations(fullPath, reader, scope),
-            TraceMetric.Exceptions => LoadExceptions(fullPath, reader, scope),
-            TraceMetric.Contention => LoadContention(fullPath, reader, scope),
-            TraceMetric.Wait => LoadWait(fullPath, reader, scope),
-            TraceMetric.Activity => LoadActivity(fullPath, reader, scope),
-            TraceMetric.ThreadTime => LoadThreadTime(fullPath, reader, scope),
+            TraceMetric.Cpu => LoadCpu(
+                fullPath,
+                reader,
+                symbolsDirectory,
+                scope,
+                symbolOptions,
+                cancellationToken),
+            TraceMetric.Allocations => LoadAllocations(fullPath, reader, scope, cancellationToken),
+            TraceMetric.Exceptions => LoadExceptions(fullPath, reader, scope, cancellationToken),
+            TraceMetric.Contention => LoadContention(fullPath, reader, scope, cancellationToken),
+            TraceMetric.Wait => LoadWait(fullPath, reader, scope, cancellationToken),
+            TraceMetric.Activity => LoadActivity(fullPath, reader, scope, cancellationToken),
+            TraceMetric.ThreadTime => LoadThreadTime(fullPath, reader, scope, cancellationToken),
             // Enums can be cast from any int, so reject an undefined value rather than
             // silently falling back to a CPU load and masking a bad caller (or a future
             // TraceMetric addition this switch was not updated for).
@@ -129,9 +176,16 @@ public sealed class TraceLoader
         ITraceReader reader,
         string? symbolsDirectory,
         ScopeRequest? scope,
-        SymbolOptions? symbolOptions)
+        SymbolOptions? symbolOptions,
+        CancellationToken cancellationToken)
     {
-        TraceReadResult result = reader.Read(fullPath, symbolsDirectory, scope, symbolOptions);
+        TraceReadResult result = reader.Read(
+            fullPath,
+            symbolsDirectory,
+            scope,
+            symbolOptions,
+            cancellationToken);
+
         TraceInfo info = BuildInfo(
             fullPath,
             reader.Format,
@@ -150,7 +204,11 @@ public sealed class TraceLoader
         return new LoadedTrace(info, source);
     }
 
-    private static LoadedTrace LoadAllocations(string fullPath, ITraceReader reader, ScopeRequest? scope)
+    private static LoadedTrace LoadAllocations(
+        string fullPath,
+        ITraceReader reader,
+        ScopeRequest? scope,
+        CancellationToken cancellationToken)
     {
         // The allocation metric is the GCAllocationTick view of an EventPipe trace; an
         // .etl or speedscope export carries no such events, so reject a wrong-format
@@ -162,7 +220,11 @@ public sealed class TraceLoader
         }
 
         StackSampleSource source = new AllocationProvider().Read(
-            fullPath, scope?.Window, out int recordCount);
+            fullPath,
+            scope?.Window,
+            out int recordCount,
+            out EtlxCacheState cacheState,
+            cancellationToken);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -178,12 +240,17 @@ public sealed class TraceLoader
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
             warnings, AnalysisRecordCounts("alloc", recordCount),
+            etlxCacheState: cacheState,
             appliedTimeWindow: scope?.Window);
 
         return new LoadedTrace(info, source);
     }
 
-    private static LoadedTrace LoadExceptions(string fullPath, ITraceReader reader, ScopeRequest? scope)
+    private static LoadedTrace LoadExceptions(
+        string fullPath,
+        ITraceReader reader,
+        ScopeRequest? scope,
+        CancellationToken cancellationToken)
     {
         // The exceptions metric is the Exception/Start view of an EventPipe trace; an
         // .etl or speedscope export carries no such events, so reject a wrong-format
@@ -195,7 +262,11 @@ public sealed class TraceLoader
         }
 
         StackSampleSource source = new ExceptionsProvider().Read(
-            fullPath, scope?.Window, out int recordCount);
+            fullPath,
+            scope?.Window,
+            out int recordCount,
+            out EtlxCacheState cacheState,
+            cancellationToken);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -210,12 +281,17 @@ public sealed class TraceLoader
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
             warnings, AnalysisRecordCounts("exceptions", recordCount),
+            etlxCacheState: cacheState,
             appliedTimeWindow: scope?.Window);
 
         return new LoadedTrace(info, source);
     }
 
-    private static LoadedTrace LoadContention(string fullPath, ITraceReader reader, ScopeRequest? scope)
+    private static LoadedTrace LoadContention(
+        string fullPath,
+        ITraceReader reader,
+        ScopeRequest? scope,
+        CancellationToken cancellationToken)
     {
         // Contention is the Contention/Start+Stop view of an EventPipe trace; an .etl
         // or speedscope export is rejected here rather than let the provider fail deep
@@ -229,7 +305,11 @@ public sealed class TraceLoader
         }
 
         StackSampleSource source = new ContentionProvider().Read(
-            fullPath, scope?.Window, out int recordCount);
+            fullPath,
+            scope?.Window,
+            out int recordCount,
+            out EtlxCacheState cacheState,
+            cancellationToken);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -245,12 +325,17 @@ public sealed class TraceLoader
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
             warnings, AnalysisRecordCounts("contention", recordCount),
+            etlxCacheState: cacheState,
             appliedTimeWindow: scope?.Window);
 
         return new LoadedTrace(info, source);
     }
 
-    private static LoadedTrace LoadWait(string fullPath, ITraceReader reader, ScopeRequest? scope)
+    private static LoadedTrace LoadWait(
+        string fullPath,
+        ITraceReader reader,
+        ScopeRequest? scope,
+        CancellationToken cancellationToken)
     {
         // Wait is the WaitHandleWait/Start+Stop view of an EventPipe trace; an .etl or
         // speedscope export is rejected here rather than let the provider fail deep in
@@ -262,7 +347,11 @@ public sealed class TraceLoader
         }
 
         StackSampleSource source = new WaitProvider().Read(
-            fullPath, scope?.Window, out int recordCount);
+            fullPath,
+            scope?.Window,
+            out int recordCount,
+            out EtlxCacheState cacheState,
+            cancellationToken);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -279,12 +368,17 @@ public sealed class TraceLoader
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
             warnings, AnalysisRecordCounts("wait", recordCount),
+            etlxCacheState: cacheState,
             appliedTimeWindow: scope?.Window);
 
         return new LoadedTrace(info, source);
     }
 
-    private static LoadedTrace LoadActivity(string fullPath, ITraceReader reader, ScopeRequest? scope)
+    private static LoadedTrace LoadActivity(
+        string fullPath,
+        ITraceReader reader,
+        ScopeRequest? scope,
+        CancellationToken cancellationToken)
     {
         // Activities are the EventSource Start/Stop view of an EventPipe trace; an .etl
         // or speedscope export is rejected here rather than let the provider fail deep in
@@ -298,7 +392,11 @@ public sealed class TraceLoader
         }
 
         StackSampleSource source = new ActivityProvider().Read(
-            fullPath, scope?.Window, out int recordCount);
+            fullPath,
+            scope?.Window,
+            out int recordCount,
+            out EtlxCacheState cacheState,
+            cancellationToken);
 
         List<string> warnings = [];
         AddWindowWarnings(
@@ -313,12 +411,17 @@ public sealed class TraceLoader
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.NetTrace, source.Samples, symbolResolutionRate: 1.0,
             warnings, AnalysisRecordCounts("activity", recordCount),
+            etlxCacheState: cacheState,
             appliedTimeWindow: scope?.Window);
 
         return new LoadedTrace(info, source);
     }
 
-    private static LoadedTrace LoadThreadTime(string fullPath, ITraceReader reader, ScopeRequest? scope)
+    private static LoadedTrace LoadThreadTime(
+        string fullPath,
+        ITraceReader reader,
+        ScopeRequest? scope,
+        CancellationToken cancellationToken)
     {
         // Thread time is reconstructed from ETW context-switch events, which only an
         // .etl capture carries; an EventPipe .nettrace samples only running threads and
@@ -330,7 +433,12 @@ public sealed class TraceLoader
         }
 
         StackSampleSource source = new ThreadTimeProvider().Read(
-            fullPath, scope, out ScopeResolution resolved, out int recordCount);
+            fullPath,
+            scope,
+            out ScopeResolution resolved,
+            out int recordCount,
+            out EtlxCacheState cacheState,
+            cancellationToken);
 
         string? appliedScope = resolved.Phrase;
 
@@ -390,6 +498,7 @@ public sealed class TraceLoader
         TraceInfo info = BuildInfo(
             fullPath, TraceFormat.Etl, source.Samples, symbolResolutionRate: 1.0,
             warnings, AnalysisRecordCounts("threadtime", recordCount),
+            etlxCacheState: cacheState,
             appliedProcessScope: resolved.AppliedScope,
             appliedTimeWindow: scope?.Window);
 

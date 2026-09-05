@@ -32,8 +32,11 @@ internal sealed class SpeedscopeReader : ITraceReader
         string path,
         string? symbolsDirectory = null,
         ScopeRequest? scope = null,
-        SymbolOptions? symbolOptions = null)
+        SymbolOptions? symbolOptions = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         // A speedscope profile carries no process information, so process scoping does
         // not apply; likewise it carries no native frames, so symbolOptions does not
         // apply. Both parameters are accepted for interface uniformity.

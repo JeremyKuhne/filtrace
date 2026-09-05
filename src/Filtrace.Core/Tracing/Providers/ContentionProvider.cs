@@ -65,4 +65,22 @@ public sealed class ContentionProvider
             static (traceLog, stackSource) => new ContentionLatencyComputer(traceLog, stackSource),
             window,
             out recordCount);
+
+    /// <inheritdoc cref="Read(string, TimeWindow?, out int)"/>
+    internal StackSampleSource Read(
+        string path,
+        TimeWindow? window,
+        out int recordCount,
+        out EtlxCacheState cacheState,
+        CancellationToken cancellationToken)
+    {
+        return LatencyStackReader.Read(
+            path,
+            MetricInfo.Contention,
+            static (traceLog, stackSource) => new ContentionLatencyComputer(traceLog, stackSource),
+            window,
+            out recordCount,
+            out cacheState,
+            cancellationToken);
+    }
 }

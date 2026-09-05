@@ -10,17 +10,18 @@ namespace Filtrace.Tracing;
 
 /// <summary>
 ///  Builds, opens, and removes the <c>.etlx</c> conversion cache beside a
-///  <c>.nettrace</c> or <c>.etl</c> trace, backing every TraceEvent reader and the
+///  <c>.nettrace</c> or <c>.etl</c> trace, backing every trace reader and the
 ///  <c>convert</c> / <c>clean</c> file-op verbs.
 /// </summary>
 /// <remarks>
 ///  <para>
-///   Every analysis of a <c>.nettrace</c> or <c>.etl</c> first converts it to an
-///   ETLX file (the indexed form TraceEvent reads). TraceEvent caches that ETLX
-///   beside the source and reuses it on the next read, so converting up front makes
-///   the first real query fast, and cleaning it forces a rebuild when a stale cache
-///   is suspected. A speedscope export carries no ETLX (it is parsed as JSON), so
-///   neither operation applies to it.
+///   Every analysis of a <c>.nettrace</c> or <c>.etl</c> first converts it to a
+///   Filtrace-owned ETLX cache beside the source and reuses it on the next read.
+///   ETLX files are version-specific implementation details, not supported input
+///   files. An unreadable or incompatible cache is rebuilt from the raw trace.
+///   Converting up front makes the first real query fast, and cleaning forces a
+///   rebuild when a stale cache is suspected. A speedscope export carries no ETLX
+///   (it is parsed as JSON), so neither operation applies to it.
 ///  </para>
 ///  <para>
 ///   Conversion is coordinated per canonical source path across processes, written
@@ -59,6 +60,20 @@ public static class TraceConverter
         string path,
         CancellationToken cancellationToken = default)
     {
+        return ConvertWithStateCore(
+            path,
+            cancellationToken,
+            returnOpenLog: false,
+            out _);
+    }
+
+    private static EtlxCacheResult ConvertWithStateCore(
+        string path,
+        CancellationToken cancellationToken,
+        bool returnOpenLog,
+        out TraceLog? openedLog)
+    {
+        openedLog = null;
         string fullPath = ValidateConvertible(path);
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -93,14 +108,32 @@ public static class TraceConverter
             recovered |= CleanTemporaryFiles(cachePath, lockKey);
             if (IsCurrent(fullPath, cachePath))
             {
-                EtlxCacheState state = recovered
-                    ? EtlxCacheState.Recovered
-                    : waited ? EtlxCacheState.Waited : EtlxCacheState.Hit;
+                try
+                {
+                    TraceLog currentLog = new(cachePath);
+                    if (returnOpenLog)
+                    {
+                        openedLog = currentLog;
+                    }
+                    else
+                    {
+                        currentLog.Dispose();
+                    }
 
-                return new EtlxCacheResult(cachePath, state);
+                    EtlxCacheState state = recovered
+                        ? EtlxCacheState.Recovered
+                        : waited ? EtlxCacheState.Waited : EtlxCacheState.Hit;
+
+                    return new EtlxCacheResult(cachePath, state);
+                }
+                catch (FastTrace.Serialization.SerializationException)
+                {
+                    recovered = true;
+                }
             }
 
             string temporaryPath = TemporaryPathFor(cachePath, lockKey);
+            TraceLog? validatedLog = null;
             try
             {
                 TraceLogOptions options = new() { ContinueOnError = true };
@@ -113,10 +146,17 @@ public static class TraceConverter
                     TraceLog.CreateFromEventTraceLogFile(fullPath, temporaryPath, options);
                 }
 
+                validatedLog = new TraceLog(temporaryPath);
                 File.Move(temporaryPath, cachePath, overwrite: true);
+                if (returnOpenLog)
+                {
+                    openedLog = validatedLog;
+                    validatedLog = null;
+                }
             }
             finally
             {
+                validatedLog?.Dispose();
                 TryDelete(temporaryPath);
                 TryDelete($"{temporaryPath}.new");
             }
@@ -140,38 +180,21 @@ public static class TraceConverter
     /// <param name="path">The source <c>.nettrace</c> or <c>.etl</c> path.</param>
     /// <param name="cacheState">How this request obtained the ETLX cache.</param>
     /// <param name="cancellationToken">Cancels waiting for another converter.</param>
-    /// <returns>An open TraceEvent log over the current ETLX cache.</returns>
+    /// <returns>The validated trace log, retained across cache publication when converted.</returns>
     internal static TraceLog OpenTraceLog(
         string path,
         out EtlxCacheState cacheState,
         CancellationToken cancellationToken = default)
     {
-        EtlxCacheResult result = ConvertWithState(path, cancellationToken);
-        FileInfo failedCache = new(result.Path);
-        long failedLength = failedCache.Exists ? failedCache.Length : -1;
-        DateTime failedLastWriteTimeUtc = failedCache.Exists
-            ? failedCache.LastWriteTimeUtc
-            : DateTime.MinValue;
+        EtlxCacheResult result = ConvertWithStateCore(
+            path,
+            cancellationToken,
+            returnOpenLog: true,
+            out TraceLog? traceLog);
 
-        try
-        {
-            cacheState = result.State;
-            return new TraceLog(result.Path);
-        }
-        catch (FastTrace.Serialization.SerializationException)
-            when (result.State is EtlxCacheState.Hit or EtlxCacheState.Waited)
-        {
-            bool invalidated = InvalidateFailedCache(
-                path,
-                result.Path,
-                failedLength,
-                failedLastWriteTimeUtc,
-                cancellationToken);
-
-            result = ConvertWithState(path, cancellationToken);
-            cacheState = invalidated ? EtlxCacheState.Recovered : result.State;
-            return new TraceLog(result.Path);
-        }
+        cacheState = result.State;
+        return traceLog
+            ?? throw new InvalidOperationException("The validated ETLX cache was not opened.");
     }
 
     /// <summary>
@@ -220,7 +243,7 @@ public static class TraceConverter
     }
 
     /// <summary>
-    ///  The ETLX cache path TraceEvent uses for the trace at <paramref name="path"/>.
+    ///  The ETLX cache path filtrace uses for the trace at <paramref name="path"/>.
     /// </summary>
     /// <param name="path">The trace file path.</param>
     /// <returns>The ETLX file path.</returns>
@@ -279,51 +302,6 @@ public static class TraceConverter
         return cache.Exists
             && cache.Length > 0
             && cache.LastWriteTimeUtc >= File.GetLastWriteTimeUtc(sourcePath);
-    }
-
-    private static bool InvalidateFailedCache(
-        string sourcePath,
-        string cachePath,
-        long failedLength,
-        DateTime failedLastWriteTimeUtc,
-        CancellationToken cancellationToken)
-    {
-        string lockKey = LockKeyFor(ValidateConvertible(sourcePath));
-        using Mutex conversionMutex = new(initiallyOwned: false, $"filtrace-etlx-{lockKey}");
-        bool lockAcquired = false;
-        try
-        {
-            while (!lockAcquired)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    lockAcquired = conversionMutex.WaitOne(LockWaitSliceMilliseconds);
-                }
-                catch (AbandonedMutexException)
-                {
-                    lockAcquired = true;
-                }
-            }
-
-            FileInfo current = new(cachePath);
-            if (!current.Exists
-                || current.Length != failedLength
-                || current.LastWriteTimeUtc != failedLastWriteTimeUtc)
-            {
-                return false;
-            }
-
-            current.Delete();
-            return true;
-        }
-        finally
-        {
-            if (lockAcquired)
-            {
-                conversionMutex.ReleaseMutex();
-            }
-        }
     }
 
     private static string LockKeyFor(string fullPath)
