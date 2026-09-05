@@ -1,5 +1,10 @@
 # filtrace roadmap
 
+**Planning authority:** The
+[canonical primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md)
+controls cross-repository ordering and completion. The feature backlog below is
+conditional: work on it only when that plan schedules or permits it.
+
 **Status:** Living plan. This page prioritizes unshipped work; explicitly deferred
 work may retain its detail in a linked GitHub issue.
 
@@ -1166,8 +1171,8 @@ task and a confirmed thread-safety contract for concurrent calls against the sam
 
 ## Track E - upstream TraceEvent asks
 
-These require changes in `Microsoft.Diagnostics.Tracing.TraceEvent` (pinned at 3.2.3
-in [Directory.Packages.props](../Directory.Packages.props)).
+These require changes in `Microsoft.Diagnostics.Tracing.TraceEvent`; the current
+package pin is maintained in [Directory.Packages.props](../Directory.Packages.props).
 
 | ID | Ask | Why filtrace wants it |
 |---|---|---|

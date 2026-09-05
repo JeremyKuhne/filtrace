@@ -1,10 +1,11 @@
 # filtrace docs
 
-Five pages carry the thinking, two carry the operational text, and two are technical
-decision records.
+The cross-repository plan controls sequencing. Five local pages carry the thinking,
+two carry the operational text, and two are technical decision records.
 
 | Page | What it is |
 | --- | --- |
+| [Primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md) | Canonical ordering and completion plan; filtrace's feature backlog is conditional on it. |
 | [design.md](design.md) | Principles, goals, non-goals, and the measures of success every change is judged against. |
 | [roadmap.md](roadmap.md) | The only page holding unshipped work: priorities, gates, and open decisions. |
 | [competitive-analysis.md](competitive-analysis.md) | How filtrace differs from other .NET performance tools, and what to learn from each. |
