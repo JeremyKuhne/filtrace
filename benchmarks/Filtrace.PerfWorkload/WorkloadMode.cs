@@ -17,5 +17,10 @@ internal enum WorkloadMode
     /// <summary>
     ///  Emits nested order, query, and render activities around CPU work.
     /// </summary>
-    Activity
+    Activity,
+
+    /// <summary>
+    ///  Blocks for the requested duration while consuming minimal processor time.
+    /// </summary>
+    Wait
 }

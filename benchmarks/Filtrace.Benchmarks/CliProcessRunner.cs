@@ -91,6 +91,8 @@ internal static partial class CliProcessRunner
             arguments,
                 samplePrivateMemory: false).ConfigureAwait(continueOnCapturedContext: false);
 
+        ThrowIfUnsuccessful(observation, executable);
+
         return new CliProcessResult(
             observation.ExitCode,
             observation.StandardOutput.Length,
@@ -115,9 +117,10 @@ internal static partial class CliProcessRunner
             arguments,
                 samplePrivateMemory: true).ConfigureAwait(continueOnCapturedContext: false);
 
-        return new CliProcessTelemetry(
+        CliProcessTelemetry telemetry = new(
             iteration,
             [.. arguments],
+            observation.Elapsed.TotalMilliseconds,
             observation.TotalProcessorTime.TotalMilliseconds,
             observation.PeakWorkingSetBytes,
             observation.MaxPrivateMemoryBytes,
@@ -125,6 +128,14 @@ internal static partial class CliProcessRunner
             observation.StandardOutput.Length,
             observation.StandardError.Length,
             ComputeDigest(observation));
+
+        Exception? failure = GetFailure(observation, executable);
+        if (failure is not null)
+        {
+            throw new CliProcessTelemetryException(telemetry, failure);
+        }
+
+        return telemetry;
     }
 
     private static async Task<ProcessObservation> RunCoreAsync(
@@ -145,6 +156,7 @@ internal static partial class CliProcessRunner
         }
 
         using Process process = new() { StartInfo = startInfo };
+        long startedTimestamp = Stopwatch.GetTimestamp();
         if (!process.Start())
         {
             throw new InvalidOperationException($"Failed to start '{executable}'.");
@@ -217,28 +229,49 @@ internal static partial class CliProcessRunner
         }
 
         await Task.WhenAll(standardOutput, standardError).ConfigureAwait(continueOnCapturedContext: false);
+        TimeSpan elapsed = Stopwatch.GetElapsedTime(startedTimestamp);
         string output = await standardOutput.ConfigureAwait(continueOnCapturedContext: false);
         string error = await standardError.ConfigureAwait(continueOnCapturedContext: false);
-        if (process.ExitCode != 0)
-        {
-            string detail = error.Length <= 1_000 ? error : error[..1_000];
-            throw new InvalidOperationException(
-                $"'{executable}' exited with code {process.ExitCode}: {detail}");
-        }
-
-        if (output.Length == 0 || error.Length != 0)
-        {
-            throw new InvalidDataException(
-                $"'{executable}' exited successfully with {output.Length} stdout and {error.Length} stderr characters.");
-        }
 
         return new ProcessObservation(
             process.ExitCode,
             output,
             error,
+            elapsed,
             totalProcessorTime,
             peakWorkingSetBytes,
             maxPrivateMemoryBytes);
+    }
+
+    private static void ThrowIfUnsuccessful(ProcessObservation observation, string executable)
+    {
+        Exception? failure = GetFailure(observation, executable);
+        if (failure is not null)
+        {
+            throw failure;
+        }
+    }
+
+    private static Exception? GetFailure(ProcessObservation observation, string executable)
+    {
+        if (observation.ExitCode != 0)
+        {
+            string detail = observation.StandardError.Length <= 1_000
+                ? observation.StandardError
+                : observation.StandardError[..1_000];
+
+            return new InvalidOperationException(
+                $"'{executable}' exited with code {observation.ExitCode}: {detail}");
+        }
+
+        if (observation.StandardOutput.Length == 0 || observation.StandardError.Length != 0)
+        {
+            return new InvalidDataException(
+                $"'{executable}' exited successfully with {observation.StandardOutput.Length} stdout "
+                    + $"and {observation.StandardError.Length} stderr characters.");
+        }
+
+        return null;
     }
 
     private static async Task<string> ReadWithLimitAsync(TextReader reader, string streamName)

@@ -557,6 +557,12 @@ function Get-BenchmarkComparison([string] $BaselineReport, [string] $CandidateRe
         [double] $delta = if ($beforeMean -eq 0.0) { 0.0 } else { ($afterMean - $beforeMean) / $beforeMean * 100.0 }
         [long] $beforeBytes = $before.Memory.BytesAllocatedPerOperation
         [long] $afterBytes = $after.Memory.BytesAllocatedPerOperation
+        [object] $allocatedDeltaPercent = if ($beforeBytes -eq 0) {
+            if ($afterBytes -eq 0) { 0.0 } else { $null }
+        }
+        else {
+            ($afterBytes - $beforeBytes) / $beforeBytes * 100.0
+        }
         $rows.Add([ordered]@{
             fullName = $before.FullName
             baselineMeanNanoseconds = $beforeMean
@@ -565,6 +571,7 @@ function Get-BenchmarkComparison([string] $BaselineReport, [string] $CandidateRe
             baselineAllocatedBytes = $beforeBytes
             candidateAllocatedBytes = $afterBytes
             allocatedDeltaBytes = $afterBytes - $beforeBytes
+            allocatedDeltaPercent = $allocatedDeltaPercent
         })
     }
 
@@ -575,24 +582,210 @@ function Get-BenchmarkComparison([string] $BaselineReport, [string] $CandidateRe
     return @($rows)
 }
 
-function Get-TelemetrySummary([string] $Path) {
+function Get-RequiredProperty([object] $Object, [string] $Name, [string] $Context) {
+    if ($null -eq $Object) {
+        throw "$Context is null."
+    }
+
+    [System.Management.Automation.PSPropertyInfo] $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) {
+        throw "$Context is missing required property '$Name'."
+    }
+
+    return $property.Value
+}
+
+function Get-RequiredFiniteDouble([object] $Object, [string] $Name, [string] $Context) {
+    [object] $raw = Get-RequiredProperty $Object $Name $Context
+    if (
+        $raw -isnot [sbyte] -and
+        $raw -isnot [byte] -and
+        $raw -isnot [short] -and
+        $raw -isnot [ushort] -and
+        $raw -isnot [int] -and
+        $raw -isnot [uint] -and
+        $raw -isnot [long] -and
+        $raw -isnot [ulong] -and
+        $raw -isnot [float] -and
+        $raw -isnot [double] -and
+        $raw -isnot [decimal]
+    ) {
+        throw "$Context property '$Name' is not a number."
+    }
+
+    [double] $value = 0.0
+    try {
+        $value = [Convert]::ToDouble($raw, [Globalization.CultureInfo]::InvariantCulture)
+    }
+    catch {
+        throw "$Context property '$Name' is not a number."
+    }
+
+    if ([double]::IsNaN($value) -or [double]::IsInfinity($value)) {
+        throw "$Context property '$Name' must be finite."
+    }
+
+    return $value
+}
+
+function Get-RequiredInt64([object] $Object, [string] $Name, [string] $Context) {
+    [object] $raw = Get-RequiredProperty $Object $Name $Context
+    if (
+        $raw -isnot [sbyte] -and
+        $raw -isnot [byte] -and
+        $raw -isnot [short] -and
+        $raw -isnot [ushort] -and
+        $raw -isnot [int] -and
+        $raw -isnot [uint] -and
+        $raw -isnot [long] -and
+        $raw -isnot [ulong]
+    ) {
+        throw "$Context property '$Name' is not a 64-bit integer."
+    }
+
+    try {
+        return [Convert]::ToInt64($raw, [Globalization.CultureInfo]::InvariantCulture)
+    }
+    catch {
+        throw "$Context property '$Name' is not a 64-bit integer."
+    }
+}
+
+function Get-NearestRank([double[]] $Values, [double] $Percentile) {
+    if ($Values.Count -eq 0) {
+        throw 'Cannot calculate a percentile from an empty value set.'
+    }
+
+    [double[]] $sorted = @($Values | Sort-Object)
+    [int] $rank = [Math]::Ceiling($Percentile * $sorted.Count)
+    return $sorted[$rank - 1]
+}
+
+function Get-PercentDelta([double] $Baseline, [double] $Candidate, [string] $Metric) {
+    if ($Baseline -le 0.0) {
+        throw "Baseline $Metric must be positive to calculate a percentage delta."
+    }
+
+    return ($Candidate - $Baseline) / $Baseline * 100.0
+}
+
+function Get-TelemetrySummary(
+    [string] $Path,
+    [int] $ExpectedIterations,
+    [string] $SourceReport) {
     [object] $report = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-    if (@($report.launches).Count -ne [int]$report.iterations) {
+    [long] $schemaVersion = Get-RequiredInt64 $report 'schemaVersion' "Telemetry report '$Path'"
+    if ($schemaVersion -ne 2) {
+        throw "Telemetry report '$Path' uses schema version $schemaVersion; expected 2 with child wall telemetry."
+    }
+
+    [long] $iterations = Get-RequiredInt64 $report 'iterations' "Telemetry report '$Path'"
+    if ($iterations -ne $ExpectedIterations) {
+        throw "Telemetry report '$Path' expected $iterations launches; the run requires $ExpectedIterations."
+    }
+
+    [object] $complete = Get-RequiredProperty $report 'complete' "Telemetry report '$Path'"
+    if ($complete -isnot [bool] -or -not $complete) {
+        throw "Telemetry report '$Path' is explicitly incomplete."
+    }
+
+    [System.Management.Automation.PSPropertyInfo] $failureProperty = $report.PSObject.Properties['failure']
+    if ($null -ne $failureProperty -and $null -ne $failureProperty.Value) {
+        throw "Telemetry report '$Path' is complete but retains a failure diagnostic."
+    }
+
+    [System.Management.Automation.PSPropertyInfo] $launchesProperty = $report.PSObject.Properties['launches']
+    if ($null -eq $launchesProperty -or $null -eq $launchesProperty.Value) {
+        throw "Telemetry report '$Path' is missing a launch set."
+    }
+
+    [object[]] $launches = @($launchesProperty.Value)
+    if ($launches.Count -ne $ExpectedIterations) {
         throw "Telemetry report '$Path' has an incomplete launch set."
     }
 
+    [System.Collections.Generic.List[double]] $elapsedMilliseconds =
+        [System.Collections.Generic.List[double]]::new($launches.Count)
+    $outputSha256 = $null
+    for ($index = 0; $index -lt $launches.Count; $index++) {
+        [object] $launch = $launches[$index]
+        [string] $context = "Telemetry report '$Path' launch $($index + 1)"
+        [long] $iteration = Get-RequiredInt64 $launch 'iteration' $context
+        if ($iteration -ne $index + 1) {
+            throw "$context has iteration $iteration."
+        }
+
+        [System.Management.Automation.PSPropertyInfo] $argumentsProperty = $launch.PSObject.Properties['arguments']
+        if ($null -eq $argumentsProperty -or $null -eq $argumentsProperty.Value) {
+            throw "$context is missing required property 'arguments'."
+        }
+
+        [object[]] $arguments = @($argumentsProperty.Value)
+        if ($arguments.Count -eq 0) {
+            throw "$context has no arguments."
+        }
+
+        [double] $elapsed = Get-RequiredFiniteDouble $launch 'elapsedMilliseconds' $context
+        [double] $processor = Get-RequiredFiniteDouble $launch 'totalProcessorMilliseconds' $context
+        [long] $peakWorkingSet = Get-RequiredInt64 $launch 'peakWorkingSetBytes' $context
+        [long] $privateMemory = Get-RequiredInt64 $launch 'maxPrivateMemoryBytes' $context
+        [long] $exitCode = Get-RequiredInt64 $launch 'exitCode' $context
+        [long] $standardOutputLength = Get-RequiredInt64 $launch 'standardOutputLength' $context
+        [long] $standardErrorLength = Get-RequiredInt64 $launch 'standardErrorLength' $context
+        [string] $digest = [string](Get-RequiredProperty $launch 'outputSha256' $context)
+        if ($elapsed -le 0.0) {
+            throw "$context elapsedMilliseconds must be positive."
+        }
+
+        if ($processor -lt 0.0 -or $peakWorkingSet -lt 0 -or $privateMemory -lt 0) {
+            throw "$context contains a negative resource counter."
+        }
+
+        if ($exitCode -ne 0 -or $standardOutputLength -le 0 -or $standardErrorLength -ne 0) {
+            throw "$context is not a successful complete observation."
+        }
+
+        if ($digest -notmatch '^[0-9A-Fa-f]{64}$') {
+            throw "$context outputSha256 is malformed."
+        }
+
+        if ($null -eq $outputSha256) {
+            $outputSha256 = $digest
+        }
+        elseif ($outputSha256 -cne $digest) {
+            throw "Telemetry report '$Path' contains inconsistent output digests."
+        }
+
+        $elapsedMilliseconds.Add($elapsed)
+    }
+
+    [double] $childWallP50 = Get-NearestRank $elapsedMilliseconds.ToArray() 0.50
+    [double] $childWallP95 = Get-NearestRank $elapsedMilliseconds.ToArray() 0.95
+    [double] $reportedP50 = Get-RequiredFiniteDouble $report 'childWallP50Milliseconds' "Telemetry report '$Path'"
+    [double] $reportedP95 = Get-RequiredFiniteDouble $report 'childWallP95Milliseconds' "Telemetry report '$Path'"
+    if ($reportedP50 -ne $childWallP50 -or $reportedP95 -ne $childWallP95) {
+        throw "Telemetry report '$Path' child wall percentiles do not match its individual launches."
+    }
+
     return [ordered]@{
+        schemaVersion = $schemaVersion
+        sourceReport = $SourceReport
         scenario = $report.scenario
-        iterations = $report.iterations
+        iterations = $iterations
+        complete = $complete
+        launchCount = $launches.Count
+        childWallP50Milliseconds = $childWallP50
+        childWallP95Milliseconds = $childWallP95
         averageCpuMilliseconds = [double](
-            $report.launches.totalProcessorMilliseconds | Measure-Object -Average).Average
+            $launches.totalProcessorMilliseconds | Measure-Object -Average).Average
         maxPeakWorkingSetBytes = [long](
-            $report.launches.peakWorkingSetBytes | Measure-Object -Maximum).Maximum
+            $launches.peakWorkingSetBytes | Measure-Object -Maximum).Maximum
         maxPrivateMemoryBytes = [long](
-            $report.launches.maxPrivateMemoryBytes | Measure-Object -Maximum).Maximum
+            $launches.maxPrivateMemoryBytes | Measure-Object -Maximum).Maximum
         averageOutputLength = [double](
-            $report.launches.standardOutputLength | Measure-Object -Average).Average
-        distinctOutputDigests = @($report.launches.outputSha256 | Sort-Object -Unique).Count
+            $launches.standardOutputLength | Measure-Object -Average).Average
+        distinctOutputDigests = @($launches.outputSha256 | Sort-Object -Unique).Count
+        outputSha256 = $outputSha256
     }
 }
 
@@ -888,8 +1081,18 @@ try {
     [string] $baselineBdn = Get-ReportPath (Join-Path $runDirectory 'baseline/bdn/results')
     [string] $candidateBdn = Get-ReportPath (Join-Path $runDirectory 'candidate/bdn/results')
     [object[]] $benchmarkRows = @(Get-BenchmarkComparison $baselineBdn $candidateBdn)
-    [object] $baselineTelemetry = Get-TelemetrySummary (Join-Path $runDirectory 'baseline/cli-benchmark/cli-process.json')
-    [object] $candidateTelemetry = Get-TelemetrySummary (Join-Path $runDirectory 'candidate/cli-benchmark/cli-process.json')
+    [object] $baselineTelemetry = Get-TelemetrySummary `
+        (Join-Path $runDirectory 'baseline/cli-benchmark/cli-process.json') `
+        $TelemetryIterations `
+        'baseline/cli-benchmark/cli-process.json'
+    [object] $candidateTelemetry = Get-TelemetrySummary `
+        (Join-Path $runDirectory 'candidate/cli-benchmark/cli-process.json') `
+        $TelemetryIterations `
+        'candidate/cli-benchmark/cli-process.json'
+    if ($baselineTelemetry.outputSha256 -cne $candidateTelemetry.outputSha256) {
+        throw 'Baseline and candidate telemetry output digests differ.'
+    }
+
     [double] $cliCpuDelta = if ($baselineTelemetry.averageCpuMilliseconds -eq 0.0) {
         0.0
     }
@@ -899,15 +1102,33 @@ try {
     }
 
     [System.Collections.Specialized.OrderedDictionary] $comparison = [ordered]@{
+        schemaVersion = 2
         benchmarkRows = $benchmarkRows
+        benchmarkAllocationSource = 'BenchmarkDotNet host/wrapper BytesAllocatedPerOperation; not child managed allocation'
         cliTelemetry = [ordered]@{
             baseline = $baselineTelemetry
             candidate = $candidateTelemetry
+            childWallP50DeltaPercent = Get-PercentDelta `
+                $baselineTelemetry.childWallP50Milliseconds `
+                $candidateTelemetry.childWallP50Milliseconds `
+                'child wall p50'
+            childWallP95DeltaPercent = Get-PercentDelta `
+                $baselineTelemetry.childWallP95Milliseconds `
+                $candidateTelemetry.childWallP95Milliseconds `
+                'child wall p95'
             averageCpuDeltaPercent = $cliCpuDelta
             peakWorkingSetDeltaBytes = $candidateTelemetry.maxPeakWorkingSetBytes `
                 - $baselineTelemetry.maxPeakWorkingSetBytes
+            peakWorkingSetDeltaPercent = Get-PercentDelta `
+                $baselineTelemetry.maxPeakWorkingSetBytes `
+                $candidateTelemetry.maxPeakWorkingSetBytes `
+                'peak working set'
             privateMemoryDeltaBytes = $candidateTelemetry.maxPrivateMemoryBytes `
                 - $baselineTelemetry.maxPrivateMemoryBytes
+            privateMemoryDeltaPercent = Get-PercentDelta `
+                $baselineTelemetry.maxPrivateMemoryBytes `
+                $candidateTelemetry.maxPrivateMemoryBytes `
+                'private memory'
         }
     }
     Write-JsonAtomic (Join-Path $runDirectory 'comparison.json') $comparison

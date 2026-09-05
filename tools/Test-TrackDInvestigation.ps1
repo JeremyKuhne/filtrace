@@ -24,6 +24,44 @@ function Write-Json([string] $Path, [object] $Value) {
     [System.IO.File]::WriteAllText($Path, "$json`n", $utf8)
 }
 
+function Assert-TelemetryCaseRejected(
+    [string] $Case,
+    [string] $ExpectedMessage,
+    [string] $TemporaryRoot,
+    [string] $Corpus,
+    [string] $Root,
+    [string] $Adapter) {
+    [string] $output = Join-Path $TemporaryRoot "telemetry-$Case"
+    [string] $previousCase = $env:FILTRACE_TRACKD_FAKE_TELEMETRY_CASE
+    [bool] $rejected = $false
+    try {
+        $env:FILTRACE_TRACKD_FAKE_TELEMETRY_CASE = $Case
+        & $script `
+            -InputCorpusDirectory $Corpus `
+            -BaselineCheckout $Root `
+            -CandidateCheckout $Root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $output `
+            -BenchmarkJob dry `
+            -TelemetryIterations 2 `
+            -NoBuild `
+            -TestAdapterPath $Adapter
+    }
+    catch {
+        $rejected = $_.Exception.Message.Contains($ExpectedMessage, [StringComparison]::Ordinal)
+    }
+    finally {
+        $env:FILTRACE_TRACKD_FAKE_TELEMETRY_CASE = $previousCase
+    }
+
+    [object] $status = Get-Content -LiteralPath (Join-Path $output 'run-status.json') -Raw | ConvertFrom-Json
+    Assert-True $rejected "Telemetry case '$Case' was not rejected with '$ExpectedMessage'."
+    Assert-True ($status.status -eq 'failed') "Telemetry case '$Case' did not record failed status."
+    Assert-True `
+        (Test-Path -LiteralPath (Join-Path $output 'candidate/cli-benchmark/cli-process.json')) `
+        "Telemetry case '$Case' did not retain its raw candidate report."
+}
+
 [string] $temporaryRoot = Join-Path `
     ([System.IO.Path]::GetTempPath()) `
     "filtrace-trackd-contract-$([Guid]::NewGuid().ToString('N'))"
@@ -157,19 +195,77 @@ try {
         -AllowDirtyCheckouts `
         -OutputDirectory $success `
         -BenchmarkJob dry `
-        -TelemetryIterations 2 `
+        -TelemetryIterations 25 `
         -NoBuild `
         -TestAdapterPath $adapter
     [object] $successStatus = Get-Content -LiteralPath (Join-Path $success 'run-status.json') -Raw | ConvertFrom-Json
     [object] $comparison = Get-Content -LiteralPath (Join-Path $success 'comparison.json') -Raw | ConvertFrom-Json
+    [object] $rawTelemetry = Get-Content `
+        -LiteralPath (Join-Path $success 'baseline/cli-benchmark/cli-process.json') `
+        -Raw | ConvertFrom-Json
     Assert-True ($successStatus.status -eq 'completed') 'Fake no-op run did not complete.'
+    Assert-True ($comparison.schemaVersion -eq 2) 'Fake comparison did not retain telemetry schema metadata.'
     Assert-True (@($comparison.benchmarkRows).Count -eq 2) 'Fake no-op did not compare two BDN rows.'
     Assert-True (@($comparison.benchmarkRows | Where-Object {
-        $_.meanDeltaPercent -ne 0 -or $_.allocatedDeltaBytes -ne 0
+        $_.meanDeltaPercent -ne 0 -or $_.allocatedDeltaPercent -ne 0
     }).Count -eq 0) 'Fake no-op benchmark deltas were not neutral.'
     Assert-True ($comparison.cliTelemetry.averageCpuDeltaPercent -eq 0) 'Fake no-op CLI CPU delta was not neutral.'
+    Assert-True ($comparison.cliTelemetry.childWallP50DeltaPercent -eq 0) 'Fake no-op CLI wall p50 delta was not neutral.'
+    Assert-True ($comparison.cliTelemetry.childWallP95DeltaPercent -eq 0) 'Fake no-op CLI wall p95 delta was not neutral.'
+    Assert-True ($comparison.cliTelemetry.baseline.childWallP50Milliseconds -eq 13) 'Fake p50 did not use nearest rank.'
+    Assert-True ($comparison.cliTelemetry.baseline.childWallP95Milliseconds -eq 24) 'Fake p95 did not use nearest rank.'
+    Assert-True ($comparison.cliTelemetry.baseline.complete) 'Fake comparison lost the complete flag.'
+    Assert-True ($comparison.cliTelemetry.baseline.launchCount -eq 25) 'Fake comparison lost the launch count.'
+    Assert-True `
+        ($comparison.cliTelemetry.baseline.sourceReport -eq 'baseline/cli-benchmark/cli-process.json') `
+        'Fake comparison lost stable source metadata.'
+    Assert-True (@($rawTelemetry.launches).Count -eq 25) 'Fake raw telemetry did not retain all launches.'
+    Assert-True `
+        ($rawTelemetry.launches[0].elapsedMilliseconds -eq 1000 -and
+            $rawTelemetry.launches[1].elapsedMilliseconds -eq 1) `
+        'Fake raw telemetry did not preserve shuffled iteration order.'
     Assert-True ($comparison.cliTelemetry.peakWorkingSetDeltaBytes -eq 0) 'Fake no-op working-set delta was not neutral.'
+    Assert-True ($comparison.cliTelemetry.peakWorkingSetDeltaPercent -eq 0) 'Fake no-op working-set percent delta was not neutral.'
     Assert-True ($comparison.cliTelemetry.privateMemoryDeltaBytes -eq 0) 'Fake no-op private-memory delta was not neutral.'
+    Assert-True ($comparison.cliTelemetry.privateMemoryDeltaPercent -eq 0) 'Fake no-op private-memory percent delta was not neutral.'
+    Assert-True `
+        ($comparison.benchmarkAllocationSource -like '*host/wrapper*not child managed allocation*') `
+        'Fake no-op comparison did not label the BenchmarkDotNet allocation source.'
+
+    [object[]] $telemetryCases = @(
+        [pscustomobject]@{ Case = 'old-artifact'; Message = 'expected 2 with child wall telemetry' },
+        [pscustomobject]@{ Case = 'failure'; Message = 'explicitly incomplete' },
+        [pscustomobject]@{ Case = 'incomplete'; Message = 'incomplete launch set' },
+        [pscustomobject]@{ Case = 'empty-launches'; Message = 'incomplete launch set' },
+        [pscustomobject]@{ Case = 'malformed-elapsed'; Message = "property 'elapsedMilliseconds' is not a number" },
+        [pscustomobject]@{ Case = 'null-report'; Message = 'is null' },
+        [pscustomobject]@{ Case = 'null-launches'; Message = 'missing a launch set' },
+        [pscustomobject]@{ Case = 'null-launch'; Message = 'launch 1 is null' },
+        [pscustomobject]@{ Case = 'null-arguments'; Message = "missing required property 'arguments'" },
+        [pscustomobject]@{ Case = 'reordered-iterations'; Message = 'launch 1 has iteration 2' },
+        [pscustomobject]@{ Case = 'duplicate-iterations'; Message = 'launch 2 has iteration 1' },
+        [pscustomobject]@{ Case = 'missing-complete'; Message = "missing required property 'complete'" },
+        [pscustomobject]@{ Case = 'missing-p50'; Message = "missing required property 'childWallP50Milliseconds'" },
+        [pscustomobject]@{ Case = 'corrupt-p95'; Message = 'percentiles do not match' },
+        [pscustomobject]@{ Case = 'failure-on-complete'; Message = 'retains a failure diagnostic' },
+        [pscustomobject]@{ Case = 'nonzero'; Message = 'not a successful complete observation' },
+        [pscustomobject]@{ Case = 'empty-output'; Message = 'not a successful complete observation' },
+        [pscustomobject]@{ Case = 'stderr'; Message = 'not a successful complete observation' },
+        [pscustomobject]@{ Case = 'inconsistent-digest'; Message = 'inconsistent output digests' },
+        [pscustomobject]@{ Case = 'fractional-iteration'; Message = "property 'iteration' is not a 64-bit integer" },
+        [pscustomobject]@{ Case = 'string-exit-code'; Message = "property 'exitCode' is not a 64-bit integer" },
+        [pscustomobject]@{ Case = 'string-elapsed'; Message = "property 'elapsedMilliseconds' is not a number" },
+        [pscustomobject]@{ Case = 'boolean-cpu'; Message = "property 'totalProcessorMilliseconds' is not a number" },
+        [pscustomobject]@{ Case = 'malformed-json'; Message = 'Conversion from JSON failed' })
+    foreach ($telemetryCase in $telemetryCases) {
+        Assert-TelemetryCaseRejected `
+            $telemetryCase.Case `
+            $telemetryCase.Message `
+            $temporaryRoot `
+            $corpus `
+            $root `
+            $adapter
+    }
 
     [string] $failure = Join-Path $temporaryRoot 'adapter-failure'
     $previousFailureArm = $env:FILTRACE_TRACKD_FAKE_FAIL_ARM

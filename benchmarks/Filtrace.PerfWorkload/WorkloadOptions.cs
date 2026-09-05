@@ -56,6 +56,10 @@ internal sealed record WorkloadOptions(
         {
             mode = WorkloadMode.Activity;
         }
+        else if (string.Equals(args[0], "wait", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = WorkloadMode.Wait;
+        }
         else
         {
             error = $"Unknown mode '{args[0]}'.{Environment.NewLine}{Usage}";
@@ -132,6 +136,6 @@ internal sealed record WorkloadOptions(
     ///  Gets the command-line syntax accepted by the workload.
     /// </summary>
     public static string Usage =>
-        "Usage: Filtrace.PerfWorkload <cpu|activity> "
+        "Usage: Filtrace.PerfWorkload <cpu|activity|wait> "
             + "[--workers N] [--duration-ms N] [--depth N] [--activity-rounds N]";
 }

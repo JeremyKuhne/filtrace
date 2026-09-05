@@ -9,6 +9,7 @@ namespace Filtrace.Benchmarks;
 /// </summary>
 /// <param name="Iteration">The one-based launch number within the campaign.</param>
 /// <param name="Arguments">The exact argument tokens passed to filtrace.</param>
+/// <param name="ElapsedMilliseconds">The child wall-clock duration in milliseconds.</param>
 /// <param name="TotalProcessorMilliseconds">The child process CPU time in milliseconds.</param>
 /// <param name="PeakWorkingSetBytes">The largest working set reported by the child process.</param>
 /// <param name="MaxPrivateMemoryBytes">The largest private-byte value observed by polling.</param>
@@ -19,6 +20,7 @@ namespace Filtrace.Benchmarks;
 internal sealed record CliProcessTelemetry(
     int Iteration,
     IReadOnlyList<string> Arguments,
+    double? ElapsedMilliseconds,
     double TotalProcessorMilliseconds,
     long PeakWorkingSetBytes,
     long MaxPrivateMemoryBytes,
