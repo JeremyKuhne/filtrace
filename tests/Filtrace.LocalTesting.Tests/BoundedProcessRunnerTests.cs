@@ -94,7 +94,7 @@ public sealed class BoundedProcessRunnerTests
         {
             elapsed.Stop();
             File.WriteAllText(releasePath, string.Empty);
-            await StopProbeChildAsync(processIdPath);
+            await WaitForSelfExpiringProbeChildAsync(processIdPath);
         }
 
         result.Should().NotBeNull();
@@ -160,11 +160,14 @@ public sealed class BoundedProcessRunnerTests
         }
         finally
         {
-            File.WriteAllText(releasePath, string.Empty);
             if (childProcess is not null)
             {
-                await WaitForProcessExitAsync(childProcess, TimeSpan.FromSeconds(5));
+                await StopOwnedProbeChildAsync(childProcess, releasePath);
                 childProcess.Dispose();
+            }
+            else
+            {
+                File.WriteAllText(releasePath, string.Empty);
             }
 
             if (!resultTask.IsCompleted)
@@ -209,6 +212,62 @@ public sealed class BoundedProcessRunnerTests
         await action.Should().ThrowAsync<Win32Exception>();
     }
 
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(-1)]
+    public async Task RunAsync_NonpositiveTimeout_ThrowsBeforeProcessStart(int timeoutMilliseconds)
+    {
+        ProcessInvocation invocation = CreateMissingExecutableInvocation(
+            TimeSpan.FromMilliseconds(timeoutMilliseconds));
+
+        Func<Task> action = () => new BoundedProcessRunner().RunAsync(invocation);
+
+        ArgumentOutOfRangeException exception = await Assert.ThrowsExactlyAsync<ArgumentOutOfRangeException>(action);
+        exception.ParamName.Should().Be("invocation");
+        exception.ActualValue.Should().Be(invocation.Timeout);
+    }
+
+    [TestMethod]
+    public async Task RunAsync_UnsupportedTimeout_ThrowsBeforeProcessStart()
+    {
+        ProcessInvocation invocation = CreateMissingExecutableInvocation(TimeSpan.MaxValue);
+
+        Func<Task> action = () => new BoundedProcessRunner().RunAsync(invocation);
+
+        await action.Should().ThrowAsync<ArgumentOutOfRangeException>();
+    }
+
+    [TestMethod]
+    public async Task WaitForProcessExitAsync_ExpiredDeadlineThrowsAndOwnedCleanupStopsProbe()
+    {
+        using TemporaryDirectory directory = new();
+        string processIdPath = Path.Join(directory.Path, "child.pid");
+        string releasePath = Path.Join(directory.Path, "release");
+        using Process process = StartProbeProcess(
+            "inherited-pipe-child",
+            new Dictionary<string, string?>
+            {
+                [BoundedProcessRunnerProbe.ChildProcessIdPathVariable] = processIdPath,
+                [BoundedProcessRunnerProbe.ChildReleasePathVariable] = releasePath
+            });
+
+        try
+        {
+            int processId = await WaitForProbeProcessIdAsync(processIdPath, TimeSpan.FromSeconds(2));
+            processId.Should().Be(process.Id);
+
+            Func<Task> wait = () => WaitForProcessExitAsync(process, TimeSpan.FromMilliseconds(100));
+
+            await wait.Should().ThrowAsync<TimeoutException>();
+        }
+        finally
+        {
+            await StopOwnedProbeChildAsync(process, releasePath);
+        }
+
+        process.HasExited.Should().BeTrue();
+    }
+
     private static ProcessInvocation CreateProbeInvocation(
         string mode,
         IReadOnlyDictionary<string, string?>? additionalEnvironment = null,
@@ -243,6 +302,36 @@ public sealed class BoundedProcessRunnerTests
             environment);
     }
 
+    private static ProcessInvocation CreateMissingExecutableInvocation(TimeSpan timeout)
+    {
+        string missingExecutable = Path.Join(
+            Path.GetTempPath(),
+            $"filtrace-missing-{Guid.NewGuid():N}.exe");
+
+        return new(missingExecutable, [], Environment.CurrentDirectory, timeout);
+    }
+
+    private static Process StartProbeProcess(
+        string mode,
+        IReadOnlyDictionary<string, string?> additionalEnvironment)
+    {
+        ProcessStartInfo startInfo = new(
+            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
+        {
+            UseShellExecute = false
+        };
+
+        startInfo.ArgumentList.Add(typeof(BoundedProcessRunnerTests).Assembly.Location);
+        startInfo.Environment[BoundedProcessRunnerProbe.ModeVariable] = mode;
+        foreach ((string name, string? value) in additionalEnvironment)
+        {
+            startInfo.Environment[name] = value;
+        }
+
+        return Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start bounded-runner probe child.");
+    }
+
     private static bool IsProcessRunning(int processId)
     {
         try
@@ -257,6 +346,21 @@ public sealed class BoundedProcessRunnerTests
     }
 
     private static async Task<Process> WaitForProbeProcessAsync(
+        string processIdPath,
+        TimeSpan timeout)
+    {
+        int processId = await WaitForProbeProcessIdAsync(processIdPath, timeout);
+        Process process = Process.GetProcessById(processId);
+        if (process.HasExited)
+        {
+            process.Dispose();
+            throw new InvalidOperationException("The bounded-runner child exited before it was pinned.");
+        }
+
+        return process;
+    }
+
+    private static async Task<int> WaitForProbeProcessIdAsync(
         string processIdPath,
         TimeSpan timeout)
     {
@@ -276,49 +380,54 @@ public sealed class BoundedProcessRunnerTests
             throw new InvalidDataException("The bounded-runner child reported an invalid process ID.");
         }
 
-        Process process = Process.GetProcessById(processId);
-        if (process.HasExited)
-        {
-            process.Dispose();
-            throw new InvalidOperationException("The bounded-runner child exited before it was pinned.");
-        }
-
-        return process;
+        return processId;
     }
 
     private static async Task WaitForProcessExitAsync(Process process, TimeSpan timeout)
     {
-        using CancellationTokenSource exitDeadline = new(timeout);
-        try
-        {
-            await process.WaitForExitAsync(exitDeadline.Token);
-        }
-        catch (OperationCanceledException) when (exitDeadline.IsCancellationRequested)
-        {
-        }
+        await process.WaitForExitAsync().WaitAsync(timeout);
     }
 
-    private static async Task StopProbeChildAsync(string processIdPath)
+    private static async Task StopOwnedProbeChildAsync(Process process, string releasePath)
     {
-        DateTime pidDeadline = DateTime.UtcNow.AddSeconds(2);
-        while (!File.Exists(processIdPath) && DateTime.UtcNow < pidDeadline)
+        File.WriteAllText(releasePath, string.Empty);
+        try
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(20));
+            await WaitForProcessExitAsync(process, TimeSpan.FromSeconds(2));
+            return;
+        }
+        catch (TimeoutException)
+        {
         }
 
-        if (!File.Exists(processIdPath)
-            || !int.TryParse(File.ReadAllText(processIdPath), out int processId))
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or NotSupportedException or Win32Exception)
+        {
+        }
+
+        await WaitForProcessExitAsync(process, TimeSpan.FromSeconds(5));
+    }
+
+    private static async Task WaitForSelfExpiringProbeChildAsync(string processIdPath)
+    {
+        int processId = await WaitForProbeProcessIdAsync(processIdPath, TimeSpan.FromSeconds(2));
+        Process process;
+        try
+        {
+            process = Process.GetProcessById(processId);
+        }
+        catch (ArgumentException)
         {
             return;
         }
 
-        try
+        using (process)
         {
-            using Process process = Process.GetProcessById(processId);
-            await WaitForProcessExitAsync(process, TimeSpan.FromSeconds(5));
-        }
-        catch (ArgumentException)
-        {
+            await WaitForProcessExitAsync(process, TimeSpan.FromSeconds(17));
         }
     }
 }

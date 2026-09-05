@@ -55,8 +55,13 @@ internal sealed class BoundedProcessRunner : IProcessRunner
         ArgumentException.ThrowIfNullOrWhiteSpace(invocation.WorkingDirectory);
         if (invocation.Timeout <= TimeSpan.Zero)
         {
-            throw new ArgumentOutOfRangeException(nameof(invocation), "The process timeout must be positive.");
+            throw new ArgumentOutOfRangeException(
+                nameof(invocation),
+                invocation.Timeout,
+                "The process timeout must be positive.");
         }
+
+        using CancellationTokenSource deadline = new(invocation.Timeout);
 
         ProcessStartInfo startInfo = new(invocation.FileName)
         {
@@ -103,30 +108,27 @@ internal sealed class BoundedProcessRunner : IProcessRunner
             captureCancellation.Token);
 
         bool executionTimedOut = false;
-        using (CancellationTokenSource deadline = new(invocation.Timeout))
+        try
         {
+            await process.WaitForExitAsync(deadline.Token);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+        {
+            executionTimedOut = true;
+            TryTerminate(process);
+            using CancellationTokenSource terminationDeadline = new(_terminationTimeout);
             try
             {
-                await process.WaitForExitAsync(deadline.Token);
+                await process.WaitForExitAsync(terminationDeadline.Token);
             }
-            catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+            catch (OperationCanceledException) when (terminationDeadline.IsCancellationRequested)
             {
-                executionTimedOut = true;
-                TryTerminate(process);
-                using CancellationTokenSource terminationDeadline = new(_terminationTimeout);
-                try
-                {
-                    await process.WaitForExitAsync(terminationDeadline.Token);
-                }
-                catch (OperationCanceledException) when (terminationDeadline.IsCancellationRequested)
-                {
-                }
             }
         }
 
         Task outputTask = Task.WhenAll(standardOutput, standardError);
-        bool outputReachedEndOfFile = await CompletesWithinAsync(outputTask, _outputDrainTimeout);
-        if (!outputReachedEndOfFile)
+        bool outputCompletedBeforeDeadline = await CompletesWithinAsync(outputTask, _outputDrainTimeout);
+        if (!outputCompletedBeforeDeadline)
         {
             captureCancellation.Cancel();
             await CompletesWithinAsync(outputTask, _terminationTimeout);
@@ -135,7 +137,7 @@ internal sealed class BoundedProcessRunner : IProcessRunner
         ObserveLateFailure(outputTask);
         (string standardOutputText, bool standardOutputTruncated) = standardOutputState.Snapshot();
         (string standardErrorText, bool standardErrorTruncated) = standardErrorState.Snapshot();
-        bool outputCaptureIncomplete = !outputReachedEndOfFile
+        bool outputCaptureIncomplete = !outputCompletedBeforeDeadline
             || !CompletedWithEndOfFile(standardOutput)
             || !CompletedWithEndOfFile(standardError);
 

@@ -22,6 +22,7 @@ internal sealed class ProcessOutputCapture
     /// <param name="maximumCharacters">The maximum number of characters to retain.</param>
     public ProcessOutputCapture(int maximumCharacters)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumCharacters);
         _maximumCharacters = maximumCharacters;
     }
 
