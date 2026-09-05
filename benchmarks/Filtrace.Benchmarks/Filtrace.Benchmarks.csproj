@@ -15,6 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Filtrace.Cli.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\tests\Filtrace.Core.Tests\Fixtures\activity.nettrace" Link="Fixtures\activity.nettrace">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

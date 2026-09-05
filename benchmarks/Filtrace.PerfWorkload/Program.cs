@@ -71,10 +71,18 @@ public static class Program
         return 0;
     }
 
-    private static ulong RunWorker(WorkloadOptions options, long deadline, int workerIndex) =>
-        options.Mode == WorkloadMode.Activity
+    private static ulong RunWorker(WorkloadOptions options, long deadline, int workerIndex)
+    {
+        if (options.Mode == WorkloadMode.Wait)
+        {
+            Thread.Sleep(options.DurationMilliseconds);
+            return (uint)workerIndex;
+        }
+
+        return options.Mode == WorkloadMode.Activity
             ? RunActivities(options, deadline, workerIndex)
             : RunCpu(options, deadline, workerIndex);
+    }
 
     private static ulong RunCpu(WorkloadOptions options, long deadline, int workerIndex)
     {

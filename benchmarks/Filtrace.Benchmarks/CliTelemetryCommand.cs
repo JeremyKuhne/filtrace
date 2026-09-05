@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 
 namespace Filtrace.Benchmarks;
@@ -125,37 +126,50 @@ internal static partial class CliTelemetryCommand
         }
 
         List<CliProcessTelemetry> launches = new(options.Iterations);
+        Exception? collectionError = null;
         try
         {
             for (int iteration = 1; iteration <= options.Iterations; iteration++)
             {
                 CliProcessTelemetry launch;
-                if (!definition.Cold)
+                try
                 {
-                    launch = await CliProcessRunner.RunTelemetryAsync(
-                        executable,
-                        sharedArguments!,
-                            iteration).ConfigureAwait(continueOnCapturedContext: false);
+                    if (!definition.Cold)
+                    {
+                        launch = await CliProcessRunner.RunTelemetryAsync(
+                            executable,
+                            sharedArguments!,
+                                iteration).ConfigureAwait(continueOnCapturedContext: false);
+                    }
+                    else if (definition.IsManifest)
+                    {
+                        launch = await RunColdManifestAsync(
+                            executable,
+                            trace,
+                            definition,
+                                iteration).ConfigureAwait(continueOnCapturedContext: false);
+                    }
+                    else
+                    {
+                        launch = await RunColdTraceAsync(
+                            executable,
+                            trace,
+                            definition,
+                                iteration).ConfigureAwait(continueOnCapturedContext: false);
+                    }
                 }
-                else if (definition.IsManifest)
+                catch (CliProcessTelemetryException exception)
                 {
-                    launch = await RunColdManifestAsync(
-                        executable,
-                        trace,
-                        definition,
-                            iteration).ConfigureAwait(continueOnCapturedContext: false);
-                }
-                else
-                {
-                    launch = await RunColdTraceAsync(
-                        executable,
-                        trace,
-                        definition,
-                            iteration).ConfigureAwait(continueOnCapturedContext: false);
+                    launches.Add(exception.Telemetry);
+                    throw;
                 }
 
                 launches.Add(launch);
             }
+        }
+        catch (Exception exception)
+        {
+            collectionError = exception;
         }
         finally
         {
@@ -163,13 +177,13 @@ internal static partial class CliTelemetryCommand
             symbolCorpus?.Dispose();
         }
 
-        CliTelemetryReport report = new(
-            SchemaVersion: 1,
-            CreatedUtc: DateTimeOffset.UtcNow.ToString("O"),
+        CliTelemetryReport report = CliTelemetryReport.Create(
+            DateTimeOffset.UtcNow.ToString("O"),
             options.Scenario,
             options.Iterations,
             executable,
-            launches);
+            launches,
+            collectionError?.Message);
 
         Directory.CreateDirectory(outputDirectory);
         string json = JsonSerializer.Serialize(report, JsonOptions);
@@ -194,15 +208,27 @@ internal static partial class CliTelemetryCommand
             File.ReadAllText(output),
             JsonOptions);
 
-        if (readBack is null
-            || readBack.SchemaVersion != 1
-            || readBack.Launches.Count != options.Iterations
-            || readBack.Launches.Any(static launch => launch.Arguments.Count == 0))
+        bool readBackIsValid = collectionError is null
+            ? readBack?.HasValidCompleteLaunchSet(options.Iterations) is true
+            : readBack is not null
+                && readBack.SchemaVersion == CliTelemetryReport.CurrentSchemaVersion
+                && !readBack.Complete
+                && readBack.Iterations == options.Iterations
+                && readBack.Launches.Count == launches.Count
+                && readBack.ChildWallP50Milliseconds is null
+                && readBack.ChildWallP95Milliseconds is null
+                && !string.IsNullOrEmpty(readBack.Failure);
+
+        if (!readBackIsValid)
         {
             throw new InvalidDataException("CLI telemetry JSON failed readback validation.");
         }
 
         Console.WriteLine(output);
+        if (collectionError is not null)
+        {
+            ExceptionDispatchInfo.Capture(collectionError).Throw();
+        }
     }
 
     private static async Task<CliProcessTelemetry> RunColdTraceAsync(

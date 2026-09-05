@@ -9,20 +9,26 @@ namespace Filtrace.Benchmarks;
 /// </summary>
 /// <param name="Iteration">The one-based launch number within the campaign.</param>
 /// <param name="Arguments">The exact argument tokens passed to filtrace.</param>
+/// <param name="ElapsedMilliseconds">The child wall-clock duration in milliseconds.</param>
 /// <param name="TotalProcessorMilliseconds">The child process CPU time in milliseconds.</param>
 /// <param name="PeakWorkingSetBytes">The largest working set reported by the child process.</param>
 /// <param name="MaxPrivateMemoryBytes">The largest private-byte value observed by polling.</param>
 /// <param name="ExitCode">The child process exit code.</param>
 /// <param name="StandardOutputLength">The number of bounded stdout characters captured.</param>
 /// <param name="StandardErrorLength">The number of bounded stderr characters captured.</param>
-/// <param name="OutputSha256">The hexadecimal digest used to compare stdout and stderr across launches.</param>
+/// <param name="OutputSha256">The raw hexadecimal digest of exit code, stdout, and stderr.</param>
+/// <param name="ComparisonOutputSha256">
+///  The output digest with only validated scenario input paths normalized for comparison.
+/// </param>
 internal sealed record CliProcessTelemetry(
     int Iteration,
     IReadOnlyList<string> Arguments,
+    double? ElapsedMilliseconds,
     double TotalProcessorMilliseconds,
     long PeakWorkingSetBytes,
     long MaxPrivateMemoryBytes,
     int ExitCode,
     int StandardOutputLength,
     int StandardErrorLength,
-    string OutputSha256);
+    string OutputSha256,
+    string? ComparisonOutputSha256 = null);
