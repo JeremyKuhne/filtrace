@@ -228,6 +228,20 @@ public sealed class BoundedProcessRunnerTests
     }
 
     [TestMethod]
+    public async Task RunAsync_NullArguments_ThrowsBeforeProcessStart()
+    {
+        ProcessInvocation invocation = CreateMissingExecutableInvocation(TimeSpan.FromSeconds(1)) with
+        {
+            Arguments = null!
+        };
+
+        Func<Task> action = () => new BoundedProcessRunner().RunAsync(invocation);
+
+        ArgumentNullException exception = await Assert.ThrowsExactlyAsync<ArgumentNullException>(action);
+        exception.ParamName.Should().Be("invocation.Arguments");
+    }
+
+    [TestMethod]
     public async Task RunAsync_UnsupportedTimeout_ThrowsBeforeProcessStart()
     {
         ProcessInvocation invocation = CreateMissingExecutableInvocation(TimeSpan.MaxValue);

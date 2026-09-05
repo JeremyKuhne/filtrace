@@ -53,6 +53,7 @@ internal sealed class BoundedProcessRunner : IProcessRunner
         ArgumentNullException.ThrowIfNull(invocation);
         ArgumentException.ThrowIfNullOrWhiteSpace(invocation.FileName);
         ArgumentException.ThrowIfNullOrWhiteSpace(invocation.WorkingDirectory);
+        ArgumentNullException.ThrowIfNull(invocation.Arguments);
         if (invocation.Timeout <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(
@@ -225,11 +226,15 @@ internal sealed class BoundedProcessRunner : IProcessRunner
             ?? throw new InvalidOperationException($"Could not start '{startInfo.FileName}'.");
     }
 
-    private static void TryTerminate(Process process)
+    private static void TryTerminate(Process process, bool entireProcessTree = true)
     {
         try
         {
-            process.Kill(entireProcessTree: true);
+            process.Kill(entireProcessTree);
+        }
+        catch (NotSupportedException) when (entireProcessTree)
+        {
+            TryTerminate(process, entireProcessTree: false);
         }
         catch (Exception exception) when (
             exception is InvalidOperationException
