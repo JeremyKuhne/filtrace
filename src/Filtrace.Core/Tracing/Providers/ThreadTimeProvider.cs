@@ -89,6 +89,25 @@ public sealed partial class ThreadTimeProvider
         out ScopeResolution scopeResolution,
         out int recordCount)
     {
+        return ReadWithCacheState(path, scope, out scopeResolution, out recordCount, out _);
+    }
+
+    /// <summary>
+    ///  Reads thread-time stacks and retains the state of the ETLX cache used by this request.
+    /// </summary>
+    /// <param name="path">The ETW trace path.</param>
+    /// <param name="scope">The requested process and time scope.</param>
+    /// <param name="scopeResolution">The resolved process-instance scope.</param>
+    /// <param name="recordCount">The context-switch source record count.</param>
+    /// <param name="cacheState">How the request obtained the ETLX cache.</param>
+    /// <returns>The elapsed-time-weighted stacks retained by the resolved scope.</returns>
+    internal StackSampleSource ReadWithCacheState(
+        string path,
+        ScopeRequest? scope,
+        out ScopeResolution scopeResolution,
+        out int recordCount,
+        out EtlxCacheState cacheState)
+    {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
         string fullPath = Path.GetFullPath(path);
@@ -97,7 +116,7 @@ public sealed partial class ThreadTimeProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out cacheState);
         recordCount = CountContextSwitches(traceLog);
 
         using SymbolReader symbolReader = new(TextWriter.Null, "", httpClientDelegatingHandler: null);

@@ -95,12 +95,18 @@ public sealed partial class TraceStore
 
         return await Task.Run(() =>
         {
-            EtlxCacheResult cache = TraceConverter.ConvertWithState(fullPath, cancellationToken);
-            EtlxCacheState state = lease.Waited && cache.State == EtlxCacheState.Hit
-                ? EtlxCacheState.Waited
+            EtlxCacheResult cache = TraceConverter.PrepareCache(fullPath, cancellationToken);
+            LoadedTrace trace = GetCore(
+                fullPath, symbolsDirectory, metric, scope, symbolOptions, out EtlxCacheState? loadedCacheState);
+
+            EtlxCacheState state = loadedCacheState is EtlxCacheState.Converted or EtlxCacheState.Recovered
+                ? loadedCacheState.Value
                 : cache.State;
 
-            LoadedTrace trace = Get(fullPath, symbolsDirectory, metric, scope, symbolOptions);
+            state = lease.Waited && state == EtlxCacheState.Hit
+                ? EtlxCacheState.Waited
+                : state;
+
             return new TraceStoreLoadResult(trace, state);
         }, cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
     }
@@ -142,6 +148,17 @@ public sealed partial class TraceStore
         TraceMetric metric = TraceMetric.Cpu,
         ScopeRequest? scope = null,
         SymbolOptions? symbolOptions = null)
+    {
+        return GetCore(path, symbolsDirectory, metric, scope, symbolOptions, out _);
+    }
+
+    private LoadedTrace GetCore(
+        string path,
+        string? symbolsDirectory,
+        TraceMetric metric,
+        ScopeRequest? scope,
+        SymbolOptions? symbolOptions,
+        out EtlxCacheState? loadedCacheState)
     {
         string fullPath = Path.GetFullPath(path);
 
@@ -185,7 +202,16 @@ public sealed partial class TraceStore
         // sharing one cache entry. Loading uses the normalized symbols path so a relative
         // symbolsDirectory resolves exactly the way it was keyed.
         string key = $"{(int)metric}:{scopeKey}:{timeKey}:{symbolKey}:{fullPath.Length}|{fullPath}{fullSymbols}";
-        return _cache.GetOrAdd(key, _ => _loader.Load(fullPath, metric, fullSymbols, scope, symbolOptions));
+        EtlxCacheState? requestCacheState = null;
+        LoadedTrace trace = _cache.GetOrAdd(key, _ =>
+        {
+            LoadedTrace loaded = _loader.Load(fullPath, metric, fullSymbols, scope, symbolOptions);
+            requestCacheState = loaded.Info.EtlxCacheState;
+            return loaded;
+        });
+
+        loadedCacheState = requestCacheState;
+        return trace;
     }
 
     // A stable cache-key fragment for a scope request: the process axis ('all' for

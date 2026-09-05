@@ -53,6 +53,7 @@ internal static partial class LatencyStackReader
     ///  kept. <see langword="null"/> reads the whole trace.
     /// </param>
     /// <param name="recordCount">The capture-wide count of completed positive-duration pairs.</param>
+    /// <param name="cacheState">How the request obtained the ETLX cache.</param>
     /// <returns>The latency source: blocked-millisecond-weighted stacks.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
@@ -61,7 +62,8 @@ internal static partial class LatencyStackReader
         MetricInfo metric,
         Func<EtlxTraceLog, MutableTraceEventStackSource, StartStopLatencyComputer> createComputer,
         TimeWindow? window,
-        out int recordCount)
+        out int recordCount,
+        out EtlxCacheState cacheState)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
@@ -71,7 +73,7 @@ internal static partial class LatencyStackReader
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out cacheState);
 
         MutableTraceEventStackSource stackSource = new(traceLog);
         StartStopLatencyComputer computer = createComputer(traceLog, stackSource);

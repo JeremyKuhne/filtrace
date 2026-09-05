@@ -60,6 +60,23 @@ public sealed class ActivityProvider
     /// <returns>The activity stack source retained by the requested window.</returns>
     internal StackSampleSource Read(string path, TimeWindow? window, out int recordCount)
     {
+        return ReadWithCacheState(path, window, out recordCount, out _);
+    }
+
+    /// <summary>
+    ///  Reads activity stacks and retains the state of the ETLX cache used by this request.
+    /// </summary>
+    /// <param name="path">The EventPipe trace path.</param>
+    /// <param name="window">An optional trace-relative start-time filter.</param>
+    /// <param name="recordCount">The completed activity count before filtering.</param>
+    /// <param name="cacheState">How the request obtained the ETLX cache.</param>
+    /// <returns>The activity stack source retained by the requested window.</returns>
+    internal StackSampleSource ReadWithCacheState(
+        string path,
+        TimeWindow? window,
+        out int recordCount,
+        out EtlxCacheState cacheState)
+    {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
         string fullPath = Path.GetFullPath(path);
@@ -68,7 +85,7 @@ public sealed class ActivityProvider
             throw new FileNotFoundException($"Trace file not found: {fullPath}", fullPath);
         }
 
-        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out cacheState);
         using TraceLogEventSource source = traceLog.Events.GetSource();
 
         // The activity computer needs a symbol reader and a GC-reference computer to
