@@ -6,6 +6,8 @@ using System.Buffers;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Filtrace.Benchmarks;
 
@@ -135,7 +137,120 @@ internal static partial class CliProcessRunner
             throw new CliProcessTelemetryException(telemetry, failure);
         }
 
-        return telemetry;
+        try
+        {
+            string normalizedOutput = NormalizeComparisonOutput(observation.StandardOutput, arguments);
+            return telemetry with { ComparisonOutputSha256 = ComputeDigest(observation, normalizedOutput) };
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidDataException)
+        {
+            throw new CliProcessTelemetryException(telemetry, exception);
+        }
+    }
+
+    /// <summary>
+    ///  Normalizes validated scenario paths without discarding result or diagnostic fields.
+    /// </summary>
+    /// <param name="standardOutput">The complete child stdout.</param>
+    /// <param name="arguments">The exact arguments used to launch the child.</param>
+    /// <returns>Path-normalized info or batch JSON, or unchanged output for other commands.</returns>
+    internal static string NormalizeComparisonOutput(string standardOutput, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count < 2 || arguments[0] is not ("info" or "batch"))
+        {
+            return standardOutput;
+        }
+
+        JsonNode? document = JsonNode.Parse(standardOutput);
+        if (document is not JsonObject envelope
+            || envelope["result"] is not JsonObject result)
+        {
+            throw new InvalidDataException("The scenario response must contain a JSON result object.");
+        }
+
+        if (arguments[0] == "info")
+        {
+            NormalizeComparisonPath(result, "path", arguments[1], "$trace");
+            for (int index = 2; index + 1 < arguments.Count; index++)
+            {
+                if (arguments[index] == "--symbols"
+                    && result["sourceResolution"] is JsonObject sourceResolution
+                    && sourceResolution["searchedDirectories"] is JsonArray directories)
+                {
+                    for (int directoryIndex = 0; directoryIndex < directories.Count; directoryIndex++)
+                    {
+                        ValidateComparisonPath(directories[directoryIndex], arguments[index + 1]);
+                        directories[directoryIndex] = "$symbols";
+                    }
+                }
+            }
+        }
+        else
+        {
+            NormalizeComparisonPath(result, "manifestPath", arguments[1], "$manifest");
+            string manifestDirectory = Path.GetDirectoryName(Path.GetFullPath(arguments[1]))!;
+            if (result["cases"] is not JsonArray cases)
+            {
+                throw new InvalidDataException("The batch response must contain a cases array.");
+            }
+
+            foreach (JsonNode? item in cases)
+            {
+                if (item is not JsonObject captureCase
+                    || captureCase["tracePath"] is not JsonValue tracePath
+                    || !tracePath.TryGetValue(out string? reportedPath)
+                    || reportedPath is null
+                    || !Path.IsPathFullyQualified(reportedPath))
+                {
+                    throw new InvalidDataException("Each batch case must identify an absolute tracePath.");
+                }
+
+                string relative = Path.GetRelativePath(manifestDirectory, reportedPath);
+                if (Path.IsPathFullyQualified(relative)
+                    || relative == ".."
+                    || relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException("The batch tracePath is outside the scenario's manifest directory.");
+                }
+
+                captureCase["tracePath"] = $"$manifest/{relative.Replace(Path.DirectorySeparatorChar, '/')}";
+            }
+
+            if (envelope["hints"] is JsonArray hints)
+            {
+                foreach (JsonNode? hint in hints)
+                {
+                    if (hint is JsonObject nextStep
+                        && nextStep["arguments"] is JsonObject nextArguments
+                        && nextArguments.ContainsKey("manifestPath"))
+                    {
+                        NormalizeComparisonPath(nextArguments, "manifestPath", arguments[1], "$manifest");
+                    }
+                }
+            }
+        }
+
+        return document.ToJsonString();
+    }
+
+    private static void NormalizeComparisonPath(JsonObject owner, string property, string expectedPath, string replacement)
+    {
+        ValidateComparisonPath(owner[property], expectedPath);
+        owner[property] = replacement;
+    }
+
+    private static void ValidateComparisonPath(JsonNode? value, string expectedPath)
+    {
+        StringComparison pathComparison = OperatingSystem.IsLinux()
+            ? StringComparison.Ordinal
+            : StringComparison.OrdinalIgnoreCase;
+
+        if (value is not JsonValue path
+            || !path.TryGetValue(out string? reportedPath)
+            || !string.Equals(reportedPath, Path.GetFullPath(expectedPath), pathComparison))
+        {
+            throw new InvalidDataException("The scenario response contains an unverified input path.");
+        }
     }
 
     private static async Task<ProcessObservation> RunCoreAsync(
@@ -354,11 +469,11 @@ internal static partial class CliProcessRunner
         }
     }
 
-    private static string ComputeDigest(ProcessObservation observation)
+    private static string ComputeDigest(ProcessObservation observation, string? standardOutput = null)
     {
         using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData(BitConverter.GetBytes(observation.ExitCode));
-        hash.AppendData(Encoding.UTF8.GetBytes(observation.StandardOutput));
+        hash.AppendData(Encoding.UTF8.GetBytes(standardOutput ?? observation.StandardOutput));
         hash.AppendData(Encoding.UTF8.GetBytes(observation.StandardError));
         return Convert.ToHexString(hash.GetHashAndReset());
     }

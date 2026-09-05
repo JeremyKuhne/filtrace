@@ -16,7 +16,10 @@ namespace Filtrace.Benchmarks;
 /// <param name="ExitCode">The child process exit code.</param>
 /// <param name="StandardOutputLength">The number of bounded stdout characters captured.</param>
 /// <param name="StandardErrorLength">The number of bounded stderr characters captured.</param>
-/// <param name="OutputSha256">The hexadecimal digest used to compare stdout and stderr across launches.</param>
+/// <param name="OutputSha256">The raw hexadecimal digest of exit code, stdout, and stderr.</param>
+/// <param name="ComparisonOutputSha256">
+///  The output digest with only validated scenario input paths normalized for comparison.
+/// </param>
 internal sealed record CliProcessTelemetry(
     int Iteration,
     IReadOnlyList<string> Arguments,
@@ -27,4 +30,5 @@ internal sealed record CliProcessTelemetry(
     int ExitCode,
     int StandardOutputLength,
     int StandardErrorLength,
-    string OutputSha256);
+    string OutputSha256,
+    string? ComparisonOutputSha256 = null);

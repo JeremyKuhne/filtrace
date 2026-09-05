@@ -217,6 +217,12 @@ try {
     Assert-True ($comparison.cliTelemetry.baseline.complete) 'Fake comparison lost the complete flag.'
     Assert-True ($comparison.cliTelemetry.baseline.launchCount -eq 25) 'Fake comparison lost the launch count.'
     Assert-True `
+        ($comparison.cliTelemetry.baseline.outputSha256 -cne $comparison.cliTelemetry.candidate.outputSha256) `
+        'Cross-arm fixture did not retain distinct raw output identities.'
+    Assert-True `
+        ($comparison.cliTelemetry.baseline.comparisonOutputSha256 -ceq $comparison.cliTelemetry.candidate.comparisonOutputSha256) `
+        'Path-equivalent output did not retain a common comparison identity.'
+    Assert-True `
         ($comparison.cliTelemetry.baseline.sourceReport -eq 'baseline/cli-benchmark/cli-process.json') `
         'Fake comparison lost stable source metadata.'
     Assert-True (@($rawTelemetry.launches).Count -eq 25) 'Fake raw telemetry did not retain all launches.'
@@ -232,6 +238,42 @@ try {
         ($comparison.benchmarkAllocationSource -like '*host/wrapper*not child managed allocation*') `
         'Fake no-op comparison did not label the BenchmarkDotNet allocation source.'
 
+    [object[]] $resourceCases = @(
+        [pscustomobject]@{ Case = 'zero-resources-both'; Delta = 0.0 },
+        [pscustomobject]@{ Case = 'zero-resources-baseline'; Delta = $null },
+        [pscustomobject]@{ Case = 'zero-resources-candidate'; Delta = -100.0 })
+    foreach ($resourceCase in $resourceCases) {
+        [string] $resourceOutput = Join-Path $temporaryRoot $resourceCase.Case
+        [string] $previousResourceCase = $env:FILTRACE_TRACKD_FAKE_TELEMETRY_CASE
+        try {
+            $env:FILTRACE_TRACKD_FAKE_TELEMETRY_CASE = $resourceCase.Case
+            & $script `
+                -InputCorpusDirectory $corpus `
+                -BaselineCheckout $root `
+                -CandidateCheckout $root `
+                -AllowDirtyCheckouts `
+                -OutputDirectory $resourceOutput `
+                -BenchmarkJob dry `
+                -TelemetryIterations 2 `
+                -NoBuild `
+                -TestAdapterPath $adapter
+        }
+        finally {
+            $env:FILTRACE_TRACKD_FAKE_TELEMETRY_CASE = $previousResourceCase
+        }
+
+        [object] $resourceComparison = Get-Content `
+            -LiteralPath (Join-Path $resourceOutput 'comparison.json') `
+            -Raw | ConvertFrom-Json
+        foreach ($property in @('averageCpuDeltaPercent', 'peakWorkingSetDeltaPercent', 'privateMemoryDeltaPercent')) {
+            Assert-True `
+                ($resourceComparison.cliTelemetry.$property -eq $resourceCase.Delta) `
+                "$($resourceCase.Case) did not preserve the expected $property value."
+        }
+        Assert-True ($resourceComparison.cliTelemetry.childWallP50DeltaPercent -eq 0) 'Resource zeros changed wall p50.'
+        Assert-True ($resourceComparison.cliTelemetry.childWallP95DeltaPercent -eq 0) 'Resource zeros changed wall p95.'
+    }
+
     [object[]] $telemetryCases = @(
         [pscustomobject]@{ Case = 'old-artifact'; Message = 'expected 2 with child wall telemetry' },
         [pscustomobject]@{ Case = 'failure'; Message = 'explicitly incomplete' },
@@ -242,6 +284,14 @@ try {
         [pscustomobject]@{ Case = 'null-launches'; Message = 'missing a launch set' },
         [pscustomobject]@{ Case = 'null-launch'; Message = 'launch 1 is null' },
         [pscustomobject]@{ Case = 'null-arguments'; Message = "missing required property 'arguments'" },
+        [pscustomobject]@{ Case = 'null-argument-token'; Message = 'arguments must contain only string tokens' },
+        [pscustomobject]@{ Case = 'numeric-argument-token'; Message = 'arguments must contain only string tokens' },
+        [pscustomobject]@{ Case = 'scalar-arguments'; Message = 'arguments must be an array' },
+        [pscustomobject]@{ Case = 'negative-working-set'; Message = 'negative resource counter' },
+        [pscustomobject]@{ Case = 'negative-private-memory'; Message = 'negative resource counter' },
+        [pscustomobject]@{ Case = 'negative-cpu'; Message = 'negative resource counter' },
+        [pscustomobject]@{ Case = 'finite-delta-overflow'; Message = 'Cannot calculate a finite percentage delta' },
+        [pscustomobject]@{ Case = 'cpu-average-overflow'; Message = 'Cannot calculate a finite percentage delta' },
         [pscustomobject]@{ Case = 'reordered-iterations'; Message = 'launch 1 has iteration 2' },
         [pscustomobject]@{ Case = 'duplicate-iterations'; Message = 'launch 2 has iteration 1' },
         [pscustomobject]@{ Case = 'missing-complete'; Message = "missing required property 'complete'" },
@@ -251,7 +301,10 @@ try {
         [pscustomobject]@{ Case = 'nonzero'; Message = 'not a successful complete observation' },
         [pscustomobject]@{ Case = 'empty-output'; Message = 'not a successful complete observation' },
         [pscustomobject]@{ Case = 'stderr'; Message = 'not a successful complete observation' },
-        [pscustomobject]@{ Case = 'inconsistent-digest'; Message = 'inconsistent output digests' },
+        [pscustomobject]@{ Case = 'inconsistent-digest'; Message = 'inconsistent comparison output digests' },
+        [pscustomobject]@{ Case = 'different-comparison-digest'; Message = 'Baseline and candidate telemetry comparison output digests differ' },
+        [pscustomobject]@{ Case = 'missing-comparison-digest'; Message = "missing required property 'comparisonOutputSha256'" },
+        [pscustomobject]@{ Case = 'malformed-comparison-digest'; Message = 'comparisonOutputSha256 is malformed' },
         [pscustomobject]@{ Case = 'fractional-iteration'; Message = "property 'iteration' is not a 64-bit integer" },
         [pscustomobject]@{ Case = 'string-exit-code'; Message = "property 'exitCode' is not a 64-bit integer" },
         [pscustomobject]@{ Case = 'string-elapsed'; Message = "property 'elapsedMilliseconds' is not a number" },

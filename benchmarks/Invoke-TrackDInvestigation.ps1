@@ -662,11 +662,28 @@ function Get-NearestRank([double[]] $Values, [double] $Percentile) {
 }
 
 function Get-PercentDelta([double] $Baseline, [double] $Candidate, [string] $Metric) {
-    if ($Baseline -le 0.0) {
-        throw "Baseline $Metric must be positive to calculate a percentage delta."
+    if (
+        [double]::IsNaN($Baseline) -or [double]::IsInfinity($Baseline) -or
+        [double]::IsNaN($Candidate) -or [double]::IsInfinity($Candidate)
+    ) {
+        throw "Cannot calculate a finite percentage delta for $Metric."
     }
 
-    return ($Candidate - $Baseline) / $Baseline * 100.0
+    if ($Baseline -lt 0.0 -or $Candidate -lt 0.0) {
+        throw "$Metric values must be nonnegative to calculate a percentage delta."
+    }
+
+    if ($Baseline -eq 0.0) {
+        if ($Candidate -eq 0.0) { return 0.0 }
+        return $null
+    }
+
+    [double] $delta = ($Candidate - $Baseline) / $Baseline * 100.0
+    if ([double]::IsNaN($delta) -or [double]::IsInfinity($delta)) {
+        throw "Cannot calculate a finite percentage delta for $Metric."
+    }
+
+    return $delta
 }
 
 function Get-TelemetrySummary(
@@ -707,6 +724,7 @@ function Get-TelemetrySummary(
     [System.Collections.Generic.List[double]] $elapsedMilliseconds =
         [System.Collections.Generic.List[double]]::new($launches.Count)
     $outputSha256 = $null
+    $comparisonOutputSha256 = $null
     for ($index = 0; $index -lt $launches.Count; $index++) {
         [object] $launch = $launches[$index]
         [string] $context = "Telemetry report '$Path' launch $($index + 1)"
@@ -720,9 +738,19 @@ function Get-TelemetrySummary(
             throw "$context is missing required property 'arguments'."
         }
 
+        if ($argumentsProperty.Value -isnot [Array]) {
+            throw "$context arguments must be an array."
+        }
+
         [object[]] $arguments = @($argumentsProperty.Value)
         if ($arguments.Count -eq 0) {
             throw "$context has no arguments."
+        }
+
+        foreach ($argument in $arguments) {
+            if ($argument -isnot [string]) {
+                throw "$context arguments must contain only string tokens."
+            }
         }
 
         [double] $elapsed = Get-RequiredFiniteDouble $launch 'elapsedMilliseconds' $context
@@ -733,6 +761,7 @@ function Get-TelemetrySummary(
         [long] $standardOutputLength = Get-RequiredInt64 $launch 'standardOutputLength' $context
         [long] $standardErrorLength = Get-RequiredInt64 $launch 'standardErrorLength' $context
         [string] $digest = [string](Get-RequiredProperty $launch 'outputSha256' $context)
+        [string] $comparisonDigest = [string](Get-RequiredProperty $launch 'comparisonOutputSha256' $context)
         if ($elapsed -le 0.0) {
             throw "$context elapsedMilliseconds must be positive."
         }
@@ -749,11 +778,18 @@ function Get-TelemetrySummary(
             throw "$context outputSha256 is malformed."
         }
 
+        if ($comparisonDigest -notmatch '^[0-9A-Fa-f]{64}$') {
+            throw "$context comparisonOutputSha256 is malformed."
+        }
+
         if ($null -eq $outputSha256) {
             $outputSha256 = $digest
         }
-        elseif ($outputSha256 -cne $digest) {
-            throw "Telemetry report '$Path' contains inconsistent output digests."
+        if ($null -eq $comparisonOutputSha256) {
+            $comparisonOutputSha256 = $comparisonDigest
+        }
+        elseif ($comparisonOutputSha256 -cne $comparisonDigest) {
+            throw "Telemetry report '$Path' contains inconsistent comparison output digests."
         }
 
         $elapsedMilliseconds.Add($elapsed)
@@ -786,6 +822,7 @@ function Get-TelemetrySummary(
             $launches.standardOutputLength | Measure-Object -Average).Average
         distinctOutputDigests = @($launches.outputSha256 | Sort-Object -Unique).Count
         outputSha256 = $outputSha256
+        comparisonOutputSha256 = $comparisonOutputSha256
     }
 }
 
@@ -1089,17 +1126,14 @@ try {
         (Join-Path $runDirectory 'candidate/cli-benchmark/cli-process.json') `
         $TelemetryIterations `
         'candidate/cli-benchmark/cli-process.json'
-    if ($baselineTelemetry.outputSha256 -cne $candidateTelemetry.outputSha256) {
-        throw 'Baseline and candidate telemetry output digests differ.'
+    if ($baselineTelemetry.comparisonOutputSha256 -cne $candidateTelemetry.comparisonOutputSha256) {
+        throw 'Baseline and candidate telemetry comparison output digests differ.'
     }
 
-    [double] $cliCpuDelta = if ($baselineTelemetry.averageCpuMilliseconds -eq 0.0) {
-        0.0
-    }
-    else {
-        ($candidateTelemetry.averageCpuMilliseconds - $baselineTelemetry.averageCpuMilliseconds) `
-            / $baselineTelemetry.averageCpuMilliseconds * 100.0
-    }
+    [object] $cliCpuDelta = Get-PercentDelta `
+        $baselineTelemetry.averageCpuMilliseconds `
+        $candidateTelemetry.averageCpuMilliseconds `
+        'average CPU time'
 
     [System.Collections.Specialized.OrderedDictionary] $comparison = [ordered]@{
         schemaVersion = 2

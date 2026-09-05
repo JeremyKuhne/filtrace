@@ -68,7 +68,12 @@ $launches = @(for ($index = 0; $index -lt $TelemetryIterations; $index++) {
         exitCode = 0
         standardOutputLength = 42
         standardErrorLength = 0
-        outputSha256 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+        outputSha256 = if ($ArmName -eq 'baseline') {
+            'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+        } else {
+            'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
+        }
+        comparisonOutputSha256 = 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC'
     }
 })
 [double[]] $sortedElapsed = @($elapsedValues | Sort-Object)
@@ -81,6 +86,32 @@ $telemetry = [ordered]@{
     childWallP95Milliseconds = $sortedElapsed[[Math]::Ceiling(0.95 * $TelemetryIterations) - 1]
     failure = $null
     launches = $launches
+}
+
+[bool] $zeroResources =
+    $env:FILTRACE_TRACKD_FAKE_TELEMETRY_CASE -eq 'zero-resources-both' -or
+    ($env:FILTRACE_TRACKD_FAKE_TELEMETRY_CASE -eq 'zero-resources-baseline' -and $ArmName -eq 'baseline') -or
+    ($env:FILTRACE_TRACKD_FAKE_TELEMETRY_CASE -eq 'zero-resources-candidate' -and $ArmName -eq 'candidate')
+if ($zeroResources) {
+    foreach ($launch in $launches) {
+        $launch.totalProcessorMilliseconds = 0.0
+        $launch.peakWorkingSetBytes = 0
+        $launch.maxPrivateMemoryBytes = 0
+    }
+}
+
+if ($env:FILTRACE_TRACKD_FAKE_TELEMETRY_CASE -eq 'finite-delta-overflow') {
+    [double] $elapsed = if ($ArmName -eq 'baseline') { 1e-300 } else { 1e300 }
+    foreach ($launch in $launches) {
+        $launch.elapsedMilliseconds = $elapsed
+    }
+    $telemetry.childWallP50Milliseconds = $elapsed
+    $telemetry.childWallP95Milliseconds = $elapsed
+}
+if ($env:FILTRACE_TRACKD_FAKE_TELEMETRY_CASE -eq 'cpu-average-overflow') {
+    foreach ($launch in $launches) {
+        $launch.totalProcessorMilliseconds = [double]::MaxValue
+    }
 }
 
 if ($ArmName -eq 'candidate') {
@@ -125,6 +156,24 @@ if ($ArmName -eq 'candidate') {
         'null-arguments' {
             $launches[0].arguments = $null
         }
+        'null-argument-token' {
+            $launches[0].arguments = @('info', $null)
+        }
+        'numeric-argument-token' {
+            $launches[0].arguments = @('info', 123)
+        }
+        'scalar-arguments' {
+            $launches[0].arguments = 'info'
+        }
+        'negative-working-set' {
+            $launches[0].peakWorkingSetBytes = -1
+        }
+        'negative-private-memory' {
+            $launches[0].maxPrivateMemoryBytes = -1
+        }
+        'negative-cpu' {
+            $launches[0].totalProcessorMilliseconds = -1.0
+        }
         'reordered-iterations' {
             $launches[0].iteration = 2
             $launches[1].iteration = 1
@@ -154,7 +203,18 @@ if ($ArmName -eq 'candidate') {
             $launches[0].standardErrorLength = 1
         }
         'inconsistent-digest' {
-            $launches[0].outputSha256 = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
+            $launches[0].comparisonOutputSha256 = 'D' * 64
+        }
+        'different-comparison-digest' {
+            foreach ($launch in $launches) {
+                $launch.comparisonOutputSha256 = 'D' * 64
+            }
+        }
+        'missing-comparison-digest' {
+            $launches[0].Remove('comparisonOutputSha256')
+        }
+        'malformed-comparison-digest' {
+            $launches[0].comparisonOutputSha256 = 'not-a-digest'
         }
         'fractional-iteration' {
             $launches[0].iteration = 1.5

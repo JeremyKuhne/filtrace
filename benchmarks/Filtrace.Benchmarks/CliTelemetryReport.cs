@@ -126,7 +126,7 @@ internal sealed record CliTelemetryReport(
             return false;
         }
 
-        string? outputSha256 = null;
+        string? comparisonOutputSha256 = null;
         for (int index = 0; index < launches.Count; index++)
         {
             CliProcessTelemetry? launch = launches[index];
@@ -134,6 +134,7 @@ internal sealed record CliTelemetryReport(
                 || launch.Iteration != index + 1
                 || launch.Arguments is null
                 || launch.Arguments.Count == 0
+                || launch.Arguments.Any(static argument => argument is null)
                 || launch.ElapsedMilliseconds is not double elapsed
                 || !double.IsFinite(elapsed)
                 || elapsed <= 0
@@ -146,16 +147,19 @@ internal sealed record CliTelemetryReport(
                 || launch.StandardErrorLength != 0
                 || string.IsNullOrEmpty(launch.OutputSha256)
                 || launch.OutputSha256.Length != 64
-                || launch.OutputSha256.Any(static character => !Uri.IsHexDigit(character)))
+                || launch.OutputSha256.Any(static character => !Uri.IsHexDigit(character))
+                || string.IsNullOrEmpty(launch.ComparisonOutputSha256)
+                || launch.ComparisonOutputSha256.Length != 64
+                || launch.ComparisonOutputSha256.Any(static character => !Uri.IsHexDigit(character)))
             {
                 return false;
             }
 
-            if (outputSha256 is null)
+            if (comparisonOutputSha256 is null)
             {
-                outputSha256 = launch.OutputSha256;
+                comparisonOutputSha256 = launch.ComparisonOutputSha256;
             }
-            else if (!string.Equals(outputSha256, launch.OutputSha256, StringComparison.Ordinal))
+            else if (!string.Equals(comparisonOutputSha256, launch.ComparisonOutputSha256, StringComparison.Ordinal))
             {
                 return false;
             }
