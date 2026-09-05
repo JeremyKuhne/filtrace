@@ -87,6 +87,27 @@ internal sealed class LocalTestingCliInstaller
         return Install(plan, packagePath, dotnetPath, replaceExisting: true);
     }
 
+    /// <summary>
+    ///  Removes the private CLI unless an incomplete installation remains quarantined for manual recovery.
+    /// </summary>
+    /// <param name="plan">The target's normalized local-testing resource paths.</param>
+    public void Restore(ResourcePlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ThrowIfIncompleteOperationExists(plan);
+        ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.CliDirectory);
+        if (RegularFileGuard.Exists(plan.CliDirectory, "Local-testing CLI path"))
+        {
+            throw new InvalidDataException(
+                $"Local-testing CLI path is a file, not a directory: '{plan.CliDirectory}'.");
+        }
+
+        if (Directory.Exists(plan.CliDirectory))
+        {
+            LocalTestingDirectory.DeleteTree(plan.CliDirectory);
+        }
+    }
+
     private CliInstallation Install(
         ResourcePlan plan,
         string packagePath,
@@ -102,16 +123,7 @@ internal sealed class LocalTestingCliInstaller
                 $"Local-testing state directory does not exist: '{plan.StateRoot}'.");
         }
 
-        string? incompleteOperation = Directory.EnumerateDirectories(
-            plan.StateRoot,
-            ".cli-install-*",
-            SearchOption.TopDirectoryOnly).FirstOrDefault();
-
-        if (incompleteOperation is not null)
-        {
-            throw new InvalidOperationException(
-                $"An incomplete local-testing CLI operation requires manual recovery: '{incompleteOperation}'.");
-        }
+        ThrowIfIncompleteOperationExists(plan);
 
         ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.CliDirectory);
         bool destinationExists = Directory.Exists(plan.CliDirectory);
@@ -169,6 +181,20 @@ internal sealed class LocalTestingCliInstaller
             {
                 LocalTestingDirectory.DeleteTree(operationRoot);
             }
+        }
+    }
+
+    private static void ThrowIfIncompleteOperationExists(ResourcePlan plan)
+    {
+        string? incompleteOperation = Directory.EnumerateDirectories(
+            plan.StateRoot,
+            ".cli-install-*",
+            SearchOption.TopDirectoryOnly).FirstOrDefault();
+
+        if (incompleteOperation is not null)
+        {
+            throw new InvalidOperationException(
+                $"An incomplete local-testing CLI operation requires manual recovery: '{incompleteOperation}'.");
         }
     }
 

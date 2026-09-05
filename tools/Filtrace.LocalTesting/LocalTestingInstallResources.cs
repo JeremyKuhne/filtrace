@@ -50,4 +50,80 @@ internal sealed class LocalTestingInstallResources : ILocalTestingInstallResourc
     {
         _skillDirectory.Publish(plan, inputs.SkillDirectory);
     }
+
+    /// <inheritdoc />
+    public void RestoreCli(ResourcePlan plan)
+    {
+        _cliInstaller.Restore(plan);
+    }
+
+    /// <inheritdoc />
+    public void RestoreMcp(ResourcePlan plan, McpBaseline baseline)
+    {
+        _mcpConfiguration.Restore(plan, baseline);
+    }
+
+    /// <inheritdoc />
+    public void RestoreSkill(ResourcePlan plan, SkillBaseline baseline)
+    {
+        _skillDirectory.Restore(plan, baseline);
+    }
+
+    /// <inheritdoc />
+    public void RestoreCreatedDirectories(
+        ResourcePlan plan,
+        CreatedDirectoryBaseline baseline)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(baseline);
+        string vscode = Path.GetDirectoryName(plan.McpConfigurationPath)
+            ?? throw new InvalidDataException("MCP configuration has no parent directory.");
+
+        string agents = Path.Join(plan.TargetRoot, ".agents");
+        string skills = Path.Join(agents, "skills");
+        ManagedPathGuard.EnsureNoLinks(plan.TargetRoot, vscode);
+        ManagedPathGuard.EnsureNoLinks(plan.TargetRoot, skills);
+        if (baseline.Skills)
+        {
+            DeleteIfEmpty(skills);
+        }
+
+        if (baseline.Agents)
+        {
+            DeleteIfEmpty(agents);
+        }
+
+        if (baseline.Vscode)
+        {
+            DeleteIfEmpty(vscode);
+        }
+    }
+
+    /// <inheritdoc />
+    public void CleanupPrivateArtifacts(ResourcePlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.StateRoot);
+        ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.ArtifactsDirectory);
+        ManagedPathGuard.EnsureNoLinks(plan.GitDirectory, plan.SkillBackupPath);
+        if (RegularFileGuard.Exists(plan.ArtifactsDirectory, "Local-testing artifacts path"))
+        {
+            throw new InvalidDataException(
+                $"Local-testing artifacts path is a file, not a directory: '{plan.ArtifactsDirectory}'.");
+        }
+
+        if (Directory.Exists(plan.ArtifactsDirectory))
+        {
+            LocalTestingDirectory.DeleteTree(plan.ArtifactsDirectory);
+        }
+    }
+
+    private static void DeleteIfEmpty(string path)
+    {
+        if (Directory.Exists(path)
+            && !Directory.EnumerateFileSystemEntries(path).Any())
+        {
+            Directory.Delete(path, recursive: false);
+        }
+    }
 }

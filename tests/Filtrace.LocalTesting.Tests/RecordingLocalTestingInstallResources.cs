@@ -51,6 +51,33 @@ internal sealed class RecordingLocalTestingInstallResources : ILocalTestingInsta
         Record("skill", plan);
     }
 
+    public void RestoreCli(ResourcePlan plan)
+    {
+        Record("cli:restore", plan);
+    }
+
+    public void RestoreMcp(ResourcePlan plan, McpBaseline baseline)
+    {
+        Record("mcp:restore", plan);
+    }
+
+    public void RestoreSkill(ResourcePlan plan, SkillBaseline baseline)
+    {
+        Record("skill:restore", plan);
+    }
+
+    public void RestoreCreatedDirectories(
+        ResourcePlan plan,
+        CreatedDirectoryBaseline baseline)
+    {
+        Record("parents", plan);
+    }
+
+    public void CleanupPrivateArtifacts(ResourcePlan plan)
+    {
+        Record("cleanup", plan);
+    }
+
     private void Record(string operation, ResourcePlan plan)
     {
         Calls.Add(operation);
