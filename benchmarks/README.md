@@ -120,6 +120,60 @@ Run a dry no-op reconstruction while iterating on the harness:
   -NoBuild
 ```
 
+This dry smoke checks reconstruction plumbing once; it is not performance
+evidence. Merge the complete measurement harness before choosing a baseline,
+then run fresh baseline and candidate measurements from the same benchmark tree.
+Add fixed-analyzer profiles to a retained A/B run with:
+
+```pwsh
+$inputCorpusDirectory = 'artifacts/perf-inputs/<corpus-id>'
+$harnessCommit = '<merged-harness-commit>'
+$baselineCommit = '<baseline-product-commit>'
+$candidateCommit = '<candidate-product-commit>'
+$analyzerPath = (Resolve-Path 'artifacts/tools/frozen-analyzer/filtrace.exe').Path
+
+./benchmarks/Invoke-TrackDInvestigation.ps1 `
+  -InputCorpusDirectory $inputCorpusDirectory `
+  -HarnessCommit $harnessCommit `
+  -BaselineCommit $baselineCommit `
+  -CandidateCommit $candidateCommit `
+  -BenchmarkJob default `
+  -CliScenario rank-self-warm `
+  -TelemetryIterations 25 `
+  -CaptureProfiles `
+  -AnalyzerPath $analyzerPath
+```
+
+`-CaptureProfiles` is opt-in and runs only after both arms finish their timed
+BenchmarkDotNet measurements and untimed child telemetry. It supports
+`info-warm`, `rank-self-warm`, `rank-inclusive-warm`, and
+`rank-activity-warm`; these are persistent single-trace warm scenarios. The
+current capture input is one trace and one warm command per arm. Retained-heap,
+concurrency, and eviction captures are not implemented.
+
+`-AnalyzerPath` must name a locally built Release apphost with its adjacent DLL,
+deps file, and runtimeconfig file. Do not use a global tool or modify that build
+during the run. The wrapper inventories the bounded analyzer output directory,
+copies the whole directory into `profile-artifacts/analyzer`, and verifies the
+source and snapshot identities before and after profiling.
+
+`-DotnetTracePath` defaults to `dotnet-trace` on `PATH`; an explicit executable
+path is also accepted. The executable is resolved once and its path, hash,
+version, and effective profiles are recorded. The shared recorder negotiation
+used by project capture requires `gc-verbose` for allocation/GC and either
+`dotnet-common,dotnet-sampled-thread-time` or `cpu-sampling` for CPU. Unsupported
+recorders or scenarios fail during preflight, before either measured arm runs.
+
+Each arm retains bounded CPU and allocation traces, recorder logs, structured
+analysis plans, query outputs, and analysis snapshots under `profiles/`.
+`profiles.json` reports each profile as `observed`, `insufficientQuality`, or
+`empty`. CPU evidence requires a positive contributing-record count. Allocation
+may validly report that count as unavailable, and enabled GC with zero
+collections is retained as `empty`, not treated as absent. CPU and allocation
+weights are sampled evidence; allocation scope weight is not an exact allocation
+total. Use these captures to attribute a concrete cost before proposing an
+optimization, and do not make an attribution claim from `insufficientQuality`.
+
 Retained runs omit the explicit checkouts and dirty override, use exact commit
 arguments, the default BenchmarkDotNet job, and 25 telemetry launches. A completed
 run carries `run-status.json` with `status: completed`; failed partial runs remain
