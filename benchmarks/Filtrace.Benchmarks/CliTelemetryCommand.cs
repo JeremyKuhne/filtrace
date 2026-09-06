@@ -164,7 +164,7 @@ internal static partial class CliTelemetryCommand
         }
 
         CliTelemetryReport report = new(
-            SchemaVersion: 1,
+            SchemaVersion: 2,
             CreatedUtc: DateTimeOffset.UtcNow.ToString("O"),
             options.Scenario,
             options.Iterations,
@@ -195,14 +195,25 @@ internal static partial class CliTelemetryCommand
             JsonOptions);
 
         if (readBack is null
-            || readBack.SchemaVersion != 1
+            || readBack.SchemaVersion != 2
             || readBack.Launches.Count != options.Iterations
-            || readBack.Launches.Any(static launch => launch.Arguments.Count == 0))
+            || readBack.Launches.Any(IsInvalidLaunch))
         {
             throw new InvalidDataException("CLI telemetry JSON failed readback validation.");
         }
 
         Console.WriteLine(output);
+    }
+
+    private static bool IsInvalidLaunch(CliProcessTelemetry launch)
+    {
+        if (launch.Arguments.Count == 0)
+        {
+            return true;
+        }
+
+        return !double.IsFinite(launch.LaunchToExitMilliseconds)
+            || launch.LaunchToExitMilliseconds < 0;
     }
 
     private static async Task<CliProcessTelemetry> RunColdTraceAsync(

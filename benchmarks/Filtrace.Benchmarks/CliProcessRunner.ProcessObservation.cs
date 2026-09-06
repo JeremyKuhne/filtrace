@@ -12,13 +12,17 @@ internal static partial class CliProcessRunner
     /// <param name="ExitCode">The child process exit code.</param>
     /// <param name="StandardOutput">The bounded stdout text drained during execution.</param>
     /// <param name="StandardError">The bounded stderr text drained during execution.</param>
-    /// <param name="TotalProcessorTime">The last observed cumulative CPU time.</param>
-    /// <param name="PeakWorkingSetBytes">The largest working set reported by the process.</param>
-    /// <param name="MaxPrivateMemoryBytes">The largest private-byte value observed by polling.</param>
+    /// <param name="LaunchToExitElapsed">
+    ///  The monotonic time from immediately before launch through root process exit.
+    /// </param>
+    /// <param name="TotalProcessorTime">The largest cumulative CPU time observed by polling.</param>
+    /// <param name="PeakWorkingSetBytes">The largest OS-reported peak working set observed by polling.</param>
+    /// <param name="MaxPrivateMemoryBytes">The largest sampled private-memory value observed by polling.</param>
     private sealed record ProcessObservation(
         int ExitCode,
         string StandardOutput,
         string StandardError,
+        TimeSpan LaunchToExitElapsed,
         TimeSpan TotalProcessorTime,
         long PeakWorkingSetBytes,
         long MaxPrivateMemoryBytes);

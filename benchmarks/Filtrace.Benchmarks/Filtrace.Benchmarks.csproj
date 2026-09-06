@@ -12,6 +12,7 @@
     <PackageReference Include="BenchmarkDotNet" />
     <ProjectReference Include="..\..\src\Filtrace.Core\Filtrace.Core.csproj" />
     <ProjectReference Include="..\..\src\Filtrace\Filtrace.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\tools\fixtures\Filtrace.BlockingProcess\Filtrace.BlockingProcess.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>

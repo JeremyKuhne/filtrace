@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Filtrace.BlockingProcess</RootNamespace>
+    <AssemblyName>Filtrace.BlockingProcess</AssemblyName>
+  </PropertyGroup>
+
+</Project>
