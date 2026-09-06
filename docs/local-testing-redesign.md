@@ -18,12 +18,12 @@ cleanup coordinator wiring is implemented. The thin Phase 4 wrapper is implement
 and its Windows CI harness is added in this PR; broader Phase 4 work remains pending.
 
 **Last verified:** 2026-09-06 for one real Install, Refresh, and Restore round trip
-under Windows PowerShell 7 from `3f1fc000494335560fb1f04045ccb1e891101a45`.
-That run used private CLI `0.7.1-alpha.0.17`; `dotnet tool list --global`
+under Windows PowerShell 7 from `c4869d562b4a8c4e8645e79cf0b100be14357a9e`.
+That run used private CLI `0.7.1-alpha.0.18`; `dotnet tool list --global`
 continued to report `filtrace` `0.6.3`. The wrapper's fake native-process contract
 runs under Windows PowerShell 5.1 and PowerShell 7. Actual Unix activation has not
 run, and interruption or timeout-quarantine recovery remains manual. This does not
-represent completion of broader Phase 4 work or all repository gates. PR #94 was
+represent completion of broader PP01 command-capture provenance work. PR #94 was
 closed without merge after PR #98 established the replacement.
 
 ## Decision
@@ -445,8 +445,9 @@ The real Windows PowerShell 7 round trip recorded above completed Install, Refre
 and Restore with `info` schema 16, semantic MCP validation, a byte-exact skill, and
 an immutable baseline. It is not evidence for a real Windows PowerShell 5.1 or Unix
 install. Interrupted states and timeout quarantine continue to use the documented
-manual recovery paths. Broader PP01 documentation, provenance completion, all
-repository gates, and independent review remain pending.
+manual recovery paths. Local repository gates and independent review have completed
+for this command slice. Broader PP01 documentation and command-capture provenance
+remain pending.
 
 - Replace the large PowerShell implementation with the thin wrapper.
 - Replace the current contract with a compact end-to-end matrix.
