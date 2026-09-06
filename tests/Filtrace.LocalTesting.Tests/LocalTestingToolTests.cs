@@ -139,6 +139,55 @@ public sealed class LocalTestingToolTests
     }
 
     [TestMethod]
+    [DataRow(256, 0, 1)]
+    [DataRow(257, 1, 0)]
+    public async Task RunAsync_Restore_LegacyRepositoryDirectoryLimit_IsEnforced(
+        int repositoryCount,
+        int expectedExitCode,
+        int expectedRestoreCalls)
+    {
+        using TemporaryDirectory directory = new();
+        string target = Path.Join(directory.Path, "target");
+        string source = Path.Join(directory.Path, "source");
+        string targetGit = Path.Join(target, ".git");
+        string repositories = Path.Join(source, "artifacts", "local-testing", "repositories");
+        Directory.CreateDirectory(targetGit);
+        Directory.CreateDirectory(repositories);
+        for (int index = 0; index < repositoryCount; index++)
+        {
+            Directory.CreateDirectory(Path.Join(repositories, $"repository-{index}"));
+        }
+
+        byte[] sentinel = [0x00, 0x7f, 0x80, 0xff];
+        string sentinelPath = Path.Join(target, "consumer.bin");
+        File.WriteAllBytes(sentinelPath, sentinel);
+        ScriptedProcessRunner runner = new(_ => RepositoryResult(target, targetGit));
+        StringWriter error = new();
+        int restoreCalls = 0;
+        LocalTestingTool tool = new(
+            runner,
+            TextWriter.Null,
+            error,
+            restore: _ => restoreCalls++);
+
+        int exitCode = await tool.RunAsync(CreateArguments("Restore", target, source));
+
+        exitCode.Should().Be(expectedExitCode);
+        restoreCalls.Should().Be(expectedRestoreCalls);
+        runner.Invocations.Should().ContainSingle();
+        File.ReadAllBytes(sentinelPath).Should().Equal(sentinel);
+        if (repositoryCount > 256)
+        {
+            error.ToString().Should().Contain(
+                "Legacy PR #94 repository-state discovery exceeded 256 directories");
+        }
+        else
+        {
+            error.ToString().Should().BeEmpty();
+        }
+    }
+
+    [TestMethod]
     [DataRow(data: false)]
     [DataRow(data: true)]
     public async Task RunAsync_Restore_DoesNotRequireOrPrepareSourceCheckout(bool includeMissingSource)
