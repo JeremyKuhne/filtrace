@@ -26,6 +26,12 @@ if ($env:FILTRACE_TRACKD_FAKE_OUTPUT_ARM -eq $ArmName) {
     [Console]::Out.Write('x' * (11 * 1024 * 1024))
 }
 
+if (-not [string]::IsNullOrEmpty($env:FILTRACE_TRACKD_FAKE_MEASUREMENT_MARKERS)) {
+    Add-Content `
+        -LiteralPath $env:FILTRACE_TRACKD_FAKE_MEASUREMENT_MARKERS `
+        -Value $ArmName
+}
+
 [string] $zeroCpuArm = $env:FILTRACE_TRACKD_FAKE_ZERO_CPU_ARM
 if (
     -not [string]::IsNullOrEmpty($zeroCpuArm) -and
@@ -131,6 +137,9 @@ $telemetry = [ordered]@{
     schemaVersion = 2
     scenario = $CliScenario
     iterations = $TelemetryIterations
+    executable = Join-Path `
+        $Checkout `
+        "src/Filtrace/bin/Release/net10.0/$(if ([OperatingSystem]::IsWindows()) { 'filtrace.exe' } else { 'filtrace' })"
     launches = $launches
 }
 switch ($env:FILTRACE_TRACKD_FAKE_ELAPSED) {

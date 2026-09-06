@@ -136,6 +136,27 @@ recorded checkout. Never substitute an installed global `filtrace` or the MCP se
 either can silently change analysis behavior. For a single-checkout drill, use that
 checkout's local CLI. For A/B work, use the fixed local baseline CLI for both arms.
 
+`Invoke-TrackDInvestigation.ps1 -CaptureProfiles` implements the first attribution
+pass for `info-warm`, `rank-self-warm`, `rank-inclusive-warm`, and
+`rank-activity-warm`. After both arms finish timed benchmarks and untimed child
+telemetry, it replays each arm's recorded warm command once under CPU collection and
+once under allocation/GC collection. The option requires an explicit
+`-AnalyzerPath`; `-DotnetTracePath` accepts a recorder path and otherwise resolves
+`dotnet-trace` from `PATH`. Recorder profile support and the frozen analyzer's bounded
+directory inventory are validated before either arm runs.
+
+The wrapper copies the complete analyzer directory into the run, analyzes every
+capture from that owned snapshot through structured `Invoke-FiltraceAnalysis.ps1`
+plans, and verifies that both the source build and snapshot remain unchanged. It
+retains bounded traces, collection logs, plans, query output, and analysis run
+records. `profiles.json` distinguishes `observed`, `insufficientQuality`, and
+`empty`: CPU requires a positive contributing-record count, allocation may report
+that count as unavailable, and enabled GC with zero collections is valid empty
+evidence. CPU and allocation values are sampled weights, not exact CPU duration or
+allocation totals. Use this pass to establish concrete attribution before changing
+production code. The current wrapper does not capture retained heaps, concurrent
+requests, or cache eviction.
+
 ```pwsh
 $harnessCommit = '<merged commit containing the complete measurement harness>'
 git worktree add --detach ../filtrace-perf-base $harnessCommit
@@ -154,7 +175,8 @@ it does not consume the effective interval recorded in the command manifest. Tre
 self-profile weights as records and percentages, not absolute CPU milliseconds, and
 fail the comparison if the manifests report different effective intervals.
 
-Start with 25 iterations, then raise the count until the **target query** is thick:
+For deeper ETW target-frame and source-line attribution, start with 25 iterations,
+then raise the count until the **target query** is thick:
 `callers.contributingRecordCount` must be at least 200, and a source-line claim needs
 `lines.attributedRecordCount` of at least 1,000. Whole-trace `info.sampleCount` does
 not establish confidence for a narrow target frame.
@@ -355,9 +377,9 @@ Complete this before any production parallelism edit.
   injected adapter failure with retained commands/status, and test-adapter gating.
 
 Remaining Phase 0 work is copying/restoring the reviewed corpus archive in approved
-durable storage, optional Layer C capture wiring, and a post-merge exact-worktree
-no-op run using the default job and 25-launch telemetry. The local ignored archive
-and dirty-checkout dry smoke are not durable acceptance evidence.
+durable storage and a post-merge exact-worktree no-op run using the default job and
+25-launch telemetry. The local ignored archive and dirty-checkout dry smoke are not
+durable acceptance evidence.
 
 ### Benchmark additions
 
@@ -439,9 +461,10 @@ producer.
 - write `run.json`, `commands.txt`, and a starter ledger without deciding whether a
   candidate passed.
 
-Still add optional Layer C invocation of `Capture-CommandTrace.ps1`, extraction of
-exact invocation IDs, and fixed-analyzer `info`, `lifecycle`, `cpu`, `callers`, and
-`lines` output after arbitrary launch arguments have a reviewed encoding path.
+Its optional fixed-analyzer profile stage now captures and analyzes CPU,
+allocation, and GC evidence for the four persistent single-trace warm scenarios.
+Arbitrary launch arguments and automated ETW `lifecycle`, `callers`, and `lines`
+drill-down remain outside the wrapper until they have a reviewed encoding path.
 
 [`Capture-TrackDCorpus.ps1`](../benchmarks/Capture-TrackDCorpus.ps1) is the first
 implemented subset of that orchestrator: it builds the workload, captures one

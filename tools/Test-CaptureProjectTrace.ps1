@@ -18,6 +18,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $captureScript = Join-Path $root '.agents/skills/filtrace/scripts/Capture-ProjectTrace.ps1'
+$recorderScript = Join-Path $root '.agents/skills/filtrace/scripts/Get-DotnetTraceRecorder.ps1'
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) "ftp-$([Guid]::NewGuid().ToString('N').Substring(0, 12))"
 
 function Assert-True([bool]$Condition, [string]$Message) {
@@ -50,7 +51,15 @@ try {
         [ref]$parseErrors)
     Assert-True ($parseErrors.Count -eq 0) 'Capture-ProjectTrace.ps1 did not parse.'
 
-    $functionNames = @('Get-DotnetTraceRecorder', 'Write-CaptureMetadata')
+    $recorderTokens = $null
+    $recorderParseErrors = $null
+    $recorderAst = [System.Management.Automation.Language.Parser]::ParseFile(
+        $recorderScript,
+        [ref]$recorderTokens,
+        [ref]$recorderParseErrors)
+    Assert-True ($recorderParseErrors.Count -eq 0) 'Get-DotnetTraceRecorder.ps1 did not parse.'
+
+    $functionNames = @('Write-CaptureMetadata')
     $definitions = @(
         $captureAst.FindAll(
             { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $functionNames },
@@ -58,8 +67,9 @@ try {
             Sort-Object { $_.Extent.StartOffset } |
             ForEach-Object { $_.Extent.Text }
     )
-    Assert-True ($definitions.Count -eq $functionNames.Count) 'Recorder contract functions could not be isolated.'
+    Assert-True ($definitions.Count -eq $functionNames.Count) 'Capture metadata function could not be isolated.'
     . ([scriptblock]::Create(($definitions -join [Environment]::NewLine)))
+    . $recorderScript
 
     $source = Get-Content -LiteralPath $captureScript -Raw
     $preflightOffset = $source.IndexOf(
