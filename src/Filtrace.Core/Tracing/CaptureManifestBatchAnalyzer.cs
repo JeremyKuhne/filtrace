@@ -36,6 +36,11 @@ public static class CaptureManifestBatchAnalyzer
         ArgumentException.ThrowIfNullOrEmpty(metric);
         ArgumentNullException.ThrowIfNull(foldPatterns);
         ArgumentNullException.ThrowIfNull(load);
+        if (manifest.Cases.Count == 0)
+        {
+            throw new InvalidDataException("Capture manifest contains no cases to analyze.");
+        }
+
         if (manifest.Cases.Count > MaxAnalyzedCases)
         {
             throw new InvalidDataException(

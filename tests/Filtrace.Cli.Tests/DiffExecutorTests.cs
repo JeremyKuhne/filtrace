@@ -344,4 +344,41 @@ public sealed class DiffExecutorTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
+    [TestMethod]
+    public void Run_EmptyManifest_ReturnsInputErrorsForBatchAndDiff()
+    {
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-empty-manifest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string manifest = Path.Join(directory, "manifest.json");
+        try
+        {
+            File.WriteAllText(manifest, """{"schemaVersion":2,"kind":"command","cases":[]}""");
+
+            BatchRequest batchRequest = new(
+                manifest,
+                TraceMetric.Cpu,
+                "",
+                FrameNames.DefaultFoldPatterns,
+                Measure.Self,
+                OutputFormat.Json,
+                Symbols: null,
+                Strict: false,
+                ScopeRequest.Auto);
+
+            (int batchExit, string batchOutput, string batchError) = Run(batchRequest);
+            batchExit.Should().Be(ExitCodes.InputError);
+            batchOutput.Should().BeEmpty();
+            batchError.Trim().Should().Be("Capture manifest contains no cases to analyze.");
+
+            (int diffExit, string diffOutput, string diffError) = Run(Request(manifest, manifest));
+            diffExit.Should().Be(ExitCodes.InputError);
+            diffOutput.Should().BeEmpty();
+            diffError.Trim().Should().Be("Baseline capture manifest contains no cases to analyze.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

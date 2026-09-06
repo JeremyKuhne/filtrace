@@ -917,6 +917,31 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void BatchAndDiff_EmptyManifest_ThrowUsefulMcpExceptions()
+    {
+        TraceStore store = new();
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-mcp-empty-manifest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string manifest = Path.Join(directory, "manifest.json");
+        try
+        {
+            File.WriteAllText(manifest, """{"schemaVersion":2,"kind":"command","cases":[]}""");
+
+            Action batch = () => TraceTools.Batch(store, manifest);
+            batch.Should().Throw<McpException>().WithMessage(
+                "Capture manifest contains no cases to analyze.");
+
+            Action diff = () => TraceTools.Diff(store, manifest, manifest);
+            diff.Should().Throw<McpException>().WithMessage(
+                "Baseline capture manifest contains no cases to analyze.");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task RankTool_ConflictingAddressForms_Throws()
     {
         TraceStore store = new();

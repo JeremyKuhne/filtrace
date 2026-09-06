@@ -22,6 +22,15 @@ public static class CaptureManifestPairer
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
+        if (before.Cases.Count == 0)
+        {
+            throw new InvalidDataException("Baseline capture manifest contains no cases to analyze.");
+        }
+
+        if (after.Cases.Count == 0)
+        {
+            throw new InvalidDataException("Current capture manifest contains no cases to analyze.");
+        }
 
         List<string> warnings = [];
         int omittedWarnings = 0;

@@ -831,6 +831,18 @@ inside a report union weakens selector use, so this does not reopen consolidatio
 **Priority:** Later. **Gate:** a side-effect-free contract test must exercise the
 matrix, elevation handoff, partial-manifest, and multi-executable paths.
 
+**PP01 bounded status:** the fake-only contract now verifies structured and legacy
+arguments, mixed executable identities and exact invocation roots, path-safe bounded
+scenario identities, malformed collect-result rejection, partial and all-failed diagnostic
+manifests, tool/working-directory/allowlisted-environment provenance, stale-run rejection,
+and bounded parent handling for timeout, inaccessible wait, absent handle, launch failure,
+and nonzero child exit. The Windows native-apphost contract also crosses both native
+argv boundaries, including empty, single, and multiple arguments. A real elevated
+Windows smoke captured two invocations each of `dotnet --version` and `git --version`,
+then replayed their exact roots with a fixed local analyzer without leaving a Filtrace
+ETW session. Interactive UAC handoff and manifest-addressed lifecycle reconstruction
+remain unverified; the latter is tracked by SC10.
+
 `Capture-CommandTrace.ps1` made the successful investigation repeatable, but its
 orchestration contract is not tested as deeply as `Capture-BenchmarkTrace.ps1`, and
 its manifest is intentionally smaller than the issue's full provenance wish list.
