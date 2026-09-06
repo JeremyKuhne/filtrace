@@ -59,6 +59,74 @@ function Assert-Contains([string]$Actual, [string]$Expected, [string]$Because) {
         throw "$Because Expected to find '$Expected'; received '$Actual'."
     }
 }
+function Test-HostGuardContract([string]$Path) {
+    [System.Management.Automation.Language.Token[]]$tokens = $null
+    [System.Management.Automation.Language.ParseError[]]$parseErrors = $null
+    [System.Management.Automation.Language.ScriptBlockAst]$scriptAst = [System.Management.Automation.Language.Parser]::ParseFile(
+        $Path,
+        [ref]$tokens,
+        [ref]$parseErrors)
+    Assert-Equal $parseErrors.Count 0 'Wrapper guard source did not parse.'
+
+    [System.Management.Automation.Language.IfStatementAst[]]$hostGuards = @($scriptAst.FindAll({
+        param([System.Management.Automation.Language.Ast]$node)
+        $node -is [System.Management.Automation.Language.IfStatementAst] -and
+            $node.Extent.Text.Contains('$PSVersionTable.PSVersion', [System.StringComparison]::Ordinal)
+    }, $true))
+    Assert-Equal $hostGuards.Count 1 'Wrapper host guard count mismatch.'
+    [System.Management.Automation.Language.IfStatementAst]$hostGuard = $hostGuards[0]
+    [System.Management.Automation.Language.PipelineBaseAst]$guardCondition = $hostGuard.Clauses[0].Item1
+    [System.Management.Automation.Language.VariableExpressionAst[]]$guardVariables = @($guardCondition.FindAll({
+        param([System.Management.Automation.Language.Ast]$node)
+        $node -is [System.Management.Automation.Language.VariableExpressionAst]
+    }, $true))
+    foreach ($guardVariable in $guardVariables) {
+        Assert-Equal $guardVariable.VariablePath.UserPath 'PSVersionTable' 'Wrapper host guard referenced unexpected state.'
+    }
+
+    [System.Management.Automation.Language.CommandAst]$firstPathResolution = @($scriptAst.FindAll({
+        param([System.Management.Automation.Language.Ast]$node)
+        $node -is [System.Management.Automation.Language.CommandAst] -and
+            $node.GetCommandName() -eq 'Resolve-Path'
+    }, $true))[0]
+    [System.Management.Automation.Language.CommandAst]$firstNativeResolution = @($scriptAst.FindAll({
+        param([System.Management.Automation.Language.Ast]$node)
+        $node -is [System.Management.Automation.Language.CommandAst] -and
+            $node.GetCommandName() -eq 'Resolve-NativeApplication'
+    }, $true))[0]
+    Assert-Equal ($hostGuard.Extent.EndOffset -lt $firstPathResolution.Extent.StartOffset) $true 'Wrapper host guard followed path resolution.'
+    Assert-Equal ($hostGuard.Extent.EndOffset -lt $firstNativeResolution.Extent.StartOffset) $true 'Wrapper host guard followed native command resolution.'
+
+    [string]$localCondition = $guardCondition.Extent.Text.Replace('$PSVersionTable', '$HostMetadata')
+    [scriptblock]$guardProbe = [scriptblock]::Create(@"
+param([hashtable]`$HostMetadata)
+if ($localCondition) {
+    [pscustomobject]@{ Rejected = `$true; FakeExecutionStarted = `$false }
+    return
+}
+`$fakeExecutionStarted = `$true
+[pscustomobject]@{ Rejected = `$false; FakeExecutionStarted = `$fakeExecutionStarted }
+"@)
+    [object[]]$cases = @(
+        [pscustomobject]@{ Name = 'Desktop 5.1'; Edition = 'Desktop'; Version = '5.1'; Rejected = $false },
+        [pscustomobject]@{ Name = 'Desktop 5.0'; Edition = 'Desktop'; Version = '5.0'; Rejected = $true },
+        [pscustomobject]@{ Name = 'Core 6.2'; Edition = 'Core'; Version = '6.2'; Rejected = $true },
+        [pscustomobject]@{ Name = 'Core 7.0'; Edition = 'Core'; Version = '7.0'; Rejected = $false },
+        [pscustomobject]@{ Name = 'future Core'; Edition = 'Core'; Version = '99.0'; Rejected = $false },
+        [pscustomobject]@{ Name = 'unknown edition'; Edition = 'FutureShell'; Version = '99.0'; Rejected = $true }
+    )
+    foreach ($case in $cases) {
+        [hashtable]$hostMetadata = @{
+            PSEdition = $case.Edition
+            PSVersion = [Version]$case.Version
+        }
+        [pscustomobject]$probeResult = & $guardProbe $hostMetadata
+        Assert-Equal $probeResult.Rejected $case.Rejected "$($case.Name) simulated host guard mismatch."
+        if ($case.Name -eq 'Core 6.2') {
+            Assert-Equal $probeResult.FakeExecutionStarted $false 'Core 6.2 simulated host reached post-guard execution.'
+        }
+    }
+}
 function Invoke-BoundedProcess(
     [string]$FilePath,
     [string[]]$ArgumentList,
@@ -383,6 +451,7 @@ function Test-RealHelperInvocation(
 }
 
 $resolvedWrapper = (Resolve-Path -LiteralPath $WrapperPath).Path
+Test-HostGuardContract $resolvedWrapper
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $probeOutput = Join-Path $repositoryRoot "tests/Filtrace.LocalTesting.Tests/bin/$Configuration/net10.0"
 $probeAppHost = Join-Path $probeOutput 'Filtrace.LocalTesting.Tests.exe'
