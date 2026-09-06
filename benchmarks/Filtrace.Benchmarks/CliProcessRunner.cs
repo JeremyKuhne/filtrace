@@ -98,8 +98,8 @@ internal static partial class CliProcessRunner
     }
 
     /// <summary>
-    ///  Runs one telemetry launch and records output identity together with final CPU,
-    ///  peak working-set, and sampled private-memory measurements.
+    ///  Runs one telemetry launch and records output identity together with launch-to-exit,
+    ///  cumulative CPU, peak working-set, and sampled private-memory measurements.
     /// </summary>
     /// <param name="executable">The filtrace executable to launch.</param>
     /// <param name="arguments">The argument tokens passed without shell parsing.</param>
@@ -118,6 +118,7 @@ internal static partial class CliProcessRunner
         return new CliProcessTelemetry(
             iteration,
             [.. arguments],
+            observation.LaunchToExitElapsed.TotalMilliseconds,
             observation.TotalProcessorTime.TotalMilliseconds,
             observation.PeakWorkingSetBytes,
             observation.MaxPrivateMemoryBytes,
@@ -145,6 +146,7 @@ internal static partial class CliProcessRunner
         }
 
         using Process process = new() { StartInfo = startInfo };
+        long launchTimestamp = Stopwatch.GetTimestamp();
         if (!process.Start())
         {
             throw new InvalidOperationException($"Failed to start '{executable}'.");
@@ -216,6 +218,7 @@ internal static partial class CliProcessRunner
                 cleanupError);
         }
 
+            TimeSpan launchToExitElapsed = Stopwatch.GetElapsedTime(launchTimestamp);
         await Task.WhenAll(standardOutput, standardError).ConfigureAwait(continueOnCapturedContext: false);
         string output = await standardOutput.ConfigureAwait(continueOnCapturedContext: false);
         string error = await standardError.ConfigureAwait(continueOnCapturedContext: false);
@@ -236,6 +239,7 @@ internal static partial class CliProcessRunner
             process.ExitCode,
             output,
             error,
+            launchToExitElapsed,
             totalProcessorTime,
             peakWorkingSetBytes,
             maxPrivateMemoryBytes);

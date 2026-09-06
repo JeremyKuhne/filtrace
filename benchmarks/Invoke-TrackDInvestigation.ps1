@@ -564,22 +564,90 @@ function Get-BenchmarkComparison([string] $BaselineReport, [string] $CandidateRe
 
 function Get-TelemetrySummary([string] $Path) {
     [object] $report = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-    if (@($report.launches).Count -ne [int]$report.iterations) {
+    if ([int]$report.schemaVersion -ne 2) {
+        throw "Telemetry report '$Path' does not use schema version 2."
+    }
+
+    [object] $iterationsProperty = $report.PSObject.Properties['iterations']
+    [object] $iterationsValue = if ($null -eq $iterationsProperty) {
+        $null
+    }
+    else {
+        $iterationsProperty.Value
+    }
+    if (
+        $null -eq $iterationsValue -or
+        $iterationsValue -is [string] -or
+        $iterationsValue -is [bool] -or
+        $iterationsValue -isnot [ValueType]
+    ) {
+        throw "Telemetry report '$Path' iterations must be a positive integer JSON number."
+    }
+
+    [double] $iterationsNumber = $iterationsValue
+    if (
+        -not [double]::IsFinite($iterationsNumber) -or
+        $iterationsNumber -le 0.0 -or
+        $iterationsNumber -ne [Math]::Truncate($iterationsNumber) -or
+        $iterationsNumber -gt [int]::MaxValue
+    ) {
+        throw "Telemetry report '$Path' iterations must be a positive integer JSON number."
+    }
+
+    [int] $iterations = [int]$iterationsNumber
+    [object[]] $launches = @($report.launches)
+    if ($launches.Count -ne $iterations) {
         throw "Telemetry report '$Path' has an incomplete launch set."
     }
 
+    [double[]] $launchToExitMilliseconds = @(
+        foreach ($launch in $launches) {
+            [object] $property = $launch.PSObject.Properties['launchToExitMilliseconds']
+            if ($null -eq $property) {
+                throw "Telemetry report '$Path' is missing launchToExitMilliseconds."
+            }
+
+            [object] $value = $property.Value
+            if ($value -is [string]) {
+                if (
+                    $value -in @('NaN', 'Infinity', '+Infinity', '-Infinity')
+                ) {
+                    throw "Telemetry report '$Path' has nonfinite launchToExitMilliseconds."
+                }
+
+                throw "Telemetry report '$Path' launchToExitMilliseconds must be a JSON number."
+            }
+
+            if ($null -eq $value -or $value -is [bool] -or $value -isnot [ValueType]) {
+                throw "Telemetry report '$Path' launchToExitMilliseconds must be a JSON number."
+            }
+
+            [double] $elapsed = $value
+            if (-not [double]::IsFinite($elapsed)) {
+                throw "Telemetry report '$Path' has nonfinite launchToExitMilliseconds."
+            }
+
+            if ($elapsed -lt 0.0) {
+                throw "Telemetry report '$Path' has negative launchToExitMilliseconds."
+            }
+
+            $elapsed
+        })
+
     return [ordered]@{
         scenario = $report.scenario
-        iterations = $report.iterations
+        iterations = $iterations
+        averageLaunchToExitMilliseconds = [double](
+            $launchToExitMilliseconds | Measure-Object -Average).Average
         averageCpuMilliseconds = [double](
-            $report.launches.totalProcessorMilliseconds | Measure-Object -Average).Average
+            $launches.totalProcessorMilliseconds | Measure-Object -Average).Average
         maxPeakWorkingSetBytes = [long](
-            $report.launches.peakWorkingSetBytes | Measure-Object -Maximum).Maximum
+            $launches.peakWorkingSetBytes | Measure-Object -Maximum).Maximum
         maxPrivateMemoryBytes = [long](
-            $report.launches.maxPrivateMemoryBytes | Measure-Object -Maximum).Maximum
+            $launches.maxPrivateMemoryBytes | Measure-Object -Maximum).Maximum
         averageOutputLength = [double](
-            $report.launches.standardOutputLength | Measure-Object -Average).Average
-        distinctOutputDigests = @($report.launches.outputSha256 | Sort-Object -Unique).Count
+            $launches.standardOutputLength | Measure-Object -Average).Average
+        distinctOutputDigests = @($launches.outputSha256 | Sort-Object -Unique).Count
     }
 }
 
@@ -824,6 +892,9 @@ try {
         cliTelemetry = [ordered]@{
             baseline = $baselineTelemetry
             candidate = $candidateTelemetry
+            averageLaunchToExitDeltaMilliseconds = `
+                $candidateTelemetry.averageLaunchToExitMilliseconds `
+                - $baselineTelemetry.averageLaunchToExitMilliseconds
             averageCpuDeltaPercent = $cliCpuDelta
             peakWorkingSetDeltaBytes = $candidateTelemetry.maxPeakWorkingSetBytes `
                 - $baselineTelemetry.maxPeakWorkingSetBytes

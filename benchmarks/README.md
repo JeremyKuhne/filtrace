@@ -62,6 +62,12 @@ paths are provenance and no longer exist after each launch is validated and clea
 The shared runner caps each captured child stream at 10,485,760 characters; larger
 output fails the run instead of exhausting the benchmark host.
 
+Telemetry schema 2 records `launchToExitMilliseconds` from the monotonic timestamp
+immediately before `Process.Start` through successful root-process exit. It excludes
+post-exit output draining and hashing. CPU is the largest cumulative value observed
+by polling, working set is the largest OS-reported peak observed by polling, and
+private memory is the largest sampled value.
+
 To profile a benchmark with filtrace:
 
 ```pwsh

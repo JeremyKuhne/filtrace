@@ -49,9 +49,10 @@ $bdn = [ordered]@{ Benchmarks = $benchmarks }
     $utf8)
 
 $launches = @(for ($iteration = 1; $iteration -le $TelemetryIterations; $iteration++) {
-    [ordered]@{
+    [System.Collections.Specialized.OrderedDictionary] $launch = [ordered]@{
         iteration = $iteration
         arguments = @('info', $Trace, '--format', 'json')
+        launchToExitMilliseconds = 250.0
         totalProcessorMilliseconds = 100.0
         peakWorkingSetBytes = 50000000
         maxPrivateMemoryBytes = 25000000
@@ -60,12 +61,32 @@ $launches = @(for ($iteration = 1; $iteration -le $TelemetryIterations; $iterati
         standardErrorLength = 0
         outputSha256 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
     }
+    switch ($env:FILTRACE_TRACKD_FAKE_ELAPSED) {
+        'missing' { $launch.Remove('launchToExitMilliseconds') }
+        'malformed' { $launch.launchToExitMilliseconds = 'not-a-number' }
+        'nonfinite' { $launch.launchToExitMilliseconds = 'Infinity' }
+        'negative' { $launch.launchToExitMilliseconds = -1.0 }
+    }
+
+    $launch
 })
 $telemetry = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     scenario = $CliScenario
     iterations = $TelemetryIterations
     launches = $launches
+}
+switch ($env:FILTRACE_TRACKD_FAKE_ELAPSED) {
+    'schema1' { $telemetry.schemaVersion = 1 }
+    'empty' {
+        $telemetry.iterations = 0
+        $telemetry.launches = @()
+    }
+    'iterations-fractional' { $telemetry.iterations = 1.5 }
+    'iterations-null' { $telemetry.iterations = $null }
+    'iterations-missing' { $telemetry.Remove('iterations') }
+    'iterations-string' { $telemetry.iterations = '1' }
+    'iterations-boolean' { $telemetry.iterations = $true }
 }
 [System.IO.File]::WriteAllText(
     (Join-Path $telemetryDirectory 'cli-process.json'),

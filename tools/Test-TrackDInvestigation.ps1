@@ -62,6 +62,142 @@ try {
     })
 
     [string] $adapter = Join-Path $root 'tools/fixtures/Fake-TrackDMeasurements.ps1'
+    [string] $blockingProcessName = if ($IsWindows) {
+        'Filtrace.BlockingProcess.exe'
+    }
+    else {
+        'Filtrace.BlockingProcess'
+    }
+    [string] $blockingProcess = Join-Path `
+        $root `
+        "tools/fixtures/Filtrace.BlockingProcess/bin/Release/net10.0/$blockingProcessName"
+    Assert-True `
+        (Test-Path -LiteralPath $blockingProcess -PathType Leaf) `
+        "Elapsed probe child was not built at '$blockingProcess'."
+
+    [string] $probeTrace = Join-Path $temporaryRoot 'elapsed-probe.nettrace'
+    Copy-Item `
+        -LiteralPath (Join-Path $root 'tests/Filtrace.Core.Tests/Fixtures/threadpool.nettrace') `
+        -Destination $probeTrace
+    [string] $probeOutput = Join-Path $temporaryRoot 'elapsed-probe.json'
+    [string] $readyPath = Join-Path $temporaryRoot 'elapsed-probe.ready'
+    [string] $releasePath = Join-Path $temporaryRoot 'elapsed-probe.release'
+    [System.Management.Automation.CommandInfo] $dotnetCommand = @(
+        Get-Command dotnet -CommandType Application -ErrorAction Stop)[0]
+    [System.Diagnostics.ProcessStartInfo] $probeStart = [System.Diagnostics.ProcessStartInfo]::new()
+    $probeStart.FileName = $dotnetCommand.Source
+    $probeStart.WorkingDirectory = $root
+    $probeStart.UseShellExecute = $false
+    $probeStart.RedirectStandardOutput = $true
+    $probeStart.RedirectStandardError = $true
+    foreach ($argument in @(
+        'run', '-c', 'Release', '--no-build',
+        '--project', 'benchmarks/Filtrace.Benchmarks', '--',
+        '--cli-telemetry',
+        '--scenario', 'info-warm',
+        '--trace', $probeTrace,
+        '--output', $probeOutput,
+        '--iterations', '1',
+        '--filtrace', $blockingProcess)) {
+        $probeStart.ArgumentList.Add($argument)
+    }
+    $probeStart.Environment['FILTRACE_ELAPSED_READY_PATH'] = $readyPath
+    $probeStart.Environment['FILTRACE_ELAPSED_RELEASE_PATH'] = $releasePath
+
+    [System.Diagnostics.Process] $probeProcess = [System.Diagnostics.Process]::new()
+    $probeProcess.StartInfo = $probeStart
+    [System.Threading.Tasks.Task[string]] $probeStandardOutput = $null
+    [System.Threading.Tasks.Task[string]] $probeStandardError = $null
+    [System.Diagnostics.Stopwatch] $heldOpen = $null
+    [bool] $probeStarted = $false
+    [int] $probeCleanupTimeoutMilliseconds = 5000
+    try {
+        $probeStarted = $probeProcess.Start()
+        Assert-True $probeStarted 'Elapsed probe process did not start.'
+        $probeStandardOutput = $probeProcess.StandardOutput.ReadToEndAsync()
+        $probeStandardError = $probeProcess.StandardError.ReadToEndAsync()
+
+        [System.Diagnostics.Stopwatch] $readinessWait = [System.Diagnostics.Stopwatch]::StartNew()
+        while (
+            -not (Test-Path -LiteralPath $readyPath) -and
+            -not $probeProcess.HasExited -and
+            $readinessWait.Elapsed -lt [TimeSpan]::FromSeconds(30)
+        ) {
+            [System.Threading.Thread]::Sleep(10)
+        }
+        Assert-True `
+            (Test-Path -LiteralPath $readyPath) `
+            'Elapsed probe child did not publish readiness.'
+
+        $heldOpen = [System.Diagnostics.Stopwatch]::StartNew()
+        [System.Threading.Thread]::Sleep(500)
+        [System.IO.File]::WriteAllText($releasePath, '')
+        $heldOpen.Stop()
+
+        if (-not $probeProcess.WaitForExit(30000)) {
+            throw 'Elapsed probe process did not exit after release.'
+        }
+
+        [System.Threading.Tasks.Task] $probeOutputCompletion = [System.Threading.Tasks.Task]::WhenAll(
+            [System.Threading.Tasks.Task[]]@($probeStandardOutput, $probeStandardError))
+        $probeOutputCompletion.WaitAsync(
+            [TimeSpan]::FromMilliseconds($probeCleanupTimeoutMilliseconds)).GetAwaiter().GetResult()
+        [string] $probeText = $probeStandardOutput.GetAwaiter().GetResult()
+        [string] $probeError = $probeStandardError.GetAwaiter().GetResult()
+        Assert-True `
+            ($probeProcess.ExitCode -eq 0) `
+            "Elapsed probe failed with code $($probeProcess.ExitCode): $probeError"
+        Assert-True `
+            ([string]::IsNullOrEmpty($probeError)) `
+            "Elapsed probe wrote unexpected stderr: $probeError"
+        Assert-True `
+            ($probeText.Trim() -eq $probeOutput) `
+            'Elapsed probe did not report its telemetry output path.'
+    }
+    finally {
+        if (-not (Test-Path -LiteralPath $releasePath)) {
+            [System.IO.File]::WriteAllText($releasePath, '')
+        }
+        if ($probeStarted) {
+            [bool] $probeExited = $false
+            try {
+                $probeExited = $probeProcess.HasExited
+            }
+            catch {
+                Write-Warning "Unable to inspect the elapsed probe during cleanup: $($_.Exception.Message)"
+            }
+
+            if (-not $probeExited) {
+                try {
+                    $probeProcess.Kill($true)
+                }
+                catch {
+                    Write-Warning "Unable to terminate the elapsed probe during cleanup: $($_.Exception.Message)"
+                }
+
+                try {
+                    if (-not $probeProcess.WaitForExit($probeCleanupTimeoutMilliseconds)) {
+                        Write-Warning `
+                            "Elapsed probe remained active after the bounded cleanup wait."
+                    }
+                }
+                catch {
+                    Write-Warning "Unable to wait for the elapsed probe during cleanup: $($_.Exception.Message)"
+                }
+            }
+        }
+        $probeProcess.Dispose()
+    }
+
+    [object] $probeReport = Get-Content -LiteralPath $probeOutput -Raw | ConvertFrom-Json
+    [object] $probeLaunch = @($probeReport.launches)[0]
+    Assert-True ($probeReport.schemaVersion -eq 2) 'Elapsed probe did not write telemetry schema 2.'
+    Assert-True `
+        ($probeLaunch.launchToExitMilliseconds -ge $heldOpen.Elapsed.TotalMilliseconds) `
+        'Launch-to-exit telemetry did not contain the synchronized child wait.'
+    Assert-True `
+        ($probeLaunch.launchToExitMilliseconds -gt $probeLaunch.totalProcessorMilliseconds) `
+        'Launch-to-exit telemetry did not remain distinct from child CPU time.'
 
     [string] $firstCommandDirectory = Join-Path $temporaryRoot 'path-first'
     [string] $secondCommandDirectory = Join-Path $temporaryRoot 'path-second'
@@ -144,9 +280,102 @@ try {
     Assert-True (@($comparison.benchmarkRows | Where-Object {
         $_.meanDeltaPercent -ne 0 -or $_.allocatedDeltaBytes -ne 0
     }).Count -eq 0) 'Fake no-op benchmark deltas were not neutral.'
+    Assert-True `
+        ($comparison.cliTelemetry.averageLaunchToExitDeltaMilliseconds -eq 0) `
+        'Fake no-op launch-to-exit delta was not neutral.'
     Assert-True ($comparison.cliTelemetry.averageCpuDeltaPercent -eq 0) 'Fake no-op CLI CPU delta was not neutral.'
     Assert-True ($comparison.cliTelemetry.peakWorkingSetDeltaBytes -eq 0) 'Fake no-op working-set delta was not neutral.'
     Assert-True ($comparison.cliTelemetry.privateMemoryDeltaBytes -eq 0) 'Fake no-op private-memory delta was not neutral.'
+
+    [object[]] $invalidTelemetryCases = @(
+        [pscustomobject]@{
+            Mode = 'schema1'
+            Message = 'does not use schema version 2'
+        },
+        [pscustomobject]@{
+            Mode = 'empty'
+            Message = 'iterations must be a positive integer'
+        },
+        [pscustomobject]@{
+            Mode = 'iterations-fractional'
+            Message = 'iterations must be a positive integer JSON number'
+        },
+        [pscustomobject]@{
+            Mode = 'iterations-null'
+            Message = 'iterations must be a positive integer JSON number'
+        },
+        [pscustomobject]@{
+            Mode = 'iterations-missing'
+            Message = 'iterations must be a positive integer JSON number'
+        },
+        [pscustomobject]@{
+            Mode = 'iterations-string'
+            Message = 'iterations must be a positive integer JSON number'
+        },
+        [pscustomobject]@{
+            Mode = 'iterations-boolean'
+            Message = 'iterations must be a positive integer JSON number'
+        },
+        [pscustomobject]@{
+            Mode = 'missing'
+            Message = 'missing launchToExitMilliseconds'
+        },
+        [pscustomobject]@{
+            Mode = 'malformed'
+            Message = 'launchToExitMilliseconds must be a JSON number'
+        },
+        [pscustomobject]@{
+            Mode = 'nonfinite'
+            Message = 'nonfinite launchToExitMilliseconds'
+        },
+        [pscustomobject]@{
+            Mode = 'negative'
+            Message = 'negative launchToExitMilliseconds'
+        })
+    [string] $previousFakeTelemetry = $env:FILTRACE_TRACKD_FAKE_ELAPSED
+    try {
+        foreach ($invalidTelemetryCase in $invalidTelemetryCases) {
+            [string] $invalidTelemetryRun = Join-Path `
+                $temporaryRoot `
+                "telemetry-$($invalidTelemetryCase.Mode)"
+            $env:FILTRACE_TRACKD_FAKE_ELAPSED = $invalidTelemetryCase.Mode
+            [bool] $invalidTelemetryFailed = $false
+            try {
+                & $script `
+                    -InputCorpusDirectory $corpus `
+                    -BaselineCheckout $root `
+                    -CandidateCheckout $root `
+                    -AllowDirtyCheckouts `
+                    -OutputDirectory $invalidTelemetryRun `
+                    -NoBuild `
+                    -TestAdapterPath $adapter
+            }
+            catch {
+                $invalidTelemetryFailed = $_.Exception.Message.Contains(
+                    $invalidTelemetryCase.Message,
+                    [StringComparison]::Ordinal)
+            }
+
+            [object] $invalidTelemetryStatus = Get-Content `
+                -LiteralPath (Join-Path $invalidTelemetryRun 'run-status.json') `
+                -Raw | ConvertFrom-Json
+            Assert-True `
+                $invalidTelemetryFailed `
+                "Invalid telemetry mode '$($invalidTelemetryCase.Mode)' was not rejected as expected."
+            Assert-True `
+                ($invalidTelemetryStatus.status -eq 'failed') `
+                "Invalid telemetry mode '$($invalidTelemetryCase.Mode)' did not record failed status."
+            Assert-True `
+                (Test-Path -LiteralPath (Join-Path $invalidTelemetryRun 'failure.txt')) `
+                "Invalid telemetry mode '$($invalidTelemetryCase.Mode)' omitted failure.txt."
+            Assert-True `
+                (Test-Path -LiteralPath (Join-Path $invalidTelemetryRun 'commands.txt')) `
+                "Invalid telemetry mode '$($invalidTelemetryCase.Mode)' omitted commands.txt."
+        }
+    }
+    finally {
+        $env:FILTRACE_TRACKD_FAKE_ELAPSED = $previousFakeTelemetry
+    }
 
     [string] $failure = Join-Path $temporaryRoot 'adapter-failure'
     $previousFailureArm = $env:FILTRACE_TRACKD_FAKE_FAIL_ARM
