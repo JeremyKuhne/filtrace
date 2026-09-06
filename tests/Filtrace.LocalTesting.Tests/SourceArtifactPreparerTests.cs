@@ -538,18 +538,18 @@ public sealed class SourceArtifactPreparerTests
                     ExecutionTimedOut: false));
             }
 
-                    if (incompleteCapture)
-                    {
-                    return Task.FromResult(new ProcessResult(
-                        0,
-                        "partial output",
-                        string.Empty,
-                        StandardOutputTruncated: false,
-                        StandardErrorTruncated: false,
-                        ExecutionTimedOut: false,
-                        OutputCaptureIncomplete: true,
-                        RootProcessId: 4242));
-                    }
+            if (incompleteCapture)
+            {
+                return Task.FromResult(new ProcessResult(
+                    0,
+                    "partial output",
+                    string.Empty,
+                    StandardOutputTruncated: false,
+                    StandardErrorTruncated: false,
+                    ExecutionTimedOut: false,
+                    OutputCaptureIncomplete: true,
+                    RootProcessId: 4242));
+            }
 
             if (executionTimedOut)
             {
@@ -564,16 +564,16 @@ public sealed class SourceArtifactPreparerTests
                     RootProcessId: 4242));
             }
 
-                    if (exitUnconfirmed)
-                    {
-                    return Task.FromResult(new ProcessResult(
-                        ExitCode: null,
-                        string.Empty,
-                        string.Empty,
-                        StandardOutputTruncated: false,
-                        StandardErrorTruncated: false,
-                        ExecutionTimedOut: false));
-                    }
+            if (exitUnconfirmed)
+            {
+                return Task.FromResult(new ProcessResult(
+                    ExitCode: null,
+                    string.Empty,
+                    string.Empty,
+                    StandardOutputTruncated: false,
+                    StandardErrorTruncated: false,
+                    ExecutionTimedOut: false));
+            }
 
             if (invocation.Arguments[0].Equals("build", StringComparison.Ordinal)
                 && invocation.Arguments[1].Contains("Filtrace.Mcp", StringComparison.Ordinal))
