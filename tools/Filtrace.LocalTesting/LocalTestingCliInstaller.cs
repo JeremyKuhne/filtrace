@@ -237,7 +237,11 @@ internal sealed class LocalTestingCliInstaller
         };
 
         startInfo.Environment["DOTNET_ADD_GLOBAL_TOOLS_TO_PATH"] = "false";
+        startInfo.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
         startInfo.Environment["DOTNET_CLI_HOME"] = Path.Join(operationRoot, "dotnet-home");
+        startInfo.Environment["DOTNET_GENERATE_ASPNET_CERTIFICATE"] = "false";
+        startInfo.Environment["DOTNET_NOLOGO"] = "true";
+        startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "true";
         startInfo.Environment["NUGET_HTTP_CACHE_PATH"] = Path.Join(operationRoot, "http-cache");
         startInfo.Environment["NUGET_PACKAGES"] = Path.Join(operationRoot, "packages");
         startInfo.Environment["NUGET_PLUGINS_CACHE_PATH"] = Path.Join(operationRoot, "plugins-cache");

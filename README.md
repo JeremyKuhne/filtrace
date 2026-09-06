@@ -42,10 +42,23 @@ config block and the tool workflow.
 
 ### From source
 
+Activate the current checkout for one Git repository without changing a global
+Filtrace installation:
+
 ```pwsh
-dotnet pack src/Filtrace/Filtrace.csproj -c Release
-dotnet tool install --global --add-source ./artifacts/packages KlutzyNinja.Filtrace
+./tools/Use-LocalFiltrace.ps1 -Action Install -TargetRepository ../consumer -Configuration Release
 ```
+
+Run `Install` again to refresh the private CLI, MCP server, and skill from the
+current source. `-TargetRepository` defaults to the current directory. Restore
+the target's recorded MCP and skill baseline and remove the private CLI with:
+
+```pwsh
+./tools/Use-LocalFiltrace.ps1 -Action Restore -TargetRepository ../consumer -Configuration Release
+```
+
+The command requires PowerShell 5.1 or 7 and the .NET 10 SDK. It does not need
+elevation, change a global tool installation, or upload the prepared package.
 
 ## Using filtrace
 

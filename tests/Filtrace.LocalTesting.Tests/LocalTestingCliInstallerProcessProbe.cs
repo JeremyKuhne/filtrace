@@ -21,7 +21,13 @@ internal static class LocalTestingCliInstallerProcessProbe
         {
             File.WriteAllText(
                 environmentOutput,
-                Environment.GetEnvironmentVariable("DOTNET_ADD_GLOBAL_TOOLS_TO_PATH") ?? "<null>");
+                string.Join(
+                    Environment.NewLine,
+                    Environment.GetEnvironmentVariable("DOTNET_ADD_GLOBAL_TOOLS_TO_PATH") ?? "<null>",
+                    Environment.GetEnvironmentVariable("DOTNET_CLI_TELEMETRY_OPTOUT") ?? "<null>",
+                    Environment.GetEnvironmentVariable("DOTNET_GENERATE_ASPNET_CERTIFICATE") ?? "<null>",
+                    Environment.GetEnvironmentVariable("DOTNET_NOLOGO") ?? "<null>",
+                    Environment.GetEnvironmentVariable("DOTNET_SKIP_FIRST_TIME_EXPERIENCE") ?? "<null>"));
 
             Environment.Exit(9);
         }
