@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using System.ComponentModel;
-
 namespace Filtrace.LocalTesting;
 
 /// <summary>
@@ -31,12 +29,12 @@ internal sealed class SourceArtifactPreparer
     /// <param name="processRunner">The child-process boundary.</param>
     /// <param name="standardOutput">The human-readable progress and child output stream.</param>
     /// <param name="standardError">The human-readable child diagnostic stream.</param>
-    /// <param name="deletePackageDirectory">An optional prepared-package cleanup operation.</param>
+    /// <param name="deleteOperationDirectory">An optional private-operation cleanup operation.</param>
     internal SourceArtifactPreparer(
         IProcessRunner processRunner,
         TextWriter standardOutput,
         TextWriter standardError,
-        Action<string>? deletePackageDirectory = null)
+        Action<string>? deleteOperationDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(processRunner);
         ArgumentNullException.ThrowIfNull(standardOutput);
@@ -44,7 +42,7 @@ internal sealed class SourceArtifactPreparer
         _processRunner = processRunner;
         _standardOutput = standardOutput;
         _standardError = standardError;
-        _deleteOperationDirectory = deletePackageDirectory ?? DeleteOperationDirectory;
+        _deleteOperationDirectory = deleteOperationDirectory ?? DeleteOperationDirectory;
     }
 
     /// <summary>
@@ -173,7 +171,7 @@ internal sealed class SourceArtifactPreparer
         {
             result = await _processRunner.RunAsync(invocation);
         }
-        catch (Win32Exception)
+        catch (ProcessStartException)
         {
             throw;
         }
@@ -208,12 +206,14 @@ internal sealed class SourceArtifactPreparer
         _standardError.Write(result.StandardError);
         if (result.StandardOutputTruncated)
         {
-            _standardError.WriteLine("Standard output exceeded the 1 MiB diagnostic limit and was truncated.");
+            _standardError.WriteLine(
+                "Standard output exceeded the 1,048,576-character diagnostic limit and was truncated.");
         }
 
         if (result.StandardErrorTruncated)
         {
-            _standardError.WriteLine("Standard error exceeded the 1 MiB diagnostic limit and was truncated.");
+            _standardError.WriteLine(
+                "Standard error exceeded the 1,048,576-character diagnostic limit and was truncated.");
         }
 
         if (requiresQuarantine)
