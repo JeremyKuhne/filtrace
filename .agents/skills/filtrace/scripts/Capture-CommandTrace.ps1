@@ -1,4 +1,4 @@
-#requires -Version 7.2
+#requires -Version 7.3
 
 <#
 .SYNOPSIS
@@ -106,6 +106,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$script:PSNativeCommandArgumentPassing = 'Standard'
 $PSNativeCommandUseErrorActionPreference = $false
 $invocationWorkingDirectory = [System.IO.Path]::GetFullPath((Get-Location).Path)
 $maxCaptureCases = 256
@@ -321,7 +322,7 @@ function Assert-ValidScenarioName([string]$Name) {
     if ($Name.EndsWith('.') -or $Name.EndsWith(' ')) {
         throw "Scenario name '$Name' may not end with a dot or space because Windows removes those characters from filenames."
     }
-    if ($Name -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)') {
+    if ($Name -match '^(?i:CON|PRN|AUX|NUL|COM[1-9\u00B9\u00B2\u00B3]|LPT[1-9\u00B9\u00B2\u00B3])(?:\.|$)') {
         throw "Scenario name '$Name' is reserved by Windows and cannot name a trace file."
     }
 }
@@ -650,7 +651,7 @@ if (-not (Test-Elevated)) {
             $exited = $false
             try { $exited = $proc.WaitForExit($waitMs) } catch { $exited = $false }
 
-            if (Test-Path $childLog) {
+            if (Test-Path -LiteralPath $childLog) {
                 Write-Host "`n--- capture output ($childLog) ---" -ForegroundColor Cyan
                 Get-Content -LiteralPath $childLog -Tail 200
             }

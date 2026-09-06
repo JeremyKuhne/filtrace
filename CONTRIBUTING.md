@@ -40,8 +40,9 @@ them locally before opening a PR:
 ./tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation
 ```
 
-Windows CI additionally checks native command-capture argument handling and the
-activation wrapper under Windows PowerShell 5.1 and PowerShell 7:
+Windows CI additionally checks native command-capture argument handling under
+PowerShell 7.3 or later. It checks the activation wrapper separately under Windows
+PowerShell 5.1 and PowerShell 7:
 
 ```pwsh
 ./tools/Test-CaptureCommandTrace.ps1 -WindowsNativeArgv

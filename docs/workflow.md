@@ -408,7 +408,8 @@ are wrong. Work in this order.
    with 25 launches amortizes it and gives a ranking with enough samples to read.
    [scripts/Capture-CommandTrace.ps1](../.agents/skills/filtrace/scripts/Capture-CommandTrace.ps1)
    drives a whole scenario matrix this way, with one elevation and a manifest `batch` and
-    `diff` read directly. The helper requires PowerShell 7.2 or later.
+    `diff` read directly. The helper requires PowerShell 7.3 or later and uses Standard
+    native argument passing even when the caller selected Legacy mode.
 
    Prefer `ArgumentList` for new scenarios so spaces, quotes, empty arguments, and trailing
    backslashes are encoded at the collector's Windows command-line boundary without a

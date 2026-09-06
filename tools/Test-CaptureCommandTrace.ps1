@@ -19,13 +19,40 @@
 #>
 [CmdletBinding()]
 param(
-        [switch]$WindowsNativeArgv
+        [switch]$WindowsNativeArgv,
+        [switch]$EnvironmentCleanupProbe
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $captureScript = Join-Path $root '.agents/skills/filtrace/scripts/Capture-CommandTrace.ps1'
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) "ft-command-$([Guid]::NewGuid().ToString('N').Substring(0, 12))"
+$environmentVariableNames = @(
+    'FILTRACE_COMMAND_CALLS',
+    'FILTRACE_TEST_SECRET',
+    'DOTNET_ReadyToRun',
+    'FILTRACE_COMMAND_MODE',
+    'FILTRACE_CAPTURE_SCRIPT',
+    'FILTRACE_CAPTURE_RUN',
+    'FILTRACE_CAPTURE_TOOL',
+    'FILTRACE_CAPTURE_COMMAND',
+    'FILTRACE_PROCESS_MODE',
+    'FILTRACE_START_PROCESS_CALL',
+    'FILTRACE_WAIT_MS',
+    'FILTRACE_PROCESS_DISPOSED',
+    'FILTRACE_COMMAND_CAPTURE_PROBE_MODE',
+    'FILTRACE_COMMAND_CAPTURE_PROBE_READINESS_PATH',
+    'FILTRACE_COMMAND_CAPTURE_RECORD_DIRECTORY',
+    'FILTRACE_COMMAND_CAPTURE_HOST_EDITION',
+    'FILTRACE_COMMAND_CAPTURE_HOST_VERSION')
+$originalEnvironmentVariables = [ordered]@{}
+foreach ($environmentVariableName in $environmentVariableNames) {
+    $environmentEntry = Get-Item -LiteralPath "Env:$environmentVariableName" -ErrorAction SilentlyContinue
+    $originalEnvironmentVariables[$environmentVariableName] = [pscustomobject]@{
+        Exists = $null -ne $environmentEntry
+        Value = if ($null -ne $environmentEntry) { [string]$environmentEntry.Value } else { $null }
+    }
+}
 
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
@@ -34,12 +61,24 @@ function Assert-True([bool]$Condition, [string]$Message) {
 function Invoke-CaptureChild(
     [string]$ScriptPath,
     [string]$SpecPath,
-    [string]$ExpectedSpecSha256 = '') {
+    [string]$ExpectedSpecSha256 = '',
+    [string]$CallerNativeArgumentPassing = '',
+    [string]$CallerModeRecordPath = '') {
     if (-not $ExpectedSpecSha256) {
         $ExpectedSpecSha256 = (Get-FileHash -LiteralPath $SpecPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
-    $text = & pwsh -NoProfile -File $ScriptPath -SpecPath $SpecPath `
-        -ExpectedSpecSha256 $ExpectedSpecSha256 2>&1 | Out-String
+    $text = if ($CallerNativeArgumentPassing) {
+        & pwsh -NoProfile -File $nativeArgumentModeWrapper `
+            -NativeArgumentPassing $CallerNativeArgumentPassing `
+            -ModeRecordPath $CallerModeRecordPath `
+            -ScriptPath $ScriptPath `
+            -SpecPath $SpecPath `
+            -ExpectedSpecSha256 $ExpectedSpecSha256 2>&1 | Out-String
+    }
+    else {
+        & pwsh -NoProfile -File $ScriptPath -SpecPath $SpecPath `
+            -ExpectedSpecSha256 $ExpectedSpecSha256 2>&1 | Out-String
+    }
     return [pscustomobject]@{
         ExitCode = $LASTEXITCODE
         Output   = $text
@@ -51,7 +90,8 @@ function Invoke-WindowsNativeArgvProof(
     [string]$RunName,
     [object[]]$NativeScenarios,
     [string]$NativeRecorder,
-    [string]$NativeCollector) {
+    [string]$NativeCollector,
+    [string]$CallerNativeArgumentPassing = '') {
     $runDirectory = Join-Path $temporaryRoot $RunName
     $recordDirectory = Join-Path $temporaryRoot "$RunName-records"
     $specPath = Join-Path $temporaryRoot "$RunName.json"
@@ -72,8 +112,12 @@ function Invoke-WindowsNativeArgvProof(
         ($spec | ConvertTo-Json -Depth 6),
         [System.Text.UTF8Encoding]::new($false))
 
-    $captureResult = Invoke-CaptureChild $ScriptPath $specPath
+    $callerModeRecordPath = Join-Path $temporaryRoot "$RunName-caller-mode.txt"
+    $captureResult = Invoke-CaptureChild $ScriptPath $specPath -CallerNativeArgumentPassing $CallerNativeArgumentPassing -CallerModeRecordPath $callerModeRecordPath
     Assert-True ($captureResult.ExitCode -eq 0) "Windows native argv capture failed with exit $($captureResult.ExitCode).`n$($captureResult.Output)"
+    if ($CallerNativeArgumentPassing) {
+        Assert-True ((Get-Content -LiteralPath $callerModeRecordPath -Raw) -ceq $CallerNativeArgumentPassing) "Windows native argv capture did not enter the production helper with caller mode '$CallerNativeArgumentPassing'."
+    }
 
     $manifest = Get-Content -LiteralPath (Join-Path $runDirectory 'manifest.json') -Raw | ConvertFrom-Json
     $caseEvidence = [System.Collections.Generic.List[object]]::new()
@@ -128,6 +172,81 @@ if ($WindowsNativeArgv -and [System.Environment]::OSVersion.Platform -ne [System
 
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 try {
+    if ($EnvironmentCleanupProbe) {
+        $env:FILTRACE_COMMAND_CALLS = 'probe-mutated'
+        $env:FILTRACE_TEST_SECRET = 'probe-mutated'
+        $env:DOTNET_ReadyToRun = 'probe-mutated'
+        $env:FILTRACE_COMMAND_MODE = 'probe-mutated'
+        throw 'Forced environment cleanup probe failure.'
+    }
+
+    $cleanupProbeWrapper = Join-Path $temporaryRoot 'Invoke-EnvironmentCleanupProbe.ps1'
+    $cleanupProbeWrapperText = @'
+[CmdletBinding()]
+param([Parameter(Mandatory)][string]$ScriptPath)
+
+$env:DOTNET_ReadyToRun = 'existing-dotnet-sentinel'
+$env:FILTRACE_TEST_SECRET = 'existing-test-sentinel'
+Remove-Item Env:FILTRACE_COMMAND_MODE -ErrorAction SilentlyContinue
+$pathBefore = $env:PATH
+$failure = $null
+try {
+    & $ScriptPath -EnvironmentCleanupProbe
+}
+catch {
+    $failure = $_.Exception.Message
+}
+
+$result = [ordered]@{
+    forcedFailureObserved = $failure -ceq 'Forced environment cleanup probe failure.'
+    dotnetRestored = $env:DOTNET_ReadyToRun -ceq 'existing-dotnet-sentinel'
+    testVariableRestored = $env:FILTRACE_TEST_SECRET -ceq 'existing-test-sentinel'
+    absentVariableRestored = $null -eq [Environment]::GetEnvironmentVariable('FILTRACE_COMMAND_MODE')
+    pathUnchanged = $env:PATH -ceq $pathBefore
+}
+$result | ConvertTo-Json -Compress
+if (-not ($result.forcedFailureObserved -and
+        $result.dotnetRestored -and
+        $result.testVariableRestored -and
+        $result.absentVariableRestored -and
+        $result.pathUnchanged)) {
+    exit 1
+}
+'@
+    [System.IO.File]::WriteAllText(
+        $cleanupProbeWrapper,
+        $cleanupProbeWrapperText,
+        [System.Text.UTF8Encoding]::new($false))
+    $cleanupProbeOutput = & pwsh -NoProfile -File $cleanupProbeWrapper -ScriptPath $PSCommandPath 2>&1 | Out-String
+    $cleanupProbeExitCode = $LASTEXITCODE
+    Assert-True ($cleanupProbeExitCode -eq 0) "The forced-failure environment cleanup probe failed with exit $cleanupProbeExitCode."
+    $cleanupProbeResult = $cleanupProbeOutput | ConvertFrom-Json
+    Assert-True ($cleanupProbeResult.forcedFailureObserved) 'The environment cleanup probe did not observe its forced failure.'
+    Assert-True ($cleanupProbeResult.dotnetRestored) 'The environment cleanup probe did not restore the original DOTNET_ReadyToRun value.'
+    Assert-True ($cleanupProbeResult.testVariableRestored) 'The environment cleanup probe did not restore the original test-variable value.'
+    Assert-True ($cleanupProbeResult.absentVariableRestored) 'The environment cleanup probe did not restore an originally absent test variable.'
+    Assert-True ($cleanupProbeResult.pathUnchanged) 'The environment cleanup probe changed PATH.'
+
+    $nativeArgumentModeWrapper = Join-Path $temporaryRoot 'Invoke-CaptureWithNativeArgumentMode.ps1'
+    $nativeArgumentModeWrapperText = @'
+#requires -Version 7.3
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][ValidateSet('Legacy', 'Standard', 'Windows')][string]$NativeArgumentPassing,
+    [Parameter(Mandatory)][string]$ModeRecordPath,
+    [Parameter(Mandatory)][string]$ScriptPath,
+    [Parameter(Mandatory)][string]$SpecPath,
+    [Parameter(Mandatory)][string]$ExpectedSpecSha256)
+
+$PSNativeCommandArgumentPassing = $NativeArgumentPassing
+[System.IO.File]::WriteAllText($ModeRecordPath, [string]$PSNativeCommandArgumentPassing)
+& $ScriptPath -SpecPath $SpecPath -ExpectedSpecSha256 $ExpectedSpecSha256
+'@
+    [System.IO.File]::WriteAllText(
+        $nativeArgumentModeWrapper,
+        $nativeArgumentModeWrapperText,
+        [System.Text.UTF8Encoding]::new($false))
+
     $captureSource = Get-Content -LiteralPath $captureScript -Raw
     $tokens = $null
     $parseErrors = $null
@@ -136,6 +255,7 @@ try {
         [ref]$tokens,
         [ref]$parseErrors)
     Assert-True ($parseErrors.Count -eq 0) 'Command capture helper did not parse under PowerShell 7.'
+    Assert-True ($captureAst.ScriptRequirements.RequiredPSVersion -eq [Version]'7.3') 'Command capture helper did not require exactly PowerShell 7.3.'
 
     $testElevatedDefinitions = @(
         $captureAst.FindAll(
@@ -397,6 +517,18 @@ $global:LASTEXITCODE = 0
         'bad\name',
         "bad`nname",
         'CON',
+        'COM¹',
+        'COM¹.txt',
+        'COM²',
+        'COM².txt',
+        'COM³',
+        'COM³.txt',
+        'LPT¹',
+        'LPT¹.log',
+        'LPT²',
+        'LPT².log',
+        'LPT³',
+        'LPT³.log',
         'trailing.',
         ('x' * 257))
     for ($invalidNameIndex = 0; $invalidNameIndex -lt $invalidNames.Count; $invalidNameIndex++) {
@@ -639,10 +771,28 @@ $global:LASTEXITCODE = 0
         }
         Assert-True ($null -ne $mutationFailure -and $mutationFailure -match "Native argv case 'native-roundtrip' changed") "The broken empty-argument encoder was not rejected by the native argv proof. Observed failure: $mutationFailure"
 
-        $nativeEvidence = @(Invoke-WindowsNativeArgvProof $testCaptureScript 'native-original' @($nativeScenarios) $nativeRecorder $nativeCollector)
+        $standardModeAssignment = '$script:PSNativeCommandArgumentPassing = ''Standard'''
+        $callerControlledCaptureSource = $testCaptureSource.Replace($standardModeAssignment, '')
+        Assert-True (-not $callerControlledCaptureSource.Equals($testCaptureSource, [StringComparison]::Ordinal)) 'The caller Legacy-mode mutation did not remove the helper Standard-mode assignment.'
+        $callerControlledCaptureScript = Join-Path $temporaryRoot 'Capture-CommandTrace-CallerControlled.ps1'
+        [System.IO.File]::WriteAllText(
+            $callerControlledCaptureScript,
+            $callerControlledCaptureSource,
+            [System.Text.UTF8Encoding]::new($false))
+
+        $callerLegacyFailure = $null
+        try {
+            $null = Invoke-WindowsNativeArgvProof $callerControlledCaptureScript 'native-helper-inherits-legacy' @($nativeScenarios) $nativeRecorder $nativeCollector 'Legacy'
+        }
+        catch {
+            $callerLegacyFailure = $_.Exception.Message
+        }
+        Assert-True ($null -ne $callerLegacyFailure -and $callerLegacyFailure -match "Native argv case 'native-roundtrip' changed") "Caller Legacy mode did not corrupt the old helper's native argv boundary. Observed failure: $callerLegacyFailure"
+
+        $nativeEvidence = @(Invoke-WindowsNativeArgvProof $testCaptureScript 'native-caller-legacy' @($nativeScenarios) $nativeRecorder $nativeCollector 'Legacy')
         Assert-True ($nativeEvidence.Count -eq $nativeScenarios.Count) 'The Windows native argv proof did not return every case record.'
         $evidenceText = $nativeEvidence | ForEach-Object { "$($_.Name):$($_.ArgumentCount)args/$($_.EncodedLength)chars/pid=$($_.ProcessId)" }
-        Write-Host "Windows native argv proof passed under $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion): $($evidenceText -join '; '). Mutation rejected: $mutationFailure" -ForegroundColor Green
+        Write-Host "Windows native argv proof passed under $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion) with caller mode Legacy and helper mode Standard: $($evidenceText -join '; '). Encoder mutation rejected: $mutationFailure Caller-mode mutation rejected: $callerLegacyFailure" -ForegroundColor Green
     }
 
     foreach ($failureMode in @('version-nonzero', 'version-empty', 'help-nonzero', 'help-missing-capability')) {
@@ -783,7 +933,7 @@ function Start-Process {
         [System.Text.UTF8Encoding]::new($false))
 
     foreach ($processMode in @('timeout', 'wait-throw', 'null', 'start-throw', 'exitcode-throw', 'nonzero')) {
-        $parentRunDirectory = Join-Path $temporaryRoot "parent $processMode run"
+        $parentRunDirectory = Join-Path $temporaryRoot "parent [case] $processMode run"
         $parentSpecPath = Join-Path $temporaryRoot "parent-$processMode.json"
         $parentSpec = [ordered]@{
             scenarios = @([ordered]@{ name = 'parent'; command = $pwshPath; argumentList = @() })
@@ -815,8 +965,10 @@ function Start-Process {
         if ($processMode -in @('timeout', 'wait-throw')) {
             Assert-True ((Get-Content -LiteralPath $env:FILTRACE_WAIT_MS -Raw) -eq '1800000') "Fake elevation mode '$processMode' did not use the bounded wait."
             Assert-True ($parentResult.Output -match 'child may still be running') "Fake elevation mode '$processMode' overstated child termination."
-            Assert-True ($parentResult.Output -notmatch 'log-line-0\D') "Fake elevation mode '$processMode' emitted more than the bounded log tail."
-            Assert-True ($parentResult.Output -match 'log-line-204') "Fake elevation mode '$processMode' did not surface the log tail."
+            $observedLogTail = @($parentResult.Output -split "`r?`n" | Where-Object { $_ -match '^log-line-\d+$' })
+            Assert-True ($observedLogTail.Count -eq 200) "Fake elevation mode '$processMode' did not emit exactly the bounded 200-line log tail."
+            Assert-True ($observedLogTail[0] -ceq 'log-line-5') "Fake elevation mode '$processMode' emitted content before the bounded log tail."
+            Assert-True ($observedLogTail[-1] -ceq 'log-line-204') "Fake elevation mode '$processMode' did not surface the end of the log tail."
         }
         if ($processMode -ne 'start-throw') {
             $startCall = Get-Content -LiteralPath $env:FILTRACE_START_PROCESS_CALL -Raw | ConvertFrom-Json
@@ -835,22 +987,14 @@ function Start-Process {
     Write-Host 'Capture-CommandTrace contract checks passed.' -ForegroundColor Green
 }
 finally {
-    Remove-Item Env:FILTRACE_COMMAND_CALLS -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_TEST_SECRET -ErrorAction SilentlyContinue
-    Remove-Item Env:DOTNET_ReadyToRun -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_COMMAND_MODE -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_CAPTURE_SCRIPT -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_CAPTURE_RUN -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_CAPTURE_TOOL -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_CAPTURE_COMMAND -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_PROCESS_MODE -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_START_PROCESS_CALL -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_WAIT_MS -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_PROCESS_DISPOSED -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_COMMAND_CAPTURE_PROBE_MODE -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_COMMAND_CAPTURE_PROBE_READINESS_PATH -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_COMMAND_CAPTURE_RECORD_DIRECTORY -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_COMMAND_CAPTURE_HOST_EDITION -ErrorAction SilentlyContinue
-    Remove-Item Env:FILTRACE_COMMAND_CAPTURE_HOST_VERSION -ErrorAction SilentlyContinue
+    foreach ($environmentVariableName in $environmentVariableNames) {
+        $originalEnvironmentVariable = $originalEnvironmentVariables[$environmentVariableName]
+        if ($originalEnvironmentVariable.Exists) {
+            Set-Item -LiteralPath "Env:$environmentVariableName" -Value $originalEnvironmentVariable.Value
+        }
+        else {
+            Remove-Item -LiteralPath "Env:$environmentVariableName" -ErrorAction SilentlyContinue
+        }
+    }
     Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
