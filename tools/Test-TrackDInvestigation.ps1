@@ -548,6 +548,8 @@ try {
     [string] $previousProfileInvocations = $env:FILTRACE_TRACKD_FAKE_PROFILE_INVOCATIONS
     [string] $previousMeasurementMarkers = $env:FILTRACE_TRACKD_FAKE_MEASUREMENT_MARKERS
     [string] $previousMutationPath = $env:FILTRACE_TRACKD_MUTATE_ANALYZER_DLL
+    [string] $previousRecorderMutationPath = $env:FILTRACE_TRACKD_MUTATE_RECORDER_FILE
+    [string] $previousInputMutationPath = $env:FILTRACE_TRACKD_MUTATE_PROFILE_INPUT
     try {
         $env:FILTRACE_TRACKD_FAKE_PROFILE_INVOCATIONS = $profileInvocationLog
         $env:FILTRACE_TRACKD_FAKE_MEASUREMENT_MARKERS = $measurementMarkers
@@ -819,7 +821,19 @@ try {
             ($profiles.tools.recorder.sha256 -ceq (Get-FileHash -LiteralPath $pathRecorder -Algorithm SHA256).Hash) `
             'Recorder identity did not retain the resolved native executable hash.'
         Assert-True ($profiles.tools.recorder.version -ceq '1.2.3+fake') 'Recorder version was not retained.'
+        Assert-True `
+            ($profiles.tools.recorder.deploymentScope -ceq 'executable') `
+            'PATH recorder identity overstated its deployment scope.'
         Assert-True (@($profiles.arms).Count -eq 2) 'Profile workflow did not retain both measured arms.'
+        [long] $expectedProfileTraceBytes = (Get-Item -LiteralPath $fakeTrace).Length
+        [string] $expectedProfileTraceSha256 = (
+            Get-FileHash -LiteralPath $fakeTrace -Algorithm SHA256).Hash
+        Assert-True `
+            (@($profiles.arms | Where-Object {
+                $_.subject.traceBytes -ne $expectedProfileTraceBytes -or
+                    $_.subject.traceSha256 -cne $expectedProfileTraceSha256
+            }).Count -eq 0) `
+            'Profile arms did not retain their restored manifest trace identities.'
         Assert-True `
             (@($profiles.arms.captures | Where-Object { $_.status -cne 'completed' }).Count -eq 0) `
             'Successful profile workflow retained an incomplete capture.'
@@ -915,7 +929,11 @@ try {
             [pscustomobject]@{ Name = 'capture-missing'; Mode = 'capture-missing'; Message = 'did not create' },
             [pscustomobject]@{ Name = 'capture-empty'; Mode = 'capture-empty'; Message = 'empty trace' },
             [pscustomobject]@{ Name = 'capture-nonzero'; Mode = 'capture-nonzero'; Message = 'exited with code 8' },
+            [pscustomobject]@{ Name = 'analysis-missing-warnings'; Mode = 'analysis-missing-warnings'; Message = 'omitted warnings' },
+            [pscustomobject]@{ Name = 'analysis-scalar-warnings'; Mode = 'analysis-scalar-warnings'; Message = 'omitted warnings' },
             [pscustomobject]@{ Name = 'analysis-empty-rank'; Mode = 'analysis-empty-rank'; Message = 'contained no cpu rank rows' },
+            [pscustomobject]@{ Name = 'analysis-missing-rows'; Mode = 'analysis-missing-rows'; Message = 'malformed rank rows' },
+            [pscustomobject]@{ Name = 'analysis-scalar-rows'; Mode = 'analysis-scalar-rows'; Message = 'malformed rank rows' },
             [pscustomobject]@{ Name = 'analysis-bad-rank-shape'; Mode = 'analysis-bad-rank-shape'; Message = 'malformed rank row' },
             [pscustomobject]@{ Name = 'analysis-invalid-record-count'; Mode = 'analysis-invalid-record-count'; Message = 'invalid rank scope totals' },
             [pscustomobject]@{ Name = 'analysis-empty'; Mode = 'analysis-valid-empty'; Message = 'contained no cpu events' },
@@ -924,7 +942,9 @@ try {
             [pscustomobject]@{ Name = 'analysis-nonzero'; Mode = 'analysis-nonzero'; Message = 'exited with code 9' },
             [pscustomobject]@{ Name = 'analysis-malformed'; Mode = 'analysis-malformed'; Message = 'did not complete' },
             [pscustomobject]@{ Name = 'gc-absent'; Mode = 'gc-absent'; Message = 'omitted context or result' },
-            [pscustomobject]@{ Name = 'gc-malformed'; Mode = 'gc-malformed'; Message = 'did not return schema 16' })
+            [pscustomobject]@{ Name = 'gc-malformed'; Mode = 'gc-malformed'; Message = 'did not return schema 16' },
+            [pscustomobject]@{ Name = 'gc-missing-records'; Mode = 'gc-missing-records'; Message = 'omitted GC records' },
+            [pscustomobject]@{ Name = 'gc-scalar-records'; Mode = 'gc-scalar-records'; Message = 'omitted GC records' })
         foreach ($case in $postMeasurementFailures) {
             [string] $failureRun = Join-Path $temporaryRoot "profiles-$($case.Name)"
             Remove-Item -LiteralPath $measurementMarkers -Force -ErrorAction SilentlyContinue
@@ -1016,6 +1036,106 @@ try {
                 "Quality case '$($qualityCase.Name)' did not preserve analyzer warnings."
         }
 
+        [string] $inputMutationRun = Join-Path $temporaryRoot 'profiles-input-changed'
+        [string] $inputMutationTrace = Join-Path `
+            $inputMutationRun `
+            'baseline/input-corpus/inputs/cpu-10k-d20.nettrace'
+        Remove-Item -LiteralPath $measurementMarkers -Force -ErrorAction SilentlyContinue
+        $env:FILTRACE_TRACKD_FAKE_PROFILE_MODE = 'success'
+        $env:FILTRACE_TRACKD_MUTATE_PROFILE_INPUT = $inputMutationTrace
+        [bool] $inputMutationFailed = $false
+        try {
+            & $script `
+                -InputCorpusDirectory $corpus `
+                -BaselineCheckout $root `
+                -CandidateCheckout $root `
+                -AllowDirtyCheckouts `
+                -OutputDirectory $inputMutationRun `
+                -NoBuild `
+                -TestAdapterPath $adapter `
+                -CaptureProfiles `
+                -AnalyzerPath $fixedAnalyzer `
+                -DotnetTracePath $fakeProfileTool
+        }
+        catch {
+            $inputMutationFailed = $_.Exception.Message.Contains(
+                'Profile input trace identity changed after baseline cpu capture',
+                [StringComparison]::Ordinal)
+        }
+        finally {
+            $env:FILTRACE_TRACKD_MUTATE_PROFILE_INPUT = $null
+        }
+        Assert-True $inputMutationFailed 'Profile workflow accepted changed restored input bytes.'
+        Assert-True `
+            (Test-Path -LiteralPath (Join-Path $inputMutationRun 'comparison.json')) `
+            'Changed profile input discarded the base comparison.'
+        [object] $inputMutationProfiles = Get-Content `
+            -LiteralPath (Join-Path $inputMutationRun 'profiles.json') `
+            -Raw | ConvertFrom-Json -Depth 32
+        Assert-True `
+            ($inputMutationProfiles.status -ceq 'failed') `
+            'Changed profile input did not retain failed profile status.'
+        Assert-True `
+            (Test-Path -LiteralPath (Join-Path $inputMutationRun 'baseline/profiles/cpu/collect.stdout.txt')) `
+            'Changed profile input discarded recorder stdout.'
+        Assert-True `
+            (Test-Path -LiteralPath (Join-Path $inputMutationRun 'baseline/profiles/cpu/collect.stderr.txt')) `
+            'Changed profile input discarded recorder stderr.'
+
+        [string] $mutableRecorderDirectory = Join-Path $temporaryRoot 'mutable-recorder'
+        Copy-Item `
+            -LiteralPath $fakeProfileToolDirectory `
+            -Destination $mutableRecorderDirectory `
+            -Recurse
+        [string] $mutableRecorder = Join-Path $mutableRecorderDirectory $fakeProfileToolName
+        [string] $mutableRecorderDependency = Join-Path `
+            $mutableRecorderDirectory `
+            'Filtrace.FakeProfileTool.deps.json'
+        [string] $recorderMutationRun = Join-Path $temporaryRoot 'profiles-recorder-changed'
+        Remove-Item -LiteralPath $measurementMarkers -Force -ErrorAction SilentlyContinue
+        $env:FILTRACE_TRACKD_MUTATE_RECORDER_FILE = $mutableRecorderDependency
+        [bool] $recorderMutationFailed = $false
+        try {
+            & $script `
+                -InputCorpusDirectory $corpus `
+                -BaselineCheckout $root `
+                -CandidateCheckout $root `
+                -AllowDirtyCheckouts `
+                -OutputDirectory $recorderMutationRun `
+                -NoBuild `
+                -TestAdapterPath $adapter `
+                -CaptureProfiles `
+                -AnalyzerPath $fixedAnalyzer `
+                -DotnetTracePath $mutableRecorder
+        }
+        catch {
+            $recorderMutationFailed = $_.Exception.Message.Contains(
+                'Recorder identity changed after baseline cpu capture',
+                [StringComparison]::Ordinal)
+        }
+        finally {
+            $env:FILTRACE_TRACKD_MUTATE_RECORDER_FILE = $null
+        }
+        Assert-True $recorderMutationFailed 'Profile workflow accepted changed recorder bytes.'
+        Assert-True `
+            (Test-Path -LiteralPath (Join-Path $recorderMutationRun 'comparison.json')) `
+            'Changed recorder discarded the base comparison.'
+        [object] $recorderMutationProfiles = Get-Content `
+            -LiteralPath (Join-Path $recorderMutationRun 'profiles.json') `
+            -Raw | ConvertFrom-Json -Depth 32
+        Assert-True `
+            ($recorderMutationProfiles.status -ceq 'failed') `
+            'Changed recorder did not retain failed profile status.'
+        Assert-True `
+            ($recorderMutationProfiles.tools.recorder.deploymentScope -ceq 'adjacent-runtime') `
+            'Direct recorder identity did not retain its adjacent runtime scope.'
+        Assert-True `
+            (Test-Path -LiteralPath (Join-Path $recorderMutationRun 'baseline/profiles/cpu/collect.stdout.txt')) `
+            'Changed recorder discarded recorder stdout.'
+        Assert-True `
+            (Test-Path -LiteralPath (Join-Path $recorderMutationRun 'baseline/profiles/cpu/collect.stderr.txt')) `
+            'Changed recorder discarded recorder stderr.'
+
         [string] $identityRun = Join-Path $temporaryRoot 'profiles-identity-changed'
         Remove-Item -LiteralPath $measurementMarkers -Force -ErrorAction SilentlyContinue
         $env:FILTRACE_TRACKD_FAKE_PROFILE_MODE = 'success'
@@ -1046,6 +1166,8 @@ try {
         $env:FILTRACE_TRACKD_FAKE_PROFILE_INVOCATIONS = $previousProfileInvocations
         $env:FILTRACE_TRACKD_FAKE_MEASUREMENT_MARKERS = $previousMeasurementMarkers
         $env:FILTRACE_TRACKD_MUTATE_ANALYZER_DLL = $previousMutationPath
+        $env:FILTRACE_TRACKD_MUTATE_RECORDER_FILE = $previousRecorderMutationPath
+        $env:FILTRACE_TRACKD_MUTATE_PROFILE_INPUT = $previousInputMutationPath
     }
 
     [System.Collections.Generic.List[string]] $reviewRegressionFailures = @()

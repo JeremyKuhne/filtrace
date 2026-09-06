@@ -680,6 +680,147 @@ function Assert-AnalyzerIdentity(
     }
 }
 
+function Get-RecorderIdentity(
+    [string] $Executable,
+    [object] $CpuRecorder,
+    [object] $AllocationRecorder) {
+    if ([string]$CpuRecorder.Version -cne [string]$AllocationRecorder.Version) {
+        throw 'Recorder identity observed different versions for CPU and allocation contracts.'
+    }
+
+    [string] $canonicalExecutable = Resolve-LocalFile $Executable 'dotnet-trace'
+    [object] $executableIdentity = Get-BoundedAnalyzerFileIdentity `
+        ([System.IO.FileInfo]::new($canonicalExecutable)) `
+        $maximumAnalyzerDirectoryBytes
+    [string] $directory = [System.IO.Path]::GetDirectoryName($canonicalExecutable)
+    [string] $baseName = [System.IO.Path]::GetFileNameWithoutExtension($canonicalExecutable)
+    [string[]] $adjacentRuntimeFiles = @(
+        (Join-Path $directory "$baseName.dll"),
+        (Join-Path $directory "$baseName.deps.json"),
+        (Join-Path $directory "$baseName.runtimeconfig.json"))
+    [bool] $hasAdjacentRuntime = @(
+        $adjacentRuntimeFiles | Where-Object {
+            Test-Path -LiteralPath $_ -PathType Leaf
+        }).Count -eq $adjacentRuntimeFiles.Count
+    [object] $deploymentIdentity = if ($hasAdjacentRuntime) {
+        Get-AnalyzerIdentity $canonicalExecutable
+    }
+    else {
+        $null
+    }
+    [System.Collections.IDictionary] $record = [ordered]@{
+        path = $canonicalExecutable
+        bytes = $executableIdentity.Bytes
+        sha256 = $executableIdentity.Sha256
+        version = $CpuRecorder.Version
+        cpuProfiles = @($CpuRecorder.Metadata.profiles)
+        allocationProfiles = @($AllocationRecorder.Metadata.profiles)
+        deploymentScope = if ($hasAdjacentRuntime) { 'adjacent-runtime' } else { 'executable' }
+    }
+    if ($null -ne $deploymentIdentity) {
+        $record['deployment'] = $deploymentIdentity.Record
+    }
+    [string] $fingerprint = ConvertTo-Json -InputObject ([ordered]@{
+        executableBytes = $executableIdentity.Bytes
+        executableSha256 = $executableIdentity.Sha256
+        deployment = if ($null -ne $deploymentIdentity) {
+            $deploymentIdentity.Fingerprint
+        }
+        else {
+            $null
+        }
+        version = $CpuRecorder.Version
+        cpuProfileArgument = $CpuRecorder.ProfileArgument
+        allocationProfileArgument = $AllocationRecorder.ProfileArgument
+    }) -Compress
+    return [pscustomobject]@{
+        CanonicalExecutablePath = $canonicalExecutable
+        Fingerprint = $fingerprint
+        CpuRecorder = $CpuRecorder
+        AllocationRecorder = $AllocationRecorder
+        Record = $record
+    }
+}
+
+function Assert-RecorderIdentity(
+    [object] $Expected,
+    [object] $Actual,
+    [string] $Phase) {
+    [StringComparison] $pathComparison = if (
+        [OperatingSystem]::IsWindows() -or [OperatingSystem]::IsMacOS()
+    ) {
+        [StringComparison]::OrdinalIgnoreCase
+    }
+    else {
+        [StringComparison]::Ordinal
+    }
+    if (
+        -not [string]::Equals(
+            $Expected.CanonicalExecutablePath,
+            $Actual.CanonicalExecutablePath,
+            $pathComparison) -or
+        $Expected.Fingerprint -cne $Actual.Fingerprint
+    ) {
+        throw "Recorder identity changed $Phase."
+    }
+}
+
+function Assert-CurrentRecorderIdentity(
+    [object] $Expected,
+    [string] $Phase,
+    [string] $LogDirectory,
+    [string] $WorkingDirectory) {
+    [object] $fileIdentity = Get-RecorderIdentity `
+        $Expected.CanonicalExecutablePath `
+        $Expected.CpuRecorder `
+        $Expected.AllocationRecorder
+    Assert-RecorderIdentity $Expected $fileIdentity $Phase
+
+    [System.IO.Directory]::CreateDirectory($LogDirectory) | Out-Null
+    [scriptblock] $invoker = {
+        param(
+            [string] $RecorderExecutable,
+            [string[]] $RecorderArguments,
+            [string] $Purpose)
+        [string] $invocationId = [Guid]::NewGuid().ToString('N')
+        return Invoke-NativeText `
+            $RecorderExecutable `
+            $RecorderArguments `
+            $WorkingDirectory `
+            "$Purpose $Phase" `
+            (Join-Path $LogDirectory "$invocationId.stdout.txt") `
+            (Join-Path $LogDirectory "$invocationId.stderr.txt")
+    }
+    [object] $cpuRecorder = Get-DotnetTraceRecorder `
+        $Expected.CanonicalExecutablePath `
+        'cpu' `
+        $invoker
+    [object] $allocationRecorder = Get-DotnetTraceRecorder `
+        $Expected.CanonicalExecutablePath `
+        'alloc' `
+        $invoker
+    [object] $contractIdentity = Get-RecorderIdentity `
+        $Expected.CanonicalExecutablePath `
+        $cpuRecorder `
+        $allocationRecorder
+    Assert-RecorderIdentity $Expected $contractIdentity $Phase
+}
+
+function Assert-ExpectedProfileInput(
+    [string] $Path,
+    [long] $ExpectedBytes,
+    [string] $ExpectedSha256,
+    [string] $Phase) {
+    [string] $canonicalPath = Resolve-LocalFile $Path 'Profile input trace'
+    [System.IO.FileInfo] $file = Get-Item -LiteralPath $canonicalPath
+    if (
+        $file.Length -ne $ExpectedBytes -or
+        (Get-FileHash -LiteralPath $canonicalPath -Algorithm SHA256).Hash -cne $ExpectedSha256
+    ) {
+        throw "Profile input trace identity changed $Phase."
+    }
+}
+
 function Copy-AnalyzerSnapshot([object] $Identity, [string] $Destination) {
     if (Test-Path -LiteralPath $Destination) {
         throw "Analyzer snapshot destination already exists: '$Destination'."
@@ -703,6 +844,8 @@ function Get-ProfileReplay(
     [string] $ExpectedScenario,
     [int] $ExpectedIterations,
     [string] $ExpectedTrace,
+    [long] $ExpectedTraceBytes,
+    [string] $ExpectedTraceSha256,
     [string] $ExpectedExecutable,
     [string] $WorkingDirectory) {
     [object] $report = Get-Content -LiteralPath $TelemetryPath -Raw | ConvertFrom-Json -Depth 20
@@ -744,6 +887,11 @@ function Get-ProfileReplay(
     if (-not [string]::Equals($trace, (Resolve-Path -LiteralPath $ExpectedTrace).Path, $pathComparison)) {
         throw "Telemetry report '$TelemetryPath' does not replay its restored input trace."
     }
+    Assert-ExpectedProfileInput `
+        $trace `
+        $ExpectedTraceBytes `
+        $ExpectedTraceSha256 `
+        "before replaying '$TelemetryPath'"
 
     [string] $argumentFingerprint = ConvertTo-Json -InputObject $arguments -Compress
     foreach ($launch in $launches) {
@@ -761,6 +909,8 @@ function Get-ProfileReplay(
         Arguments = $arguments
         WorkingDirectory = $WorkingDirectory
         Trace = $trace
+        TraceBytes = $ExpectedTraceBytes
+        TraceSha256 = $ExpectedTraceSha256
         ArgumentShape = @($arguments[0], '<trace>') + @($arguments[2..($arguments.Count - 1)])
     }
 }
@@ -791,7 +941,11 @@ function Test-FiniteJsonNumber([object] $Value) {
 
 function Get-ValidatedProfileWarnings([object] $Envelope, [string] $Owner) {
     [object] $warningsProperty = $Envelope.PSObject.Properties['warnings']
-    if ($null -eq $warningsProperty -or $null -eq $warningsProperty.Value) {
+    if (
+        $null -eq $warningsProperty -or
+        $null -eq $warningsProperty.Value -or
+        $warningsProperty.Value -isnot [array]
+    ) {
         throw "$Owner omitted warnings."
     }
 
@@ -882,11 +1036,16 @@ function Get-ValidatedProfileResult(
         }
 
         [object] $rowsProperty = $result.PSObject.Properties['rows']
+        if (
+            $null -eq $rowsProperty -or
+            $null -eq $rowsProperty.Value -or
+            $rowsProperty.Value -isnot [array]
+        ) {
+            throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned malformed rank rows."
+        }
         [System.Collections.Generic.List[object]] $rows = @()
-        if ($null -ne $rowsProperty -and $null -ne $rowsProperty.Value) {
-            foreach ($row in @($rowsProperty.Value)) {
-                $rows.Add($row)
-            }
+        foreach ($row in $rowsProperty.Value) {
+            $rows.Add($row)
         }
         if ($rows.Count -eq 0) {
             throw "Profile capture contained no $AnalysisName rank rows."
@@ -992,11 +1151,15 @@ function Get-ValidatedProfileResult(
         }
     }
     [object] $gcsProperty = $result.PSObject.Properties['gcs']
-    if ($null -eq $gcsProperty -or $null -eq $gcsProperty.Value) {
+    if (
+        $null -eq $gcsProperty -or
+        $null -eq $gcsProperty.Value -or
+        $gcsProperty.Value -isnot [array]
+    ) {
         throw "Profile analysis '$AnalysisName' query '$($Query.id)' omitted GC records."
     }
     [System.Collections.Generic.List[object]] $gcs = @()
-    foreach ($gc in @($gcsProperty.Value)) {
+    foreach ($gc in $gcsProperty.Value) {
         $gcs.Add($gc)
     }
     [long] $gcCount = [long]$result.gcCount
@@ -1214,6 +1377,7 @@ function Invoke-TrackDProfiles(
     [string] $RunDirectory,
     [object[]] $ArmInputs,
     [object] $InitialAnalyzerIdentity,
+    [object] $InitialRecorderIdentity,
     [object] $CpuRecorder,
     [object] $AllocationRecorder,
     [string] $DotnetTraceExecutable,
@@ -1230,6 +1394,8 @@ function Invoke-TrackDProfiles(
                 $CliScenario `
                 $TelemetryIterations `
                 $arm.Trace `
+                $arm.TraceBytes `
+                $arm.TraceSha256 `
                 $arm.SubjectExecutable `
                 $arm.Checkout
             $replays.Add([pscustomobject]@{
@@ -1271,6 +1437,8 @@ function Invoke-TrackDProfiles(
                     arguments = @($replayRecord.Replay.Arguments)
                     workingDirectory = $replayRecord.Replay.WorkingDirectory
                     trace = $replayRecord.Replay.Trace
+                    traceBytes = $replayRecord.Replay.TraceBytes
+                    traceSha256 = $replayRecord.Replay.TraceSha256
                 }
                 captures = $captures
             }
@@ -1315,6 +1483,17 @@ function Invoke-TrackDProfiles(
                 }
                 $captures.Add($captureRecord)
                 try {
+                    [string] $identityLogDirectory = Join-Path $captureDirectory 'recorder-identity'
+                    Assert-CurrentRecorderIdentity `
+                        $InitialRecorderIdentity `
+                        "before $($replayRecord.Name) $($definition.Name) capture" `
+                        $identityLogDirectory `
+                        $replayRecord.Checkout
+                    Assert-ExpectedProfileInput `
+                        $replayRecord.Replay.Trace `
+                        $replayRecord.Replay.TraceBytes `
+                        $replayRecord.Replay.TraceSha256 `
+                        "before $($replayRecord.Name) $($definition.Name) capture"
                     $null = Invoke-NativeText `
                         $DotnetTraceExecutable `
                         $collectArguments `
@@ -1324,6 +1503,16 @@ function Invoke-TrackDProfiles(
                         $stderrPath `
                         $tracePath `
                         $maximumProfileTraceBytes
+                    Assert-CurrentRecorderIdentity `
+                        $InitialRecorderIdentity `
+                        "after $($replayRecord.Name) $($definition.Name) capture" `
+                        $identityLogDirectory `
+                        $replayRecord.Checkout
+                    Assert-ExpectedProfileInput `
+                        $replayRecord.Replay.Trace `
+                        $replayRecord.Replay.TraceBytes `
+                        $replayRecord.Replay.TraceSha256 `
+                        "after $($replayRecord.Name) $($definition.Name) capture"
                     if (-not (Test-Path -LiteralPath $tracePath -PathType Leaf)) {
                         throw "Profile recorder did not create '$tracePath'."
                     }
@@ -1960,6 +2149,7 @@ $resolvedTestAdapter = $null
 $runCompleted = $false
 $profileRecord = $null
 $initialAnalyzerIdentity = $null
+$initialRecorderIdentity = $null
 $cpuRecorder = $null
 $allocationRecorder = $null
 $resolvedDotnetTrace = $null
@@ -2057,15 +2247,13 @@ try {
                 $resolvedDotnetTrace `
                 'alloc' `
                 $recorderInvoker
+            $initialRecorderIdentity = Get-RecorderIdentity `
+                $resolvedDotnetTrace `
+                $cpuRecorder `
+                $allocationRecorder
             $profileRecord['tools'] = [ordered]@{
                 analyzer = $initialAnalyzerIdentity.Record
-                recorder = [ordered]@{
-                    path = $resolvedDotnetTrace
-                    sha256 = (Get-FileHash -LiteralPath $resolvedDotnetTrace -Algorithm SHA256).Hash
-                    version = $cpuRecorder.Version
-                    cpuProfiles = @($cpuRecorder.Metadata.profiles)
-                    allocationProfiles = @($allocationRecorder.Metadata.profiles)
-                }
+                recorder = $initialRecorderIdentity.Record
             }
             $profileRecord.status = 'ready'
             Write-JsonAtomic $profileRecordPath $profileRecord
@@ -2123,6 +2311,28 @@ try {
         Expand-CorpusArchive $inputArchive $inputRoot
         Test-RestoredCorpus $inputRoot $corpusManifest
         [string] $trace = Resolve-CorpusTrace $inputRoot $TraceArchivePath
+        [object] $selectedTraceRecord = $null
+        if ($CaptureProfiles) {
+            [StringComparison] $tracePathComparison = if (
+                [OperatingSystem]::IsWindows() -or [OperatingSystem]::IsMacOS()
+            ) {
+                [StringComparison]::OrdinalIgnoreCase
+            }
+            else {
+                [StringComparison]::Ordinal
+            }
+            [object[]] $selectedTraceRecords = @(
+                $corpusManifest.traces | Where-Object {
+                    [string]::Equals(
+                        (Resolve-CorpusTrace $inputRoot ([string]$_.archivePath)),
+                        $trace,
+                        $tracePathComparison)
+                })
+            if ($selectedTraceRecords.Count -ne 1) {
+                throw "Corpus manifest must contain exactly one record for restored trace '$trace'."
+            }
+            $selectedTraceRecord = $selectedTraceRecords[0]
+        }
 
         if ($null -ne $resolvedTestAdapter) {
             $null = Invoke-NativeText `
@@ -2148,6 +2358,8 @@ try {
                     Directory = $armDirectory
                     Checkout = $arm.Checkout
                     Trace = $trace
+                    TraceBytes = [long]$selectedTraceRecord.bytes
+                    TraceSha256 = [string]$selectedTraceRecord.sha256
                     SubjectExecutable = $subjectExecutable
                 })
             }
@@ -2175,6 +2387,8 @@ try {
                 Directory = $armDirectory
                 Checkout = $arm.Checkout
                 Trace = $trace
+                TraceBytes = [long]$selectedTraceRecord.bytes
+                TraceSha256 = [string]$selectedTraceRecord.sha256
                 SubjectExecutable = $subjectExecutable
             })
         }
@@ -2311,6 +2525,7 @@ try {
                 $runDirectory `
                 @($profileArmInputs) `
                 $initialAnalyzerIdentity `
+                $initialRecorderIdentity `
                 $cpuRecorder `
                 $allocationRecorder `
                 $resolvedDotnetTrace `

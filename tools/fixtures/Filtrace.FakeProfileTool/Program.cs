@@ -14,6 +14,8 @@ internal static class Program
     private const string ModeVariable = "FILTRACE_TRACKD_FAKE_PROFILE_MODE";
     private const string InvocationPathVariable = "FILTRACE_TRACKD_FAKE_PROFILE_INVOCATIONS";
     private const string MutationPathVariable = "FILTRACE_TRACKD_MUTATE_ANALYZER_DLL";
+    private const string RecorderMutationPathVariable = "FILTRACE_TRACKD_MUTATE_RECORDER_FILE";
+    private const string InputMutationPathVariable = "FILTRACE_TRACKD_MUTATE_PROFILE_INPUT";
 
     /// <summary>
     ///  Emulates the bounded recorder and analyzer operations used by the contract test.
@@ -66,6 +68,18 @@ internal static class Program
         if (!string.IsNullOrEmpty(mutationPath))
         {
             File.WriteAllText(mutationPath, "different managed implementation");
+        }
+
+        string? recorderMutationPath = Environment.GetEnvironmentVariable(RecorderMutationPathVariable);
+        if (!string.IsNullOrEmpty(recorderMutationPath))
+        {
+            File.WriteAllText(recorderMutationPath, "different recorder implementation");
+        }
+
+        string? inputMutationPath = Environment.GetEnvironmentVariable(InputMutationPathVariable);
+        if (!string.IsNullOrEmpty(inputMutationPath))
+        {
+            File.WriteAllText(inputMutationPath, "different profile input");
         }
 
         if (mode == "capture-nonzero")
@@ -146,7 +160,11 @@ internal static class Program
             string[] availableAnalyses = ["cpu", "alloc", "gcstats"];
             Dictionary<string, object> info = new();
             info["schemaVersion"] = 16;
-            info["warnings"] = GetWarnings(mode);
+            if (mode != "analysis-missing-warnings")
+            {
+                info["warnings"] = GetWarnings(mode);
+            }
+
             info["hints"] = Array.Empty<object>();
             info["context"] = new
             {
@@ -231,29 +249,23 @@ internal static class Program
             }
         }
 
-        object[] warnings = GetWarnings(mode);
+        object warnings = GetWarnings(mode);
+        Dictionary<string, object?> result = new()
+        {
+            ["scopeWeight"] = rows.Count == 0 ? 0.0 : 11.0,
+            ["rootFrame"] = ""
+        };
 
-        object result;
-        if (metric == "alloc" && mode != "analysis-invalid-record-count")
+        if (mode != "analysis-missing-rows")
         {
-            result = new
-            {
-                scopeWeight = rows.Count == 0 ? 0.0 : 11.0,
-                rootFrame = "",
-                rows
-            };
+            result["rows"] = mode == "analysis-scalar-rows" ? rows[0] : rows;
         }
-        else
+
+        if (metric != "alloc" || mode == "analysis-invalid-record-count")
         {
-            result = new
-            {
-                scopeWeight = rows.Count == 0 ? 0.0 : 11.0,
-                rootFrame = "",
-                rows,
-                contributingRecordCount = metric == "alloc" && mode == "analysis-invalid-record-count"
-                    ? -1
-                    : rows.Count == 0 ? 0 : 11
-            };
+            result["contributingRecordCount"] = metric == "alloc" && mode == "analysis-invalid-record-count"
+                ? -1
+                : rows.Count == 0 ? 0 : 11;
         }
 
         object envelope = new
@@ -273,27 +285,33 @@ internal static class Program
         Console.WriteLine(JsonSerializer.Serialize(envelope));
     }
 
-    private static object[] GetWarnings(string mode) => mode switch
+    private static object GetWarnings(string mode) => mode switch
     {
-        "analysis-low-quality" =>
-        [
+        "analysis-scalar-warnings" => new
+        {
+            code = "scope_applied",
+            severity = "warning",
+            message = "Process scope selected Fake.Process."
+        },
+        "analysis-low-quality" => new object[]
+        {
             new
             {
                 code = "low_frame_resolution",
                 severity = "warning",
                 message = "Only 50% of frames resolved to a method name (< 80%); native frames may be unresolved."
             },
-        ],
-        "analysis-benign-warning" =>
-        [
+        },
+        "analysis-benign-warning" => new object[]
+        {
             new
             {
                 code = "scope_applied",
                 severity = "warning",
                 message = "Process scope selected Fake.Process."
             },
-        ],
-        _ => []
+        },
+        _ => Array.Empty<object>()
     };
 
     private static void WriteGcReport(string mode)
@@ -326,6 +344,26 @@ internal static class Program
             });
         }
 
+        Dictionary<string, object> result = new()
+        {
+            ["gcCount"] = records.Count,
+            ["gen0Count"] = records.Count,
+            ["gen1Count"] = 0,
+            ["gen2Count"] = 0,
+            ["inducedCount"] = 0,
+            ["totalPauseMs"] = empty ? 0.0 : 1.0,
+            ["maxPauseMs"] = empty ? 0.0 : 1.0,
+            ["meanPauseMs"] = empty ? 0.0 : 1.0,
+            ["percentTimeInGc"] = empty ? 0.0 : 0.5,
+            ["peakHeapSizeMB"] = empty ? 0.0 : 2.0,
+            ["totalPromotedMB"] = empty ? 0.0 : 0.25
+        };
+
+        if (mode != "gc-missing-records")
+        {
+            result["gcs"] = mode == "gc-scalar-records" ? records[0] : records;
+        }
+
         object envelope = new
         {
             schemaVersion = 16,
@@ -334,21 +372,7 @@ internal static class Program
             {
                 operation = "gc"
             },
-            result = new
-            {
-                gcCount = records.Count,
-                gen0Count = records.Count,
-                gen1Count = 0,
-                gen2Count = 0,
-                inducedCount = 0,
-                totalPauseMs = empty ? 0.0 : 1.0,
-                maxPauseMs = empty ? 0.0 : 1.0,
-                meanPauseMs = empty ? 0.0 : 1.0,
-                percentTimeInGc = empty ? 0.0 : 0.5,
-                peakHeapSizeMB = empty ? 0.0 : 2.0,
-                totalPromotedMB = empty ? 0.0 : 0.25,
-                gcs = records
-            }
+            result
         };
 
         Console.WriteLine(JsonSerializer.Serialize(envelope));
