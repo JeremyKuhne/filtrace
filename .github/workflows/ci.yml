@@ -129,6 +129,10 @@ jobs:
       - name: Test
         run: dotnet test filtrace.slnx --configuration Release --no-build
 
+      - name: Local activation wrapper contract
+        shell: pwsh
+        run: ./tools/Test-UseLocalFiltrace.ps1
+
       # Hosted Windows runners run elevated, so the one path that needs a real ETW
       # capture is checked here rather than left to a developer box. Keep the build of
       # the native fixture ahead of the capture: ilc.exe and other tools access-violate

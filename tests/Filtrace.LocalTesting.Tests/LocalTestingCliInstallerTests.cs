@@ -308,7 +308,7 @@ public sealed class LocalTestingCliInstallerTests
 
     [TestMethod]
     [DoNotParallelize]
-    public void InstallFresh_ProcessEnvironment_DisablesGlobalToolsPathMutation()
+    public void InstallFresh_ProcessEnvironment_DisablesGlobalAndFirstRunMutation()
     {
         using TemporaryDirectory directory = new();
         string packagePath = CreateMetadataPackage(directory.Path);
@@ -343,7 +343,7 @@ public sealed class LocalTestingCliInstallerTests
                 previousOutput);
         }
 
-        File.ReadAllText(outputPath).Should().Be("false");
+        File.ReadAllLines(outputPath).Should().Equal("false", "1", "false", "true", "true");
     }
 
     [TestMethod]
