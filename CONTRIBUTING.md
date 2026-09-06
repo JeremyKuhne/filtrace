@@ -24,16 +24,26 @@ dotnet build filtrace.slnx -c Release
 dotnet test filtrace.slnx -c Release
 ```
 
-CI also runs six contract/eval checks that must stay green; run them locally before
-opening a PR:
+CI also runs nine cross-platform contract/eval checks that must stay green; run
+them locally before opening a PR:
 
 ```pwsh
 ./tools/Test-CliHelp.ps1 -Configuration Release
 ./tools/Test-McpServer.ps1 -Configuration Release
 ./tools/Test-Docs.ps1
 ./tools/Test-CaptureBenchmarkTrace.ps1
-./eval/Invoke-Eval.ps1
+./tools/Test-CaptureProjectTrace.ps1
+./tools/Test-FiltraceAnalysis.ps1 -Configuration Release
+./tools/Test-TrackDInvestigation.ps1
+./eval/Invoke-Eval.ps1 -Configuration Release
 ./tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation
+```
+
+Windows CI runs one additional contract under Windows PowerShell 5.1 and
+PowerShell 7:
+
+```pwsh
+./tools/Test-UseLocalFiltrace.ps1
 ```
 
 The full agent-skill check requires GitHub CLI with `gh skill` support and
@@ -43,8 +53,11 @@ The first asserts every CLI verb is documented and within the help budget; the
 second drives the MCP server over stdio and checks stdout purity, the tool-list
 schema budget, and a real `tools/call` round-trip. The docs check guards shared
 workflow blocks, skill links, command/tool coverage, and packaged skill contents.
-The capture helper check verifies run-artifact isolation, overlap rejection, and
-manifest completeness.
+The capture checks verify benchmark run isolation and project recorder contracts.
+The analysis and Track D checks retain decisive arguments and evidence while
+rejecting changed inputs and invalid investigation runs. The Windows activation
+check exercises native command selection, arguments, streams, and failures in both
+supported hosts.
 The deterministic eval runs the canonical trace-analysis tasks and enforces answer,
 call-count, and output-token baselines without invoking an LLM.
 The agent-skill check validates the v0.14.0 commons pins and overlays, compares
