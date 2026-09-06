@@ -1040,31 +1040,46 @@ function Get-AnalysisEvidence(
     [object] $info = Get-Content `
         -LiteralPath (Join-Path $AnalysisDirectory ([string]$infoQuery.stdout)) `
         -Raw | ConvertFrom-Json -Depth 32
-    if ([int]$info.schemaVersion -ne 16) {
+    [object] $schemaProperty = $info.PSObject.Properties['schemaVersion']
+    if (
+        $null -eq $schemaProperty -or
+        $schemaProperty.Value -isnot [long] -or
+        [long]$schemaProperty.Value -ne 16
+    ) {
         throw "Profile analysis '$AnalysisName' did not return info schema 16."
     }
     [object] $validatedInfoWarnings = Get-ValidatedProfileWarnings `
         $info `
         "Profile analysis '$AnalysisName' info"
-    [object] $analysesProperty = $info.PSObject.Properties['analyses']
-    [object] $analysisProperty = if ($null -eq $analysesProperty) {
+    [object] $resultProperty = $info.PSObject.Properties['result']
+    if ($null -eq $resultProperty -or $resultProperty.Value -isnot [pscustomobject]) {
+        throw "Profile info omitted its result."
+    }
+    [object] $analysesProperty = $resultProperty.Value.PSObject.Properties['analyses']
+    [object] $analysisProperty = if (
+        $null -eq $analysesProperty -or
+        $analysesProperty.Value -isnot [pscustomobject]
+    ) {
         $null
     }
     else {
         $analysesProperty.Value.PSObject.Properties[$AnalysisName]
     }
-    if ($null -eq $analysisProperty) {
+    if ($null -eq $analysisProperty -or $analysisProperty.Value -isnot [pscustomobject]) {
         throw "Profile info omitted analysis '$AnalysisName'."
     }
     [object] $analysis = $analysisProperty.Value
-    if ([string]$analysis.captureStatus -cne 'enabled') {
-        throw "Profile analysis '$AnalysisName' is unavailable with capture status '$($analysis.captureStatus)'."
+    [object] $captureStatusProperty = $analysis.PSObject.Properties['captureStatus']
+    if ($null -eq $captureStatusProperty -or $captureStatusProperty.Value -isnot [string]) {
+        throw "Profile analysis '$AnalysisName' did not report a valid capture status."
+    }
+    if ([string]$captureStatusProperty.Value -cne 'enabled') {
+        throw "Profile analysis '$AnalysisName' is unavailable with capture status '$($captureStatusProperty.Value)'."
     }
     [object] $eventProperty = $analysis.PSObject.Properties['eventCount']
     if (
         $null -eq $eventProperty -or
-        $null -eq $eventProperty.Value -or
-        $eventProperty.Value -isnot [ValueType] -or
+        $eventProperty.Value -isnot [long] -or
         [long]$eventProperty.Value -lt 0
     ) {
         throw "Profile analysis '$AnalysisName' did not report a valid event count."

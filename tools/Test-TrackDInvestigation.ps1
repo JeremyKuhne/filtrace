@@ -45,7 +45,11 @@ try {
         'Stop-NativeProcess',
         'Resolve-LocalFile',
         'Get-BoundedAnalyzerFileIdentity',
-        'Get-AnalyzerIdentity')
+        'Get-AnalyzerIdentity',
+        'Test-FiniteJsonNumber',
+        'Get-ValidatedProfileWarnings',
+        'Get-ValidatedProfileResult',
+        'Get-AnalysisEvidence')
     [object[]] $boundaryDefinitions = @(
         $scriptAst.FindAll(
             {
@@ -68,6 +72,71 @@ try {
     $maximumAnalyzerFiles = 256
     $maximumAnalyzerFileBytes = 128MB
     $maximumAnalyzerDirectoryBytes = 512MB
+    $profileQualityWarningCodes = [System.Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::Ordinal)
+
+    [string] $analysisEvidenceDirectory = Join-Path $temporaryRoot 'analysis-evidence-schema'
+    [System.IO.Directory]::CreateDirectory($analysisEvidenceDirectory) | Out-Null
+    Write-Json (Join-Path $analysisEvidenceDirectory 'run.json') ([ordered]@{
+        status = 'completed'
+        queries = @(
+            [ordered]@{
+                id = 'orientation'
+                operation = 'info'
+                status = 'completed'
+                stdout = 'info.json'
+            },
+            [ordered]@{
+                id = 'hot-methods'
+                operation = 'rank'
+                status = 'completed'
+                stdout = 'rank.json'
+            })
+    })
+    Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') ([ordered]@{
+        schemaVersion = 16
+        warnings = @()
+        context = [ordered]@{ operation = 'rank'; metric = 'cpu'; unit = 'ms' }
+        result = [ordered]@{
+            scopeWeight = 128
+            contributingRecordCount = 128
+            rows = @([ordered]@{ frame = 'Fake.Work'; weight = 128; percentOfScope = 100 })
+        }
+    })
+    [string] $realInfoJson = @'
+{"schemaVersion":16,"warnings":[],"hints":[],"context":{"operation":"info"},"result":{"path":"capture.nettrace","format":"NetTrace","totalWeight":128,"sampleCount":128,"symbolResolutionRate":1,"threads":[{"thread":"4860","sampleCount":128}],"availableAnalyses":["cpu","alloc","gcstats"],"etlxCacheState":"converted","analyses":{"cpu":{"captureStatus":"enabled","eventCount":128},"gcstats":{"captureStatus":"enabled","eventCount":1}},"sourceResolution":{"searchedDirectories":[],"sampledManagedFrameCount":128,"mappedManagedFrameCount":0,"matchingPdbModules":[],"highestUnmappedModules":[],"highestUnmappedMethods":[]}}}
+'@
+    [System.IO.File]::WriteAllText(
+        (Join-Path $analysisEvidenceDirectory 'info.json'),
+        $realInfoJson,
+        $utf8)
+    [System.Collections.IDictionary] $realShapeEvidence = Get-AnalysisEvidence `
+        $analysisEvidenceDirectory `
+        'cpu' `
+        $true
+    Assert-True `
+        ($realShapeEvidence.status -ceq 'observed' -and $realShapeEvidence.eventCount -eq 128) `
+        'Schema 16 result analyses did not produce observed CPU evidence.'
+
+    [string] $topLevelOnlyInfoJson = @'
+{"schemaVersion":16,"warnings":[],"hints":[],"context":{"operation":"info"},"analyses":{"cpu":{"captureStatus":"enabled","eventCount":128}}}
+'@
+    [System.IO.File]::WriteAllText(
+        (Join-Path $analysisEvidenceDirectory 'info.json'),
+        $topLevelOnlyInfoJson,
+        $utf8)
+    [bool] $topLevelOnlyFailed = $false
+    try {
+        $null = Get-AnalysisEvidence $analysisEvidenceDirectory 'cpu' $true
+    }
+    catch {
+        $topLevelOnlyFailed = $_.Exception.Message.Contains(
+            'omitted its result',
+            [StringComparison]::Ordinal)
+    }
+    Assert-True `
+        $topLevelOnlyFailed `
+        'Profile evidence accepted legacy top-level analyses without a schema 16 result.'
 
     [string] $corpusSource = Join-Path $temporaryRoot 'corpus-source'
     [string] $corpusInputs = Join-Path $corpusSource 'inputs'
@@ -755,6 +824,7 @@ try {
             [pscustomobject]@{ Name = 'analysis-bad-rank-shape'; Mode = 'analysis-bad-rank-shape'; Message = 'malformed rank row' },
             [pscustomobject]@{ Name = 'analysis-empty'; Mode = 'analysis-valid-empty'; Message = 'contained no cpu events' },
             [pscustomobject]@{ Name = 'analysis-missing'; Mode = 'analysis-missing'; Message = 'omitted analysis' },
+            [pscustomobject]@{ Name = 'analysis-wrong-top-level'; Mode = 'analysis-wrong-top-level'; Message = 'omitted analysis' },
             [pscustomobject]@{ Name = 'analysis-nonzero'; Mode = 'analysis-nonzero'; Message = 'exited with code 9' },
             [pscustomobject]@{ Name = 'analysis-malformed'; Mode = 'analysis-malformed'; Message = 'did not complete' },
             [pscustomobject]@{ Name = 'gc-absent'; Mode = 'gc-absent'; Message = 'omitted context or result' },

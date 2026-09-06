@@ -146,9 +146,47 @@ internal static class Program
             string[] availableAnalyses = ["cpu", "alloc", "gcstats"];
             Dictionary<string, object> info = new();
             info["schemaVersion"] = 16;
-            info["availableAnalyses"] = availableAnalyses;
-            info["analyses"] = analyses;
             info["warnings"] = GetWarnings(mode);
+            info["hints"] = Array.Empty<object>();
+            info["context"] = new
+            {
+                operation = "info"
+            };
+
+            info["result"] = new
+            {
+                path = args.Length > 1 ? args[1] : "capture.nettrace",
+                format = "NetTrace",
+                totalWeight = eventCount,
+                sampleCount = eventCount,
+                symbolResolutionRate = 1.0,
+                threads = new[]
+                {
+                    new
+                    {
+                        thread = "1",
+                        sampleCount = eventCount
+                    }
+                },
+                availableAnalyses,
+                etlxCacheState = "converted",
+                analyses = mode == "analysis-wrong-top-level" ? null : analyses,
+                sourceResolution = new
+                {
+                    searchedDirectories = Array.Empty<string>(),
+                    sampledManagedFrameCount = eventCount,
+                    mappedManagedFrameCount = eventCount,
+                    matchingPdbModules = Array.Empty<string>(),
+                    highestUnmappedModules = Array.Empty<string>(),
+                    highestUnmappedMethods = Array.Empty<string>()
+                }
+            };
+
+            if (mode == "analysis-wrong-top-level")
+            {
+                info["analyses"] = analyses;
+            }
+
             Console.WriteLine(JsonSerializer.Serialize(info));
             return 0;
         }
