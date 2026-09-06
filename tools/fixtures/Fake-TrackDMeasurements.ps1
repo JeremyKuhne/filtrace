@@ -73,6 +73,38 @@ $launches = @(for ($iteration = 1; $iteration -le $TelemetryIterations; $iterati
         'nonfinite' { $launch.launchToExitMilliseconds = 'Infinity' }
         'negative' { $launch.launchToExitMilliseconds = -1.0 }
     }
+    if ($env:FILTRACE_TRACKD_FAKE_ZERO_COUNTERS -eq '1') {
+        $launch.totalProcessorMilliseconds = 0.0
+        $launch.peakWorkingSetBytes = 0
+        $launch.maxPrivateMemoryBytes = 0
+    }
+    if (-not [string]::IsNullOrEmpty($env:FILTRACE_TRACKD_FAKE_INVALID_FIELD)) {
+        switch ($env:FILTRACE_TRACKD_FAKE_INVALID_VALUE) {
+            'missing' { $launch.Remove($env:FILTRACE_TRACKD_FAKE_INVALID_FIELD) }
+            'null' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = $null }
+            'string' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = 'not-a-number' }
+            'boolean' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = $true }
+            'nonfinite' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = 'Infinity' }
+            'negative' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = -1 }
+            'fractional' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = 1.5 }
+            'overflow' {
+                $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] =
+                    [System.Numerics.BigInteger]::Parse('9223372036854775808')
+            }
+            'zero' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = 0 }
+            'one' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = 1 }
+            'bad-digest-length' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = 'AAAA' }
+            'bad-digest-hex' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = 'G' * 64 }
+            'empty-array' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = @() }
+            'not-array' { $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = 'info' }
+            'nonstring-array' {
+                $launch[$env:FILTRACE_TRACKD_FAKE_INVALID_FIELD] = @('info', 1)
+            }
+            default {
+                throw "Unknown fake telemetry value '$env:FILTRACE_TRACKD_FAKE_INVALID_VALUE'."
+            }
+        }
+    }
 
     $launch
 })

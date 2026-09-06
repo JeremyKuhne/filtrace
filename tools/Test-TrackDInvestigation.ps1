@@ -882,58 +882,282 @@ try {
         $env:FILTRACE_TRACKD_MUTATE_ANALYZER_DLL = $previousMutationPath
     }
 
+    [string] $zeroCountersRun = Join-Path $temporaryRoot 'zero-counters'
+    [string] $previousFakeZeroCounters = $env:FILTRACE_TRACKD_FAKE_ZERO_COUNTERS
+    try {
+        $env:FILTRACE_TRACKD_FAKE_ZERO_COUNTERS = '1'
+        & $script `
+            -InputCorpusDirectory $corpus `
+            -BaselineCheckout $root `
+            -CandidateCheckout $root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $zeroCountersRun `
+            -NoBuild `
+            -TestAdapterPath $adapter
+    }
+    finally {
+        $env:FILTRACE_TRACKD_FAKE_ZERO_COUNTERS = $previousFakeZeroCounters
+    }
+    [object] $zeroCountersStatus = Get-Content `
+        -LiteralPath (Join-Path $zeroCountersRun 'run-status.json') `
+        -Raw | ConvertFrom-Json
+    [object] $zeroCountersComparison = Get-Content `
+        -LiteralPath (Join-Path $zeroCountersRun 'comparison.json') `
+        -Raw | ConvertFrom-Json
+    Assert-True ($zeroCountersStatus.status -eq 'completed') 'Zero sampled counters were rejected.'
+    Assert-True `
+        ($zeroCountersComparison.cliTelemetry.baseline.averageCpuMilliseconds -eq 0) `
+        'Zero sampled CPU was not retained.'
+    Assert-True `
+        ($zeroCountersComparison.cliTelemetry.baseline.maxPeakWorkingSetBytes -eq 0) `
+        'Zero sampled working set was not retained.'
+    Assert-True `
+        ($zeroCountersComparison.cliTelemetry.baseline.maxPrivateMemoryBytes -eq 0) `
+        'Zero sampled private memory was not retained.'
+    Assert-True `
+        ($zeroCountersComparison.cliTelemetry.averageCpuDeltaPercent -eq 0) `
+        'Zero sampled CPU did not produce a neutral delta.'
+
     [object[]] $invalidTelemetryCases = @(
-        [pscustomobject]@{
+        [ordered]@{
             Mode = 'schema1'
+            Field = $null
+            Value = $null
             Message = 'does not use schema version 2'
         },
-        [pscustomobject]@{
+        [ordered]@{
             Mode = 'empty'
+            Field = $null
+            Value = $null
             Message = 'iterations must be a positive integer'
         },
-        [pscustomobject]@{
+        [ordered]@{
             Mode = 'iterations-fractional'
+            Field = $null
+            Value = $null
             Message = 'iterations must be a positive integer JSON number'
         },
-        [pscustomobject]@{
+        [ordered]@{
             Mode = 'iterations-null'
+            Field = $null
+            Value = $null
             Message = 'iterations must be a positive integer JSON number'
         },
-        [pscustomobject]@{
+        [ordered]@{
             Mode = 'iterations-missing'
+            Field = $null
+            Value = $null
             Message = 'iterations must be a positive integer JSON number'
         },
-        [pscustomobject]@{
+        [ordered]@{
             Mode = 'iterations-string'
+            Field = $null
+            Value = $null
             Message = 'iterations must be a positive integer JSON number'
         },
-        [pscustomobject]@{
+        [ordered]@{
             Mode = 'iterations-boolean'
+            Field = $null
+            Value = $null
             Message = 'iterations must be a positive integer JSON number'
         },
-        [pscustomobject]@{
+        [ordered]@{
             Mode = 'missing'
+            Field = $null
+            Value = $null
             Message = 'missing launchToExitMilliseconds'
         },
-        [pscustomobject]@{
+        [ordered]@{
             Mode = 'malformed'
+            Field = $null
+            Value = $null
             Message = 'launchToExitMilliseconds must be a JSON number'
         },
-        [pscustomobject]@{
+        [ordered]@{
             Mode = 'nonfinite'
+            Field = $null
+            Value = $null
             Message = 'nonfinite launchToExitMilliseconds'
         },
-        [pscustomobject]@{
+        [ordered]@{
             Mode = 'negative'
+            Field = $null
+            Value = $null
             Message = 'negative launchToExitMilliseconds'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'totalProcessorMilliseconds'
+            Value = 'missing'
+            Message = 'missing totalProcessorMilliseconds'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'totalProcessorMilliseconds'
+            Value = 'null'
+            Message = 'totalProcessorMilliseconds must be a JSON number'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'totalProcessorMilliseconds'
+            Value = 'string'
+            Message = 'totalProcessorMilliseconds must be a JSON number'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'totalProcessorMilliseconds'
+            Value = 'boolean'
+            Message = 'totalProcessorMilliseconds must be a JSON number'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'totalProcessorMilliseconds'
+            Value = 'nonfinite'
+            Message = 'nonfinite totalProcessorMilliseconds'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'totalProcessorMilliseconds'
+            Value = 'negative'
+            Message = 'negative totalProcessorMilliseconds'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'peakWorkingSetBytes'
+            Value = 'missing'
+            Message = 'missing peakWorkingSetBytes'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'peakWorkingSetBytes'
+            Value = 'negative'
+            Message = 'peakWorkingSetBytes must be an integer from 0 through Int64.MaxValue'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'maxPrivateMemoryBytes'
+            Value = 'fractional'
+            Message = 'maxPrivateMemoryBytes must be an integer from 0 through Int64.MaxValue'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'maxPrivateMemoryBytes'
+            Value = 'overflow'
+            Message = 'maxPrivateMemoryBytes must be an integer from 0 through Int64.MaxValue'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'exitCode'
+            Value = 'missing'
+            Message = 'missing exitCode'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'exitCode'
+            Value = 'one'
+            Message = 'nonzero exitCode'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'standardOutputLength'
+            Value = 'missing'
+            Message = 'missing standardOutputLength'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'standardOutputLength'
+            Value = 'negative'
+            Message = 'standardOutputLength must be an integer from 0 through Int64.MaxValue'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'standardOutputLength'
+            Value = 'zero'
+            Message = 'standardOutputLength must be positive'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'standardErrorLength'
+            Value = 'missing'
+            Message = 'missing standardErrorLength'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'standardErrorLength'
+            Value = 'one'
+            Message = 'nonzero standardErrorLength'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'outputSha256'
+            Value = 'missing'
+            Message = 'missing outputSha256'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'outputSha256'
+            Value = 'bad-digest-length'
+            Message = 'outputSha256 must be a 64-character hexadecimal string'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'outputSha256'
+            Value = 'bad-digest-hex'
+            Message = 'outputSha256 must be a 64-character hexadecimal string'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'iteration'
+            Value = 'missing'
+            Message = 'missing iteration'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'iteration'
+            Value = 'one'
+            Message = 'launch iterations must be the unique ordinals'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'arguments'
+            Value = 'missing'
+            Message = 'missing arguments'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'arguments'
+            Value = 'empty-array'
+            Message = 'arguments must be a nonempty JSON array of strings'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'arguments'
+            Value = 'not-array'
+            Message = 'arguments must be a nonempty JSON array of strings'
+        },
+        [ordered]@{
+            Mode = $null
+            Field = 'arguments'
+            Value = 'nonstring-array'
+            Message = 'arguments must be a nonempty JSON array of strings'
         })
     [string] $previousFakeTelemetry = $env:FILTRACE_TRACKD_FAKE_ELAPSED
+    [string] $previousFakeInvalidField = $env:FILTRACE_TRACKD_FAKE_INVALID_FIELD
+    [string] $previousFakeInvalidValue = $env:FILTRACE_TRACKD_FAKE_INVALID_VALUE
     try {
         foreach ($invalidTelemetryCase in $invalidTelemetryCases) {
+            [string] $caseName = if ($invalidTelemetryCase.Mode) {
+                $invalidTelemetryCase.Mode
+            }
+            else {
+                "$($invalidTelemetryCase.Field)-$($invalidTelemetryCase.Value)"
+            }
             [string] $invalidTelemetryRun = Join-Path `
                 $temporaryRoot `
-                "telemetry-$($invalidTelemetryCase.Mode)"
+                "telemetry-$caseName"
             $env:FILTRACE_TRACKD_FAKE_ELAPSED = $invalidTelemetryCase.Mode
+            $env:FILTRACE_TRACKD_FAKE_INVALID_FIELD = $invalidTelemetryCase.Field
+            $env:FILTRACE_TRACKD_FAKE_INVALID_VALUE = $invalidTelemetryCase.Value
             [bool] $invalidTelemetryFailed = $false
             try {
                 & $script `
@@ -956,20 +1180,25 @@ try {
                 -Raw | ConvertFrom-Json
             Assert-True `
                 $invalidTelemetryFailed `
-                "Invalid telemetry mode '$($invalidTelemetryCase.Mode)' was not rejected as expected."
+                "Invalid telemetry case '$caseName' was not rejected as expected."
             Assert-True `
                 ($invalidTelemetryStatus.status -eq 'failed') `
-                "Invalid telemetry mode '$($invalidTelemetryCase.Mode)' did not record failed status."
+                "Invalid telemetry case '$caseName' did not record failed status."
             Assert-True `
                 (Test-Path -LiteralPath (Join-Path $invalidTelemetryRun 'failure.txt')) `
-                "Invalid telemetry mode '$($invalidTelemetryCase.Mode)' omitted failure.txt."
+                "Invalid telemetry case '$caseName' omitted failure.txt."
             Assert-True `
                 (Test-Path -LiteralPath (Join-Path $invalidTelemetryRun 'commands.txt')) `
-                "Invalid telemetry mode '$($invalidTelemetryCase.Mode)' omitted commands.txt."
+                "Invalid telemetry case '$caseName' omitted commands.txt."
+            Assert-True `
+                (-not (Test-Path -LiteralPath (Join-Path $invalidTelemetryRun 'comparison.json'))) `
+                "Invalid telemetry case '$caseName' wrote comparison.json."
         }
     }
     finally {
         $env:FILTRACE_TRACKD_FAKE_ELAPSED = $previousFakeTelemetry
+        $env:FILTRACE_TRACKD_FAKE_INVALID_FIELD = $previousFakeInvalidField
+        $env:FILTRACE_TRACKD_FAKE_INVALID_VALUE = $previousFakeInvalidValue
     }
 
     [string] $failure = Join-Path $temporaryRoot 'adapter-failure'

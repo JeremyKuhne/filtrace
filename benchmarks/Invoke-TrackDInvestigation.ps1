@@ -1632,6 +1632,99 @@ function Get-BenchmarkComparison([string] $BaselineReport, [string] $CandidateRe
     return @($rows)
 }
 
+function Get-RequiredTelemetryValue([object] $Record, [string] $Name, [string] $Path) {
+    [object] $property = $Record.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        throw "Telemetry report '$Path' is missing $Name."
+    }
+
+    return ,$property.Value
+}
+
+function Test-JsonNumber([object] $Value) {
+    if ($null -eq $Value) {
+        return $false
+    }
+
+    if ($Value -is [System.Numerics.BigInteger]) {
+        return $true
+    }
+
+    [TypeCode] $typeCode = [Type]::GetTypeCode($Value.GetType())
+    return $typeCode -in @(
+        [TypeCode]::SByte,
+        [TypeCode]::Byte,
+        [TypeCode]::Int16,
+        [TypeCode]::UInt16,
+        [TypeCode]::Int32,
+        [TypeCode]::UInt32,
+        [TypeCode]::Int64,
+        [TypeCode]::UInt64,
+        [TypeCode]::Single,
+        [TypeCode]::Double,
+        [TypeCode]::Decimal)
+}
+
+function Get-TelemetryNumber([object] $Record, [string] $Name, [string] $Path) {
+    [object] $value = Get-RequiredTelemetryValue $Record $Name $Path
+    if (
+        $value -is [string] -and
+        $value -in @('NaN', 'Infinity', '+Infinity', '-Infinity')
+    ) {
+        throw "Telemetry report '$Path' has nonfinite $Name."
+    }
+
+    if (-not (Test-JsonNumber $value)) {
+        throw "Telemetry report '$Path' $Name must be a JSON number."
+    }
+
+    if (
+        $value -is [float] -or
+        $value -is [double]
+    ) {
+        [double] $floatingPointValue = $value
+        if (-not [double]::IsFinite($floatingPointValue)) {
+            throw "Telemetry report '$Path' has nonfinite $Name."
+        }
+    }
+
+    return $value
+}
+
+function Get-TelemetryNonnegativeDouble([object] $Record, [string] $Name, [string] $Path) {
+    [object] $value = Get-TelemetryNumber $Record $Name $Path
+    [double] $number = $value
+    if (-not [double]::IsFinite($number)) {
+        throw "Telemetry report '$Path' has nonfinite $Name."
+    }
+
+    if ($number -lt 0.0) {
+        throw "Telemetry report '$Path' has negative $Name."
+    }
+
+    return $number
+}
+
+function Get-TelemetryNonnegativeInt64([object] $Record, [string] $Name, [string] $Path) {
+    [object] $value = Get-TelemetryNumber $Record $Name $Path
+    try {
+        [decimal] $number = $value
+    }
+    catch {
+        throw "Telemetry report '$Path' $Name must be an integer from 0 through Int64.MaxValue."
+    }
+
+    if (
+        $number -lt 0 -or
+        $number -ne [decimal]::Truncate($number) -or
+        $number -gt [long]::MaxValue
+    ) {
+        throw "Telemetry report '$Path' $Name must be an integer from 0 through Int64.MaxValue."
+    }
+
+    return [long]$number
+}
+
 function Get-TelemetrySummary([string] $Path) {
     [object] $report = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     if ([int]$report.schemaVersion -ne 2) {
@@ -1670,39 +1763,60 @@ function Get-TelemetrySummary([string] $Path) {
         throw "Telemetry report '$Path' has an incomplete launch set."
     }
 
-    [double[]] $launchToExitMilliseconds = @(
-        foreach ($launch in $launches) {
-            [object] $property = $launch.PSObject.Properties['launchToExitMilliseconds']
-            if ($null -eq $property) {
-                throw "Telemetry report '$Path' is missing launchToExitMilliseconds."
-            }
+    [System.Collections.Generic.List[double]] $launchToExitMilliseconds = @()
+    [System.Collections.Generic.List[double]] $totalProcessorMilliseconds = @()
+    [System.Collections.Generic.List[long]] $peakWorkingSetBytes = @()
+    [System.Collections.Generic.List[long]] $maxPrivateMemoryBytes = @()
+    [System.Collections.Generic.List[long]] $standardOutputLength = @()
+    [System.Collections.Generic.HashSet[string]] $outputDigests =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    for ($launchIndex = 0; $launchIndex -lt $launches.Count; $launchIndex++) {
+        [object] $launch = $launches[$launchIndex]
+        [long] $iteration = Get-TelemetryNonnegativeInt64 $launch 'iteration' $Path
+        if ($iteration -ne $launchIndex + 1) {
+            throw "Telemetry report '$Path' launch iterations must be the unique ordinals 1 through $iterations."
+        }
 
-            [object] $value = $property.Value
-            if ($value -is [string]) {
-                if (
-                    $value -in @('NaN', 'Infinity', '+Infinity', '-Infinity')
-                ) {
-                    throw "Telemetry report '$Path' has nonfinite launchToExitMilliseconds."
-                }
+        [object] $arguments = Get-RequiredTelemetryValue $launch 'arguments' $Path
+        if (
+            $arguments -isnot [array] -or
+            $arguments.Count -eq 0 -or
+            @($arguments | Where-Object { $_ -isnot [string] }).Count -ne 0
+        ) {
+            throw "Telemetry report '$Path' arguments must be a nonempty JSON array of strings."
+        }
 
-                throw "Telemetry report '$Path' launchToExitMilliseconds must be a JSON number."
-            }
+        $launchToExitMilliseconds.Add(
+            (Get-TelemetryNonnegativeDouble $launch 'launchToExitMilliseconds' $Path))
+        $totalProcessorMilliseconds.Add(
+            (Get-TelemetryNonnegativeDouble $launch 'totalProcessorMilliseconds' $Path))
+        $peakWorkingSetBytes.Add(
+            (Get-TelemetryNonnegativeInt64 $launch 'peakWorkingSetBytes' $Path))
+        $maxPrivateMemoryBytes.Add(
+            (Get-TelemetryNonnegativeInt64 $launch 'maxPrivateMemoryBytes' $Path))
 
-            if ($null -eq $value -or $value -is [bool] -or $value -isnot [ValueType]) {
-                throw "Telemetry report '$Path' launchToExitMilliseconds must be a JSON number."
-            }
+        [long] $exitCode = Get-TelemetryNonnegativeInt64 $launch 'exitCode' $Path
+        if ($exitCode -ne 0) {
+            throw "Telemetry report '$Path' has nonzero exitCode."
+        }
 
-            [double] $elapsed = $value
-            if (-not [double]::IsFinite($elapsed)) {
-                throw "Telemetry report '$Path' has nonfinite launchToExitMilliseconds."
-            }
+        [long] $outputLength = Get-TelemetryNonnegativeInt64 $launch 'standardOutputLength' $Path
+        if ($outputLength -eq 0) {
+            throw "Telemetry report '$Path' standardOutputLength must be positive."
+        }
+        $standardOutputLength.Add($outputLength)
 
-            if ($elapsed -lt 0.0) {
-                throw "Telemetry report '$Path' has negative launchToExitMilliseconds."
-            }
+        [long] $errorLength = Get-TelemetryNonnegativeInt64 $launch 'standardErrorLength' $Path
+        if ($errorLength -ne 0) {
+            throw "Telemetry report '$Path' has nonzero standardErrorLength."
+        }
 
-            $elapsed
-        })
+        [object] $digest = Get-RequiredTelemetryValue $launch 'outputSha256' $Path
+        if ($digest -isnot [string] -or $digest -notmatch '\A[0-9A-Fa-f]{64}\z') {
+            throw "Telemetry report '$Path' outputSha256 must be a 64-character hexadecimal string."
+        }
+        $outputDigests.Add($digest) | Out-Null
+    }
 
     return [ordered]@{
         scenario = $report.scenario
@@ -1710,14 +1824,14 @@ function Get-TelemetrySummary([string] $Path) {
         averageLaunchToExitMilliseconds = [double](
             $launchToExitMilliseconds | Measure-Object -Average).Average
         averageCpuMilliseconds = [double](
-            $launches.totalProcessorMilliseconds | Measure-Object -Average).Average
+            $totalProcessorMilliseconds | Measure-Object -Average).Average
         maxPeakWorkingSetBytes = [long](
-            $launches.peakWorkingSetBytes | Measure-Object -Maximum).Maximum
+            $peakWorkingSetBytes | Measure-Object -Maximum).Maximum
         maxPrivateMemoryBytes = [long](
-            $launches.maxPrivateMemoryBytes | Measure-Object -Maximum).Maximum
+            $maxPrivateMemoryBytes | Measure-Object -Maximum).Maximum
         averageOutputLength = [double](
-            $launches.standardOutputLength | Measure-Object -Average).Average
-        distinctOutputDigests = @($launches.outputSha256 | Sort-Object -Unique).Count
+            $standardOutputLength | Measure-Object -Average).Average
+        distinctOutputDigests = $outputDigests.Count
     }
 }
 
