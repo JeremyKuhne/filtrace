@@ -222,8 +222,20 @@ internal sealed class BoundedProcessRunner : IProcessRunner
 
     private static Process StartProcess(ProcessStartInfo startInfo)
     {
-        return Process.Start(startInfo)
-            ?? throw new InvalidOperationException($"Could not start '{startInfo.FileName}'.");
+        Process? process;
+        try
+        {
+            process = Process.Start(startInfo);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            throw new ProcessStartException($"Could not start '{startInfo.FileName}'.", exception);
+        }
+
+        return process
+            ?? throw new ProcessStartException(
+                $"Could not start '{startInfo.FileName}'.",
+                new InvalidOperationException("Process.Start returned null."));
     }
 
     private static void TryTerminate(Process process, bool entireProcessTree = true)

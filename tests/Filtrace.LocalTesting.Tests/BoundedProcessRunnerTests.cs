@@ -209,7 +209,10 @@ public sealed class BoundedProcessRunnerTests
 
         Func<Task> action = () => new BoundedProcessRunner().RunAsync(invocation);
 
-        await action.Should().ThrowAsync<Win32Exception>();
+        ProcessStartException exception =
+            (await action.Should().ThrowAsync<ProcessStartException>()).Which;
+
+        exception.InnerException.Should().BeOfType<Win32Exception>();
     }
 
     [TestMethod]
