@@ -84,6 +84,10 @@ jobs:
         shell: pwsh
         run: ./tools/Test-CaptureBenchmarkTrace.ps1
 
+      - name: Command capture contract
+        shell: pwsh
+        run: ./tools/Test-CaptureCommandTrace.ps1
+
       - name: Project capture contract
         shell: pwsh
         run: ./tools/Test-CaptureProjectTrace.ps1
@@ -128,6 +132,10 @@ jobs:
 
       - name: Test
         run: dotnet test filtrace.slnx --configuration Release --no-build
+
+      - name: Command capture native argv contract
+        shell: pwsh
+        run: ./tools/Test-CaptureCommandTrace.ps1 -WindowsNativeArgv
 
       - name: Local activation wrapper contract
         shell: pwsh
