@@ -56,6 +56,22 @@ public sealed class CaptureManifestReaderTests
     }
 
     [TestMethod]
+    public void Read_AllFailedCommandManifest_AcceptsDiagnosticEnvelopeWithoutCases()
+    {
+        using TemporaryManifest manifest = new(
+            """
+            {"schemaVersion":2,"kind":"command","iterations":2,"cases":[],"failedCases":[
+              {"id":"invalid","status":"invalidResult","collectExitCode":0,"diagnostic":"missing processId"}
+            ],"warnings":["invalid result"]}
+            """);
+
+        CaptureManifest read = CaptureManifestReader.Read(manifest.ManifestPath);
+
+        read.Kind.Should().Be(CaptureKind.Command);
+        read.Cases.Should().BeEmpty();
+    }
+
+    [TestMethod]
     public void Read_SchemaVersionOneWithoutKind_StillReadsAsABenchmarkCapture()
     {
         // Version 1 manifests predate the discriminator, so they have to keep working with

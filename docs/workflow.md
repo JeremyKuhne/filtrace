@@ -408,7 +408,33 @@ are wrong. Work in this order.
    with 25 launches amortizes it and gives a ranking with enough samples to read.
    [scripts/Capture-CommandTrace.ps1](../.agents/skills/filtrace/scripts/Capture-CommandTrace.ps1)
    drives a whole scenario matrix this way, with one elevation and a manifest `batch` and
-   `diff` read directly.
+    `diff` read directly. The helper requires PowerShell 7.2 or later.
+
+   Prefer `ArgumentList` for new scenarios so spaces, quotes, empty arguments, and trailing
+   backslashes are encoded at the collector's Windows command-line boundary without a
+   whitespace split. Existing `Arguments` text remains supported as an opaque legacy
+   command line; the manifest records it as `legacyCommandLine` and does not fabricate argv:
+
+   ```pwsh
+   $matrix = @(
+     @{ Name = 'version'; Command = 'dotnet'; ArgumentList = @('--version') }
+     @{ Name = 'build'; Command = 'dotnet'; ArgumentList = @('build', 'src/My App.csproj', '--no-restore') }
+   )
+   ./Capture-CommandTrace.ps1 -Scenario $matrix -Iterations 25
+   ```
+
+   Schema-2 command manifests add the canonical executable path and SHA-256 per case,
+   working directory, verified filtrace path/version/SHA-256, and a fingerprint over a
+   closed allowlist of runtime performance switches. They never serialize the full
+   environment. Successful cases retain exact invocation roots; failed scenarios remain
+   in `failedCases` with bounded diagnostics without becoming analyzable success cases.
+    Scenario names are case identities and trace filename components, so the helper rejects
+    separators, control/invalid filename characters, Windows reserved names, and identities
+    beyond the reader's 256-character limit. If every scenario fails, it still writes a
+    diagnostic manifest with `cases: []` and `failedCases`, then exits 1. Only a manifest
+    with at least one accepted case is analysis input for `batch` or `diff`.
+   Descendant membership is reconstructed from the ETW process graph rooted at those ids,
+   not copied into a point-in-time child-id list in the manifest.
 
 5. **Scope by exact process id, not by name.** A machine-wide `.etl` of `dotnet --version`
    contains every other `dotnet` on the box. The manifest records each launch's exact id;
