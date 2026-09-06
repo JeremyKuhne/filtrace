@@ -75,6 +75,20 @@ $launches = @(for ($iteration = 1; $iteration -le $TelemetryIterations; $iterati
         standardErrorLength = 0
         outputSha256 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
     }
+    switch ($env:FILTRACE_TRACKD_FAKE_DIGEST_MODE) {
+        'alternating-case' {
+            if ($iteration % 2 -eq 0) {
+                $launch.outputSha256 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            }
+        }
+        'different-value' {
+            if ($iteration % 2 -eq 0) {
+                $launch.outputSha256 = 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'
+            }
+        }
+        { [string]::IsNullOrEmpty($_) } { }
+        default { throw "Unknown fake digest mode '$env:FILTRACE_TRACKD_FAKE_DIGEST_MODE'." }
+    }
     switch ($env:FILTRACE_TRACKD_FAKE_ELAPSED) {
         'missing' { $launch.Remove('launchToExitMilliseconds') }
         'malformed' { $launch.launchToExitMilliseconds = 'not-a-number' }
@@ -130,6 +144,13 @@ $telemetry = [ordered]@{
 }
 switch ($env:FILTRACE_TRACKD_FAKE_ELAPSED) {
     'schema1' { $telemetry.schemaVersion = 1 }
+    'schema-missing' { $telemetry.Remove('schemaVersion') }
+    'schema-null' { $telemetry.schemaVersion = $null }
+    'schema-boolean' { $telemetry.schemaVersion = $true }
+    'schema-string' { $telemetry.schemaVersion = '2' }
+    'schema-fractional' { $telemetry.schemaVersion = 2.4 }
+    'schema-nonfinite' { $telemetry.schemaVersion = 'Infinity' }
+    'schema-integral-double' { $telemetry.schemaVersion = 2.0 }
     'empty' {
         $telemetry.iterations = 0
         $telemetry.launches = @()
@@ -139,6 +160,17 @@ switch ($env:FILTRACE_TRACKD_FAKE_ELAPSED) {
     'iterations-missing' { $telemetry.Remove('iterations') }
     'iterations-string' { $telemetry.iterations = '1' }
     'iterations-boolean' { $telemetry.iterations = $true }
+    'launches-missing' { $telemetry.Remove('launches') }
+    'launches-null' { $telemetry.launches = $null }
+    'launches-empty' { $telemetry.launches = @() }
+    'launches-object' {
+        $telemetry.iterations = 1
+        $telemetry.launches = $launches[0]
+    }
+    'launches-string' {
+        $telemetry.iterations = 1
+        $telemetry.launches = 'not-an-array'
+    }
 }
 [System.IO.File]::WriteAllText(
     (Join-Path $telemetryDirectory 'cli-process.json'),

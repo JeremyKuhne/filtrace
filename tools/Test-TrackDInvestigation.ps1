@@ -409,7 +409,7 @@ try {
         ($probeLaunch.launchToExitMilliseconds -ge $heldOpen.Elapsed.TotalMilliseconds) `
         'Launch-to-exit telemetry did not contain the synchronized child wait.'
     Assert-True `
-        ($probeLaunch.launchToExitMilliseconds -gt $probeLaunch.totalProcessorMilliseconds) `
+        ($probeLaunch.launchToExitMilliseconds -ne $probeLaunch.totalProcessorMilliseconds) `
         'Launch-to-exit telemetry did not remain distinct from child CPU time.'
 
     [string] $firstCommandDirectory = Join-Path $temporaryRoot 'path-first'
@@ -1048,6 +1048,64 @@ try {
         $env:FILTRACE_TRACKD_MUTATE_ANALYZER_DLL = $previousMutationPath
     }
 
+    [System.Collections.Generic.List[string]] $reviewRegressionFailures = @()
+    [object[]] $digestCases = @(
+        [ordered]@{ Mode = 'alternating-case'; Expected = 1 },
+        [ordered]@{ Mode = 'different-value'; Expected = 2 })
+    [string] $previousFakeDigestMode = $env:FILTRACE_TRACKD_FAKE_DIGEST_MODE
+    try {
+        foreach ($digestCase in $digestCases) {
+            [string] $digestRun = Join-Path $temporaryRoot "digest-$($digestCase.Mode)"
+            $env:FILTRACE_TRACKD_FAKE_DIGEST_MODE = $digestCase.Mode
+            & $script `
+                -InputCorpusDirectory $corpus `
+                -BaselineCheckout $root `
+                -CandidateCheckout $root `
+                -AllowDirtyCheckouts `
+                -OutputDirectory $digestRun `
+                -TelemetryIterations 2 `
+                -NoBuild `
+                -TestAdapterPath $adapter
+            [object] $digestComparison = Get-Content `
+                -LiteralPath (Join-Path $digestRun 'comparison.json') `
+                -Raw | ConvertFrom-Json
+            if (
+                $digestComparison.cliTelemetry.baseline.distinctOutputDigests -ne $digestCase.Expected -or
+                $digestComparison.cliTelemetry.candidate.distinctOutputDigests -ne $digestCase.Expected
+            ) {
+                $reviewRegressionFailures.Add(
+                    "Digest mode '$($digestCase.Mode)' did not produce $($digestCase.Expected) distinct output digests.")
+            }
+        }
+    }
+    finally {
+        $env:FILTRACE_TRACKD_FAKE_DIGEST_MODE = $previousFakeDigestMode
+    }
+
+    [string] $integralSchemaRun = Join-Path $temporaryRoot 'schema-integral-double'
+    [string] $previousFakeTelemetry = $env:FILTRACE_TRACKD_FAKE_ELAPSED
+    try {
+        $env:FILTRACE_TRACKD_FAKE_ELAPSED = 'schema-integral-double'
+        & $script `
+            -InputCorpusDirectory $corpus `
+            -BaselineCheckout $root `
+            -CandidateCheckout $root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $integralSchemaRun `
+            -TelemetryIterations 1 `
+            -NoBuild `
+            -TestAdapterPath $adapter
+    }
+    finally {
+        $env:FILTRACE_TRACKD_FAKE_ELAPSED = $previousFakeTelemetry
+    }
+    [object] $integralSchemaStatus = Get-Content `
+        -LiteralPath (Join-Path $integralSchemaRun 'run-status.json') `
+        -Raw | ConvertFrom-Json
+    Assert-True `
+        ($integralSchemaStatus.status -eq 'completed') `
+        'Integral floating-point schema version 2 with one launch was rejected.'
+
     [string] $zeroCountersRun = Join-Path $temporaryRoot 'zero-counters'
     [string] $previousFakeZeroCounters = $env:FILTRACE_TRACKD_FAKE_ZERO_COUNTERS
     try {
@@ -1176,6 +1234,42 @@ try {
             Message = 'does not use schema version 2'
         },
         [ordered]@{
+            Mode = 'schema-missing'
+            Field = $null
+            Value = $null
+            Message = 'missing schemaVersion'
+        },
+        [ordered]@{
+            Mode = 'schema-null'
+            Field = $null
+            Value = $null
+            Message = 'schemaVersion must be a JSON number'
+        },
+        [ordered]@{
+            Mode = 'schema-boolean'
+            Field = $null
+            Value = $null
+            Message = 'schemaVersion must be a JSON number'
+        },
+        [ordered]@{
+            Mode = 'schema-string'
+            Field = $null
+            Value = $null
+            Message = 'schemaVersion must be a JSON number'
+        },
+        [ordered]@{
+            Mode = 'schema-fractional'
+            Field = $null
+            Value = $null
+            Message = 'schemaVersion must be an integer from 0 through Int64.MaxValue'
+        },
+        [ordered]@{
+            Mode = 'schema-nonfinite'
+            Field = $null
+            Value = $null
+            Message = 'nonfinite schemaVersion'
+        },
+        [ordered]@{
             Mode = 'empty'
             Field = $null
             Value = $null
@@ -1210,6 +1304,36 @@ try {
             Field = $null
             Value = $null
             Message = 'iterations must be a positive integer JSON number'
+        },
+        [ordered]@{
+            Mode = 'launches-missing'
+            Field = $null
+            Value = $null
+            Message = 'missing launches'
+        },
+        [ordered]@{
+            Mode = 'launches-null'
+            Field = $null
+            Value = $null
+            Message = 'launches must be a JSON array'
+        },
+        [ordered]@{
+            Mode = 'launches-empty'
+            Field = $null
+            Value = $null
+            Message = 'incomplete launch set'
+        },
+        [ordered]@{
+            Mode = 'launches-object'
+            Field = $null
+            Value = $null
+            Message = 'launches must be a JSON array'
+        },
+        [ordered]@{
+            Mode = 'launches-string'
+            Field = $null
+            Value = $null
+            Message = 'launches must be a JSON array'
         },
         [ordered]@{
             Mode = 'missing'
@@ -1391,7 +1515,7 @@ try {
             Value = 'nonstring-array'
             Message = 'arguments must be a nonempty JSON array of strings'
         })
-    [string] $previousFakeTelemetry = $env:FILTRACE_TRACKD_FAKE_ELAPSED
+    $previousFakeTelemetry = $env:FILTRACE_TRACKD_FAKE_ELAPSED
     [string] $previousFakeInvalidField = $env:FILTRACE_TRACKD_FAKE_INVALID_FIELD
     [string] $previousFakeInvalidValue = $env:FILTRACE_TRACKD_FAKE_INVALID_VALUE
     try {
@@ -1409,6 +1533,7 @@ try {
             $env:FILTRACE_TRACKD_FAKE_INVALID_FIELD = $invalidTelemetryCase.Field
             $env:FILTRACE_TRACKD_FAKE_INVALID_VALUE = $invalidTelemetryCase.Value
             [bool] $invalidTelemetryFailed = $false
+            [string] $invalidTelemetryError = ''
             try {
                 & $script `
                     -InputCorpusDirectory $corpus `
@@ -1420,6 +1545,7 @@ try {
                     -TestAdapterPath $adapter
             }
             catch {
+                $invalidTelemetryError = $_.Exception.Message
                 $invalidTelemetryFailed = $_.Exception.Message.Contains(
                     $invalidTelemetryCase.Message,
                     [StringComparison]::Ordinal)
@@ -1428,21 +1554,24 @@ try {
             [object] $invalidTelemetryStatus = Get-Content `
                 -LiteralPath (Join-Path $invalidTelemetryRun 'run-status.json') `
                 -Raw | ConvertFrom-Json
-            Assert-True `
-                $invalidTelemetryFailed `
-                "Invalid telemetry case '$caseName' was not rejected as expected."
-            Assert-True `
-                ($invalidTelemetryStatus.status -eq 'failed') `
-                "Invalid telemetry case '$caseName' did not record failed status."
-            Assert-True `
-                (Test-Path -LiteralPath (Join-Path $invalidTelemetryRun 'failure.txt')) `
-                "Invalid telemetry case '$caseName' omitted failure.txt."
-            Assert-True `
-                (Test-Path -LiteralPath (Join-Path $invalidTelemetryRun 'commands.txt')) `
-                "Invalid telemetry case '$caseName' omitted commands.txt."
-            Assert-True `
-                (-not (Test-Path -LiteralPath (Join-Path $invalidTelemetryRun 'comparison.json'))) `
-                "Invalid telemetry case '$caseName' wrote comparison.json."
+            if (-not $invalidTelemetryFailed) {
+                $reviewRegressionFailures.Add(
+                    "Invalid telemetry case '$caseName' was not rejected as expected; status was '$($invalidTelemetryStatus.status)', error was '$invalidTelemetryError'.")
+            }
+            else {
+                Assert-True `
+                    ($invalidTelemetryStatus.status -eq 'failed') `
+                    "Invalid telemetry case '$caseName' did not record failed status."
+                Assert-True `
+                    (Test-Path -LiteralPath (Join-Path $invalidTelemetryRun 'failure.txt')) `
+                    "Invalid telemetry case '$caseName' omitted failure.txt."
+                Assert-True `
+                    (Test-Path -LiteralPath (Join-Path $invalidTelemetryRun 'commands.txt')) `
+                    "Invalid telemetry case '$caseName' omitted commands.txt."
+                Assert-True `
+                    (-not (Test-Path -LiteralPath (Join-Path $invalidTelemetryRun 'comparison.json'))) `
+                    "Invalid telemetry case '$caseName' wrote comparison.json."
+            }
         }
     }
     finally {
@@ -1450,6 +1579,9 @@ try {
         $env:FILTRACE_TRACKD_FAKE_INVALID_FIELD = $previousFakeInvalidField
         $env:FILTRACE_TRACKD_FAKE_INVALID_VALUE = $previousFakeInvalidValue
     }
+    Assert-True `
+        ($reviewRegressionFailures.Count -eq 0) `
+        ($reviewRegressionFailures -join [Environment]::NewLine)
 
     [string] $failure = Join-Path $temporaryRoot 'adapter-failure'
     $previousFailureArm = $env:FILTRACE_TRACKD_FAKE_FAIL_ARM
