@@ -307,8 +307,8 @@ public sealed class SourceArtifactPreparerTests
             "dotnet"))
         {
             error.ToString().Should()
-                .Contain("Standard output exceeded the 1 MiB diagnostic limit")
-                .And.Contain("Standard error exceeded the 1 MiB diagnostic limit");
+                .Contain("Standard output exceeded the 1,048,576-character diagnostic limit")
+                .And.Contain("Standard error exceeded the 1,048,576-character diagnostic limit");
         }
 
         Directory.Exists(Path.Join(
@@ -322,16 +322,19 @@ public sealed class SourceArtifactPreparerTests
         using TemporaryDirectory directory = new();
         string source = CreateSource(Path.Join(directory.Path, "source"));
         string gitDirectory = Path.Join(source, ".git");
+        System.ComponentModel.Win32Exception nativeFailure = new(2, "Injected start failure.");
+        ProcessStartException startFailure = new("Could not start 'dotnet'.", nativeFailure);
         RecordingProcessRunner runner = new(
             source,
             failInvocation: null,
-            startException: new System.ComponentModel.Win32Exception(2, "Injected start failure."));
+            startException: startFailure);
 
         SourceArtifactPreparer preparer = new(runner, TextWriter.Null, TextWriter.Null);
         Func<Task> first = () => preparer.PrepareAsync(source, gitDirectory, "Release", "dotnet");
 
-        await first.Should().ThrowAsync<System.ComponentModel.Win32Exception>()
-            .WithMessage("Injected start failure.");
+        ProcessStartException thrown = (await first.Should().ThrowAsync<ProcessStartException>()).Which;
+        thrown.Should().BeSameAs(startFailure);
+        thrown.InnerException.Should().BeSameAs(nativeFailure);
 
         Directory.Exists(Path.Join(
             gitDirectory,
@@ -347,15 +350,27 @@ public sealed class SourceArtifactPreparerTests
     }
 
     [TestMethod]
-    public async Task PrepareAsync_UnexpectedRunnerFailure_RetainsQuarantine()
+    [DataRow(data: false)]
+    [DataRow(data: true)]
+    public async Task PrepareAsync_UnexpectedRunnerFailure_RetainsQuarantine(bool useWin32Exception)
     {
         using TemporaryDirectory directory = new();
         string source = CreateSource(Path.Join(directory.Path, "source"));
         string gitDirectory = Path.Join(source, ".git");
+        Exception exception;
+        if (useWin32Exception)
+        {
+            exception = new System.ComponentModel.Win32Exception(6, "Injected uncertain native failure.");
+        }
+        else
+        {
+            exception = new IOException("Injected uncertain failure.");
+        }
+
         RecordingProcessRunner runner = new(
             source,
             failInvocation: null,
-            startException: new IOException("Injected uncertain failure."));
+            startException: exception);
 
         SourceArtifactPreparer preparer = new(runner, TextWriter.Null, TextWriter.Null);
         Func<Task> first = () => preparer.PrepareAsync(source, gitDirectory, "Release", "dotnet");
@@ -468,10 +483,11 @@ public sealed class SourceArtifactPreparerTests
         string source = CreateSource(Path.Join(directory.Path, "source"));
         string gitDirectory = Path.Join(source, ".git");
         System.ComponentModel.Win32Exception originalFailure = new(2, "Injected start failure.");
+        ProcessStartException startFailure = new("Could not start 'dotnet'.", originalFailure);
         RecordingProcessRunner runner = new(
             source,
             failInvocation: null,
-            startException: originalFailure);
+            startException: startFailure);
 
         SourceArtifactPreparer preparer = new(
             runner,
@@ -481,12 +497,11 @@ public sealed class SourceArtifactPreparerTests
 
         Func<Task> first = () => preparer.PrepareAsync(source, gitDirectory, "Release", "dotnet");
 
-        System.ComponentModel.Win32Exception thrown =
-            (await first.Should().ThrowAsync<System.ComponentModel.Win32Exception>()).Which;
+        ProcessStartException thrown =
+            (await first.Should().ThrowAsync<ProcessStartException>()).Which;
 
-        thrown.Should().BeSameAs(originalFailure);
-        thrown.GetType().Should().Be(originalFailure.GetType());
-        thrown.Message.Should().Be(originalFailure.Message);
+        thrown.Should().BeSameAs(startFailure);
+        thrown.InnerException.Should().BeSameAs(originalFailure);
 
         Func<Task> second = () => preparer.PrepareAsync(source, gitDirectory, "Release", "dotnet");
 
@@ -538,18 +553,18 @@ public sealed class SourceArtifactPreparerTests
                     ExecutionTimedOut: false));
             }
 
-                    if (incompleteCapture)
-                    {
-                    return Task.FromResult(new ProcessResult(
-                        0,
-                        "partial output",
-                        string.Empty,
-                        StandardOutputTruncated: false,
-                        StandardErrorTruncated: false,
-                        ExecutionTimedOut: false,
-                        OutputCaptureIncomplete: true,
-                        RootProcessId: 4242));
-                    }
+            if (incompleteCapture)
+            {
+                return Task.FromResult(new ProcessResult(
+                    0,
+                    "partial output",
+                    string.Empty,
+                    StandardOutputTruncated: false,
+                    StandardErrorTruncated: false,
+                    ExecutionTimedOut: false,
+                    OutputCaptureIncomplete: true,
+                    RootProcessId: 4242));
+            }
 
             if (executionTimedOut)
             {
@@ -564,16 +579,16 @@ public sealed class SourceArtifactPreparerTests
                     RootProcessId: 4242));
             }
 
-                    if (exitUnconfirmed)
-                    {
-                    return Task.FromResult(new ProcessResult(
-                        ExitCode: null,
-                        string.Empty,
-                        string.Empty,
-                        StandardOutputTruncated: false,
-                        StandardErrorTruncated: false,
-                        ExecutionTimedOut: false));
-                    }
+            if (exitUnconfirmed)
+            {
+                return Task.FromResult(new ProcessResult(
+                    ExitCode: null,
+                    string.Empty,
+                    string.Empty,
+                    StandardOutputTruncated: false,
+                    StandardErrorTruncated: false,
+                    ExecutionTimedOut: false));
+            }
 
             if (invocation.Arguments[0].Equals("build", StringComparison.Ordinal)
                 && invocation.Arguments[1].Contains("Filtrace.Mcp", StringComparison.Ordinal))
