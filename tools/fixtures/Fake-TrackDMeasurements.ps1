@@ -32,6 +32,14 @@ if (-not [string]::IsNullOrEmpty($env:FILTRACE_TRACKD_FAKE_MEASUREMENT_MARKERS))
         -Value $ArmName
 }
 
+[string] $zeroCpuArm = $env:FILTRACE_TRACKD_FAKE_ZERO_CPU_ARM
+if (
+    -not [string]::IsNullOrEmpty($zeroCpuArm) -and
+    $zeroCpuArm -notin @('baseline', 'candidate')
+) {
+    throw "Unknown fake zero-CPU arm '$zeroCpuArm'."
+}
+
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 $results = Join-Path $ArmDirectory 'bdn/results'
 $telemetryDirectory = Join-Path $ArmDirectory 'cli-benchmark'
@@ -77,6 +85,9 @@ $launches = @(for ($iteration = 1; $iteration -le $TelemetryIterations; $iterati
         $launch.totalProcessorMilliseconds = 0.0
         $launch.peakWorkingSetBytes = 0
         $launch.maxPrivateMemoryBytes = 0
+    }
+    if ($zeroCpuArm -eq $ArmName) {
+        $launch.totalProcessorMilliseconds = 0.0
     }
     if (-not [string]::IsNullOrEmpty($env:FILTRACE_TRACKD_FAKE_INVALID_FIELD)) {
         switch ($env:FILTRACE_TRACKD_FAKE_INVALID_VALUE) {

@@ -44,7 +44,7 @@ Do not use an installed global `filtrace` or the MCP server to profile this repo
 that can silently analyze with different code. For an A/B investigation, use one fixed
 locally built baseline CLI to analyze both arms.
 
-CI also runs ten contract and evaluation checks that must stay green:
+CI also runs eleven contract and evaluation checks that must stay green:
 
 - `tools/Test-CliHelp.ps1 -Configuration Release` - every canonical command appears
   in top-level help, hidden preview aliases remain callable but absent, each help
@@ -56,6 +56,9 @@ CI also runs ten contract and evaluation checks that must stay green:
   packaged filtrace skill stay synchronized.
 - `tools/Test-CaptureBenchmarkTrace.ps1` - run artifacts stay isolated, overlap
   is rejected, every case enters the manifest, and exact child symbols are used.
+- `tools/Test-CaptureCommandTrace.ps1` - fake-only short-command capture retains
+  exact argv/provenance, rejects unsafe names and malformed invocation results, preserves
+  failure diagnostics, and covers bounded elevation outcomes.
 - `tools/Test-CaptureProjectTrace.ps1` - EventPipe recorder profiles are
   negotiated before build/launch and the effective recorder contract is retained.
 - `tools/Test-FiltraceAnalysis.ps1 -Configuration Release` - decisive read-only

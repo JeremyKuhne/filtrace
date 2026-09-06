@@ -24,7 +24,7 @@ dotnet build filtrace.slnx -c Release
 dotnet test filtrace.slnx -c Release
 ```
 
-CI also runs nine cross-platform contract/eval checks that must stay green; run
+CI also runs ten cross-platform contract/eval checks that must stay green; run
 them locally before opening a PR:
 
 ```pwsh
@@ -32,6 +32,7 @@ them locally before opening a PR:
 ./tools/Test-McpServer.ps1 -Configuration Release
 ./tools/Test-Docs.ps1
 ./tools/Test-CaptureBenchmarkTrace.ps1
+./tools/Test-CaptureCommandTrace.ps1
 ./tools/Test-CaptureProjectTrace.ps1
 ./tools/Test-FiltraceAnalysis.ps1 -Configuration Release
 ./tools/Test-TrackDInvestigation.ps1
@@ -39,10 +40,12 @@ them locally before opening a PR:
 ./tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation
 ```
 
-Windows CI runs one additional contract under Windows PowerShell 5.1 and
-PowerShell 7:
+Windows CI additionally checks native command-capture argument handling under
+PowerShell 7.3 or later. It checks the activation wrapper separately under Windows
+PowerShell 5.1 and PowerShell 7:
 
 ```pwsh
+./tools/Test-CaptureCommandTrace.ps1 -WindowsNativeArgv
 ./tools/Test-UseLocalFiltrace.ps1
 ```
 

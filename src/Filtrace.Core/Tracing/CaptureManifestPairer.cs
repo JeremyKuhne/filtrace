@@ -17,11 +17,20 @@ public static class CaptureManifestPairer
     /// <param name="before">Baseline capture manifest.</param>
     /// <param name="after">Current capture manifest.</param>
     /// <returns>Matched cases and bounded unmatched-identity warnings.</returns>
-    /// <exception cref="InvalidDataException">Either manifest contains duplicate pairing keys.</exception>
+    /// <exception cref="InvalidDataException">Either manifest has no cases or duplicate pairing keys.</exception>
     public static CaptureManifestPairResult Pair(CaptureManifest before, CaptureManifest after)
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
+        if (before.Cases.Count == 0)
+        {
+            throw new InvalidDataException("Baseline capture manifest contains no cases to analyze.");
+        }
+
+        if (after.Cases.Count == 0)
+        {
+            throw new InvalidDataException("Current capture manifest contains no cases to analyze.");
+        }
 
         List<string> warnings = [];
         int omittedWarnings = 0;

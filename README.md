@@ -57,7 +57,7 @@ the target's recorded MCP and skill baseline and remove the private CLI with:
 ./tools/Use-LocalFiltrace.ps1 -Action Restore -TargetRepository ../consumer -Configuration Release
 ```
 
-The command requires PowerShell 5.1 or 7 and the .NET 10 SDK. It does not need
+The command requires PowerShell 5.1 or 7, Git, and the .NET 10 SDK. It does not need
 elevation, change a global tool installation, or upload the prepared package.
 
 ## Using filtrace
