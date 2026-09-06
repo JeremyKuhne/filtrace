@@ -14,11 +14,17 @@ publication merged in
 [PR #105](https://github.com/JeremyKuhne/filtrace/pull/105). Fresh Install,
 Resume Install, and Refresh coordinator wiring merged in
 [PR #107](https://github.com/JeremyKuhne/filtrace/pull/107). Phase 3 restore and
-cleanup coordinator wiring is implemented; the Phase 4 wrapper remains pending.
+cleanup coordinator wiring is implemented. The thin Phase 4 wrapper is implemented,
+and its Windows CI harness is added in this PR; broader Phase 4 work remains pending.
 
-**Last verified:** 2026-09-05 for Phase 3 on `pp01-local-testing-restore`, based
-on `bc6752b`. The 242 local-testing tests pass in Debug and Release on Windows.
-PR #94 was closed without merge after PR #98 established the replacement.
+**Last verified:** 2026-09-06 for one real Install, Refresh, and Restore round trip
+under Windows PowerShell 7 from `3f1fc000494335560fb1f04045ccb1e891101a45`.
+That run used private CLI `0.7.1-alpha.0.17`; `dotnet tool list --global`
+continued to report `filtrace` `0.6.3`. The wrapper's fake native-process contract
+runs under Windows PowerShell 5.1 and PowerShell 7. Actual Unix activation has not
+run, and interruption or timeout-quarantine recovery remains manual. This does not
+represent completion of broader Phase 4 work or all repository gates. PR #94 was
+closed without merge after PR #98 established the replacement.
 
 ## Decision
 
@@ -424,6 +430,21 @@ Real UAC and hostile same-user filesystem races are not covered by these tests.
 **Exit:** representative interruption paths converge to the exact original state.
 
 ### Phase 4 - wrapper, docs, and CI
+
+**Status:** Partially implemented. The thin PowerShell entry point delegates to
+the unit-tested .NET helper, and its fake-driven Windows CI harness is added in this
+PR. The contract exercises Windows PowerShell 5.1 and PowerShell 7, first
+`dotnet`/`git` selection, source and target paths with spaces, the caller-directory
+target default, working directory and argument order, default Release and explicit
+Debug configuration, valid empty and text output, native exit 37 with separate
+stdout/stderr, caller-enabled native error promotion, and missing tools.
+
+The real Windows PowerShell 7 round trip recorded above completed Install, Refresh,
+and Restore with `info` schema 16, semantic MCP validation, a byte-exact skill, and
+an immutable baseline. It is not evidence for a real Windows PowerShell 5.1 or Unix
+install. Interrupted states and timeout quarantine continue to use the documented
+manual recovery paths. Broader PP01 documentation, provenance completion, all
+repository gates, and independent review remain pending.
 
 - Replace the large PowerShell implementation with the thin wrapper.
 - Replace the current contract with a compact end-to-end matrix.

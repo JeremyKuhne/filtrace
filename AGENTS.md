@@ -44,7 +44,7 @@ Do not use an installed global `filtrace` or the MCP server to profile this repo
 that can silently analyze with different code. For an A/B investigation, use one fixed
 locally built baseline CLI to analyze both arms.
 
-CI also runs nine contract and evaluation checks that must stay green:
+CI also runs ten contract and evaluation checks that must stay green:
 
 - `tools/Test-CliHelp.ps1 -Configuration Release` - every canonical command appears
   in top-level help, hidden preview aliases remain callable but absent, each help
@@ -63,6 +63,9 @@ CI also runs nine contract and evaluation checks that must stay green:
   replay refuses changed trace bytes before running.
 - `tools/Test-TrackDInvestigation.ps1` - the Track D A/B wrapper reconstructs a
   neutral fake no-op, retains failed-run diagnostics, and gates its test adapter.
+- `tools/Test-UseLocalFiltrace.ps1` - Windows CI exercises the thin activation
+  wrapper under Windows PowerShell 5.1 and PowerShell 7 with fake `dotnet` and
+  `git` applications, including missing tools and native failures.
 - `eval/Invoke-Eval.ps1 -Configuration Release` - canonical trace tasks keep
   their answers, call counts, and output budgets.
 - `tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation` - commons

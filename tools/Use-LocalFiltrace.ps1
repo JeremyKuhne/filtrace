@@ -30,6 +30,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$script:PSNativeCommandUseErrorActionPreference = $false
 if ($PSVersionTable.PSVersion -lt [Version]'5.1') {
     throw 'Use-LocalFiltrace.ps1 requires Windows PowerShell 5.1 or PowerShell 7.'
 }

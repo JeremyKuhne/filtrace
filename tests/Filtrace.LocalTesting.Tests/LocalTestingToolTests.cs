@@ -176,6 +176,150 @@ public sealed class LocalTestingToolTests
     }
 
     [TestMethod]
+    public async Task RunAsync_RepositoryDiscovery_PreservesTrailingPathWhitespace()
+    {
+        string temporaryRoot = Path.GetTempPath();
+        if (OperatingSystem.IsWindows())
+        {
+            temporaryRoot = $@"\\?\{temporaryRoot}";
+        }
+
+        string target = Path.Join(temporaryRoot, $"filtrace-target-{Guid.NewGuid():N} ");
+        string trimmedTarget = target.TrimEnd();
+        string gitDirectory = Path.Join(temporaryRoot, $"filtrace-git-{Guid.NewGuid():N} ");
+        (int exitCode, ResourcePlan? restored, _) = await RunRestoreAsync(
+            target,
+            RepositoryResult(target, gitDirectory));
+
+        exitCode.Should().Be(0);
+        restored.Should().NotBeNull();
+        restored!.TargetRoot.Should().Be(target).And.NotBe(trimmedTarget);
+        restored.GitDirectory.Should().Be(gitDirectory);
+    }
+
+    [TestMethod]
+    [DataRow("\n", false)]
+    [DataRow("\n", true)]
+    [DataRow("\r\n", false)]
+    [DataRow("\r\n", true)]
+    public async Task RunAsync_RepositoryDiscovery_AcceptsExactLineRecords(
+        string separator,
+        bool includeFinalSeparator)
+    {
+        string target = Path.GetFullPath($"target-{Guid.NewGuid():N}");
+        string gitDirectory = Path.Join(target, ".git");
+        string output = $"{target}{separator}{gitDirectory}{(includeFinalSeparator ? separator : string.Empty)}";
+        (int exitCode, ResourcePlan? restored, _) = await RunRestoreAsync(target, Success(output));
+
+        exitCode.Should().Be(0);
+        restored.Should().NotBeNull();
+        restored!.TargetRoot.Should().Be(target);
+        restored.GitDirectory.Should().Be(gitDirectory);
+    }
+
+    [TestMethod]
+    [DataRow("Missing")]
+    [DataRow("Empty")]
+    [DataRow("Extra")]
+    [DataRow("RelativeRoot")]
+    [DataRow("RelativeGitDirectory")]
+    public async Task RunAsync_RepositoryDiscovery_RejectsMalformedRecordsBeforeRestore(string scenario)
+    {
+        string target = Path.GetFullPath($"target-{Guid.NewGuid():N}");
+        string gitDirectory = Path.Join(target, ".git");
+        string output = scenario switch
+        {
+            "Missing" => $"{target}\r\n",
+            "Empty" => $"{target}\r\n\r\n{gitDirectory}\r\n",
+            "Extra" => $"{target}\r\n{gitDirectory}\r\n{target}\r\n",
+            "RelativeRoot" => $"relative\r\n{gitDirectory}\r\n",
+            "RelativeGitDirectory" => $"{target}\r\nrelative\r\n",
+            _ => throw new InvalidOperationException($"Unknown scenario '{scenario}'.")
+        };
+
+        (int exitCode, ResourcePlan? restored, ScriptedProcessRunner runner) = await RunRestoreAsync(
+            target,
+            Success(output));
+
+        exitCode.Should().Be(1);
+        restored.Should().BeNull();
+        runner.Invocations.Should().ContainSingle();
+    }
+
+    [TestMethod]
+    public async Task RunAsync_RepositoryDiscovery_IncompleteOutputCaptureFailsBeforeRestore()
+    {
+        string target = Path.GetFullPath($"target-{Guid.NewGuid():N}");
+        string gitDirectory = Path.Join(target, ".git");
+        ProcessResult incomplete = Success($"{target}\n{gitDirectory}\n", outputCaptureIncomplete: true);
+        (int exitCode, ResourcePlan? restored, _) = await RunRestoreAsync(target, incomplete);
+
+        exitCode.Should().Be(1);
+        restored.Should().BeNull();
+    }
+
+    [TestMethod]
+    [DataRow("target\r")]
+    [DataRow("target\n")]
+    [DataRow("target\r\ninjected")]
+    public async Task RunAsync_RepositoryPathWithLineSeparator_FailsBeforeStartingGit(string target)
+    {
+        ScriptedProcessRunner runner = new();
+        bool restored = false;
+        LocalTestingTool tool = new(
+            runner,
+            TextWriter.Null,
+            TextWriter.Null,
+            restore: _ => restored = true);
+
+        int exitCode = await tool.RunAsync(CreateArguments("Restore", target, source: null));
+
+        exitCode.Should().Be(1);
+        restored.Should().BeFalse();
+        runner.Invocations.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task RunAsync_AmbientGitDiscoveryAcrossFileSystem_IsClearedOnlyForChild()
+    {
+        const string variableName = "GIT_DISCOVERY_ACROSS_FILESYSTEM";
+        const string ambientValue = "true";
+        string? previous = Environment.GetEnvironmentVariable(variableName);
+
+        try
+        {
+            Environment.SetEnvironmentVariable(variableName, ambientValue);
+            string target = Path.GetFullPath("target");
+            string gitDirectory = Path.Join(target, ".git");
+            ScriptedProcessRunner runner = new(
+                invocation =>
+                {
+                    invocation.EnvironmentVariables.Should().ContainKey(variableName).WhoseValue.Should().BeNull();
+                    Environment.GetEnvironmentVariable(variableName).Should().Be(ambientValue);
+                    return RepositoryResult(target, gitDirectory);
+                });
+
+            bool restored = false;
+            LocalTestingTool tool = new(
+                runner,
+                TextWriter.Null,
+                TextWriter.Null,
+                restore: _ => restored = true);
+
+            int exitCode = await tool.RunAsync(CreateArguments("Restore", target, source: null));
+
+            exitCode.Should().Be(0);
+            restored.Should().BeTrue();
+            Environment.GetEnvironmentVariable(variableName).Should().Be(ambientValue);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variableName, previous);
+        }
+    }
+
+    [TestMethod]
     [DoNotParallelize]
     public async Task RunAsync_AmbientGitState_ResolvesExplicitRepositoryWithoutMutatingEnvironment()
     {
@@ -193,6 +337,7 @@ public sealed class LocalTestingToolTests
             ["GIT_COMMON_DIR"] = Path.Join(repositoryA, ".git"),
             ["GIT_INDEX_FILE"] = Path.Join(repositoryA, ".git", "index"),
             ["GIT_CEILING_DIRECTORIES"] = repositoryB,
+            ["GIT_DISCOVERY_ACROSS_FILESYSTEM"] = "true",
             ["GIT_CONFIG_COUNT"] = "1",
             ["GIT_CONFIG_KEY_0"] = "core.worktree",
             ["GIT_CONFIG_VALUE_0"] = repositoryA
@@ -328,12 +473,27 @@ public sealed class LocalTestingToolTests
         return [.. arguments];
     }
 
+    private static async Task<(int ExitCode, ResourcePlan? Restored, ScriptedProcessRunner Runner)>
+        RunRestoreAsync(string target, ProcessResult result)
+    {
+        ResourcePlan? restored = null;
+        ScriptedProcessRunner runner = new(_ => result);
+        LocalTestingTool tool = new(
+            runner,
+            TextWriter.Null,
+            TextWriter.Null,
+            restore: plan => restored = plan);
+
+        int exitCode = await tool.RunAsync(CreateArguments("Restore", target, source: null));
+        return (exitCode, restored, runner);
+    }
+
     private static ProcessResult RepositoryResult(string root, string gitDirectory)
     {
         return Success($"{root}{Environment.NewLine}{gitDirectory}{Environment.NewLine}");
     }
 
-    private static ProcessResult Success(string output)
+    private static ProcessResult Success(string output, bool outputCaptureIncomplete = false)
     {
         return new(
             0,
@@ -341,7 +501,8 @@ public sealed class LocalTestingToolTests
             string.Empty,
             StandardOutputTruncated: false,
             StandardErrorTruncated: false,
-            ExecutionTimedOut: false);
+            ExecutionTimedOut: false,
+            OutputCaptureIncomplete: outputCaptureIncomplete);
     }
 
     private static LocalTestingState CreateActiveState(LocalTestingInstallInputs inputs)

@@ -21,6 +21,7 @@ internal sealed class LocalTestingTool
     [
         "GIT_ALTERNATE_OBJECT_DIRECTORIES",
         "GIT_CEILING_DIRECTORIES",
+        "GIT_DISCOVERY_ACROSS_FILESYSTEM",
         "GIT_CONFIG",
         "GIT_CONFIG_PARAMETERS",
         "GIT_CONFIG_COUNT",
@@ -271,6 +272,11 @@ internal sealed class LocalTestingTool
         string path,
         string gitPath)
     {
+        if (path.Contains('\r') || path.Contains('\n'))
+        {
+            throw new ArgumentException("Repository path must not contain line separators.", nameof(path));
+        }
+
         ProcessResult result = await _processRunner.RunAsync(new(
             gitPath,
             ["-C", path, "rev-parse", "--show-toplevel", "--absolute-git-dir"],
@@ -298,16 +304,24 @@ internal sealed class LocalTestingTool
                     + $"{result.ExitCode?.ToString() ?? "unknown"}: {detail}");
         }
 
-        string[] lines = result.StandardOutput
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        using StringReader reader = new(result.StandardOutput);
+        string? root = reader.ReadLine();
+        string? gitDirectory = reader.ReadLine();
+        string? extraRecord = reader.ReadLine();
 
-        if (lines.Length is not 2)
+        if (string.IsNullOrEmpty(root) || string.IsNullOrEmpty(gitDirectory) || extraRecord is not null)
         {
             throw new InvalidDataException(
-                $"Git repository discovery returned {lines.Length} paths for '{path}'; expected two.");
+                $"Git repository discovery did not return exactly two nonempty paths for '{path}'.");
         }
 
-        return (lines[0], lines[1]);
+        if (!Path.IsPathFullyQualified(root) || !Path.IsPathFullyQualified(gitDirectory))
+        {
+            throw new InvalidDataException(
+                $"Git repository discovery returned a non-absolute path for '{path}'.");
+        }
+
+        return (root, gitDirectory);
     }
 
     private static IReadOnlyDictionary<string, string?> CreateGitEnvironmentOverrides()
