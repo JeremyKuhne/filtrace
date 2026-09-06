@@ -283,7 +283,14 @@ try {
     Assert-True `
         ($comparison.cliTelemetry.averageLaunchToExitDeltaMilliseconds -eq 0) `
         'Fake no-op launch-to-exit delta was not neutral.'
-    Assert-True ($comparison.cliTelemetry.averageCpuDeltaPercent -eq 0) 'Fake no-op CLI CPU delta was not neutral.'
+    Assert-True `
+        ($comparison.cliTelemetry.averageCpuDeltaPercent -is [double] -and `
+            $comparison.cliTelemetry.averageCpuDeltaPercent -eq 0.0) `
+        'Fake no-op CLI CPU percentage was not a neutral JSON number.'
+    Assert-True `
+        ($comparison.cliTelemetry.averageCpuDeltaMilliseconds -is [double] -and `
+            $comparison.cliTelemetry.averageCpuDeltaMilliseconds -eq 0.0) `
+        'Fake no-op CLI CPU absolute delta was not a neutral JSON number.'
     Assert-True ($comparison.cliTelemetry.peakWorkingSetDeltaBytes -eq 0) 'Fake no-op working-set delta was not neutral.'
     Assert-True ($comparison.cliTelemetry.privateMemoryDeltaBytes -eq 0) 'Fake no-op private-memory delta was not neutral.'
 
@@ -320,8 +327,92 @@ try {
         ($zeroCountersComparison.cliTelemetry.baseline.maxPrivateMemoryBytes -eq 0) `
         'Zero sampled private memory was not retained.'
     Assert-True `
-        ($zeroCountersComparison.cliTelemetry.averageCpuDeltaPercent -eq 0) `
-        'Zero sampled CPU did not produce a neutral delta.'
+        ($zeroCountersComparison.cliTelemetry.averageCpuDeltaPercent -is [double] -and `
+            $zeroCountersComparison.cliTelemetry.averageCpuDeltaPercent -eq 0.0) `
+        'Zero sampled CPU did not produce a neutral JSON percentage.'
+    Assert-True `
+        ($zeroCountersComparison.cliTelemetry.averageCpuDeltaMilliseconds -is [double] -and `
+            $zeroCountersComparison.cliTelemetry.averageCpuDeltaMilliseconds -eq 0.0) `
+        'Zero sampled CPU did not produce a neutral JSON absolute delta.'
+
+    [string] $baselineZeroRun = Join-Path $temporaryRoot 'baseline-zero-cpu'
+    [string] $previousFakeZeroCpuArm = $env:FILTRACE_TRACKD_FAKE_ZERO_CPU_ARM
+    try {
+        $env:FILTRACE_TRACKD_FAKE_ZERO_CPU_ARM = 'baseline'
+        & $script `
+            -InputCorpusDirectory $corpus `
+            -BaselineCheckout $root `
+            -CandidateCheckout $root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $baselineZeroRun `
+            -NoBuild `
+            -TestAdapterPath $adapter
+    }
+    finally {
+        $env:FILTRACE_TRACKD_FAKE_ZERO_CPU_ARM = $previousFakeZeroCpuArm
+    }
+    [object] $baselineZeroStatus = Get-Content `
+        -LiteralPath (Join-Path $baselineZeroRun 'run-status.json') `
+        -Raw | ConvertFrom-Json
+    [object] $baselineZeroComparison = Get-Content `
+        -LiteralPath (Join-Path $baselineZeroRun 'comparison.json') `
+        -Raw | ConvertFrom-Json
+    Assert-True ($baselineZeroStatus.status -eq 'completed') 'Baseline-zero CPU run did not complete.'
+    Assert-True `
+        ($baselineZeroComparison.cliTelemetry.baseline.averageCpuMilliseconds -eq 0.0) `
+        'Baseline-zero CPU run did not retain the zero baseline.'
+    Assert-True `
+        ($baselineZeroComparison.cliTelemetry.candidate.averageCpuMilliseconds -eq 100.0) `
+        'Baseline-zero CPU run did not retain the positive candidate.'
+    [object] $baselineZeroPercent = `
+        $baselineZeroComparison.cliTelemetry.PSObject.Properties['averageCpuDeltaPercent']
+    Assert-True `
+        ($null -ne $baselineZeroPercent -and $null -eq $baselineZeroPercent.Value) `
+        'Baseline-zero CPU percentage was not serialized as JSON null.'
+    [object] $baselineZeroAbsolute = `
+        $baselineZeroComparison.cliTelemetry.PSObject.Properties['averageCpuDeltaMilliseconds']
+    Assert-True `
+        ($null -ne $baselineZeroAbsolute -and `
+            $baselineZeroAbsolute.Value -is [double] -and `
+            $baselineZeroAbsolute.Value -eq 100.0) `
+        'Baseline-zero CPU absolute delta was not serialized as 100 milliseconds.'
+
+    [string] $candidateZeroRun = Join-Path $temporaryRoot 'candidate-zero-cpu'
+    try {
+        $env:FILTRACE_TRACKD_FAKE_ZERO_CPU_ARM = 'candidate'
+        & $script `
+            -InputCorpusDirectory $corpus `
+            -BaselineCheckout $root `
+            -CandidateCheckout $root `
+            -AllowDirtyCheckouts `
+            -OutputDirectory $candidateZeroRun `
+            -NoBuild `
+            -TestAdapterPath $adapter
+    }
+    finally {
+        $env:FILTRACE_TRACKD_FAKE_ZERO_CPU_ARM = $previousFakeZeroCpuArm
+    }
+    [object] $candidateZeroStatus = Get-Content `
+        -LiteralPath (Join-Path $candidateZeroRun 'run-status.json') `
+        -Raw | ConvertFrom-Json
+    [object] $candidateZeroComparison = Get-Content `
+        -LiteralPath (Join-Path $candidateZeroRun 'comparison.json') `
+        -Raw | ConvertFrom-Json
+    Assert-True ($candidateZeroStatus.status -eq 'completed') 'Candidate-zero CPU run did not complete.'
+    Assert-True `
+        ($candidateZeroComparison.cliTelemetry.baseline.averageCpuMilliseconds -eq 100.0) `
+        'Candidate-zero CPU run did not retain the positive baseline.'
+    Assert-True `
+        ($candidateZeroComparison.cliTelemetry.candidate.averageCpuMilliseconds -eq 0.0) `
+        'Candidate-zero CPU run did not retain the zero candidate.'
+    Assert-True `
+        ($candidateZeroComparison.cliTelemetry.averageCpuDeltaPercent -is [double] -and `
+            $candidateZeroComparison.cliTelemetry.averageCpuDeltaPercent -eq -100.0) `
+        'Candidate-zero CPU percentage was not serialized as -100 percent.'
+    Assert-True `
+        ($candidateZeroComparison.cliTelemetry.averageCpuDeltaMilliseconds -is [double] -and `
+            $candidateZeroComparison.cliTelemetry.averageCpuDeltaMilliseconds -eq -100.0) `
+        'Candidate-zero CPU absolute delta was not serialized as -100 milliseconds.'
 
     [object[]] $invalidTelemetryCases = @(
         [ordered]@{

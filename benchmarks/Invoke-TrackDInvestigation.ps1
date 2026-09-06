@@ -993,13 +993,21 @@ try {
     [object[]] $benchmarkRows = @(Get-BenchmarkComparison $baselineBdn $candidateBdn)
     [object] $baselineTelemetry = Get-TelemetrySummary (Join-Path $runDirectory 'baseline/cli-benchmark/cli-process.json')
     [object] $candidateTelemetry = Get-TelemetrySummary (Join-Path $runDirectory 'candidate/cli-benchmark/cli-process.json')
-    [double] $cliCpuDelta = if ($baselineTelemetry.averageCpuMilliseconds -eq 0.0) {
-        0.0
+    [object] $cliCpuDelta = if ($baselineTelemetry.averageCpuMilliseconds -eq 0.0) {
+        if ($candidateTelemetry.averageCpuMilliseconds -eq 0.0) {
+            [double]0.0
+        }
+        else {
+            $null
+        }
     }
     else {
-        ($candidateTelemetry.averageCpuMilliseconds - $baselineTelemetry.averageCpuMilliseconds) `
+        [double](($candidateTelemetry.averageCpuMilliseconds - $baselineTelemetry.averageCpuMilliseconds) `
             / $baselineTelemetry.averageCpuMilliseconds * 100.0
+        )
     }
+    [double] $cliCpuDeltaMilliseconds = `
+        $candidateTelemetry.averageCpuMilliseconds - $baselineTelemetry.averageCpuMilliseconds
 
     [System.Collections.Specialized.OrderedDictionary] $comparison = [ordered]@{
         benchmarkRows = $benchmarkRows
@@ -1010,6 +1018,7 @@ try {
                 $candidateTelemetry.averageLaunchToExitMilliseconds `
                 - $baselineTelemetry.averageLaunchToExitMilliseconds
             averageCpuDeltaPercent = $cliCpuDelta
+            averageCpuDeltaMilliseconds = $cliCpuDeltaMilliseconds
             peakWorkingSetDeltaBytes = $candidateTelemetry.maxPeakWorkingSetBytes `
                 - $baselineTelemetry.maxPeakWorkingSetBytes
             privateMemoryDeltaBytes = $candidateTelemetry.maxPrivateMemoryBytes `
