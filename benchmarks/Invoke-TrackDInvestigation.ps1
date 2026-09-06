@@ -73,6 +73,16 @@
 .PARAMETER TestAdapterPath
     Internal. Test-only PowerShell adapter that writes BDN and telemetry artifacts.
     Requires explicit checkouts, AllowDirtyCheckouts, and NoBuild.
+
+.PARAMETER CaptureProfiles
+    Capture one CPU and one allocation EventPipe trace per measured arm after both
+    arms complete. Supported only for persistent single-trace warm CLI scenarios.
+
+.PARAMETER AnalyzerPath
+    Explicit frozen local filtrace executable used to analyze every profile capture.
+
+.PARAMETER DotnetTracePath
+    dotnet-trace executable path or command name. No tool is installed automatically.
 #>
 [CmdletBinding()]
 param(
@@ -94,7 +104,10 @@ param(
     [ValidateRange(1, 86400)][int] $NativeTimeoutSeconds = 7200,
     [switch] $NoBuild,
     [switch] $KeepWorktrees,
-    [string] $TestAdapterPath
+    [string] $TestAdapterPath,
+    [switch] $CaptureProfiles,
+    [string] $AnalyzerPath,
+    [string] $DotnetTracePath = 'dotnet-trace'
 )
 
 Set-StrictMode -Version Latest
@@ -108,22 +121,63 @@ $maximumCorpusExpandedBytes = 2GB
 $maximumCapturedBytes = 10 * 1024 * 1024
 $filtracePathEnvironmentVariable = 'FILTRACE_BENCHMARK_CLI_PATH'
 $nativeCleanupTimeoutMilliseconds = 10000
+$profileScenarios = @(
+    'info-warm',
+    'rank-self-warm',
+    'rank-inclusive-warm',
+    'rank-activity-warm')
+$maximumAnalyzerEntries = 512
+$maximumAnalyzerFiles = 256
+$maximumAnalyzerFileBytes = 128MB
+$maximumAnalyzerDirectoryBytes = 512MB
+$maximumProfileTraceBytes = 2GB
+$profileQualityWarningCodes = [System.Collections.Generic.HashSet[string]]::new(
+    [string[]]@(
+        'low_frame_resolution',
+        'thin_scope',
+        'ambiguous_selector',
+        'truncated_output'),
+    [StringComparer]::Ordinal)
+
+. (Join-Path $root '.agents/skills/filtrace/scripts/Get-DotnetTraceRecorder.ps1')
+
+if ($CaptureProfiles) {
+    if ($CliScenario -notin $profileScenarios) {
+        throw 'CaptureProfiles supports only persistent single-trace warm scenarios: ' +
+            ($profileScenarios -join ', ') + '.'
+    }
+
+    if (-not $PSBoundParameters.ContainsKey('AnalyzerPath') -or
+        [string]::IsNullOrWhiteSpace($AnalyzerPath)) {
+        throw 'CaptureProfiles requires an explicit AnalyzerPath.'
+    }
+}
 
 function Resolve-Executable([string] $Command, [string] $Purpose) {
-    if (Test-Path -LiteralPath $Command -PathType Leaf) {
-        return (Resolve-Path -LiteralPath $Command).Path
+    [string] $candidate = if (Test-Path -LiteralPath $Command -PathType Leaf) {
+        $Command
+    }
+    else {
+        [System.Management.Automation.CommandInfo[]] $resolved = @(
+            Get-Command `
+                $Command `
+                -CommandType Application `
+                -ErrorAction SilentlyContinue)
+        if ($resolved.Count -eq 0) {
+            throw "$Purpose was not found at '$Command' or on PATH."
+        }
+        $resolved[0].Source
     }
 
-    [System.Management.Automation.CommandInfo[]] $resolved = @(
-        Get-Command `
-            $Command `
-            -CommandType Application `
-            -ErrorAction SilentlyContinue)
-    if ($resolved.Count -eq 0) {
-        throw "$Purpose was not found at '$Command' or on PATH."
+    [string] $canonical = Resolve-LocalFile $candidate $Purpose
+    if (
+        [OperatingSystem]::IsWindows() -and
+        [System.IO.Path]::GetExtension($canonical) -ine '.exe'
+    ) {
+        throw "$Purpose must resolve to a native .exe on Windows because shell execution is disabled: '$canonical'."
     }
 
-    return $resolved[0].Source
+    return $canonical
 }
 
 function Format-Command([string] $Executable, [string[]] $Arguments) {
@@ -163,29 +217,83 @@ function Invoke-NativeText(
     [string] $Executable,
     [string[]] $Arguments,
     [string] $WorkingDirectory,
-    [string] $Purpose) {
+    [string] $Purpose,
+    [string] $RetainedOutputPath,
+    [string] $RetainedErrorPath,
+    [string] $BoundedArtifactPath,
+    [long] $MaximumArtifactBytes) {
     $commandLog.Add("[$WorkingDirectory] $(Format-Command $Executable $Arguments)")
-    [string] $outputPath = Join-Path `
-        ([System.IO.Path]::GetTempPath()) `
-        "filtrace-trackd-output-$([Guid]::NewGuid().ToString('N')).tmp"
-    [string] $errorPath = Join-Path `
-        ([System.IO.Path]::GetTempPath()) `
-        "filtrace-trackd-error-$([Guid]::NewGuid().ToString('N')).tmp"
-    [System.Diagnostics.Process] $process = Start-NativeProcess `
-        $Executable `
-        $Arguments `
-        $WorkingDirectory `
-        $true
-    [System.IO.FileStream] $outputStream = [System.IO.File]::Create($outputPath)
-    [System.IO.FileStream] $errorStream = [System.IO.File]::Create($errorPath)
-    [System.Threading.Tasks.Task] $standardOutput = `
-        $process.StandardOutput.BaseStream.CopyToAsync($outputStream)
-    [System.Threading.Tasks.Task] $standardError = `
-        $process.StandardError.BaseStream.CopyToAsync($errorStream)
+    if (
+        [string]::IsNullOrEmpty($RetainedOutputPath) -ne
+        [string]::IsNullOrEmpty($RetainedErrorPath)
+    ) {
+        throw 'Retained native output and error paths must be supplied together.'
+    }
+    [System.Collections.IDictionary] $boundedArtifacts = @{}
+    if (-not [string]::IsNullOrEmpty($BoundedArtifactPath)) {
+        if ($MaximumArtifactBytes -le 0) {
+            throw 'A bounded native artifact requires a positive byte limit.'
+        }
+        $boundedArtifacts[[System.IO.Path]::GetFullPath($BoundedArtifactPath)] = $MaximumArtifactBytes
+    }
+
+    [bool] $removeOutput = [string]::IsNullOrEmpty($RetainedOutputPath)
+    [string] $outputPath = if ($removeOutput) {
+        Join-Path `
+            ([System.IO.Path]::GetTempPath()) `
+            "filtrace-trackd-output-$([Guid]::NewGuid().ToString('N')).tmp"
+    }
+    else {
+        [System.IO.Path]::GetFullPath($RetainedOutputPath)
+    }
+    [string] $errorPath = if ($removeOutput) {
+        Join-Path `
+            ([System.IO.Path]::GetTempPath()) `
+            "filtrace-trackd-error-$([Guid]::NewGuid().ToString('N')).tmp"
+    }
+    else {
+        [System.IO.Path]::GetFullPath($RetainedErrorPath)
+    }
+    if (-not $removeOutput) {
+        [System.IO.Directory]::CreateDirectory(
+            [System.IO.Path]::GetDirectoryName($outputPath)) | Out-Null
+        [System.IO.Directory]::CreateDirectory(
+            [System.IO.Path]::GetDirectoryName($errorPath)) | Out-Null
+    }
+
+    [System.Diagnostics.Process] $process = $null
+    [System.IO.FileStream] $outputStream = $null
+    [System.IO.FileStream] $errorStream = $null
+    [System.Threading.Tasks.Task] $standardOutput = $null
+    [System.Threading.Tasks.Task] $standardError = $null
     try {
-        Wait-NativeProcess $process $Purpose @($outputPath, $errorPath)
-        [System.Threading.Tasks.Task]::WhenAll(
-            [System.Threading.Tasks.Task[]]@($standardOutput, $standardError)).GetAwaiter().GetResult()
+        $outputStream = [System.IO.File]::Create($outputPath)
+        try {
+            $errorStream = [System.IO.File]::Create($errorPath)
+        }
+        catch {
+            $outputStream.Dispose()
+            $outputStream = $null
+            throw
+        }
+
+        try {
+            $process = Start-NativeProcess `
+                $Executable `
+                $Arguments `
+                $WorkingDirectory `
+                $true
+        }
+        catch {
+            throw "$Purpose could not start '$Executable': $($_.Exception.Message)"
+        }
+        $standardOutput = $process.StandardOutput.BaseStream.CopyToAsync($outputStream)
+        $standardError = $process.StandardError.BaseStream.CopyToAsync($errorStream)
+        Wait-NativeProcess $process $Purpose @($outputPath, $errorPath) $boundedArtifacts
+        [System.Threading.Tasks.Task] $drain = [System.Threading.Tasks.Task]::WhenAll(
+            [System.Threading.Tasks.Task[]]@($standardOutput, $standardError))
+        $drain.WaitAsync(
+            [TimeSpan]::FromMilliseconds($nativeCleanupTimeoutMilliseconds)).GetAwaiter().GetResult()
         $outputStream.Flush()
         $errorStream.Flush()
         $outputStream.Dispose()
@@ -208,17 +316,39 @@ function Invoke-NativeText(
 
         return $text.Trim()
     }
-    finally {
-        try {
-            [System.Threading.Tasks.Task]::WhenAll(
-                [System.Threading.Tasks.Task[]]@($standardOutput, $standardError)).Wait(
-                    $nativeCleanupTimeoutMilliseconds) | Out-Null
+    catch {
+        if ($null -ne $process) {
+            [bool] $hasExited = $false
+            try {
+                $hasExited = $process.HasExited
+            }
+            catch { }
+            if (-not $hasExited) {
+                $null = Stop-NativeProcess $process
+            }
         }
-        catch { }
-        $outputStream.Dispose()
-        $errorStream.Dispose()
-        $process.Dispose()
-        Remove-Item -LiteralPath $outputPath,$errorPath -Force -ErrorAction SilentlyContinue
+        throw
+    }
+    finally {
+        if ($null -ne $standardOutput -and $null -ne $standardError) {
+            try {
+                [System.Threading.Tasks.Task] $cleanupDrain = [System.Threading.Tasks.Task]::WhenAll(
+                    [System.Threading.Tasks.Task[]]@($standardOutput, $standardError))
+                $cleanupDrain.WaitAsync(
+                    [TimeSpan]::FromMilliseconds($nativeCleanupTimeoutMilliseconds)).GetAwaiter().GetResult()
+            }
+            catch {
+                if ($null -ne $process) {
+                    $null = Stop-NativeProcess $process
+                }
+            }
+        }
+        if ($null -ne $outputStream) { $outputStream.Dispose() }
+        if ($null -ne $errorStream) { $errorStream.Dispose() }
+        if ($null -ne $process) { $process.Dispose() }
+        if ($removeOutput) {
+            Remove-Item -LiteralPath $outputPath,$errorPath -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -250,7 +380,8 @@ function Start-NativeProcess(
 function Wait-NativeProcess(
     [System.Diagnostics.Process] $Process,
     [string] $Purpose,
-    [string[]] $BoundedOutputPaths = @()) {
+    [string[]] $BoundedOutputPaths = @(),
+    [System.Collections.IDictionary] $BoundedArtifacts = @{}) {
     [int] $timeoutMilliseconds = [int][Math]::Min(
         [long]$NativeTimeoutSeconds * 1000,
         [int]::MaxValue)
@@ -264,6 +395,16 @@ function Wait-NativeProcess(
                 [string] $cleanup = Stop-NativeProcess $Process
                 throw [System.IO.InvalidDataException]::new(
                     "$Purpose output exceeded $maximumCapturedBytes bytes.$cleanup")
+            }
+        }
+        foreach ($entry in $BoundedArtifacts.GetEnumerator()) {
+            if (
+                (Test-Path -LiteralPath $entry.Key -PathType Leaf) -and
+                (Get-Item -LiteralPath $entry.Key).Length -gt [long]$entry.Value
+            ) {
+                [string] $cleanup = Stop-NativeProcess $Process
+                throw [System.IO.InvalidDataException]::new(
+                    "$Purpose artifact '$($entry.Key)' exceeded $($entry.Value) bytes.$cleanup")
             }
         }
 
@@ -281,6 +422,15 @@ function Wait-NativeProcess(
         ) {
             throw [System.IO.InvalidDataException]::new(
                 "$Purpose output exceeded $maximumCapturedBytes bytes.")
+        }
+    }
+    foreach ($entry in $BoundedArtifacts.GetEnumerator()) {
+        if (
+            (Test-Path -LiteralPath $entry.Key -PathType Leaf) -and
+            (Get-Item -LiteralPath $entry.Key).Length -gt [long]$entry.Value
+        ) {
+            throw [System.IO.InvalidDataException]::new(
+                "$Purpose artifact '$($entry.Key)' exceeded $($entry.Value) bytes.")
         }
     }
 }
@@ -320,6 +470,1165 @@ function Write-JsonAtomic([string] $Path, [object] $Value) {
         if (Test-Path -LiteralPath $temporary) {
             Remove-Item -LiteralPath $temporary -Force -ErrorAction Stop
         }
+    }
+}
+
+function Resolve-LocalFile([string] $Path, [string] $Purpose) {
+    if (
+        [string]::IsNullOrWhiteSpace($Path) -or
+        $Path.IndexOfAny([char[]]@([char]0, "`r", "`n")) -ge 0
+    ) {
+        throw "$Purpose must be a nonempty local file path without control characters."
+    }
+
+    [string] $fullPath = [System.IO.Path]::GetFullPath($Path)
+    if (
+        $fullPath.StartsWith('\\', [StringComparison]::Ordinal) -or
+        $fullPath.StartsWith('//', [StringComparison]::Ordinal)
+    ) {
+        throw "$Purpose must be local, not a UNC or network path: '$Path'."
+    }
+    if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+        throw "$Purpose was not found at '$fullPath'."
+    }
+
+    return (Resolve-Path -LiteralPath $fullPath).Path
+}
+
+function Get-BoundedAnalyzerFileIdentity(
+    [System.IO.FileInfo] $File,
+    [long] $RemainingDirectoryBytes) {
+    [System.IO.FileStream] $stream = [System.IO.File]::Open(
+        $File.FullName,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::Read)
+    [System.Security.Cryptography.IncrementalHash] $hash =
+        [System.Security.Cryptography.IncrementalHash]::CreateHash(
+            [System.Security.Cryptography.HashAlgorithmName]::SHA256)
+    try {
+        [byte[]] $buffer = [byte[]]::new(81920)
+        [long] $bytesRead = 0
+        while ($true) {
+            [long] $remaining = [Math]::Min(
+                $maximumAnalyzerFileBytes - $bytesRead,
+                $RemainingDirectoryBytes - $bytesRead)
+            [int] $requested = [int][Math]::Min($buffer.Length, $remaining + 1)
+            [int] $read = $stream.Read($buffer, 0, $requested)
+            if ($read -eq 0) {
+                break
+            }
+            $bytesRead += $read
+            if ($bytesRead -gt $maximumAnalyzerFileBytes) {
+                throw "Analyzer file '$($File.FullName)' exceeds $maximumAnalyzerFileBytes bytes."
+            }
+            if ($bytesRead -gt $RemainingDirectoryBytes) {
+                throw "Analyzer directory exceeds $maximumAnalyzerDirectoryBytes bytes."
+            }
+            $hash.AppendData($buffer, 0, $read)
+        }
+
+        return [pscustomobject]@{
+            FullName = $File.FullName
+            Bytes = $bytesRead
+            Sha256 = [Convert]::ToHexString($hash.GetHashAndReset())
+        }
+    }
+    finally {
+        $hash.Dispose()
+        $stream.Dispose()
+    }
+}
+
+function Get-AnalyzerIdentity([string] $Executable) {
+    [string] $canonicalExecutable = Resolve-LocalFile $Executable 'AnalyzerPath'
+    [string] $directory = [System.IO.Path]::GetDirectoryName($canonicalExecutable)
+    [string] $baseName = [System.IO.Path]::GetFileName($canonicalExecutable)
+    if ($baseName.EndsWith('.exe', [StringComparison]::OrdinalIgnoreCase)) {
+        $baseName = [System.IO.Path]::GetFileNameWithoutExtension($baseName)
+    }
+    [string] $managedAssembly = Join-Path $directory "$baseName.dll"
+    [string] $depsFile = Join-Path $directory "$baseName.deps.json"
+    [string] $runtimeConfig = Join-Path $directory "$baseName.runtimeconfig.json"
+    foreach ($required in @($managedAssembly, $depsFile, $runtimeConfig)) {
+        if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+            throw "AnalyzerPath requires adjacent managed DLL, deps, and runtimeconfig files; missing '$required'."
+        }
+    }
+
+    [System.IO.DirectoryInfo] $rootDirectory = [System.IO.DirectoryInfo]::new($directory)
+    if (($rootDirectory.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Analyzer directory is a reparse point: '$directory'."
+    }
+    [System.IO.FileInfo] $executableFile = [System.IO.FileInfo]::new($canonicalExecutable)
+    if (($executableFile.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Analyzer executable is a reparse point: '$canonicalExecutable'."
+    }
+
+    [System.Collections.Generic.Stack[System.IO.DirectoryInfo]] $pendingDirectories = @()
+    [System.Collections.Generic.List[System.IO.FileInfo]] $files = @()
+    $pendingDirectories.Push($rootDirectory)
+    [int] $entryCount = 0
+    while ($pendingDirectories.Count -ne 0) {
+        [System.IO.DirectoryInfo] $currentDirectory = $pendingDirectories.Pop()
+        foreach ($entry in $currentDirectory.EnumerateFileSystemInfos()) {
+            $entryCount++
+            if ($entryCount -gt $maximumAnalyzerEntries) {
+                throw "Analyzer directory '$directory' exceeds $maximumAnalyzerEntries entries including directories."
+            }
+            if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Analyzer directory contains reparse point '$($entry.FullName)'."
+            }
+            [string] $relative = [System.IO.Path]::GetRelativePath($directory, $entry.FullName)
+            if (
+                [System.IO.Path]::IsPathRooted($relative) -or
+                $relative -ceq '..' -or
+                $relative.StartsWith(
+                    "..$([System.IO.Path]::DirectorySeparatorChar)",
+                    [StringComparison]::Ordinal)
+            ) {
+                throw "Analyzer entry is outside its directory: '$($entry.FullName)'."
+            }
+            if ($entry -is [System.IO.DirectoryInfo]) {
+                $pendingDirectories.Push($entry)
+            }
+            elseif ($entry -is [System.IO.FileInfo]) {
+                if ($files.Count -ge $maximumAnalyzerFiles) {
+                    throw "Analyzer directory '$directory' exceeds $maximumAnalyzerFiles files."
+                }
+                $files.Add($entry)
+            }
+            else {
+                throw "Analyzer directory contains unsupported entry '$($entry.FullName)'."
+            }
+        }
+    }
+    if ($files.Count -eq 0) {
+        throw "Analyzer directory '$directory' contains no files."
+    }
+    $files.Sort([System.Comparison[System.IO.FileInfo]]{
+        param($left, $right)
+        return [StringComparer]::Ordinal.Compare($left.FullName, $right.FullName)
+    })
+
+    [long] $totalBytes = 0
+    [System.Collections.Generic.List[object]] $inventory = @()
+    [System.Collections.Generic.Dictionary[string, object]] $identities =
+        [System.Collections.Generic.Dictionary[string, object]]::new(
+            $(if ([OperatingSystem]::IsWindows() -or [OperatingSystem]::IsMacOS()) {
+                [StringComparer]::OrdinalIgnoreCase
+            }
+            else {
+                [StringComparer]::Ordinal
+            }))
+    foreach ($file in $files) {
+        [object] $identity = Get-BoundedAnalyzerFileIdentity `
+            $file `
+            ($maximumAnalyzerDirectoryBytes - $totalBytes)
+        $totalBytes += $identity.Bytes
+        [string] $relative = [System.IO.Path]::GetRelativePath($directory, $file.FullName)
+        $relative = $relative.Replace([System.IO.Path]::DirectorySeparatorChar, '/')
+        [System.Collections.IDictionary] $record = [ordered]@{
+            path = $relative
+            bytes = $identity.Bytes
+            sha256 = $identity.Sha256
+        }
+        $inventory.Add($record)
+        $identities.Add($identity.FullName, $record)
+    }
+
+    [string] $executableRelativePath = [System.IO.Path]::GetRelativePath(
+        $directory,
+        $canonicalExecutable).Replace([System.IO.Path]::DirectorySeparatorChar, '/')
+    [string] $fingerprint = ConvertTo-Json -InputObject @($inventory) -Depth 5 -Compress
+    return [pscustomobject]@{
+        CanonicalExecutablePath = $canonicalExecutable
+        Directory = $directory
+        ExecutableRelativePath = $executableRelativePath
+        Fingerprint = $fingerprint
+        Record = [ordered]@{
+            canonicalExecutablePath = $canonicalExecutable
+            executableRelativePath = $executableRelativePath
+            executableSha256 = $identities[$canonicalExecutable].sha256
+            managedAssemblySha256 = $identities[$managedAssembly].sha256
+            depsSha256 = $identities[$depsFile].sha256
+            runtimeConfigSha256 = $identities[$runtimeConfig].sha256
+            totalBytes = $totalBytes
+            files = @($inventory)
+        }
+    }
+}
+
+function Assert-AnalyzerIdentity(
+    [object] $Expected,
+    [object] $Actual,
+    [string] $Phase,
+    [bool] $RequireSamePath) {
+    [StringComparison] $pathComparison = if (
+        [OperatingSystem]::IsWindows() -or [OperatingSystem]::IsMacOS()
+    ) {
+        [StringComparison]::OrdinalIgnoreCase
+    }
+    else {
+        [StringComparison]::Ordinal
+    }
+    if (
+        ($RequireSamePath -and -not [string]::Equals(
+            $Expected.CanonicalExecutablePath,
+            $Actual.CanonicalExecutablePath,
+            $pathComparison)) -or
+        $Expected.Fingerprint -cne $Actual.Fingerprint
+    ) {
+        throw "Analyzer identity changed $Phase."
+    }
+}
+
+function Get-RecorderIdentity(
+    [string] $Executable,
+    [object] $CpuRecorder,
+    [object] $AllocationRecorder) {
+    if ([string]$CpuRecorder.Version -cne [string]$AllocationRecorder.Version) {
+        throw 'Recorder identity observed different versions for CPU and allocation contracts.'
+    }
+
+    [string] $canonicalExecutable = Resolve-LocalFile $Executable 'dotnet-trace'
+    [object] $executableIdentity = Get-BoundedAnalyzerFileIdentity `
+        ([System.IO.FileInfo]::new($canonicalExecutable)) `
+        $maximumAnalyzerDirectoryBytes
+    [string] $directory = [System.IO.Path]::GetDirectoryName($canonicalExecutable)
+    [string] $baseName = [System.IO.Path]::GetFileName($canonicalExecutable)
+    if ($baseName.EndsWith('.exe', [StringComparison]::OrdinalIgnoreCase)) {
+        $baseName = [System.IO.Path]::GetFileNameWithoutExtension($baseName)
+    }
+    [string[]] $adjacentRuntimeFiles = @(
+        (Join-Path $directory "$baseName.dll"),
+        (Join-Path $directory "$baseName.deps.json"),
+        (Join-Path $directory "$baseName.runtimeconfig.json"))
+    [bool] $hasAdjacentRuntime = @(
+        $adjacentRuntimeFiles | Where-Object {
+            Test-Path -LiteralPath $_ -PathType Leaf
+        }).Count -eq $adjacentRuntimeFiles.Count
+    [object] $deploymentIdentity = if ($hasAdjacentRuntime) {
+        Get-AnalyzerIdentity $canonicalExecutable
+    }
+    else {
+        $null
+    }
+    [System.Collections.IDictionary] $record = [ordered]@{
+        path = $canonicalExecutable
+        bytes = $executableIdentity.Bytes
+        sha256 = $executableIdentity.Sha256
+        version = $CpuRecorder.Version
+        cpuProfiles = @($CpuRecorder.Metadata.profiles)
+        allocationProfiles = @($AllocationRecorder.Metadata.profiles)
+        deploymentScope = if ($hasAdjacentRuntime) { 'adjacent-runtime' } else { 'executable' }
+    }
+    if ($null -ne $deploymentIdentity) {
+        $record['deployment'] = $deploymentIdentity.Record
+    }
+    [string] $fingerprint = ConvertTo-Json -InputObject ([ordered]@{
+        executableBytes = $executableIdentity.Bytes
+        executableSha256 = $executableIdentity.Sha256
+        deployment = if ($null -ne $deploymentIdentity) {
+            $deploymentIdentity.Fingerprint
+        }
+        else {
+            $null
+        }
+        version = $CpuRecorder.Version
+        cpuProfileArgument = $CpuRecorder.ProfileArgument
+        allocationProfileArgument = $AllocationRecorder.ProfileArgument
+    }) -Compress
+    return [pscustomobject]@{
+        CanonicalExecutablePath = $canonicalExecutable
+        Fingerprint = $fingerprint
+        CpuRecorder = $CpuRecorder
+        AllocationRecorder = $AllocationRecorder
+        Record = $record
+    }
+}
+
+function Assert-RecorderIdentity(
+    [object] $Expected,
+    [object] $Actual,
+    [string] $Phase) {
+    [StringComparison] $pathComparison = if (
+        [OperatingSystem]::IsWindows() -or [OperatingSystem]::IsMacOS()
+    ) {
+        [StringComparison]::OrdinalIgnoreCase
+    }
+    else {
+        [StringComparison]::Ordinal
+    }
+    if (
+        -not [string]::Equals(
+            $Expected.CanonicalExecutablePath,
+            $Actual.CanonicalExecutablePath,
+            $pathComparison) -or
+        $Expected.Fingerprint -cne $Actual.Fingerprint
+    ) {
+        throw "Recorder identity changed $Phase."
+    }
+}
+
+function Assert-CurrentRecorderIdentity(
+    [object] $Expected,
+    [string] $Phase,
+    [string] $LogDirectory,
+    [string] $WorkingDirectory) {
+    [object] $fileIdentity = Get-RecorderIdentity `
+        $Expected.CanonicalExecutablePath `
+        $Expected.CpuRecorder `
+        $Expected.AllocationRecorder
+    Assert-RecorderIdentity $Expected $fileIdentity $Phase
+
+    [System.IO.Directory]::CreateDirectory($LogDirectory) | Out-Null
+    [scriptblock] $invoker = {
+        param(
+            [string] $RecorderExecutable,
+            [string[]] $RecorderArguments,
+            [string] $Purpose)
+        [string] $invocationId = [Guid]::NewGuid().ToString('N')
+        return Invoke-NativeText `
+            $RecorderExecutable `
+            $RecorderArguments `
+            $WorkingDirectory `
+            "$Purpose $Phase" `
+            (Join-Path $LogDirectory "$invocationId.stdout.txt") `
+            (Join-Path $LogDirectory "$invocationId.stderr.txt")
+    }
+    [object] $cpuRecorder = Get-DotnetTraceRecorder `
+        $Expected.CanonicalExecutablePath `
+        'cpu' `
+        $invoker
+    [object] $allocationRecorder = Get-DotnetTraceRecorder `
+        $Expected.CanonicalExecutablePath `
+        'alloc' `
+        $invoker
+    [object] $contractIdentity = Get-RecorderIdentity `
+        $Expected.CanonicalExecutablePath `
+        $cpuRecorder `
+        $allocationRecorder
+    Assert-RecorderIdentity $Expected $contractIdentity $Phase
+}
+
+function Assert-ExpectedProfileInput(
+    [string] $Path,
+    [long] $ExpectedBytes,
+    [string] $ExpectedSha256,
+    [string] $Phase) {
+    [string] $canonicalPath = Resolve-LocalFile $Path 'Profile input trace'
+    [System.IO.FileInfo] $file = Get-Item -LiteralPath $canonicalPath
+    if (
+        $file.Length -ne $ExpectedBytes -or
+        (Get-FileHash -LiteralPath $canonicalPath -Algorithm SHA256).Hash -cne $ExpectedSha256
+    ) {
+        throw "Profile input trace identity changed $Phase."
+    }
+}
+
+function Copy-AnalyzerSnapshot([object] $Identity, [string] $Destination) {
+    if (Test-Path -LiteralPath $Destination) {
+        throw "Analyzer snapshot destination already exists: '$Destination'."
+    }
+    [System.IO.Directory]::CreateDirectory($Destination) | Out-Null
+    foreach ($file in $Identity.Record.files) {
+        [string] $source = Join-Path $Identity.Directory ([string]$file.path)
+        [string] $target = Join-Path $Destination ([string]$file.path)
+        [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($target)) | Out-Null
+        Copy-Item -LiteralPath $source -Destination $target
+    }
+
+    [string] $snapshotExecutable = Join-Path $Destination $Identity.ExecutableRelativePath
+    [object] $snapshotIdentity = Get-AnalyzerIdentity $snapshotExecutable
+    Assert-AnalyzerIdentity $Identity $snapshotIdentity 'while creating the owned snapshot' $false
+    return $snapshotIdentity
+}
+
+function Get-ProfileReplay(
+    [string] $TelemetryPath,
+    [string] $ExpectedScenario,
+    [int] $ExpectedIterations,
+    [string] $ExpectedTrace,
+    [long] $ExpectedTraceBytes,
+    [string] $ExpectedTraceSha256,
+    [string] $ExpectedExecutable,
+    [string] $WorkingDirectory) {
+    [object] $report = Get-Content -LiteralPath $TelemetryPath -Raw | ConvertFrom-Json -Depth 20
+    if ([int]$report.schemaVersion -ne 2 -or [string]$report.scenario -cne $ExpectedScenario) {
+        throw "Telemetry report '$TelemetryPath' does not match the requested profile scenario."
+    }
+    [object[]] $launches = @($report.launches)
+    if ($launches.Count -ne $ExpectedIterations) {
+        throw "Telemetry report '$TelemetryPath' does not contain $ExpectedIterations launches."
+    }
+
+    [string] $executable = Resolve-LocalFile ([string]$report.executable) 'Telemetry executable'
+    [StringComparison] $pathComparison = if (
+        [OperatingSystem]::IsWindows() -or [OperatingSystem]::IsMacOS()
+    ) {
+        [StringComparison]::OrdinalIgnoreCase
+    }
+    else {
+        [StringComparison]::Ordinal
+    }
+    if (-not [string]::Equals(
+        $executable,
+        (Resolve-LocalFile $ExpectedExecutable 'Measured filtrace executable'),
+        $pathComparison)) {
+        throw "Telemetry report '$TelemetryPath' names an unexpected executable."
+    }
+
+    [string[]] $arguments = @($launches[0].arguments | ForEach-Object { [string]$_ })
+    if (
+        $arguments.Count -lt 4 -or
+        $arguments.Count -gt 12 -or
+        $arguments[0] -notin @('info', 'rank') -or
+        $arguments[-2] -cne '--format' -or
+        $arguments[-1] -cne 'json'
+    ) {
+        throw "Telemetry report '$TelemetryPath' has an unsupported persistent single-trace argv shape."
+    }
+    [string] $trace = Resolve-LocalFile $arguments[1] 'Telemetry trace argument'
+    if (-not [string]::Equals($trace, (Resolve-Path -LiteralPath $ExpectedTrace).Path, $pathComparison)) {
+        throw "Telemetry report '$TelemetryPath' does not replay its restored input trace."
+    }
+    Assert-ExpectedProfileInput `
+        $trace `
+        $ExpectedTraceBytes `
+        $ExpectedTraceSha256 `
+        "before replaying '$TelemetryPath'"
+
+    [string] $argumentFingerprint = ConvertTo-Json -InputObject $arguments -Compress
+    foreach ($launch in $launches) {
+        [string[]] $launchArguments = @($launch.arguments | ForEach-Object { [string]$_ })
+        if (
+            [int]$launch.exitCode -ne 0 -or
+            (ConvertTo-Json -InputObject $launchArguments -Compress) -cne $argumentFingerprint
+        ) {
+            throw "Telemetry report '$TelemetryPath' does not contain identical successful launch argv."
+        }
+    }
+
+    return [pscustomobject]@{
+        Executable = $executable
+        Arguments = $arguments
+        WorkingDirectory = $WorkingDirectory
+        Trace = $trace
+        TraceBytes = $ExpectedTraceBytes
+        TraceSha256 = $ExpectedTraceSha256
+        ArgumentShape = @($arguments[0], '<trace>') + @($arguments[2..($arguments.Count - 1)])
+    }
+}
+
+function Write-ProfileCaptureMetadata(
+    [string] $TracePath,
+    [string] $Metric,
+    [object] $Recorder) {
+    [System.Collections.IDictionary] $analyses = if ($Metric -ceq 'cpu') {
+        [ordered]@{ cpu = 'enabled'; events = 'enabled' }
+    }
+    else {
+        [ordered]@{ alloc = 'enabled'; gcstats = 'enabled'; events = 'enabled' }
+    }
+    Write-JsonAtomic "$TracePath.filtrace.json" ([ordered]@{
+        schemaVersion = 1
+        analyses = $analyses
+        recorder = $Recorder.Metadata
+    })
+}
+
+function Test-FiniteJsonNumber([object] $Value) {
+    return $null -ne $Value -and
+        $Value -is [ValueType] -and
+        $Value -isnot [bool] -and
+        [double]::IsFinite([double]$Value)
+}
+
+function Get-ValidatedProfileWarnings([object] $Envelope, [string] $Owner) {
+    [object] $warningsProperty = $Envelope.PSObject.Properties['warnings']
+    if (
+        $null -eq $warningsProperty -or
+        $null -eq $warningsProperty.Value -or
+        $warningsProperty.Value -isnot [array]
+    ) {
+        throw "$Owner omitted warnings."
+    }
+
+    [System.Collections.Generic.List[object]] $warnings = @()
+    [bool] $qualityLimited = $false
+    foreach ($warning in @($warningsProperty.Value)) {
+        if ($null -eq $warning) {
+            throw "$Owner returned a malformed warning."
+        }
+        [object] $codeProperty = $warning.PSObject.Properties['code']
+        [object] $severityProperty = $warning.PSObject.Properties['severity']
+        [object] $messageProperty = $warning.PSObject.Properties['message']
+        if (
+            $null -eq $codeProperty -or
+            [string]::IsNullOrWhiteSpace([string]$codeProperty.Value) -or
+            $null -eq $severityProperty -or
+            [string]::IsNullOrWhiteSpace([string]$severityProperty.Value) -or
+            $null -eq $messageProperty -or
+            [string]::IsNullOrWhiteSpace([string]$messageProperty.Value)
+        ) {
+            throw "$Owner returned a malformed warning."
+        }
+        $warnings.Add($warning)
+        $qualityLimited = $qualityLimited -or
+            $profileQualityWarningCodes.Contains([string]$codeProperty.Value)
+    }
+
+    return [pscustomobject]@{
+        Warnings = $warnings
+        QualityLimited = $qualityLimited
+    }
+}
+
+function Get-ValidatedProfileResult(
+    [string] $AnalysisDirectory,
+    [object] $Query,
+    [string] $AnalysisName,
+    [ValidateSet('rank', 'gc')][string] $ExpectedSummaryKind) {
+    if ([string]$Query.status -cne 'completed') {
+        throw "Profile analysis '$AnalysisName' query '$($Query.id)' did not complete."
+    }
+
+    [string] $resultPath = Join-Path $AnalysisDirectory ([string]$Query.stdout)
+    [object] $envelope = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json -Depth 32
+    [object] $schemaProperty = $envelope.PSObject.Properties['schemaVersion']
+    if (
+        $null -eq $schemaProperty -or
+        -not (Test-FiniteJsonNumber $schemaProperty.Value) -or
+        [double]$schemaProperty.Value -ne 16
+    ) {
+        throw "Profile analysis '$AnalysisName' query '$($Query.id)' did not return schema 16."
+    }
+
+    [object] $validatedWarnings = Get-ValidatedProfileWarnings `
+        $envelope `
+        "Profile analysis '$AnalysisName' query '$($Query.id)'"
+    [System.Collections.Generic.List[object]] $warnings = $validatedWarnings.Warnings
+    [bool] $qualityLimited = $validatedWarnings.QualityLimited
+
+    [object] $contextProperty = $envelope.PSObject.Properties['context']
+    [object] $resultProperty = $envelope.PSObject.Properties['result']
+    if (
+        $null -eq $contextProperty -or
+        $null -eq $contextProperty.Value -or
+        $null -eq $resultProperty -or
+        $null -eq $resultProperty.Value
+    ) {
+        throw "Profile analysis '$AnalysisName' query '$($Query.id)' omitted context or result."
+    }
+    [object] $context = $contextProperty.Value
+    [object] $result = $resultProperty.Value
+
+    if ($ExpectedSummaryKind -ceq 'rank') {
+        [string] $expectedMetric = $AnalysisName
+        [string] $expectedUnit = if ($AnalysisName -ceq 'cpu') { 'ms' } else { 'bytes' }
+        [object] $operationProperty = $context.PSObject.Properties['operation']
+        [object] $metricProperty = $context.PSObject.Properties['metric']
+        [object] $unitProperty = $context.PSObject.Properties['unit']
+        if (
+            $null -eq $operationProperty -or
+            [string]$operationProperty.Value -cne 'rank' -or
+            $null -eq $metricProperty -or
+            [string]$metricProperty.Value -cne $expectedMetric -or
+            $null -eq $unitProperty -or
+            [string]$unitProperty.Value -cne $expectedUnit
+        ) {
+            throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned the wrong rank context."
+        }
+
+        [object] $rowsProperty = $result.PSObject.Properties['rows']
+        if (
+            $null -eq $rowsProperty -or
+            $null -eq $rowsProperty.Value -or
+            $rowsProperty.Value -isnot [array]
+        ) {
+            throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned malformed rank rows."
+        }
+        [System.Collections.Generic.List[object]] $rows = @()
+        foreach ($row in $rowsProperty.Value) {
+            $rows.Add($row)
+        }
+        if ($rows.Count -eq 0) {
+            throw "Profile capture contained no $AnalysisName rank rows."
+        }
+        [object] $scopeWeightProperty = $result.PSObject.Properties['scopeWeight']
+        [object] $contributingRecordsProperty = $result.PSObject.Properties['contributingRecordCount']
+        if (
+            $null -eq $scopeWeightProperty -or
+            -not (Test-FiniteJsonNumber $scopeWeightProperty.Value) -or
+            [double]$scopeWeightProperty.Value -le 0
+        ) {
+            throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid rank scope totals."
+        }
+        [bool] $contributingRecordCountAvailable =
+            $null -ne $contributingRecordsProperty -and
+            $null -ne $contributingRecordsProperty.Value
+        [long] $contributingRecordCount = 0
+        if ($contributingRecordCountAvailable) {
+            if (
+                -not (Test-FiniteJsonNumber $contributingRecordsProperty.Value) -or
+                [double]$contributingRecordsProperty.Value -le 0 -or
+                [double]$contributingRecordsProperty.Value -ne
+                    [Math]::Truncate([double]$contributingRecordsProperty.Value)
+            ) {
+                throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid rank scope totals."
+            }
+            try {
+                $contributingRecordCount = [Convert]::ToInt64($contributingRecordsProperty.Value)
+            }
+            catch {
+                throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid rank scope totals."
+            }
+        }
+        elseif ($AnalysisName -cne 'alloc') {
+            throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid rank scope totals."
+        }
+        foreach ($row in $rows) {
+            [object] $frameProperty = $row.PSObject.Properties['frame']
+            [object] $weightProperty = $row.PSObject.Properties['weight']
+            [object] $percentProperty = $row.PSObject.Properties['percentOfScope']
+            if (
+                $null -eq $row -or
+                $null -eq $frameProperty -or
+                [string]::IsNullOrWhiteSpace([string]$frameProperty.Value) -or
+                $null -eq $weightProperty -or
+                -not (Test-FiniteJsonNumber $weightProperty.Value) -or
+                [double]$weightProperty.Value -le 0 -or
+                $null -eq $percentProperty -or
+                -not (Test-FiniteJsonNumber $percentProperty.Value) -or
+                [double]$percentProperty.Value -lt 0 -or
+                [double]$percentProperty.Value -gt 100
+            ) {
+                throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned a malformed rank row."
+            }
+        }
+
+        return [ordered]@{
+            queryId = [string]$Query.id
+            status = if ($qualityLimited) { 'insufficientQuality' } else { 'observed' }
+            scopeWeight = [double]$scopeWeightProperty.Value
+            contributingRecordCount = if ($contributingRecordCountAvailable) {
+                $contributingRecordCount
+            }
+            else {
+                $null
+            }
+            contributingRecordCountStatus = if ($contributingRecordCountAvailable) {
+                'available'
+            }
+            else {
+                'unavailable'
+            }
+            rowCount = $rows.Count
+            warnings = @($warnings)
+        }
+    }
+
+    [object] $gcOperationProperty = $context.PSObject.Properties['operation']
+    if ($null -eq $gcOperationProperty -or [string]$gcOperationProperty.Value -cne 'gc') {
+        throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned the wrong GC context."
+    }
+    foreach ($propertyName in @('gcCount', 'gen0Count', 'gen1Count', 'gen2Count', 'inducedCount')) {
+        [object] $property = $result.PSObject.Properties[$propertyName]
+        if (
+            $null -eq $property -or
+            -not (Test-FiniteJsonNumber $property.Value) -or
+            [double]$property.Value -lt 0 -or
+            [double]$property.Value -ne [Math]::Truncate([double]$property.Value)
+        ) {
+            throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid GC property '$propertyName'."
+        }
+    }
+    foreach ($propertyName in @(
+        'totalPauseMs', 'maxPauseMs', 'meanPauseMs', 'percentTimeInGc',
+        'peakHeapSizeMB', 'totalPromotedMB')) {
+        [object] $property = $result.PSObject.Properties[$propertyName]
+        if (
+            $null -eq $property -or
+            -not (Test-FiniteJsonNumber $property.Value) -or
+            [double]$property.Value -lt 0
+        ) {
+            throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid GC property '$propertyName'."
+        }
+    }
+    [object] $gcsProperty = $result.PSObject.Properties['gcs']
+    if (
+        $null -eq $gcsProperty -or
+        $null -eq $gcsProperty.Value -or
+        $gcsProperty.Value -isnot [array]
+    ) {
+        throw "Profile analysis '$AnalysisName' query '$($Query.id)' omitted GC records."
+    }
+    [System.Collections.Generic.List[object]] $gcs = @()
+    foreach ($gc in $gcsProperty.Value) {
+        $gcs.Add($gc)
+    }
+    [long] $gcCount = [long]$result.gcCount
+    if ($gcCount -eq 0 -and $gcs.Count -ne 0) {
+        throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned GC records with a zero count."
+    }
+    if ($gcCount -gt 0 -and $gcs.Count -eq 0) {
+        throw "Profile analysis '$AnalysisName' query '$($Query.id)' omitted observed GC records."
+    }
+    if ($gcs.Count -gt $gcCount) {
+        throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned more GC records than its count."
+    }
+    foreach ($gc in $gcs) {
+        [object] $numberProperty = $gc.PSObject.Properties['number']
+        [object] $generationProperty = $gc.PSObject.Properties['generation']
+        [object] $kindProperty = $gc.PSObject.Properties['kind']
+        [object] $reasonProperty = $gc.PSObject.Properties['reason']
+        if (
+            $null -eq $numberProperty -or
+            -not (Test-FiniteJsonNumber $numberProperty.Value) -or
+            [double]$numberProperty.Value -lt 0 -or
+            [double]$numberProperty.Value -ne [Math]::Truncate([double]$numberProperty.Value) -or
+            $null -eq $generationProperty -or
+            -not (Test-FiniteJsonNumber $generationProperty.Value) -or
+            [double]$generationProperty.Value -lt 0 -or
+            [double]$generationProperty.Value -gt 2 -or
+            [double]$generationProperty.Value -ne [Math]::Truncate([double]$generationProperty.Value) -or
+            $null -eq $kindProperty -or
+            [string]::IsNullOrWhiteSpace([string]$kindProperty.Value) -or
+            $null -eq $reasonProperty -or
+            [string]::IsNullOrWhiteSpace([string]$reasonProperty.Value)
+        ) {
+            throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned a malformed GC record."
+        }
+        foreach ($propertyName in @('pauseMs', 'heapSizeAfterMB', 'promotedMB')) {
+            [object] $property = $gc.PSObject.Properties[$propertyName]
+            if (
+                $null -eq $property -or
+                -not (Test-FiniteJsonNumber $property.Value) -or
+                [double]$property.Value -lt 0
+            ) {
+                throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned a malformed GC record."
+            }
+        }
+    }
+
+    return [ordered]@{
+        queryId = [string]$Query.id
+        status = if ($gcCount -eq 0) { 'empty' } elseif ($qualityLimited) { 'insufficientQuality' } else { 'observed' }
+        gcCount = $gcCount
+        recordCount = $gcs.Count
+        warnings = @($warnings)
+    }
+}
+
+function Get-AnalysisEvidence(
+    [string] $AnalysisDirectory,
+    [string] $AnalysisName,
+    [bool] $RequireEvents) {
+    [string] $runPath = Join-Path $AnalysisDirectory 'run.json'
+    [object] $runRecord = Get-Content -LiteralPath $runPath -Raw | ConvertFrom-Json -Depth 32
+    if ([string]$runRecord.status -cne 'completed') {
+        throw "Profile analysis '$AnalysisName' did not complete."
+    }
+
+    [object] $infoQuery = @($runRecord.queries | Where-Object { $_.operation -ceq 'info' })[0]
+    if ($null -eq $infoQuery) {
+        throw "Profile analysis '$AnalysisName' omitted its info query."
+    }
+    [object] $info = Get-Content `
+        -LiteralPath (Join-Path $AnalysisDirectory ([string]$infoQuery.stdout)) `
+        -Raw | ConvertFrom-Json -Depth 32
+    [object] $schemaProperty = $info.PSObject.Properties['schemaVersion']
+    if (
+        $null -eq $schemaProperty -or
+        $schemaProperty.Value -isnot [long] -or
+        [long]$schemaProperty.Value -ne 16
+    ) {
+        throw "Profile analysis '$AnalysisName' did not return info schema 16."
+    }
+    [object] $validatedInfoWarnings = Get-ValidatedProfileWarnings `
+        $info `
+        "Profile analysis '$AnalysisName' info"
+    [object] $resultProperty = $info.PSObject.Properties['result']
+    if ($null -eq $resultProperty -or $resultProperty.Value -isnot [pscustomobject]) {
+        throw "Profile info omitted its result."
+    }
+    [object] $analysesProperty = $resultProperty.Value.PSObject.Properties['analyses']
+    [object] $analysisProperty = if (
+        $null -eq $analysesProperty -or
+        $analysesProperty.Value -isnot [pscustomobject]
+    ) {
+        $null
+    }
+    else {
+        $analysesProperty.Value.PSObject.Properties[$AnalysisName]
+    }
+    if ($null -eq $analysisProperty -or $analysisProperty.Value -isnot [pscustomobject]) {
+        throw "Profile info omitted analysis '$AnalysisName'."
+    }
+    [object] $analysis = $analysisProperty.Value
+    [object] $captureStatusProperty = $analysis.PSObject.Properties['captureStatus']
+    if ($null -eq $captureStatusProperty -or $captureStatusProperty.Value -isnot [string]) {
+        throw "Profile analysis '$AnalysisName' did not report a valid capture status."
+    }
+    if ([string]$captureStatusProperty.Value -cne 'enabled') {
+        throw "Profile analysis '$AnalysisName' is unavailable with capture status '$($captureStatusProperty.Value)'."
+    }
+    [object] $eventProperty = $analysis.PSObject.Properties['eventCount']
+    if (
+        $null -eq $eventProperty -or
+        $eventProperty.Value -isnot [long] -or
+        [long]$eventProperty.Value -lt 0
+    ) {
+        throw "Profile analysis '$AnalysisName' did not report a valid event count."
+    }
+
+    [long] $eventCount = [long]$eventProperty.Value
+    if ($RequireEvents -and $eventCount -eq 0) {
+        throw "Profile capture contained no $AnalysisName events."
+    }
+
+    [System.Collections.Generic.List[object]] $summaries = @()
+    [string] $summaryKind = if ($AnalysisName -ceq 'gcstats') { 'gc' } else { 'rank' }
+    [string] $summaryOperation = if ($summaryKind -ceq 'gc') { 'report' } else { 'rank' }
+    [object[]] $summaryQueries = @(
+        $runRecord.queries | Where-Object { $_.operation -ceq $summaryOperation })
+    if ($summaryQueries.Count -eq 0) {
+        throw "Profile analysis '$AnalysisName' omitted its $summaryKind result."
+    }
+    foreach ($query in $summaryQueries) {
+        $summaries.Add((Get-ValidatedProfileResult `
+            $AnalysisDirectory `
+            $query `
+            $AnalysisName `
+            $summaryKind))
+    }
+    [bool] $qualityLimited = $validatedInfoWarnings.QualityLimited -or @(
+        $summaries | Where-Object { $_.status -ceq 'insufficientQuality' }).Count -ne 0
+    return [ordered]@{
+        status = if ($eventCount -eq 0) {
+            'empty'
+        }
+        elseif ($qualityLimited) {
+            'insufficientQuality'
+        }
+        else {
+            'observed'
+        }
+        eventCount = $eventCount
+        warnings = @($validatedInfoWarnings.Warnings)
+        summaries = @($summaries)
+        runPath = $runPath
+        runSha256 = (Get-FileHash -LiteralPath $runPath -Algorithm SHA256).Hash
+    }
+}
+
+function Invoke-ProfileAnalysis(
+    [string] $TracePath,
+    [string] $CaptureDirectory,
+    [string] $RecordName,
+    [string] $AnalysisName,
+    [object[]] $Queries,
+    [bool] $RequireEvents,
+    [string] $AnalyzerExecutable,
+    [System.Collections.Generic.List[object]] $AnalysisRecords) {
+    [string] $planPath = Join-Path $CaptureDirectory "$RecordName-plan.json"
+    [string] $analysisDirectory = Join-Path $CaptureDirectory "$RecordName-analysis"
+    [string] $stdoutPath = Join-Path $CaptureDirectory "$RecordName.stdout.txt"
+    [string] $stderrPath = Join-Path $CaptureDirectory "$RecordName.stderr.txt"
+    Write-JsonAtomic $planPath ([ordered]@{
+        schemaVersion = 1
+        inputs = @([ordered]@{ id = 'capture'; kind = 'trace'; path = $TracePath })
+        queries = $Queries
+    })
+    [System.Collections.IDictionary] $record = [ordered]@{
+        name = $AnalysisName
+        status = 'running'
+        planPath = $planPath
+        outputDirectory = $analysisDirectory
+        stdoutPath = $stdoutPath
+        stderrPath = $stderrPath
+    }
+    $AnalysisRecords.Add($record)
+    try {
+        $null = Invoke-NativeText `
+            $script:powershellHost `
+            @(
+                '-NoProfile',
+                '-File', (Join-Path $root '.agents/skills/filtrace/scripts/Invoke-FiltraceAnalysis.ps1'),
+                '-Plan', $planPath,
+                '-OutputDirectory', $analysisDirectory,
+                '-FiltracePath', $AnalyzerExecutable,
+                '-TimeoutSeconds', $NativeTimeoutSeconds.ToString(
+                    [Globalization.CultureInfo]::InvariantCulture)) `
+            $root `
+            "$AnalysisName profile analysis" `
+            $stdoutPath `
+            $stderrPath
+        [System.Collections.IDictionary] $evidence = Get-AnalysisEvidence `
+            $analysisDirectory `
+            $AnalysisName `
+            $RequireEvents
+        $record.status = 'completed'
+        $record['evidence'] = $evidence
+    }
+    catch {
+        $record.status = 'failed'
+        $record['failure'] = $_.Exception.Message
+        throw "Profile analysis '$AnalysisName' did not complete: $($_.Exception.Message)"
+    }
+}
+
+function Invoke-TrackDProfiles(
+    [string] $RunDirectory,
+    [object[]] $ArmInputs,
+    [object] $InitialAnalyzerIdentity,
+    [object] $InitialRecorderIdentity,
+    [object] $CpuRecorder,
+    [object] $AllocationRecorder,
+    [string] $DotnetTraceExecutable,
+    [System.Collections.IDictionary] $ProfileRecord) {
+    $ProfileRecord.status = 'running'
+    $ProfileRecord['startedUtc'] = [DateTimeOffset]::UtcNow.ToString('O')
+    [string] $recordPath = Join-Path $RunDirectory 'profiles.json'
+    try {
+        [System.Collections.Generic.List[object]] $replays = @()
+        foreach ($arm in $ArmInputs) {
+            [string] $telemetryPath = Join-Path $arm.Directory 'cli-benchmark/cli-process.json'
+            [object] $replay = Get-ProfileReplay `
+                $telemetryPath `
+                $CliScenario `
+                $TelemetryIterations `
+                $arm.Trace `
+                $arm.TraceBytes `
+                $arm.TraceSha256 `
+                $arm.SubjectExecutable `
+                $arm.Checkout
+            $replays.Add([pscustomobject]@{
+                Name = $arm.Name
+                Directory = $arm.Directory
+                Checkout = $arm.Checkout
+                Replay = $replay
+                TelemetryPath = $telemetryPath
+            })
+        }
+        if (
+            $replays.Count -ne 2 -or
+            (ConvertTo-Json -InputObject $replays[0].Replay.ArgumentShape -Compress) -cne
+                (ConvertTo-Json -InputObject $replays[1].Replay.ArgumentShape -Compress)
+        ) {
+            throw 'Baseline and candidate telemetry reports do not contain the same CLI argv shape.'
+        }
+
+        [object] $preSnapshotIdentity = Get-AnalyzerIdentity $InitialAnalyzerIdentity.CanonicalExecutablePath
+        Assert-AnalyzerIdentity $InitialAnalyzerIdentity $preSnapshotIdentity 'before profiling' $true
+        [string] $artifactRoot = Join-Path $RunDirectory 'profile-artifacts'
+        [string] $snapshotDirectory = Join-Path $artifactRoot 'analyzer'
+        [object] $snapshotIdentity = Copy-AnalyzerSnapshot $preSnapshotIdentity $snapshotDirectory
+        $ProfileRecord['analyzer'] = [ordered]@{
+            source = $InitialAnalyzerIdentity.Record
+            snapshot = $snapshotIdentity.Record
+        }
+        Write-JsonAtomic (Join-Path $artifactRoot 'analyzer-identity.json') $ProfileRecord.analyzer
+
+        [System.Collections.Generic.List[object]] $armRecords = @()
+        $ProfileRecord['arms'] = $armRecords
+        foreach ($replayRecord in $replays) {
+            [System.Collections.Generic.List[object]] $captures = @()
+            [System.Collections.IDictionary] $armRecord = [ordered]@{
+                name = $replayRecord.Name
+                telemetryPath = $replayRecord.TelemetryPath
+                subject = [ordered]@{
+                    executable = $replayRecord.Replay.Executable
+                    arguments = @($replayRecord.Replay.Arguments)
+                    workingDirectory = $replayRecord.Replay.WorkingDirectory
+                    trace = $replayRecord.Replay.Trace
+                    traceBytes = $replayRecord.Replay.TraceBytes
+                    traceSha256 = $replayRecord.Replay.TraceSha256
+                }
+                captures = $captures
+            }
+            $armRecords.Add($armRecord)
+            foreach ($definition in @(
+                [pscustomobject]@{
+                    Name = 'cpu'
+                    Recorder = $CpuRecorder
+                },
+                [pscustomobject]@{
+                    Name = 'allocation'
+                    Recorder = $AllocationRecorder
+                })) {
+                [string] $captureDirectory = Join-Path `
+                    $replayRecord.Directory `
+                    "profiles/$($definition.Name)"
+                [System.IO.Directory]::CreateDirectory($captureDirectory) | Out-Null
+                [string] $tracePath = Join-Path $captureDirectory 'capture.nettrace'
+                [string] $stdoutPath = Join-Path $captureDirectory 'collect.stdout.txt'
+                [string] $stderrPath = Join-Path $captureDirectory 'collect.stderr.txt'
+                [string[]] $collectArguments = @(
+                    'collect',
+                    '--output', $tracePath,
+                    '--profile', $definition.Recorder.ProfileArgument,
+                    '--',
+                    $replayRecord.Replay.Executable) + @($replayRecord.Replay.Arguments)
+                [System.Collections.Generic.List[object]] $analysisRecords = @()
+                [System.Collections.IDictionary] $captureRecord = [ordered]@{
+                    metric = $definition.Name
+                    status = 'running'
+                    tracePath = $tracePath
+                    traceSha256 = $null
+                    recorder = $definition.Recorder.Metadata
+                    command = [ordered]@{
+                        executable = $DotnetTraceExecutable
+                        arguments = $collectArguments
+                        workingDirectory = $replayRecord.Checkout
+                    }
+                    stdoutPath = $stdoutPath
+                    stderrPath = $stderrPath
+                    analyses = $analysisRecords
+                }
+                $captures.Add($captureRecord)
+                try {
+                    [string] $identityLogDirectory = Join-Path $captureDirectory 'recorder-identity'
+                    Assert-CurrentRecorderIdentity `
+                        $InitialRecorderIdentity `
+                        "before $($replayRecord.Name) $($definition.Name) capture" `
+                        $identityLogDirectory `
+                        $replayRecord.Checkout
+                    Assert-ExpectedProfileInput `
+                        $replayRecord.Replay.Trace `
+                        $replayRecord.Replay.TraceBytes `
+                        $replayRecord.Replay.TraceSha256 `
+                        "before $($replayRecord.Name) $($definition.Name) capture"
+                    $null = Invoke-NativeText `
+                        $DotnetTraceExecutable `
+                        $collectArguments `
+                        $replayRecord.Checkout `
+                        "$($replayRecord.Name) $($definition.Name) profile capture" `
+                        $stdoutPath `
+                        $stderrPath `
+                        $tracePath `
+                        $maximumProfileTraceBytes
+                    Assert-CurrentRecorderIdentity `
+                        $InitialRecorderIdentity `
+                        "after $($replayRecord.Name) $($definition.Name) capture" `
+                        $identityLogDirectory `
+                        $replayRecord.Checkout
+                    Assert-ExpectedProfileInput `
+                        $replayRecord.Replay.Trace `
+                        $replayRecord.Replay.TraceBytes `
+                        $replayRecord.Replay.TraceSha256 `
+                        "after $($replayRecord.Name) $($definition.Name) capture"
+                    if (-not (Test-Path -LiteralPath $tracePath -PathType Leaf)) {
+                        throw "Profile recorder did not create '$tracePath'."
+                    }
+                    if ((Get-Item -LiteralPath $tracePath).Length -eq 0) {
+                        throw "Profile recorder created an empty trace at '$tracePath'."
+                    }
+                    $captureRecord.traceSha256 = (
+                        Get-FileHash -LiteralPath $tracePath -Algorithm SHA256).Hash
+                    Write-ProfileCaptureMetadata `
+                        $tracePath `
+                        $(if ($definition.Name -ceq 'cpu') { 'cpu' } else { 'allocation' }) `
+                        $definition.Recorder
+
+                    if ($definition.Name -ceq 'cpu') {
+                        Invoke-ProfileAnalysis `
+                            $tracePath `
+                            $captureDirectory `
+                            'cpu' `
+                            'cpu' `
+                            @(
+                                [ordered]@{
+                                    id = 'orientation'
+                                    operation = 'info'
+                                    inputIds = @('capture')
+                                    arguments = @('--strict', '--require-enabled', 'cpu', '--require-events', 'cpu')
+                                },
+                                [ordered]@{
+                                    id = 'rank-self'
+                                    operation = 'rank'
+                                    inputIds = @('capture')
+                                    arguments = @('--metric', 'cpu', '--top', '25')
+                                },
+                                [ordered]@{
+                                    id = 'rank-inclusive'
+                                    operation = 'rank'
+                                    inputIds = @('capture')
+                                    arguments = @('--metric', 'cpu', '--measure', 'inclusive', '--top', '25')
+                                }) `
+                            $true `
+                            $snapshotIdentity.CanonicalExecutablePath `
+                            $analysisRecords
+                    }
+                    else {
+                        Invoke-ProfileAnalysis `
+                            $tracePath `
+                            $captureDirectory `
+                            'allocation' `
+                            'alloc' `
+                            @(
+                                [ordered]@{
+                                    id = 'orientation'
+                                    operation = 'info'
+                                    inputIds = @('capture')
+                                    arguments = @('--require-enabled', 'alloc', '--require-events', 'alloc')
+                                },
+                                [ordered]@{
+                                    id = 'rank'
+                                    operation = 'rank'
+                                    inputIds = @('capture')
+                                    arguments = @('--metric', 'alloc', '--top', '25')
+                                }) `
+                            $true `
+                            $snapshotIdentity.CanonicalExecutablePath `
+                            $analysisRecords
+                        Invoke-ProfileAnalysis `
+                            $tracePath `
+                            $captureDirectory `
+                            'gc' `
+                            'gcstats' `
+                            @(
+                                [ordered]@{
+                                    id = 'orientation'
+                                    operation = 'info'
+                                    inputIds = @('capture')
+                                    arguments = @('--require-enabled', 'gcstats')
+                                },
+                                [ordered]@{
+                                    id = 'report'
+                                    operation = 'report'
+                                    inputIds = @('capture')
+                                    arguments = @('--kind', 'gc')
+                                }) `
+                            $false `
+                            $snapshotIdentity.CanonicalExecutablePath `
+                            $analysisRecords
+                    }
+                    $captureRecord.status = 'completed'
+                }
+                catch {
+                    $captureRecord.status = 'failed'
+                    $captureRecord['failure'] = $_.Exception.Message
+                    throw
+                }
+            }
+        }
+
+        [object] $postProfileIdentity = Get-AnalyzerIdentity $InitialAnalyzerIdentity.CanonicalExecutablePath
+        Assert-AnalyzerIdentity $InitialAnalyzerIdentity $postProfileIdentity 'after profiling' $true
+        [object] $postSnapshotIdentity = Get-AnalyzerIdentity $snapshotIdentity.CanonicalExecutablePath
+        Assert-AnalyzerIdentity $snapshotIdentity $postSnapshotIdentity 'inside the owned snapshot' $true
+        $ProfileRecord.status = 'completed'
+    }
+    catch {
+        $ProfileRecord.status = 'failed'
+        $ProfileRecord['failure'] = $_.Exception.Message
+        throw
+    }
+    finally {
+        $ProfileRecord['completedUtc'] = [DateTimeOffset]::UtcNow.ToString('O')
+        Write-JsonAtomic $recordPath $ProfileRecord
     }
 }
 
@@ -844,6 +2153,13 @@ $candidatePath = $null
 $runError = $null
 $resolvedTestAdapter = $null
 $runCompleted = $false
+$profileRecord = $null
+$initialAnalyzerIdentity = $null
+$initialRecorderIdentity = $null
+$cpuRecorder = $null
+$allocationRecorder = $null
+$resolvedDotnetTrace = $null
+$profileArmInputs = [System.Collections.Generic.List[object]]::new()
 try {
     Write-JsonAtomic (Join-Path $runDirectory 'run-status.json') ([ordered]@{
         status = 'in-progress'
@@ -861,6 +2177,99 @@ try {
         }
 
         $resolvedTestAdapter = (Resolve-Path -LiteralPath $TestAdapterPath).Path
+    }
+
+    if ($CaptureProfiles) {
+        [System.Collections.Generic.List[object]] $profilePreflight = @()
+        $profileRecord = [ordered]@{
+            schemaVersion = 1
+            status = 'preflight'
+            metricSemantics = [ordered]@{
+                cpu = 'sampled-cpu-stacks'
+                allocation = 'sampled-allocation-ticks'
+                gc = 'runtime-gc-events'
+            }
+            preflight = $profilePreflight
+        }
+        [string] $profileRecordPath = Join-Path $runDirectory 'profiles.json'
+        Write-JsonAtomic $profileRecordPath $profileRecord
+        try {
+            [string] $resolvedAnalyzer = Resolve-LocalFile $AnalyzerPath 'AnalyzerPath'
+            $initialAnalyzerIdentity = Get-AnalyzerIdentity $resolvedAnalyzer
+            $resolvedDotnetTrace = Resolve-Executable $DotnetTracePath 'dotnet-trace'
+            [scriptblock] $recorderInvoker = {
+                param(
+                    [string] $Executable,
+                    [string[]] $Arguments,
+                    [string] $Purpose)
+                [string] $invocationId = [Guid]::NewGuid().ToString('N')
+                [string] $preflightDirectory = Join-Path $runDirectory 'profile-artifacts/preflight'
+                [string] $stdoutPath = Join-Path $preflightDirectory "$invocationId.stdout.txt"
+                [string] $stderrPath = Join-Path $preflightDirectory "$invocationId.stderr.txt"
+                [System.Collections.IDictionary] $record = [ordered]@{
+                    purpose = $Purpose
+                    status = 'running'
+                    command = [ordered]@{
+                        executable = $Executable
+                        arguments = $Arguments
+                        workingDirectory = $root
+                    }
+                    stdoutPath = $stdoutPath
+                    stderrPath = $stderrPath
+                }
+                $profilePreflight.Add($record)
+                try {
+                    [string] $text = Invoke-NativeText `
+                        $Executable `
+                        $Arguments `
+                        $root `
+                        $Purpose `
+                        $stdoutPath `
+                        $stderrPath
+                    $record.status = 'completed'
+                    return $text
+                }
+                catch {
+                    if (-not (Test-Path -LiteralPath $stdoutPath)) {
+                        [System.IO.Directory]::CreateDirectory($preflightDirectory) | Out-Null
+                        [System.IO.File]::WriteAllText($stdoutPath, '', $utf8)
+                    }
+                    if (-not (Test-Path -LiteralPath $stderrPath)) {
+                        [System.IO.File]::WriteAllText(
+                            $stderrPath,
+                            "$($_.Exception.Message)$([Environment]::NewLine)",
+                            $utf8)
+                    }
+                    $record.status = 'failed'
+                    $record['failure'] = $_.Exception.Message
+                    throw
+                }
+                finally {
+                    Write-JsonAtomic $profileRecordPath $profileRecord
+                }
+            }
+            $cpuRecorder = Get-DotnetTraceRecorder $resolvedDotnetTrace 'cpu' $recorderInvoker
+            $allocationRecorder = Get-DotnetTraceRecorder `
+                $resolvedDotnetTrace `
+                'alloc' `
+                $recorderInvoker
+            $initialRecorderIdentity = Get-RecorderIdentity `
+                $resolvedDotnetTrace `
+                $cpuRecorder `
+                $allocationRecorder
+            $profileRecord['tools'] = [ordered]@{
+                analyzer = $initialAnalyzerIdentity.Record
+                recorder = $initialRecorderIdentity.Record
+            }
+            $profileRecord.status = 'ready'
+            Write-JsonAtomic $profileRecordPath $profileRecord
+        }
+        catch {
+            $profileRecord.status = 'failed'
+            $profileRecord['failure'] = $_.Exception.Message
+            Write-JsonAtomic $profileRecordPath $profileRecord
+            throw
+        }
     }
 
     if ($explicitCheckouts) {
@@ -908,6 +2317,28 @@ try {
         Expand-CorpusArchive $inputArchive $inputRoot
         Test-RestoredCorpus $inputRoot $corpusManifest
         [string] $trace = Resolve-CorpusTrace $inputRoot $TraceArchivePath
+        [object] $selectedTraceRecord = $null
+        if ($CaptureProfiles) {
+            [StringComparison] $tracePathComparison = if (
+                [OperatingSystem]::IsWindows() -or [OperatingSystem]::IsMacOS()
+            ) {
+                [StringComparison]::OrdinalIgnoreCase
+            }
+            else {
+                [StringComparison]::Ordinal
+            }
+            [object[]] $selectedTraceRecords = @(
+                $corpusManifest.traces | Where-Object {
+                    [string]::Equals(
+                        (Resolve-CorpusTrace $inputRoot ([string]$_.archivePath)),
+                        $trace,
+                        $tracePathComparison)
+                })
+            if ($selectedTraceRecords.Count -ne 1) {
+                throw "Corpus manifest must contain exactly one record for restored trace '$trace'."
+            }
+            $selectedTraceRecord = $selectedTraceRecords[0]
+        }
 
         if ($null -ne $resolvedTestAdapter) {
             $null = Invoke-NativeText `
@@ -924,6 +2355,20 @@ try {
                         [Globalization.CultureInfo]::InvariantCulture)) `
                 $root `
                 "$($arm.Name) test adapter"
+            if ($CaptureProfiles) {
+                [string] $subjectExecutable = Join-Path `
+                    $arm.Checkout `
+                    "src/Filtrace/bin/Release/net10.0/$(if ([OperatingSystem]::IsWindows()) { 'filtrace.exe' } else { 'filtrace' })"
+                $profileArmInputs.Add([pscustomobject]@{
+                    Name = $arm.Name
+                    Directory = $armDirectory
+                    Checkout = $arm.Checkout
+                    Trace = $trace
+                    TraceBytes = [long]$selectedTraceRecord.bytes
+                    TraceSha256 = [string]$selectedTraceRecord.sha256
+                    SubjectExecutable = $subjectExecutable
+                })
+            }
             continue
         }
 
@@ -941,6 +2386,17 @@ try {
             "src/Filtrace/bin/Release/net10.0/$(if ([OperatingSystem]::IsWindows()) { 'filtrace.exe' } else { 'filtrace' })"
         if (-not (Test-Path -LiteralPath $subjectExecutable -PathType Leaf)) {
             throw "$($arm.Name) filtrace executable was not found at '$subjectExecutable'."
+        }
+        if ($CaptureProfiles) {
+            $profileArmInputs.Add([pscustomobject]@{
+                Name = $arm.Name
+                Directory = $armDirectory
+                Checkout = $arm.Checkout
+                Trace = $trace
+                TraceBytes = [long]$selectedTraceRecord.bytes
+                TraceSha256 = [string]$selectedTraceRecord.sha256
+                SubjectExecutable = $subjectExecutable
+            })
         }
 
         [string] $bdnDirectory = Join-Path $armDirectory 'bdn'
@@ -1062,6 +2518,37 @@ try {
             (Get-FileHash -LiteralPath $candidateBinary -Algorithm SHA256).Hash
         } else { $null }
         commandCount = $commandLog.Count
+    }
+    if ($CaptureProfiles) {
+        $run['profiles'] = [ordered]@{
+            status = 'pending'
+            path = 'profiles.json'
+            sha256 = (Get-FileHash -LiteralPath (Join-Path $runDirectory 'profiles.json') -Algorithm SHA256).Hash
+        }
+        Write-JsonAtomic (Join-Path $runDirectory 'run.json') $run
+        try {
+            Invoke-TrackDProfiles `
+                $runDirectory `
+                @($profileArmInputs) `
+                $initialAnalyzerIdentity `
+                $initialRecorderIdentity `
+                $cpuRecorder `
+                $allocationRecorder `
+                $resolvedDotnetTrace `
+                $profileRecord
+        }
+        catch {
+            $run.profiles.status = 'failed'
+            $run.profiles.sha256 = (
+                Get-FileHash -LiteralPath (Join-Path $runDirectory 'profiles.json') -Algorithm SHA256).Hash
+            $run.commandCount = $commandLog.Count
+            Write-JsonAtomic (Join-Path $runDirectory 'run.json') $run
+            throw
+        }
+        $run.profiles.status = 'completed'
+        $run.profiles.sha256 = (
+            Get-FileHash -LiteralPath (Join-Path $runDirectory 'profiles.json') -Algorithm SHA256).Hash
+        $run.commandCount = $commandLog.Count
     }
     Write-JsonAtomic (Join-Path $runDirectory 'run.json') $run
     [System.IO.File]::WriteAllLines(

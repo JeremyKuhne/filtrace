@@ -91,6 +91,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'Get-DotnetTraceRecorder.ps1')
+
 function Write-CaptureMetadata(
     [string]$TracePath,
     [System.Collections.IDictionary]$Analyses,
@@ -110,77 +112,6 @@ function Write-CaptureMetadata(
     }
     catch {
         Write-Warning "Capture succeeded, but metadata could not be written: $($_.Exception.Message). Provider enablement will be unknown during analysis."
-    }
-}
-
-function Get-DotnetTraceRecorder(
-    [string]$CommandPath,
-    [ValidateSet('cpu', 'alloc')]
-    [string]$MetricName) {
-    $versionOutput = (& $CommandPath --version 2>&1 | Out-String).Trim()
-    $versionExitCode = $LASTEXITCODE
-    $versionMatch = [regex]::Match(
-        $versionOutput,
-        '(?<!\d)\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?')
-    if ($versionExitCode -ne 0 -or -not $versionMatch.Success) {
-        throw "dotnet-trace --version failed or returned no semantic version (exit $versionExitCode)."
-    }
-
-    $profileOutput = & $CommandPath list-profiles 2>&1 | Out-String
-    $profileExitCode = $LASTEXITCODE
-    if ($profileExitCode -ne 0) {
-        throw "dotnet-trace list-profiles failed (exit $profileExitCode)."
-    }
-
-    $profiles = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-    foreach ($line in ($profileOutput -split "`r?`n")) {
-        $match = [regex]::Match(
-            $line,
-            '^\s*([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s+\(([^)]+)\))?\s+-\s')
-        if (-not $match.Success) { continue }
-
-        $appliesTo = $match.Groups[2].Value
-        if ($appliesTo -and -not [string]::Equals($appliesTo, 'collect', [StringComparison]::OrdinalIgnoreCase)) {
-            continue
-        }
-
-        [void]$profiles.Add($match.Groups[1].Value)
-        if ($profiles.Count -gt 128) {
-            throw 'dotnet-trace list-profiles returned more than 128 collect profiles.'
-        }
-    }
-
-    $availableProfiles = @($profiles | Sort-Object)
-    if ($availableProfiles.Count -eq 0) {
-        throw 'dotnet-trace list-profiles returned no profiles that apply to collect.'
-    }
-
-    $effectiveProfiles = if ($MetricName -eq 'alloc') {
-        if (-not $profiles.Contains('gc-verbose')) {
-            throw "dotnet-trace does not advertise the required gc-verbose collect profile. Available: $($availableProfiles -join ', ')."
-        }
-
-        @('gc-verbose')
-    }
-    elseif ($profiles.Contains('dotnet-common') -and $profiles.Contains('dotnet-sampled-thread-time')) {
-        @('dotnet-common', 'dotnet-sampled-thread-time')
-    }
-    elseif ($profiles.Contains('cpu-sampling')) {
-        @('cpu-sampling')
-    }
-    else {
-        throw "dotnet-trace does not advertise a supported CPU collect profile. Available: $($availableProfiles -join ', ')."
-    }
-
-    return [pscustomobject]@{
-        Command = $CommandPath
-        Version = $versionMatch.Value
-        ProfileArgument = $effectiveProfiles -join ','
-        Metadata = [ordered]@{
-            name = 'dotnet-trace'
-            version = $versionMatch.Value
-            profiles = @($effectiveProfiles)
-        }
     }
 }
 
