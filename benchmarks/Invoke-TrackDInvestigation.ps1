@@ -1241,8 +1241,8 @@ function Get-AnalysisEvidence(
     [object] $schemaProperty = $info.PSObject.Properties['schemaVersion']
     if (
         $null -eq $schemaProperty -or
-        $schemaProperty.Value -isnot [long] -or
-        [long]$schemaProperty.Value -ne 16
+        -not (Test-FiniteJsonNumber $schemaProperty.Value) -or
+        [double]$schemaProperty.Value -ne 16
     ) {
         throw "Profile analysis '$AnalysisName' did not return info schema 16."
     }
@@ -1277,13 +1277,20 @@ function Get-AnalysisEvidence(
     [object] $eventProperty = $analysis.PSObject.Properties['eventCount']
     if (
         $null -eq $eventProperty -or
-        $eventProperty.Value -isnot [long] -or
-        [long]$eventProperty.Value -lt 0
+        -not (Test-FiniteJsonNumber $eventProperty.Value) -or
+        [double]$eventProperty.Value -lt 0 -or
+        [double]$eventProperty.Value -ne [Math]::Truncate([double]$eventProperty.Value)
     ) {
         throw "Profile analysis '$AnalysisName' did not report a valid event count."
     }
 
-    [long] $eventCount = [long]$eventProperty.Value
+    try {
+        [long] $eventCount = [Convert]::ToInt64(
+            $eventProperty.Value, [Globalization.CultureInfo]::InvariantCulture)
+    }
+    catch {
+        throw "Profile analysis '$AnalysisName' did not report a valid event count."
+    }
     if ($RequireEvents -and $eventCount -eq 0) {
         throw "Profile capture contained no $AnalysisName events."
     }

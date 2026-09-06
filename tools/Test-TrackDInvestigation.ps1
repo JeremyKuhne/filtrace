@@ -122,6 +122,51 @@ try {
             $realShapeEvidence.summaries[0].contributingRecordCountStatus -ceq 'available') `
         'CPU evidence did not retain its required contributing record count.'
 
+    foreach ($validEventCount in @([int]128, [double]128, [long]::MaxValue, [double]0)) {
+        [object] $numericInfo = $realInfoJson | ConvertFrom-Json -Depth 32
+        $numericInfo.schemaVersion = [double]16
+        $numericInfo.result.analyses.cpu.eventCount = $validEventCount
+        Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $numericInfo
+        [System.Collections.IDictionary] $numericEvidence = Get-AnalysisEvidence `
+            $analysisEvidenceDirectory 'cpu' $false
+        Assert-True `
+            ($numericEvidence.eventCount -eq $validEventCount) `
+            'Valid numeric profile counts or schema identifiers were rejected or changed.'
+    }
+    [object[]] $invalidProfileNumbers = @(
+        @{ Member = 'schemaVersion'; Value = $null; Message = 'info schema 16' },
+        @{ Member = 'schemaVersion'; Value = '16'; Message = 'info schema 16' },
+        @{ Member = 'schemaVersion'; Value = $true; Message = 'info schema 16' },
+        @{ Member = 'schemaVersion'; Value = 16.4; Message = 'info schema 16' },
+        @{ Member = 'schemaVersion'; Value = [double]::PositiveInfinity; Message = 'info schema 16' },
+        @{ Member = 'eventCount'; Value = $null; Message = 'valid event count' },
+        @{ Member = 'eventCount'; Value = '128'; Message = 'valid event count' },
+        @{ Member = 'eventCount'; Value = $true; Message = 'valid event count' },
+        @{ Member = 'eventCount'; Value = -1; Message = 'valid event count' },
+        @{ Member = 'eventCount'; Value = 128.5; Message = 'valid event count' },
+        @{ Member = 'eventCount'; Value = [double]::PositiveInfinity; Message = 'valid event count' },
+        @{ Member = 'eventCount'; Value = [double]::NaN; Message = 'valid event count' },
+        @{ Member = 'eventCount'; Value = [double]9223372036854775808; Message = 'valid event count' })
+    foreach ($invalidProfileNumber in $invalidProfileNumbers) {
+        [object] $numericInfo = $realInfoJson | ConvertFrom-Json -Depth 32
+        if ($invalidProfileNumber.Member -ceq 'schemaVersion') {
+            $numericInfo.schemaVersion = $invalidProfileNumber.Value
+        }
+        else {
+            $numericInfo.result.analyses.cpu.eventCount = $invalidProfileNumber.Value
+        }
+        Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $numericInfo
+        [bool] $invalidNumberFailed = $false
+        try {
+            $null = Get-AnalysisEvidence $analysisEvidenceDirectory 'cpu' $false
+        }
+        catch {
+            $invalidNumberFailed = $_.Exception.Message.Contains(
+                $invalidProfileNumber.Message, [StringComparison]::Ordinal)
+        }
+        Assert-True $invalidNumberFailed "Invalid profile number '$($invalidProfileNumber.Member)' was accepted."
+    }
+
     [string] $realAllocationRankJson = @'
 {"schemaVersion":16,"warnings":[],"context":{"operation":"rank","metric":"alloc","measure":"self","unit":"bytes"},"result":{"scopeWeight":34054816,"rootFrame":"","rows":[{"frame":"Filtrace.Tracing.Readers.TraceLogReader.ReadCore","weight":26442304,"percentOfScope":77.65}]}}
 '@
