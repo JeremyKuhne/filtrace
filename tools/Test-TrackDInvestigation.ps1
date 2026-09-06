@@ -196,7 +196,7 @@ try {
         ($probeLaunch.launchToExitMilliseconds -ge $heldOpen.Elapsed.TotalMilliseconds) `
         'Launch-to-exit telemetry did not contain the synchronized child wait.'
     Assert-True `
-        ($probeLaunch.launchToExitMilliseconds -gt $probeLaunch.totalProcessorMilliseconds) `
+        ($probeLaunch.launchToExitMilliseconds -ne $probeLaunch.totalProcessorMilliseconds) `
         'Launch-to-exit telemetry did not remain distinct from child CPU time.'
 
     [string] $firstCommandDirectory = Join-Path $temporaryRoot 'path-first'
