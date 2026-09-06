@@ -657,7 +657,8 @@ function Get-TelemetryNonnegativeInt64([object] $Record, [string] $Name, [string
 
 function Get-TelemetrySummary([string] $Path) {
     [object] $report = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-    if ([int]$report.schemaVersion -ne 2) {
+    [long] $schemaVersion = Get-TelemetryNonnegativeInt64 $report 'schemaVersion' $Path
+    if ($schemaVersion -ne 2) {
         throw "Telemetry report '$Path' does not use schema version 2."
     }
 
@@ -688,7 +689,12 @@ function Get-TelemetrySummary([string] $Path) {
     }
 
     [int] $iterations = [int]$iterationsNumber
-    [object[]] $launches = @($report.launches)
+    [object] $launchesValue = Get-RequiredTelemetryValue $report 'launches' $Path
+    if ($launchesValue -isnot [array]) {
+        throw "Telemetry report '$Path' launches must be a JSON array."
+    }
+
+    [object[]] $launches = $launchesValue
     if ($launches.Count -ne $iterations) {
         throw "Telemetry report '$Path' has an incomplete launch set."
     }
@@ -699,7 +705,7 @@ function Get-TelemetrySummary([string] $Path) {
     [System.Collections.Generic.List[long]] $maxPrivateMemoryBytes = @()
     [System.Collections.Generic.List[long]] $standardOutputLength = @()
     [System.Collections.Generic.HashSet[string]] $outputDigests =
-        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     for ($launchIndex = 0; $launchIndex -lt $launches.Count; $launchIndex++) {
         [object] $launch = $launches[$launchIndex]
         [long] $iteration = Get-TelemetryNonnegativeInt64 $launch 'iteration' $Path
