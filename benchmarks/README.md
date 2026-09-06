@@ -130,7 +130,8 @@ $inputCorpusDirectory = 'artifacts/perf-inputs/<corpus-id>'
 $harnessCommit = '<merged-harness-commit>'
 $baselineCommit = '<baseline-product-commit>'
 $candidateCommit = '<candidate-product-commit>'
-$analyzerPath = (Resolve-Path 'artifacts/tools/frozen-analyzer/filtrace.exe').Path
+$analyzerName = if ($IsWindows) { 'filtrace.exe' } else { 'filtrace' }
+$analyzerPath = (Resolve-Path (Join-Path 'artifacts/tools/frozen-analyzer' $analyzerName)).Path
 
 ./benchmarks/Invoke-TrackDInvestigation.ps1 `
   -InputCorpusDirectory $inputCorpusDirectory `

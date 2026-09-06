@@ -543,7 +543,10 @@ function Get-BoundedAnalyzerFileIdentity(
 function Get-AnalyzerIdentity([string] $Executable) {
     [string] $canonicalExecutable = Resolve-LocalFile $Executable 'AnalyzerPath'
     [string] $directory = [System.IO.Path]::GetDirectoryName($canonicalExecutable)
-    [string] $baseName = [System.IO.Path]::GetFileNameWithoutExtension($canonicalExecutable)
+    [string] $baseName = [System.IO.Path]::GetFileName($canonicalExecutable)
+    if ($baseName.EndsWith('.exe', [StringComparison]::OrdinalIgnoreCase)) {
+        $baseName = [System.IO.Path]::GetFileNameWithoutExtension($baseName)
+    }
     [string] $managedAssembly = Join-Path $directory "$baseName.dll"
     [string] $depsFile = Join-Path $directory "$baseName.deps.json"
     [string] $runtimeConfig = Join-Path $directory "$baseName.runtimeconfig.json"
@@ -693,7 +696,10 @@ function Get-RecorderIdentity(
         ([System.IO.FileInfo]::new($canonicalExecutable)) `
         $maximumAnalyzerDirectoryBytes
     [string] $directory = [System.IO.Path]::GetDirectoryName($canonicalExecutable)
-    [string] $baseName = [System.IO.Path]::GetFileNameWithoutExtension($canonicalExecutable)
+    [string] $baseName = [System.IO.Path]::GetFileName($canonicalExecutable)
+    if ($baseName.EndsWith('.exe', [StringComparison]::OrdinalIgnoreCase)) {
+        $baseName = [System.IO.Path]::GetFileNameWithoutExtension($baseName)
+    }
     [string[]] $adjacentRuntimeFiles = @(
         (Join-Path $directory "$baseName.dll"),
         (Join-Path $directory "$baseName.deps.json"),

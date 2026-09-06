@@ -663,6 +663,17 @@ try {
         [string] $fixedAnalyzer = Join-Path $fixedAnalyzerDirectory $fakeProfileToolName
         [string] $fixedManagedDll = Join-Path $fixedAnalyzerDirectory 'Filtrace.FakeProfileTool.dll'
 
+        foreach ($apphostName in @('Tool.With.Dots', 'Tool.With.Dots.exe', 'Tool.With.Dots.EXE')) {
+            [string] $identityDirectory = Join-Path $temporaryRoot "identity-$apphostName"
+            [void][System.IO.Directory]::CreateDirectory($identityDirectory)
+            foreach ($fileName in @($apphostName, 'Tool.With.Dots.dll',
+                    'Tool.With.Dots.deps.json', 'Tool.With.Dots.runtimeconfig.json')) {
+                [System.IO.File]::WriteAllBytes(
+                    (Join-Path $identityDirectory $fileName), [byte[]](1, 2, 3))
+            }
+            $null = Get-AnalyzerIdentity (Join-Path $identityDirectory $apphostName)
+        }
+
         [string] $boundedIdentityFile = Join-Path $temporaryRoot 'bounded-identity.bin'
         [System.IO.File]::WriteAllBytes($boundedIdentityFile, [byte[]](1, 2, 3, 4, 5))
         [long] $previousMaximumAnalyzerFileBytes = $maximumAnalyzerFileBytes
