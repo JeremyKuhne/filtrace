@@ -12,7 +12,7 @@ namespace Filtrace.LocalTesting;
 /// <param name="StandardError">The bounded standard error text.</param>
 /// <param name="StandardOutputTruncated">Whether standard output exceeded its limit.</param>
 /// <param name="StandardErrorTruncated">Whether standard error exceeded its limit.</param>
-/// <param name="ExecutionTimedOut">Whether the root-completion wait expired, even if an exit code was later observed.</param>
+/// <param name="ExecutionTimedOut">Whether the root wait expired, even if an exit code was later observed.</param>
 /// <param name="OutputCaptureIncomplete">
 ///  Whether both redirected streams did not complete at end-of-file within the drain deadline,
 ///  or a read failed or was canceled.
