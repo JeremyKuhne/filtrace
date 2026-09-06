@@ -896,13 +896,31 @@ function Get-ValidatedProfileResult(
         if (
             $null -eq $scopeWeightProperty -or
             -not (Test-FiniteJsonNumber $scopeWeightProperty.Value) -or
-            [double]$scopeWeightProperty.Value -le 0 -or
-            $null -eq $contributingRecordsProperty -or
-            -not (Test-FiniteJsonNumber $contributingRecordsProperty.Value) -or
-            [double]$contributingRecordsProperty.Value -le 0 -or
-            [double]$contributingRecordsProperty.Value -ne
-                [Math]::Truncate([double]$contributingRecordsProperty.Value)
+            [double]$scopeWeightProperty.Value -le 0
         ) {
+            throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid rank scope totals."
+        }
+        [bool] $contributingRecordCountAvailable =
+            $null -ne $contributingRecordsProperty -and
+            $null -ne $contributingRecordsProperty.Value
+        [long] $contributingRecordCount = 0
+        if ($contributingRecordCountAvailable) {
+            if (
+                -not (Test-FiniteJsonNumber $contributingRecordsProperty.Value) -or
+                [double]$contributingRecordsProperty.Value -le 0 -or
+                [double]$contributingRecordsProperty.Value -ne
+                    [Math]::Truncate([double]$contributingRecordsProperty.Value)
+            ) {
+                throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid rank scope totals."
+            }
+            try {
+                $contributingRecordCount = [Convert]::ToInt64($contributingRecordsProperty.Value)
+            }
+            catch {
+                throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid rank scope totals."
+            }
+        }
+        elseif ($AnalysisName -cne 'alloc') {
             throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid rank scope totals."
         }
         foreach ($row in $rows) {
@@ -929,7 +947,18 @@ function Get-ValidatedProfileResult(
             queryId = [string]$Query.id
             status = if ($qualityLimited) { 'insufficientQuality' } else { 'observed' }
             scopeWeight = [double]$scopeWeightProperty.Value
-            contributingRecordCount = [long]$contributingRecordsProperty.Value
+            contributingRecordCount = if ($contributingRecordCountAvailable) {
+                $contributingRecordCount
+            }
+            else {
+                $null
+            }
+            contributingRecordCountStatus = if ($contributingRecordCountAvailable) {
+                'available'
+            }
+            else {
+                'unavailable'
+            }
             rowCount = $rows.Count
             warnings = @($warnings)
         }

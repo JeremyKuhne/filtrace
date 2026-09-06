@@ -117,6 +117,81 @@ try {
     Assert-True `
         ($realShapeEvidence.status -ceq 'observed' -and $realShapeEvidence.eventCount -eq 128) `
         'Schema 16 result analyses did not produce observed CPU evidence.'
+    Assert-True `
+        ($realShapeEvidence.summaries[0].contributingRecordCount -eq 128 -and
+            $realShapeEvidence.summaries[0].contributingRecordCountStatus -ceq 'available') `
+        'CPU evidence did not retain its required contributing record count.'
+
+    [string] $realAllocationRankJson = @'
+{"schemaVersion":16,"warnings":[],"context":{"operation":"rank","metric":"alloc","measure":"self","unit":"bytes"},"result":{"scopeWeight":34054816,"rootFrame":"","rows":[{"frame":"Filtrace.Tracing.Readers.TraceLogReader.ReadCore","weight":26442304,"percentOfScope":77.65}]}}
+'@
+    [System.IO.File]::WriteAllText(
+        (Join-Path $analysisEvidenceDirectory 'rank.json'),
+        $realAllocationRankJson,
+        $utf8)
+    [string] $allocationInfoJson = @'
+{"schemaVersion":16,"warnings":[{"code":"warning","severity":"warning","message":"No sampled-profile (CPU) events were found in the trace."}],"hints":[],"context":{"operation":"info"},"result":{"path":"capture.nettrace","format":"NetTrace","totalWeight":34054816,"sampleCount":32,"symbolResolutionRate":1,"threads":[],"availableAnalyses":["alloc","gcstats"],"etlxCacheState":"converted","analyses":{"alloc":{"captureStatus":"enabled","eventCount":32},"gcstats":{"captureStatus":"enabled","eventCount":1}},"sourceResolution":{"searchedDirectories":[],"sampledManagedFrameCount":0,"mappedManagedFrameCount":0,"matchingPdbModules":[],"highestUnmappedModules":[],"highestUnmappedMethods":[]}}}
+'@
+    [System.IO.File]::WriteAllText(
+        (Join-Path $analysisEvidenceDirectory 'info.json'),
+        $allocationInfoJson,
+        $utf8)
+    [System.Collections.IDictionary] $allocationEvidence = Get-AnalysisEvidence `
+        $analysisEvidenceDirectory `
+        'alloc' `
+        $true
+    Assert-True `
+        ($allocationEvidence.status -ceq 'observed' -and $allocationEvidence.eventCount -eq 32) `
+        'A real-shaped allocation rank without a record count was not observed.'
+    Assert-True `
+        ($null -eq $allocationEvidence.summaries[0].contributingRecordCount -and
+            $allocationEvidence.summaries[0].contributingRecordCountStatus -ceq 'unavailable') `
+        'Allocation evidence did not explicitly retain its unavailable record count.'
+
+    Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') ([ordered]@{
+        schemaVersion = 16
+        warnings = @()
+        context = [ordered]@{ operation = 'rank'; metric = 'alloc'; measure = 'self'; unit = 'bytes' }
+        result = [ordered]@{
+            scopeWeight = 128
+            contributingRecordCount = $null
+            rows = @([ordered]@{ frame = 'Fake.Work'; weight = 128; percentOfScope = 100 })
+        }
+    })
+    [System.Collections.IDictionary] $nullCountAllocationEvidence = Get-AnalysisEvidence `
+        $analysisEvidenceDirectory `
+        'alloc' `
+        $true
+    Assert-True `
+        ($null -eq $nullCountAllocationEvidence.summaries[0].contributingRecordCount -and
+            $nullCountAllocationEvidence.summaries[0].contributingRecordCountStatus -ceq 'unavailable') `
+        'Allocation evidence rejected an explicitly null record count.'
+
+    Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') ([ordered]@{
+        schemaVersion = 16
+        warnings = @()
+        context = [ordered]@{ operation = 'rank'; metric = 'cpu'; measure = 'self'; unit = 'ms' }
+        result = [ordered]@{
+            scopeWeight = 128
+            rows = @([ordered]@{ frame = 'Fake.Work'; weight = 128; percentOfScope = 100 })
+        }
+    })
+    [bool] $missingCpuRecordCountFailed = $false
+    try {
+        $null = Get-ValidatedProfileResult `
+            $analysisEvidenceDirectory `
+            ([pscustomobject]@{ id = 'hot-methods'; status = 'completed'; stdout = 'rank.json' }) `
+            'cpu' `
+            'rank'
+    }
+    catch {
+        $missingCpuRecordCountFailed = $_.Exception.Message.Contains(
+            'invalid rank scope totals',
+            [StringComparison]::Ordinal)
+    }
+    Assert-True `
+        $missingCpuRecordCountFailed `
+        'CPU rank evidence accepted a missing contributing record count.'
 
     [string] $topLevelOnlyInfoJson = @'
 {"schemaVersion":16,"warnings":[],"hints":[],"context":{"operation":"info"},"analyses":{"cpu":{"captureStatus":"enabled","eventCount":128}}}
@@ -747,6 +822,19 @@ try {
         Assert-True `
             ($profiles.metricSemantics.allocation -ceq 'sampled-allocation-ticks') `
             'Allocation profile was not labeled as sampled allocation ticks.'
+        [object[]] $allocationProfileEvidence = @(
+            $profiles.arms.captures.analyses |
+                Where-Object { $_.name -ceq 'alloc' } |
+                ForEach-Object { $_.evidence })
+        Assert-True `
+            ($allocationProfileEvidence.Count -eq 2) `
+            'Profile workflow did not retain allocation evidence for both arms.'
+        Assert-True `
+            (@($allocationProfileEvidence.summaries | Where-Object {
+                $null -ne $_.contributingRecordCount -or
+                    $_.contributingRecordCountStatus -cne 'unavailable'
+            }).Count -eq 0) `
+            'Profile workflow fabricated an allocation contributing record count.'
         Assert-True `
             (@($profiles.arms.captures.analyses | Where-Object {
                 $_.name -ceq 'gcstats' -and $_.evidence.status -ceq 'empty'
@@ -822,6 +910,7 @@ try {
             [pscustomobject]@{ Name = 'capture-nonzero'; Mode = 'capture-nonzero'; Message = 'exited with code 8' },
             [pscustomobject]@{ Name = 'analysis-empty-rank'; Mode = 'analysis-empty-rank'; Message = 'contained no cpu rank rows' },
             [pscustomobject]@{ Name = 'analysis-bad-rank-shape'; Mode = 'analysis-bad-rank-shape'; Message = 'malformed rank row' },
+            [pscustomobject]@{ Name = 'analysis-invalid-record-count'; Mode = 'analysis-invalid-record-count'; Message = 'invalid rank scope totals' },
             [pscustomobject]@{ Name = 'analysis-empty'; Mode = 'analysis-valid-empty'; Message = 'contained no cpu events' },
             [pscustomobject]@{ Name = 'analysis-missing'; Mode = 'analysis-missing'; Message = 'omitted analysis' },
             [pscustomobject]@{ Name = 'analysis-wrong-top-level'; Mode = 'analysis-wrong-top-level'; Message = 'omitted analysis' },

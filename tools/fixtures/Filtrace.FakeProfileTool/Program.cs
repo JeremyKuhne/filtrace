@@ -233,6 +233,29 @@ internal static class Program
 
         object[] warnings = GetWarnings(mode);
 
+        object result;
+        if (metric == "alloc" && mode != "analysis-invalid-record-count")
+        {
+            result = new
+            {
+                scopeWeight = rows.Count == 0 ? 0.0 : 11.0,
+                rootFrame = "",
+                rows
+            };
+        }
+        else
+        {
+            result = new
+            {
+                scopeWeight = rows.Count == 0 ? 0.0 : 11.0,
+                rootFrame = "",
+                rows,
+                contributingRecordCount = metric == "alloc" && mode == "analysis-invalid-record-count"
+                    ? -1
+                    : rows.Count == 0 ? 0 : 11
+            };
+        }
+
         object envelope = new
         {
             schemaVersion = 16,
@@ -244,13 +267,7 @@ internal static class Program
                 measure,
                 unit = metric == "cpu" ? "ms" : "bytes"
             },
-            result = new
-            {
-                scopeWeight = rows.Count == 0 ? 0.0 : 11.0,
-                rootFrame = "",
-                rows,
-                contributingRecordCount = rows.Count == 0 ? 0 : 11
-            }
+            result
         };
 
         Console.WriteLine(JsonSerializer.Serialize(envelope));
