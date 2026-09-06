@@ -35,10 +35,20 @@ if ($PSVersionTable.PSVersion -lt [Version]'5.1') {
     throw 'Use-LocalFiltrace.ps1 requires Windows PowerShell 5.1 or PowerShell 7.'
 }
 
+function Resolve-NativeApplication([string]$Name) {
+    try {
+        return @(Get-Command $Name -CommandType Application -ErrorAction Stop)[0].Source
+    }
+    catch {
+        throw "A directly launchable native '$Name' application was not found on PATH."
+    }
+}
+
 $sourceCheckout = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).Path
 $target = (Resolve-Path -LiteralPath $TargetRepository).Path
-$dotnetPath = @(Get-Command dotnet -CommandType Application -ErrorAction Stop)[0].Source
-$gitPath = @(Get-Command git -CommandType Application -ErrorAction Stop)[0].Source
+$runningOnWindows = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
+$dotnetPath = Resolve-NativeApplication $(if ($runningOnWindows) { 'dotnet.exe' } else { 'dotnet' })
+$gitPath = Resolve-NativeApplication $(if ($runningOnWindows) { 'git.exe' } else { 'git' })
 $project = Join-Path $sourceCheckout 'tools/Filtrace.LocalTesting/Filtrace.LocalTesting.csproj'
 
 Push-Location $sourceCheckout

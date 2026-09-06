@@ -167,7 +167,7 @@ agent-discovered `skills` directory.
 
 Keep `Use-LocalFiltrace.ps1` as the discoverable entry point. It should only:
 
-1. validate PowerShell and `dotnet` availability;
+1. validate PowerShell and directly launchable `dotnet` and `git` availability;
 2. locate the Filtrace source checkout and target repository;
 3. invoke the .NET helper with structured arguments;
 4. preserve the helper's exit code and human diagnostics.
@@ -432,12 +432,14 @@ Real UAC and hostile same-user filesystem races are not covered by these tests.
 ### Phase 4 - wrapper, docs, and CI
 
 **Status:** Partially implemented. The thin PowerShell entry point delegates to
-the unit-tested .NET helper, and its fake-driven Windows CI harness is added in this
-PR. The contract exercises Windows PowerShell 5.1 and PowerShell 7, first
-`dotnet`/`git` selection, source and target paths with spaces, the caller-directory
-target default, working directory and argument order, default Release and explicit
-Debug configuration, valid empty and text output, native exit 37 with separate
-stdout/stderr, caller-enabled native error promotion, and missing tools.
+the unit-tested .NET helper, and its native-apphost-driven Windows CI harness is added
+in this PR. The contract exercises Windows PowerShell 5.1 and PowerShell 7, first
+directly launchable native `dotnet.exe`/`git.exe` selection on Windows, batch-only
+rejection, source and target paths with spaces, the caller-directory target default,
+working directory and argument order, default Release and explicit Debug configuration,
+valid empty and text output, native exit 37 with separate stdout/stderr, caller-enabled
+native error promotion, and missing tools. One case forwards through the real .NET
+helper and its bounded native `git.exe` process boundary without installing resources.
 
 The real Windows PowerShell 7 round trip recorded above completed Install, Refresh,
 and Restore with `info` schema 16, semantic MCP validation, a byte-exact skill, and
