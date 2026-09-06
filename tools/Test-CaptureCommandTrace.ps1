@@ -31,8 +31,15 @@ function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
 
-function Invoke-CaptureChild([string]$ScriptPath, [string]$SpecPath) {
-    $text = & pwsh -NoProfile -File $ScriptPath -SpecPath $SpecPath 2>&1 | Out-String
+function Invoke-CaptureChild(
+    [string]$ScriptPath,
+    [string]$SpecPath,
+    [string]$ExpectedSpecSha256 = '') {
+    if (-not $ExpectedSpecSha256) {
+        $ExpectedSpecSha256 = (Get-FileHash -LiteralPath $SpecPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    $text = & pwsh -NoProfile -File $ScriptPath -SpecPath $SpecPath `
+        -ExpectedSpecSha256 $ExpectedSpecSha256 2>&1 | Out-String
     return [pscustomobject]@{
         ExitCode = $LASTEXITCODE
         Output   = $text
@@ -137,6 +144,45 @@ try {
     )
     Assert-True ($testElevatedDefinitions.Count -eq 1) 'Command capture helper did not contain exactly one Test-Elevated function.'
     $testElevatedDefinition = $testElevatedDefinitions[0]
+    $boundedWriterDefinitions = @(
+        $captureAst.FindAll(
+            { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-BoundedUtf8File' },
+            $true)
+    )
+    Assert-True ($boundedWriterDefinitions.Count -eq 1) 'Command capture helper did not contain exactly one bounded UTF-8 writer.'
+    . ([scriptblock]::Create($boundedWriterDefinitions[0].Extent.Text))
+    $maxSerializedBytes = 16 * 1024 * 1024
+    $exactAsciiPath = Join-Path $temporaryRoot 'manifest-exact-ascii.json'
+    $exactAsciiJson = '"' + ('a' * ($maxSerializedBytes - 3)) + '"'
+    Write-BoundedUtf8File $exactAsciiPath $exactAsciiJson
+    Assert-True ((Get-Item -LiteralPath $exactAsciiPath).Length -eq $maxSerializedBytes - 1) 'The largest accepted ASCII manifest boundary was rejected or changed.'
+    Remove-Item -LiteralPath $exactAsciiPath
+    $exactAsciiJson = $null
+
+    $astralCharacter = [char]::ConvertFromUtf32(0x1F600)
+    $exactUnicodePath = Join-Path $temporaryRoot 'manifest-exact-unicode.json'
+    $exactUnicodeJson = '"' + ('u' * ($maxSerializedBytes - 7)) + $astralCharacter + '"'
+    Write-BoundedUtf8File $exactUnicodePath $exactUnicodeJson
+    Assert-True ((Get-Item -LiteralPath $exactUnicodePath).Length -eq $maxSerializedBytes - 1) 'The largest accepted Unicode manifest boundary was rejected or changed.'
+
+    $oversizedManifestPath = Join-Path $temporaryRoot 'manifest-oversized.json'
+    foreach ($suffix in @('', 'é')) {
+        $oversizedUnicodeJson = '"' + ('u' * ($maxSerializedBytes - 6)) + $astralCharacter + $suffix + '"'
+        $expectedBytes = [System.Text.Encoding]::UTF8.GetByteCount($oversizedUnicodeJson)
+        $oversizedManifestFailure = $null
+        try {
+            Write-BoundedUtf8File $oversizedManifestPath $oversizedUnicodeJson
+        }
+        catch {
+            $oversizedManifestFailure = $_.Exception.Message
+        }
+        Assert-True ($oversizedManifestFailure -match "$expectedBytes UTF-8 bytes") "A manifest at or above the limit did not report its exact byte count. Observed failure: $oversizedManifestFailure"
+        Assert-True (-not (Test-Path -LiteralPath $oversizedManifestPath)) 'A manifest at or above the limit created a partial or invalid file.'
+    }
+    Remove-Item -LiteralPath $exactUnicodePath
+    $exactUnicodeJson = $null
+    $oversizedUnicodeJson = $null
+
     $testCaptureSource =
         $captureSource.Substring(0, $testElevatedDefinition.Extent.StartOffset) +
         'function Test-Elevated { return $true }' +
@@ -193,6 +239,11 @@ if ([System.IO.Path]::GetFileName($tracePath) -eq 'failed.etl') {
     $global:LASTEXITCODE = 23
     return
 }
+if ([System.IO.Path]::GetFileName($tracePath) -eq 'diagnostic-surrogate.etl') {
+    Write-Output (('d' * 2047) + [char]::ConvertFromUtf32(0x1F600) + 'tail')
+    $global:LASTEXITCODE = 23
+    return
+}
 if ($env:FILTRACE_COMMAND_MODE -eq 'malformed-collect') {
     Write-Output 'workload emitted {"unrelated":true}'
     Write-Output '{not valid collect json'
@@ -243,8 +294,8 @@ $global:LASTEXITCODE = 0
     $runDirectory = Join-Path $temporaryRoot 'run with spaces'
     $workingDirectory = Join-Path $temporaryRoot 'original working directory'
     New-Item -ItemType Directory -Path $workingDirectory | Out-Null
-    $pwshPath = (Get-Command pwsh -CommandType Application -ErrorAction Stop).Source
-    $dotnetPath = (Get-Command dotnet -CommandType Application -ErrorAction Stop).Source
+    $pwshPath = @(Get-Command pwsh -CommandType Application -ErrorAction Stop)[0].Source
+    $dotnetPath = @(Get-Command dotnet -CommandType Application -ErrorAction Stop)[0].Source
     $secretValue = 'must-not-enter-command-manifest'
     $env:FILTRACE_COMMAND_CALLS = $callsPath
     $env:FILTRACE_TEST_SECRET = $secretValue
@@ -256,6 +307,66 @@ $global:LASTEXITCODE = 0
         sha256 = (Get-FileHash -LiteralPath $fakeFiltrace -Algorithm SHA256).Hash.ToLowerInvariant()
         version = '1.2.3-contract'
     }
+
+    $invalidDigestSpecPath = Join-Path $temporaryRoot 'spec-invalid-digest.json'
+    [System.IO.File]::WriteAllBytes($invalidDigestSpecPath, [System.Text.Encoding]::UTF8.GetBytes('{"scenarios":[]}'))
+    $missingDigestOutput = & pwsh -NoProfile -File $testCaptureScript -SpecPath $invalidDigestSpecPath 2>&1 | Out-String
+    $missingDigestExitCode = $LASTEXITCODE
+    Assert-True ($missingDigestExitCode -ne 0) 'SpecPath without ExpectedSpecSha256 was accepted.'
+    Assert-True ($missingDigestOutput -match 'ExpectedSpecSha256 is required') 'A missing spec digest did not report the authenticated handoff requirement.'
+    $malformedDigestOutput = & pwsh -NoProfile -File $testCaptureScript -SpecPath $invalidDigestSpecPath `
+        -ExpectedSpecSha256 'not-a-sha256' 2>&1 | Out-String
+    $malformedDigestExitCode = $LASTEXITCODE
+    Assert-True ($malformedDigestExitCode -ne 0) 'A malformed spec digest was accepted.'
+    Assert-True ($malformedDigestOutput -match 'ExpectedSpecSha256') 'A malformed spec digest did not fail parameter validation.'
+
+    $validEmptySpecResult = Invoke-CaptureChild $testCaptureScript $invalidDigestSpecPath
+    Assert-True ($validEmptySpecResult.ExitCode -ne 0) 'An authenticated empty scenario specification was accepted.'
+    Assert-True ($validEmptySpecResult.Output -match 'Supply at least one -Scenario') 'An authenticated empty scenario specification did not reach scenario validation.'
+
+    $completeSpecBytes = [System.Text.Encoding]::UTF8.GetBytes('{"scenarios":[]}')
+    $completeSpecSha256 = [Convert]::ToHexString(
+        [System.Security.Cryptography.SHA256]::HashData($completeSpecBytes)).ToLowerInvariant()
+    $truncatedSpecPath = Join-Path $temporaryRoot 'spec-truncated.json'
+    [System.IO.File]::WriteAllBytes($truncatedSpecPath, $completeSpecBytes[0..($completeSpecBytes.Length - 2)])
+    $truncatedSpecResult = Invoke-CaptureChild $testCaptureScript $truncatedSpecPath $completeSpecSha256
+    Assert-True ($truncatedSpecResult.ExitCode -ne 0) 'A truncated elevation spec was accepted with the complete payload digest.'
+    Assert-True ($truncatedSpecResult.Output -match 'does not match the digest') 'A truncated elevation spec was parsed before its digest mismatch was reported.'
+    Assert-True (-not (Test-Path -LiteralPath $callsPath)) 'An invalid authenticated specification reached the fake filtrace boundary.'
+
+    $tamperedCallsPath = Join-Path $temporaryRoot 'tampered-spec-calls.jsonl'
+    $tamperedRunDirectory = Join-Path $temporaryRoot 'run-tampered-spec'
+    $tamperedSpecPath = Join-Path $temporaryRoot 'spec-tampered.json'
+    $benignSpecBytes = [System.Text.Encoding]::UTF8.GetBytes('{"scenarios":[]}')
+    [System.IO.File]::WriteAllBytes($tamperedSpecPath, $benignSpecBytes)
+    $expectedBenignSpecSha256 = [Convert]::ToHexString(
+        [System.Security.Cryptography.SHA256]::HashData($benignSpecBytes)).ToLowerInvariant()
+    $tamperedSpec = [ordered]@{
+        scenarios = @([ordered]@{
+                name = 'tampered'
+                requestedCommand = $pwshPath
+                command = $fakeFiltrace
+                executableSha256 = $fakeFiltraceIdentity.sha256
+                argumentsKind = 'argumentList'
+                argumentList = @()
+            })
+        iterations = 1
+        profile = 'startup'
+        cpuSampleMSec = 1.0
+        outputDirectory = $tamperedRunDirectory
+        workingDirectory = $workingDirectory
+        filtracePath = $fakeFiltrace
+        filtrace = $fakeFiltraceIdentity
+    }
+    [System.IO.File]::WriteAllText(
+        $tamperedSpecPath,
+        ($tamperedSpec | ConvertTo-Json -Depth 6),
+        [System.Text.UTF8Encoding]::new($false))
+    $env:FILTRACE_COMMAND_CALLS = $tamperedCallsPath
+    $tamperedResult = Invoke-CaptureChild $testCaptureScript $tamperedSpecPath $expectedBenignSpecSha256
+    Assert-True ($tamperedResult.ExitCode -ne 0) "A replaced elevation spec was accepted despite the benign digest $expectedBenignSpecSha256."
+    Assert-True (-not (Test-Path -LiteralPath $tamperedCallsPath)) 'A replaced elevation spec reached the fake filtrace boundary.'
+    Assert-True (-not (Test-Path -LiteralPath $tamperedRunDirectory)) 'A replaced elevation spec created its requested run directory.'
 
     $traversalRunDirectory = Join-Path $temporaryRoot 'run-traversal'
     $traversalSpecPath = Join-Path $temporaryRoot 'spec-traversal.json'
@@ -317,7 +428,10 @@ $global:LASTEXITCODE = 0
     $boundaryScenarios = [System.Collections.Generic.List[object]]::new()
     $boundaryScenarios.Add([ordered]@{ name = ('x' * 256); command = $pwshPath; argumentList = @() })
     $boundaryScenarios.Add([ordered]@{ name = 'normal.dot space'; command = $pwshPath; argumentList = @() })
-    foreach ($boundaryIndex in 2..255) {
+    $tracePrefixLength = 255 - '.etl'.Length - 16 - 1
+    $surrogateBoundaryName = ('s' * ($tracePrefixLength - 1)) + $astralCharacter + ('t' * (256 - $tracePrefixLength - 1))
+    $boundaryScenarios.Add([ordered]@{ name = $surrogateBoundaryName; command = $pwshPath; argumentList = @() })
+    foreach ($boundaryIndex in 2..254) {
         $boundaryScenarios.Add([ordered]@{ name = "case-$boundaryIndex"; command = $pwshPath; argumentList = @() })
     }
     $boundarySpec = [ordered]@{
@@ -341,6 +455,12 @@ $global:LASTEXITCODE = 0
     Assert-True ($boundaryManifest.cases[0].id.Length -eq 256) 'The 256-character case-id boundary was not retained.'
     Assert-True ([System.IO.Path]::GetFileName($boundaryManifest.cases[0].trace).Length -le 255) 'The boundary case trace filename exceeded the Windows component limit.'
     Assert-True (@($boundaryManifest.cases | Where-Object id -eq 'normal.dot space').Count -eq 1) 'An ordinary dotted and spaced scenario name was not retained.'
+    $surrogateBoundaryCase = @($boundaryManifest.cases | Where-Object id -eq $surrogateBoundaryName)[0]
+    $surrogateBoundaryHash = [Convert]::ToHexString(
+        [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($surrogateBoundaryName))).ToLowerInvariant().Substring(0, 16)
+    $expectedSurrogateFileName = ('s' * ($tracePrefixLength - 1)) + "-$surrogateBoundaryHash.etl"
+    Assert-True ([System.IO.Path]::GetFileName($surrogateBoundaryCase.trace) -ceq $expectedSurrogateFileName) 'Trace filename truncation split a surrogate pair or hashed a truncated scenario name.'
+    Assert-True (Test-Path -LiteralPath $surrogateBoundaryCase.trace -PathType Leaf) 'The surrogate-boundary trace filename was not usable on the filesystem.'
 
     $tooManyCallsPath = Join-Path $temporaryRoot 'too-many-calls.jsonl'
     $tooManySpecPath = Join-Path $temporaryRoot 'spec-too-many.json'
@@ -429,6 +549,29 @@ $global:LASTEXITCODE = 0
     $launchArgsIndex = [Array]::IndexOf($structuredCall, '--launch-args')
     Assert-True ($launchArgsIndex -ge 0) 'Structured argv was not forwarded to the collector.'
     Assert-True ($structuredCall[$launchArgsIndex + 1] -eq '"tool with spaces.dll" "" "quote\"inside" "path with trailing\\"') 'Structured argv was not encoded at the collector boundary.'
+
+    $diagnosticCallsPath = Join-Path $temporaryRoot 'diagnostic-surrogate-calls.jsonl'
+    $diagnosticRunDirectory = Join-Path $temporaryRoot 'run-diagnostic-surrogate'
+    $diagnosticSpecPath = Join-Path $temporaryRoot 'spec-diagnostic-surrogate.json'
+    $diagnosticSpec = [ordered]@{
+        scenarios = @([ordered]@{ name = 'diagnostic-surrogate'; command = $pwshPath; argumentList = @() })
+        iterations = 1
+        profile = 'startup'
+        cpuSampleMSec = 1.0
+        outputDirectory = $diagnosticRunDirectory
+        workingDirectory = $workingDirectory
+        filtracePath = $fakeFiltrace
+    }
+    [System.IO.File]::WriteAllText(
+        $diagnosticSpecPath,
+        ($diagnosticSpec | ConvertTo-Json -Depth 6),
+        [System.Text.UTF8Encoding]::new($false))
+    $env:FILTRACE_COMMAND_CALLS = $diagnosticCallsPath
+    $diagnosticResult = Invoke-CaptureChild $testCaptureScript $diagnosticSpecPath
+    Assert-True ($diagnosticResult.ExitCode -ne 0) 'The diagnostic-boundary failure unexpectedly succeeded.'
+    $diagnosticManifest = Get-Content -LiteralPath (Join-Path $diagnosticRunDirectory 'manifest.json') -Raw | ConvertFrom-Json
+    $expectedDiagnostic = ('d' * 2047) + '... [truncated]'
+    Assert-True ($diagnosticManifest.failedCases[0].diagnostic -ceq $expectedDiagnostic) 'Diagnostic truncation split the surrogate pair at its 2048-character boundary.'
 
     if ($WindowsNativeArgv) {
         $probeBuildDirectory = Join-Path $root 'tests/Filtrace.LocalTesting.Tests/bin/Release/net10.0'
@@ -588,10 +731,11 @@ $global:LASTEXITCODE = 0
 function Start-Process {
     param(
         [string]$FilePath,
-        [switch]$Verb,
+        [string]$Verb,
         [switch]$PassThru,
         [string]$WorkingDirectory,
         [object[]]$ArgumentList)
+    if ($Verb -cne 'RunAs') { throw 'The elevation fake expected Verb RunAs.' }
     [System.IO.File]::WriteAllText(
         $env:FILTRACE_START_PROCESS_CALL,
         ([ordered]@{
@@ -680,9 +824,14 @@ function Start-Process {
             Assert-True ($startCall.workingDirectory -eq [System.IO.Path]::GetFullPath($workingDirectory)) "Fake elevation mode '$processMode' lost the original working directory."
             $generatedSpecPath = Join-Path $parentRunDirectory 'scenarios.json'
             Assert-True (@($startCall.argumentList) -contains ('"' + $generatedSpecPath + '"')) "Fake elevation mode '$processMode' did not preserve the quoted spec path."
+            $expectedDigestIndex = [Array]::IndexOf([object[]]$startCall.argumentList, '-ExpectedSpecSha256')
+            Assert-True ($expectedDigestIndex -ge 0) "Fake elevation mode '$processMode' omitted the parent-generated spec digest."
+            $generatedSpecSha256 = (Get-FileHash -LiteralPath $generatedSpecPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            Assert-True ([string]$startCall.argumentList[$expectedDigestIndex + 1] -ceq $generatedSpecSha256) "Fake elevation mode '$processMode' did not pass the exact generated spec-byte digest."
         }
     }
 
+    $global:LASTEXITCODE = 0
     Write-Host 'Capture-CommandTrace contract checks passed.' -ForegroundColor Green
 }
 finally {

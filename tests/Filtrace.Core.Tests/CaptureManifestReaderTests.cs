@@ -412,7 +412,7 @@ public sealed class CaptureManifestReaderTests
         unmatched.Warnings.Should().HaveCount(2);
 
         CaptureManifestPairResult unresolvedCurrent = CaptureManifestPairer.Pair(
-            Manifest(),
+            Manifest(Case("before", "Bench.Work", "Size: 1", "Before")),
             new CaptureManifest(
                 "manifest.json",
                     Process: null,
@@ -421,6 +421,63 @@ public sealed class CaptureManifestReaderTests
         unresolvedCurrent.Warnings.Should().ContainSingle(
             warning => warning.Contains("current case 'unknown'", StringComparison.Ordinal)
                 && warning.Contains("analyze its trace directly", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void AnalyzeBatch_EmptyManifest_ThrowsBeforeLoading()
+    {
+        int loadCount = 0;
+
+        Action analyze = () => CaptureManifestBatchAnalyzer.Analyze(
+            Manifest(),
+            "cpu",
+            inclusive: false,
+            root: "",
+            FrameNames.DefaultFoldPatterns,
+            (_, _) =>
+            {
+                loadCount++;
+                return Loaded("unused", 1.0, 1.0);
+            });
+
+        analyze.Should().Throw<InvalidDataException>().WithMessage("Capture manifest contains no cases to analyze.");
+        loadCount.Should().Be(0);
+    }
+
+    [TestMethod]
+    [DataRow(true, false, "Baseline capture manifest contains no cases to analyze.")]
+    [DataRow(false, true, "Current capture manifest contains no cases to analyze.")]
+    [DataRow(true, true, "Baseline capture manifest contains no cases to analyze.")]
+    public void AnalyzeManifestDiff_EmptyManifest_ThrowsBeforeLoading(
+        bool emptyBefore,
+        bool emptyAfter,
+        string expectedMessage)
+    {
+        CaptureManifest before = emptyBefore
+            ? Manifest()
+            : Manifest(Case("before", "Bench.Work", "", "Before"));
+
+        CaptureManifest after = emptyAfter
+            ? Manifest()
+            : Manifest(Case("after", "Bench.Work", "", "After"));
+
+        int loadCount = 0;
+
+        Action analyze = () => CaptureManifestDiffAnalyzer.Analyze(
+            before,
+            after,
+            inclusive: false,
+            root: "",
+            FrameNames.DefaultFoldPatterns,
+            top: 5,
+            (_, _) =>
+            {
+                loadCount++;
+                return Loaded("unused", 1.0, 1.0);
+            });
+
+        analyze.Should().Throw<InvalidDataException>().WithMessage(expectedMessage);
+        loadCount.Should().Be(0);
     }
 
     [TestMethod]
