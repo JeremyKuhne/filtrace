@@ -289,9 +289,9 @@ public sealed class LocalTestingToolTests
             TextWriter.Null,
             error,
             install,
-            deletePackageDirectory: path =>
+            deleteOperationDirectory: path =>
             {
-                retainedOperation = Path.GetDirectoryName(path);
+                retainedOperation = path;
                 throw new IOException("Injected cleanup failure.");
             });
 

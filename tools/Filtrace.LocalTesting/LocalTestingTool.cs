@@ -63,14 +63,14 @@ internal sealed class LocalTestingTool
     /// <param name="standardError">The process standard error stream.</param>
     /// <param name="install">An optional coordinator install operation.</param>
     /// <param name="restore">An optional coordinator restore operation.</param>
-    /// <param name="deletePackageDirectory">An optional prepared-package cleanup operation.</param>
+    /// <param name="deleteOperationDirectory">An optional private-operation cleanup operation.</param>
     internal LocalTestingTool(
         IProcessRunner processRunner,
         TextWriter standardOutput,
         TextWriter standardError,
         Func<ResourcePlan, LocalTestingInstallInputs, LocalTestingState>? install = null,
         Action<ResourcePlan>? restore = null,
-        Action<string>? deletePackageDirectory = null)
+        Action<string>? deleteOperationDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(processRunner);
         ArgumentNullException.ThrowIfNull(standardOutput);
@@ -84,7 +84,7 @@ internal sealed class LocalTestingTool
             processRunner,
             standardOutput,
             standardError,
-            deletePackageDirectory);
+            deleteOperationDirectory);
     }
 
     /// <summary>
@@ -257,9 +257,9 @@ internal sealed class LocalTestingTool
         try
         {
             _standardError.WriteLine(
-                $"Warning: {outcome} temporary package cleanup failed for "
-                    + $"'{prepared.PackageDirectory}': {prepared.CleanupFailure!.Message} "
-                    + $"The private operation remains at '{prepared.OperationDirectory}' and blocks another preparation. "
+                $"Warning: {outcome} private operation cleanup failed for "
+                    + $"'{prepared.OperationDirectory}': {prepared.CleanupFailure!.Message} "
+                    + "The retained operation blocks another preparation. "
                     + "The package was not uploaded to a feed.");
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)

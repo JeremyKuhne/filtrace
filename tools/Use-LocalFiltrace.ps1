@@ -36,8 +36,8 @@ if ($PSVersionTable.PSVersion -lt [Version]'5.1') {
 
 $sourceCheckout = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).Path
 $target = (Resolve-Path -LiteralPath $TargetRepository).Path
-$dotnetPath = (Get-Command dotnet -CommandType Application -ErrorAction Stop).Source
-$gitPath = (Get-Command git -CommandType Application -ErrorAction Stop).Source
+$dotnetPath = @(Get-Command dotnet -CommandType Application -ErrorAction Stop)[0].Source
+$gitPath = @(Get-Command git -CommandType Application -ErrorAction Stop)[0].Source
 $project = Join-Path $sourceCheckout 'tools/Filtrace.LocalTesting/Filtrace.LocalTesting.csproj'
 
 Push-Location $sourceCheckout
