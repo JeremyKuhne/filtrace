@@ -1,0 +1,79 @@
+name: source adoption
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - Directory.Build.props
+      - src/Filtrace.Core/Filtrace.Core.csproj
+      - src/Filtrace.Core/GlobalDiagnosticsUsings.cs
+      - tools/Test-FastTraceSourceBuild.ps1
+      - .github/workflows/source-adoption.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-source-adoption:
+    name: native source adoption (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04-arm
+            rid: linux-arm64
+          - runner: windows-11-arm
+            rid: win-arm64
+          - runner: macos-15
+            rid: osx-arm64
+          - runner: macos-15-intel
+            rid: osx-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out Filtrace
+        uses: actions/checkout@v5
+        with:
+          path: filtrace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out pinned FastTrace source
+        uses: actions/checkout@v5
+        with:
+          repository: JeremyKuhne/fasttrace
+          ref: 73b32fe690491bc3d3ba05080ae2d5eb59ba01cb
+          path: fasttrace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: filtrace/global.json
+
+      - name: Build and compare JIT with native AOT
+        shell: pwsh
+        working-directory: filtrace
+        run: >-
+          ./tools/Test-FastTraceSourceBuild.ps1
+          -FastTraceRepoRoot '${{ github.workspace }}/fasttrace'
+          -RuntimeIdentifier '${{ matrix.rid }}'
+          -OutputDirectory '${{ runner.temp }}/source-adoption-${{ matrix.rid }}'
+
+      - name: Upload bounded adoption evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: source-adoption-${{ matrix.rid }}
+          path: |
+            ${{ runner.temp }}/source-adoption-${{ matrix.rid }}/summary.json
+            ${{ runner.temp }}/source-adoption-${{ matrix.rid }}/logs/*.log
+            ${{ runner.temp }}/source-adoption-${{ matrix.rid }}/results/*.json
+          if-no-files-found: warn
+          retention-days: 5

@@ -1,6 +1,6 @@
 # Indexed Stack Traversal Experiment
 
-**Status:** Retained consumer change, pending publication. **Measured:** 2026-09-06/07.
+**Status:** Retained consumer change, merged in PR #126. **Measured:** 2026-09-06/07.
 
 This comparison-first iteration follows the
 [primary-plan results](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/filtrace-comparison-2026-09-06.md).

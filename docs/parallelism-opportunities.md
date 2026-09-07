@@ -1,7 +1,8 @@
 # Track D performance investigation plan
 
-**Status:** Comparison-first execution. Frame-label reuse shipped in PR #124;
-the [indexed traversal experiment](stack-traversal-experiment.md) records the next
+**Status:** Comparison-first execution. Frame-label reuse shipped in PR #124 and
+indexed traversal shipped in PR #126. The
+[indexed traversal experiment](stack-traversal-experiment.md) records the second
 measured consumer change. The broader parallelism hypotheses remain unproven.
 
 **Execution update, 2026-09-06:** the user-approved
@@ -30,6 +31,12 @@ experiments. It deliberately uses two complementary forms of evidence:
 Neither substitutes for the other. A microbenchmark win that does not reduce a CLI
 scenario is not a product win; a faster CLI run whose targeted frame is unchanged is
 noise or an unrelated effect.
+
+The outcomes below are the final LP acceptance criteria. During comparison-first
+execution, a change can be provisionally retained after three equivalent end-to-end
+pairs preserve semantic output and a profile attributes the observed difference.
+That does not close its BenchmarkDotNet, small/common-case, or broader no-regression
+criteria; those remain open until final LP acceptance.
 
 ## Outcomes
 
