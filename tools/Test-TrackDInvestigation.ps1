@@ -40,6 +40,7 @@ try {
     [string[]] $boundaryFunctionNames = @(
         'Format-Command',
         'Invoke-NativeText',
+        'Wait-NativeTask',
         'Start-NativeProcess',
         'Wait-NativeProcess',
         'Stop-NativeProcess',
@@ -74,6 +75,20 @@ try {
     $maximumAnalyzerDirectoryBytes = 512MB
     $profileQualityWarningCodes = [System.Collections.Generic.HashSet[string]]::new(
         [StringComparer]::Ordinal)
+
+    [System.Threading.Tasks.TaskCompletionSource] $taskCompletionSource =
+        [System.Threading.Tasks.TaskCompletionSource]::new(
+            [System.Threading.Tasks.TaskCreationOptions]::RunContinuationsAsynchronously)
+    [System.Threading.Tasks.Task] $asynchronousCompletion =
+        $taskCompletionSource.Task.WaitAsync([TimeSpan]::FromSeconds(1))
+    $taskCompletionSource.SetResult()
+    Assert-True `
+        ($asynchronousCompletion.Wait($nativeCleanupTimeoutMilliseconds)) `
+        'Asynchronous task completion did not finish.'
+    [object[]] $taskCompletionOutput = @(Wait-NativeTask $asynchronousCompletion)
+    Assert-True `
+        ($taskCompletionOutput.Count -eq 0) `
+        'Asynchronous task completion leaked into native text output.'
 
     [string] $analysisEvidenceDirectory = Join-Path $temporaryRoot 'analysis-evidence-schema'
     [System.IO.Directory]::CreateDirectory($analysisEvidenceDirectory) | Out-Null

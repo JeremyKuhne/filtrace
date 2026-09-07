@@ -1083,11 +1083,25 @@ fix. Bound where a result becomes a response.
 
 ### Skill packaging headroom
 
-The shipped `SKILL.md` is roughly 270 lines of embedded catalog against 230 lines of
-its own guidance, and further trimming has already spent the redundancy that was
-available. The next catalog addition needs the validator's own remedy - move a
-catalog into a sibling reference file - which is a packaging change, because the MCP
-nupkg packs only `SKILL.md`.
+The shipped `SKILL.md` is a concise routing entrypoint. The full catalog and detailed
+guidance live in a sibling reference file, and the MCP package recursively includes
+the complete skill directory. `Test-Docs.ps1` verifies both synchronized blocks and
+packaged-reference completeness.
+
+The comparison-first iteration measured 32,263 UTF-8 bytes read for the original
+entrypoint on one cold snapshot task. It saved one 2,161-byte help response over
+CLI-only discovery, but did not show a token advantage. The smaller entrypoint keeps
+question routing, quality/scope rules, and CPU versus non-CPU distinctions up front;
+capture, symbol, catalog, and troubleshooting detail loads when selected.
+
+A fresh worker read only the smaller entrypoint and returned the same correct
+snapshot fields, but unrelated terminal scrollback entered its context. That
+confirmation is procedurally invalid for agent-efficiency claims, not a passing
+comparison. The byte reduction and passing package/drift checks are the verified
+outcome; actual host tokens, end-to-end latency, and broader task efficacy remain
+open. Local evidence is `worker-comparison-b7410e497d384f89b6d7ef8b40a062d0` in the
+primary-plan evidence root. The earlier three-way comparison is recorded in the
+[primary-plan results](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/filtrace-comparison-2026-09-06.md#coarse-agent-comparison).
 
 ---
 
