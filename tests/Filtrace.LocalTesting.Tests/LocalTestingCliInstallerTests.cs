@@ -544,9 +544,10 @@ public sealed class LocalTestingCliInstallerTests
             Path.Join(repositoryRoot, "src", "Filtrace", "Filtrace.csproj"),
             "--configuration",
             "Release",
-            "--no-restore",
             "--output",
             packageDirectory,
+            $"/p:ArtifactsPath={Path.Join(root, "package-build")}",
+            "/p:FastTraceRepoRoot=",
             "/p:IncludeSymbols=false");
 
         return Directory.GetFiles(packageDirectory, "*.nupkg").Single();

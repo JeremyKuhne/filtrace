@@ -17,6 +17,8 @@
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <DefineConstants Condition="'$(FastTraceRepoRoot)' != ''">$(DefineConstants);FILTRACE_FASTTRACE</DefineConstants>
+    <ShouldUnsetParentConfigurationAndPlatform Condition="'$(FastTraceRepoRoot)' != ''">false</ShouldUnsetParentConfigurationAndPlatform>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
 

@@ -1107,12 +1107,13 @@ primary-plan evidence root. The earlier three-way comparison is recorded in the
 
 ## Track D - performance and parallelism
 
-**Status:** Phase 0 in progress; no optimization shipped. Aggregation, activity-read,
-embedded-PDB, and warm/cold single/manifest CLI benchmarks are implemented, together
-with sequential degree seams, a CPU/activity workload, corpus archiver, and
-per-launch child-process telemetry. **Date of analysis:** 2026-07-28. The remaining
-durable corpus restore, exact no-op reconstruction, Layer C wiring, sequencing, and
-keep/reject plan is in
+**Status:** Phase 0 and the broader LP-1 through LP-5 gates remain open. Two measured
+consumer optimizations shipped in PRs #124 and #126; neither establishes a general
+parallelism or replacement claim. Aggregation, activity-read, embedded-PDB, and
+warm/cold single/manifest CLI benchmarks are implemented, together with sequential
+degree seams, a CPU/activity workload, corpus archiver, and per-launch child-process
+telemetry. **Date of analysis:** 2026-09-06. The remaining durable corpus restore,
+exact no-op reconstruction, Layer C wiring, sequencing, and keep/reject plan is in
 [parallelism-opportunities.md](parallelism-opportunities.md).
 
 Where the CPU goes on every `.nettrace` or `.etl` analysis:

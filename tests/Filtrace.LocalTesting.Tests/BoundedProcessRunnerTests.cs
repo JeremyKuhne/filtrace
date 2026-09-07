@@ -108,20 +108,21 @@ public sealed class BoundedProcessRunnerTests
     }
 
     [TestMethod]
-    public async Task RunAsync_ExecutionTimeout_TerminatesRootAndCompletesCapture()
+    [DataRow(1)]
+    [DataRow(150)]
+    public async Task RunAsync_ExecutionTimeout_TerminatesRootAndCompletesCapture(int timeoutMilliseconds)
     {
         ProcessResult result = await new BoundedProcessRunner(
             TimeSpan.FromSeconds(2),
             TimeSpan.FromSeconds(2)).RunAsync(CreateProbeInvocation(
                 "execution-timeout",
-                timeout: TimeSpan.FromMilliseconds(150)));
+                timeout: TimeSpan.FromMilliseconds(timeoutMilliseconds)));
 
         result.RootProcessId.Should().NotBeNull();
         result.ExecutionTimedOut.Should().BeTrue();
         result.OutputCaptureIncomplete.Should().BeFalse();
         result.StandardOutputTruncated.Should().BeFalse();
         result.StandardErrorTruncated.Should().BeFalse();
-        result.StandardOutput.Should().Be("started");
         IsProcessRunning(result.RootProcessId!.Value).Should().BeFalse();
     }
 

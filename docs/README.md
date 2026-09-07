@@ -10,6 +10,7 @@ two carry the operational text, and two are technical decision records.
 | [roadmap.md](roadmap.md) | The only page holding unshipped work: priorities, gates, and open decisions. |
 | [competitive-analysis.md](competitive-analysis.md) | How filtrace differs from other .NET performance tools, and what to learn from each. |
 | [parallelism-opportunities.md](parallelism-opportunities.md) | Executable BenchmarkDotNet and CLI self-profiling plan for Track D. |
+| [source-build.md](source-build.md) | Explicit build-only FastTrace source integration and Native AOT commands. |
 | [local-testing-redesign.md](local-testing-redesign.md) | Replacement plan for a smaller repository-scoped local checkout activation workflow. |
 | [workflow.md](workflow.md) | How to drive filtrace: capture, orient, rank, drill, compare, plus the command and tool catalogs. |
 | [traps.md](traps.md) | The reasoning errors a trace invites, and how to avoid them. |
