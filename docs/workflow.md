@@ -3,8 +3,8 @@
 This page is the **single source of truth** for filtrace's workflow text. Some of
 its marked blocks are embedded verbatim into other surfaces and guarded by
 [tools/Test-Docs.ps1](../tools/Test-Docs.ps1), which fails CI if a copy drifts:
-the `verbs` block into the shipped skill
-([../.agents/skills/filtrace/SKILL.md](../.agents/skills/filtrace/SKILL.md)) and the
+the `verbs` and `scopes` blocks into the shipped skill's
+[detailed guide](../.agents/skills/filtrace/references/guide.md) and the
 `agents-snippet` block into the [README](../README.md). The `tools` block is
 reference-only - it is not embedded anywhere, but the drift check asserts every
 MCP tool appears in it. Edit a block here, then run `tools/Test-Docs.ps1 -Fix` to

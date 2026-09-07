@@ -2,7 +2,8 @@
 
 The recurring ways a .NET trace investigation goes wrong, and what filtrace does
 about each. This is the **single source** for the trap catalog; the shipped skill
-embeds the marked block below verbatim and
+embeds the marked block below verbatim in its
+[detailed guide](../.agents/skills/filtrace/references/guide.md), and
 [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) guards the copy.
 
 <!-- filtrace:begin traps -->

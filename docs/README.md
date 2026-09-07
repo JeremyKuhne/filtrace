@@ -29,8 +29,8 @@ the block here, then run `tools/Test-Docs.ps1 -Fix` to refresh every copy.
 
 | Source | Marked blocks | Embedded into |
 | --- | --- | --- |
-| [workflow.md](workflow.md) | `verbs`, `scopes`, `agents-snippet`, `tools` | `verbs` and `scopes` -> the skill; `scopes` and `agents-snippet` -> the README; `tools` is reference-only |
-| [traps.md](traps.md) | `traps` | the skill |
+| [workflow.md](workflow.md) | `verbs`, `scopes`, `agents-snippet`, `tools` | `verbs` and `scopes` -> the skill's detailed guide; `scopes` and `agents-snippet` -> the README; `tools` is reference-only |
+| [traps.md](traps.md) | `traps` | the skill's detailed guide |
 
 Everything outside a marked block is ordinary prose. The CLI and MCP help is a
 separate contract, validated by [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1)

@@ -1,10 +1,11 @@
 # filtrace skill
 
-The shipped agent skill is [SKILL.md](SKILL.md). Its verb and trap blocks are
-embedded from the single-source workflow text in
+The shipped agent skill starts at [SKILL.md](SKILL.md). Its
+[detailed guide](references/guide.md) embeds the verb, scope, and trap blocks from
+the single-source workflow text in
 [docs/](https://github.com/JeremyKuhne/filtrace/tree/main/docs)
 ([workflow.md](https://github.com/JeremyKuhne/filtrace/blob/main/docs/workflow.md),
-[traps.md](https://github.com/JeremyKuhne/filtrace/blob/main/docs/traps.md)) and kept
+[traps.md](https://github.com/JeremyKuhne/filtrace/blob/main/docs/traps.md)); these are kept
 in sync by
 [tools/Test-Docs.ps1](https://github.com/JeremyKuhne/filtrace/blob/main/tools/Test-Docs.ps1).
 
