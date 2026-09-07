@@ -2,6 +2,17 @@
 
 **Status:** Measurement plan. No Track D optimization has shipped.
 
+**Execution update, 2026-09-06:** the user-approved
+[primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md)
+now prioritizes comparison-first iterations. Obtain coarse current-version
+Filtrace/TraceEvent versus Filtrace/FastTrace results on one Windows x64 JIT
+scenario before completing the harness or broad measurement matrix. Reuse merged
+telemetry for cold conversion and warm CPU ranking; report raw measurements,
+output agreement, and unavailable metrics. Profile a consequential difference,
+then confirm and expand. Further hardening goes into the
+[shared backlog](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/harness-hardening-backlog.md).
+The prepared agent evaluator is not a prerequisite for this comparison.
+
 This plan turns the performance and parallelism hypotheses in
 [roadmap.md](roadmap.md#track-d---performance-and-parallelism) into repeatable
 experiments. It deliberately uses two complementary forms of evidence:
@@ -57,13 +68,12 @@ The analyzer targets net10.0 only. Do not add a net481 job because filtrace can 
 net481 traces; the net481 HotLoopBench project generates input fixtures and is not a
 product runtime target.
 
-All benchmark classes and orchestration used by an LP experiment must already exist
-in one merged **harness commit** before its baseline is selected. Record that commit
-as `harnessCommit`; build the baseline from that commit and the candidate from a
-branch based on it. Fail the run when `benchmarks/` or the orchestration script differs
-between arms. If a later investigation needs a new scenario, merge that measurement-
-only change first and choose a new baseline. Never compare a candidate-only benchmark
-with an older checkout that does not contain the same harness.
+Use the same benchmark classes and orchestration for both arms. Record the source
+commit as `harnessCommit` and any local measurement adaptation. Prefer the existing
+merged harness, but do not require another measurement-only PR before provisional
+numbers. Reject comparisons whose measured operations differ; do not compare a
+candidate-only benchmark with an older checkout lacking it. Required repository
+gates apply to published code, while experiments can remain local between runs.
 
 ### Layer B: end-to-end CLI benchmarks
 

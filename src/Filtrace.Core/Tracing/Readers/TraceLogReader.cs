@@ -262,6 +262,7 @@ internal abstract class TraceLogReader : ITraceReader
         IReadOnlyList<string> scopeWarnings = resolvedScope.Warnings;
         AnalysisEventCounter analysisEvents = new();
         Dictionary<int, string> locationCache = [];
+        Dictionary<(string Module, string Method), string> frameNameCache = [];
 
         List<SampleStack> samples = [];
         long totalFrames = 0;
@@ -325,15 +326,23 @@ internal abstract class TraceLogReader : ITraceReader
                 string module = address.ModuleName;
 
                 totalFrames++;
-                string name;
-                if (string.IsNullOrEmpty(method))
-                {
-                    name = $"{(string.IsNullOrEmpty(module) ? "?" : module)}!?";
-                }
-                else
+                if (!string.IsNullOrEmpty(method))
                 {
                     resolvedFrames++;
-                    name = string.IsNullOrEmpty(module) ? method : $"{module}!{method}";
+                }
+
+                if (!frameNameCache.TryGetValue((module, method), out string? name))
+                {
+                    if (string.IsNullOrEmpty(method))
+                    {
+                        name = $"{(string.IsNullOrEmpty(module) ? "?" : module)}!?";
+                    }
+                    else
+                    {
+                        name = string.IsNullOrEmpty(module) ? method : $"{module}!{method}";
+                    }
+
+                    frameNameCache.Add((module, method), name);
                 }
 
                 leafToRoot.Add(name);
