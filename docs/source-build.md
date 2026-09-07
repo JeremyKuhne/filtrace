@@ -73,3 +73,19 @@ removed. Do not dispatch it while access remains blocked. Ordinary CI and review
 still gate source-build changes; the deferred matrix is not counted as passing.
 When runnable, its artifact list contains only the summary, build/query logs, and
 per-query JSON, not traces, symbols, assemblies, or native binaries.
+
+## Current Check Limits
+
+This is an attended functional check, not a hardened unattended runner. Its process
+waits have no local deadline. If a child hangs, stop the run and verify the owned
+process tree has exited before retrying.
+
+The summary records Git revisions, not dirty-tree source hashes. Use clean isolated
+checkouts for attributable runs, or retain source status and changed-file hashes
+separately. Native restore can change the FastTrace lock file, as noted above.
+
+The six-query script checks project publishes, not Release configuration propagation
+through a solution. That behavior was separately validated by matching the deployed
+FastTrace DLL to the Release output and distinguishing it from Debug. Automated
+configuration assertions, dirty-tree provenance, and process deadlines are deferred
+in the primary plan's harness-hardening backlog; these limits are not claimed solved.
