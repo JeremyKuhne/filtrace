@@ -1,6 +1,8 @@
 # Track D performance investigation plan
 
-**Status:** Measurement plan. No Track D optimization has shipped.
+**Status:** Comparison-first execution. Frame-label reuse shipped in PR #124;
+the [indexed traversal experiment](stack-traversal-experiment.md) records the next
+measured consumer change. The broader parallelism hypotheses remain unproven.
 
 **Execution update, 2026-09-06:** the user-approved
 [primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md)

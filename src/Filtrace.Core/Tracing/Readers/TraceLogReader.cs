@@ -319,9 +319,11 @@ internal abstract class TraceLogReader : ITraceReader
 
             leafToRoot.Clear();
             leafToRootLocations.Clear();
-            for (TraceCallStack? frame = callStack; frame is not null; frame = frame.Caller)
+            for (CallStackIndex frameIndex = callStack.CallStackIndex;
+                frameIndex != CallStackIndex.Invalid;
+                frameIndex = traceLog.CallStacks.Caller(frameIndex))
             {
-                TraceCodeAddress address = frame.CodeAddress;
+                TraceCodeAddress address = traceLog.CodeAddresses[traceLog.CallStacks.CodeAddressIndex(frameIndex)];
                 string method = address.FullMethodName;
                 string module = address.ModuleName;
 
