@@ -1,14 +1,6 @@
 name: source adoption
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - Directory.Build.props
-      - src/Filtrace.Core/Filtrace.Core.csproj
-      - src/Filtrace.Core/GlobalDiagnosticsUsings.cs
-      - tools/Test-FastTraceSourceBuild.ps1
-      - .github/workflows/source-adoption.yml
   workflow_dispatch:
 
 permissions:

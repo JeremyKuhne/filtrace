@@ -45,9 +45,31 @@ CLI or MCP packages. The measured boundaries are recorded in the
 [indexed traversal report](stack-traversal-experiment.md) and the coordinated
 [provisional replacement assessment](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/filtrace-replacement-assessment.md).
 
-Pull requests that change the source adapter run `source adoption` on native Linux
-ARM64, Windows ARM64, macOS ARM64, and macOS x64 hosts. Each job builds the pinned
-FastTrace source once for framework-dependent execution and once with Native AOT,
-then requires exact JSON agreement for six committed-fixture queries. The uploaded
-evidence is limited to the summary, build/query logs, and per-query JSON; trace files,
-symbols, managed assemblies, and native binaries are not uploaded.
+## Local Validation And Blocked CI
+
+Run the adoption check locally on a host matching the requested runtime identifier:
+
+```pwsh
+./tools/Test-FastTraceSourceBuild.ps1 `
+  -FastTraceRepoRoot "<absolute FastTrace checkout path>" `
+  -RuntimeIdentifier win-x64 `
+  -OutputDirectory "<new owned evidence directory>"
+```
+
+The check builds the complete framework-dependent and Native AOT CLIs, then requires
+exact JSON agreement for six committed-fixture queries. Use an isolated checkout for
+the restore/build outputs described above. A local x64 pass does not validate ARM64
+or another operating system.
+
+The `source adoption` CI matrix remains **blocked** while FastTrace is private.
+Run `34087396758` stopped at repository checkout on Linux ARM64, Windows ARM64,
+macOS ARM64, and macOS x64; none of those rows produced native-build evidence.
+The user chose local validation until sufficient evidence supports a separately
+approved public release of the repository. No cross-repository credential is being
+configured, and repository visibility is unchanged.
+
+The workflow definition is retained for later use, but its automatic PR trigger is
+removed. Do not dispatch it while access remains blocked. Ordinary CI and review
+still gate source-build changes; the deferred matrix is not counted as passing.
+When runnable, its artifact list contains only the summary, build/query logs, and
+per-query JSON, not traces, symbols, assemblies, or native binaries.
