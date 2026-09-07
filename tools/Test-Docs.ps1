@@ -48,9 +48,9 @@ function Add-Failure([string]$message) { $failures.Add($message) }
 # The block sync map: each marked block has one source-of-truth page in docs/ and
 # the consumer surfaces that embed a verbatim copy.
 $blocks = @(
-    @{ Id = 'verbs'; Source = 'docs/workflow.md'; Consumers = @('.agents/skills/filtrace/SKILL.md') }
-    @{ Id = 'scopes'; Source = 'docs/workflow.md'; Consumers = @('.agents/skills/filtrace/SKILL.md', 'README.md') }
-    @{ Id = 'traps'; Source = 'docs/traps.md'; Consumers = @('.agents/skills/filtrace/SKILL.md') }
+    @{ Id = 'verbs'; Source = 'docs/workflow.md'; Consumers = @('.agents/skills/filtrace/references/guide.md') }
+    @{ Id = 'scopes'; Source = 'docs/workflow.md'; Consumers = @('.agents/skills/filtrace/references/guide.md', 'README.md') }
+    @{ Id = 'traps'; Source = 'docs/traps.md'; Consumers = @('.agents/skills/filtrace/references/guide.md') }
     @{ Id = 'agents-snippet'; Source = 'docs/workflow.md'; Consumers = @('README.md') }
 )
 
