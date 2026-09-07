@@ -30,6 +30,8 @@ the selected question needs it.
 | What allocates or throws? | `rank --metric alloc|exceptions` |
 | Are GC pauses or JIT compilation costly? | `report --kind gc|jit`; MCP `trace_gc` / `trace_jit` |
 | Why is elapsed high but CPU low? | ETW threadtime, contention/wait, lifecycle, or thread-pool report |
+| Is one captured operation slow? | `rank --metric activity`, then CPU `--activity` scope; [scope guidance](references/guide.md#scope-and-symbols) |
+| Which files drive physical disk pressure? | `report --kind diskio` on ETW with disk events; MCP `trace_diskio` |
 | When was the spike? | `timeline` buckets, then `rank --time <start>,<end>` |
 | What happened near a known millisecond? | one `timeline` snapshot call below |
 | Did CPU runs differ? | `diff`; `batch` for one bounded manifest query with any supported metric |
@@ -44,7 +46,8 @@ filtrace timeline <trace> --mode snapshot --at <center-ms> --window <half-window
 ```
 
 For MCP call `trace_timeline` with `path`, `mode: "snapshot"`, `at`, and `window`.
-`window` is retained on each side. Report exact `fromMs`/`toMs`, top resolved CPU leaf
+`window` requests a duration on each side; trace edges clip the resolved interval.
+Report exact `fromMs`/`toMs`, top resolved CPU leaf
 from `snapshot.cpu.methods[0]`, total throws and most frequent type from
 `snapshot.exceptions.exceptionCount`/`types[0]`, and total raw events from
 `snapshot.events.eventCount`. A missing first row means no resolved row, not zero

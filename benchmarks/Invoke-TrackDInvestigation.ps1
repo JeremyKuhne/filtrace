@@ -292,8 +292,7 @@ function Invoke-NativeText(
         Wait-NativeProcess $process $Purpose @($outputPath, $errorPath) $boundedArtifacts
         [System.Threading.Tasks.Task] $drain = [System.Threading.Tasks.Task]::WhenAll(
             [System.Threading.Tasks.Task[]]@($standardOutput, $standardError))
-        $drain.WaitAsync(
-            [TimeSpan]::FromMilliseconds($nativeCleanupTimeoutMilliseconds)).GetAwaiter().GetResult()
+        Wait-NativeTask $drain
         $outputStream.Flush()
         $errorStream.Flush()
         $outputStream.Dispose()
@@ -334,8 +333,7 @@ function Invoke-NativeText(
             try {
                 [System.Threading.Tasks.Task] $cleanupDrain = [System.Threading.Tasks.Task]::WhenAll(
                     [System.Threading.Tasks.Task[]]@($standardOutput, $standardError))
-                $cleanupDrain.WaitAsync(
-                    [TimeSpan]::FromMilliseconds($nativeCleanupTimeoutMilliseconds)).GetAwaiter().GetResult()
+                Wait-NativeTask $cleanupDrain
             }
             catch {
                 if ($null -ne $process) {
@@ -350,6 +348,11 @@ function Invoke-NativeText(
             Remove-Item -LiteralPath $outputPath,$errorPath -Force -ErrorAction SilentlyContinue
         }
     }
+}
+
+function Wait-NativeTask([System.Threading.Tasks.Task] $Task) {
+    [void] $Task.WaitAsync(
+        [TimeSpan]::FromMilliseconds($nativeCleanupTimeoutMilliseconds)).GetAwaiter().GetResult()
 }
 
 function Start-NativeProcess(
