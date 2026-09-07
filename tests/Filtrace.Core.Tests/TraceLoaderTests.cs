@@ -136,6 +136,35 @@ public sealed class TraceLoaderTests
     }
 
     [TestMethod]
+    [DataRow("activity.nettrace")]
+    [DataRow("threadpool.nettrace")]
+    public void Load_RepeatedCpuFrames_ReusesLabelInstances(string fixture)
+    {
+        TraceLoader loader = new();
+        LoadedTrace trace = loader.Load(FixturePath(fixture), TraceMetric.Cpu);
+        Dictionary<string, string> labels = new(StringComparer.Ordinal);
+        bool observedRepeatedLabel = false;
+
+        foreach (SampleStack sample in trace.Source.Samples)
+        {
+            foreach (string frame in sample.Frames)
+            {
+                if (labels.TryGetValue(frame, out string? existing))
+                {
+                    frame.Should().BeSameAs(existing);
+                    observedRepeatedLabel = true;
+                }
+                else
+                {
+                    labels.Add(frame, frame);
+                }
+            }
+        }
+
+        observedRepeatedLabel.Should().BeTrue();
+    }
+
+    [TestMethod]
     public void Load_ExceptionsMetric_BuildsExceptionsSource()
     {
         TraceLoader loader = new();
