@@ -42,6 +42,19 @@ public sealed class SpeedscopeReaderTests
     }
 
     [TestMethod]
+    public void Read_EventedProfileWithRawUnit_RejectsMalformedInput()
+    {
+        const string json = """
+            {"shared":{"frames":[{"name":"Work"}]},"profiles":[{"type":"evented","name":"thread","unit":"none","startValue":0,"endValue":2,"events":[{"type":"O","frame":0,"at":0},{"type":"C","frame":0,"at":2}]}]}
+            """;
+
+        Action action = () => Read(json);
+
+        action.Should().Throw<NotSupportedException>()
+            .WithMessage("*evented CPU input requires a time unit*found 'none'*");
+    }
+
+    [TestMethod]
     public void Read_SampledSeconds_NormalizesToMilliseconds()
     {
         const string json = """

@@ -12,6 +12,11 @@ namespace Filtrace.Tracing;
 /// </summary>
 internal static class EtwChildProcess
 {
+    /// <summary>
+    ///  The largest whole-second duration representable by the millisecond wait API.
+    /// </summary>
+    internal const int MaxDurationSeconds = int.MaxValue / 1000;
+
     private static readonly TimeSpan s_postExitDrainGrace = TimeSpan.FromSeconds(2);
 
     /// <summary>

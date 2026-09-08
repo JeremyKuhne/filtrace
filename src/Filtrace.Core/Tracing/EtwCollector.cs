@@ -91,11 +91,12 @@ public static class EtwCollector
                 "The CPU sample interval must be a positive, finite number of milliseconds.");
         }
 
-        if (request.DurationSeconds is int durationSeconds && durationSeconds <= 0)
+        if (request.DurationSeconds is int durationSeconds
+            && (durationSeconds <= 0 || durationSeconds > EtwChildProcess.MaxDurationSeconds))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(request.DurationSeconds), durationSeconds,
-                "The duration cap must be positive when set; omit it to capture until the process exits.");
+                $"The duration cap must be between 1 and {EtwChildProcess.MaxDurationSeconds} seconds when set; omit it to capture until the process exits.");
         }
 
         if (request.MaxSizeMB is int maxSizeMB && maxSizeMB <= 0)

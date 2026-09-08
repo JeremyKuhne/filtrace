@@ -70,14 +70,14 @@ internal sealed class SpeedscopeReader : ITraceReader
                 if (string.Equals(type, "evented", StringComparison.Ordinal))
                 {
                     readEventedProfile = true;
-                    (double weightMultiplier, MetricInfo profileMetric) = ResolveWeightUnit(profile);
+                    (double weightMultiplier, MetricInfo profileMetric) = ResolveWeightUnit(profile, allowRawWeights: false);
                     metric = ResolveCommonMetric(metric, profileMetric);
                     ReadEventedProfile(profile, frameNames, samples, weightMultiplier);
                 }
                 else if (string.Equals(type, "sampled", StringComparison.Ordinal))
                 {
                     readSampledProfile = true;
-                    (double weightMultiplier, MetricInfo profileMetric) = ResolveWeightUnit(profile);
+                    (double weightMultiplier, MetricInfo profileMetric) = ResolveWeightUnit(profile, allowRawWeights: true);
                     metric = ResolveCommonMetric(metric, profileMetric);
                     ReadSampledProfile(profile, frameNames, samples, weightMultiplier);
                 }
@@ -275,7 +275,9 @@ internal sealed class SpeedscopeReader : ITraceReader
         return profileMetric;
     }
 
-    private static (double WeightMultiplier, MetricInfo Metric) ResolveWeightUnit(JsonElement profile)
+    private static (double WeightMultiplier, MetricInfo Metric) ResolveWeightUnit(
+        JsonElement profile,
+        bool allowRawWeights)
     {
         string unit = profile.TryGetProperty("unit", out JsonElement profileUnit)
             ? profileUnit.GetString() ?? ""
@@ -287,9 +289,11 @@ internal sealed class SpeedscopeReader : ITraceReader
             "microseconds" => (0.001, MetricInfo.Cpu),
             "milliseconds" => (1.0, MetricInfo.Cpu),
             "seconds" => (1000.0, MetricInfo.Cpu),
-            "none" => (1.0, MetricInfo.CpuSamples),
+            "none" when allowRawWeights => (1.0, MetricInfo.CpuSamples),
             _ => throw new NotSupportedException(
-                $"Speedscope CPU input requires a time unit (nanoseconds, microseconds, milliseconds, or seconds) or raw weights (none); found '{unit}'.")
+                allowRawWeights
+                    ? $"Speedscope sampled CPU input requires a time unit (nanoseconds, microseconds, milliseconds, or seconds) or raw weights (none); found '{unit}'."
+                    : $"Speedscope evented CPU input requires a time unit (nanoseconds, microseconds, milliseconds, or seconds); found '{unit}'.")
         };
     }
 }

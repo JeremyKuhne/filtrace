@@ -35,7 +35,8 @@ public sealed class EtwCollectRequest
     /// <summary>
     ///  An optional cap on capture length in seconds. When set and the process is still
     ///  running at the cap, the capture stops and the process tree is terminated;
-    ///  <see langword="null"/> (the default) captures until the process exits on its own.
+    ///  accepted values are 1 through 2,147,483 seconds. <see langword="null"/> (the
+    ///  default) captures until the process exits on its own.
     /// </summary>
     public int? DurationSeconds { get; init; }
 

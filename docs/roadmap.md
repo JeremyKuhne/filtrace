@@ -276,12 +276,13 @@ a lever - the client re-materializes structured content and already spills an
 oversized result to a file - so the only way to reduce what an investigation costs is
 to send fewer rows and to make a result route its own follow-up. That is this item.
 
-The envelope is at `schemaVersion` 16. Effective context is v9; structured
+The envelope is at `schemaVersion` 17. Effective context is v9; structured
 diagnostics is v10; structured next steps is v11; discriminated results is v12;
 null/default omission is v13; manifest case references is v14; root-scope ancestry
-and coverage is v15; point-in-time timeline snapshots are v16. Each remaining slice
-below changes the serialized shape and therefore gets its own schema version when it
-ships; do not mutate an earlier version in place.
+and coverage is v15; point-in-time timeline snapshots are v16; CPU sample-weight
+provenance and raw sample units when interval is unknown are v17. Each remaining
+slice below changes the serialized shape and therefore gets its own schema version
+when it ships; do not mutate an earlier version in place.
 
 **Effective query context - complete.** Every result identifies the surface-neutral
 operation that ran. Stack-backed results also carry normalized metric, measure, unit,

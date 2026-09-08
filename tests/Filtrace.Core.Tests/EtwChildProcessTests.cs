@@ -11,6 +11,24 @@ namespace Filtrace.Core.Tests;
 public sealed class EtwChildProcessTests
 {
     [TestMethod]
+    [DataRow(2_147_484)]
+    [DataRow(int.MaxValue)]
+    public void Collect_DurationExceedsWaitLimit_RejectsBeforeLaunch(int durationSeconds)
+    {
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = $"filtrace-missing-{Guid.NewGuid():N}.exe",
+            DurationSeconds = durationSeconds,
+            OutputPath = Path.Join(Path.GetTempPath(), $"filtrace-{Guid.NewGuid():N}.etl")
+        };
+
+        Action action = () => EtwCollector.Collect(request);
+
+        action.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName(nameof(request.DurationSeconds));
+    }
+
+    [TestMethod]
     public void Run_RedirectedNoisyFailingChild_DrainsAndIdentifiesBothStreams()
     {
         RequireWindows();
