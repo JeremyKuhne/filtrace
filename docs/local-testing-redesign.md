@@ -1,6 +1,6 @@
-# Local Filtrace testing redesign plan
+# Local Filtrace testing redesign record
 
-**Status:** Phase 1 merged in
+**Status:** Complete for the V1 supported workflow. Phase 1 merged in
 [PR #98](https://github.com/JeremyKuhne/filtrace/pull/98). Phase 2 baseline
 capture and bounded overlay input merged in
 [PR #99](https://github.com/JeremyKuhne/filtrace/pull/99), and the fixed
@@ -13,26 +13,34 @@ publication and baseline restoration merged in
 publication merged in
 [PR #105](https://github.com/JeremyKuhne/filtrace/pull/105). Fresh Install,
 Resume Install, and Refresh coordinator wiring merged in
-[PR #107](https://github.com/JeremyKuhne/filtrace/pull/107). Phase 3 restore and
-cleanup coordinator wiring is implemented. The thin Phase 4 wrapper is implemented,
-and its Windows CI harness is added in this PR; broader Phase 4 work remains pending.
+[PR #107](https://github.com/JeremyKuhne/filtrace/pull/107). Ordered Restore and
+Cleanup Retry merged in
+[PR #116](https://github.com/JeremyKuhne/filtrace/pull/116). Bounded source
+preparation merged in PRs
+[#117](https://github.com/JeremyKuhne/filtrace/pull/117)-
+[#119](https://github.com/JeremyKuhne/filtrace/pull/119), and the executable helper,
+thin wrapper, documentation, and Windows contract merged in
+[PR #120](https://github.com/JeremyKuhne/filtrace/pull/120).
 
-**Last verified:** 2026-09-06 for one real Install, Refresh, and Restore round trip
-under Windows PowerShell 7 from `c4869d562b4a8c4e8645e79cf0b100be14357a9e`.
+**Last verified:** 2026-09-08 on Windows against `main` at `a7ebd5e`. The 331
+local-testing tests and the wrapper contract passed; the latter exercises Windows
+PowerShell 5.1 and PowerShell 7 and reaches the real helper process boundary. The
+retained 2026-09-06 real Install, Refresh, and Restore round trip ran under Windows
+PowerShell 7 from `c4869d562b4a8c4e8645e79cf0b100be14357a9e`.
 That run used private CLI `0.7.1-alpha.0.18`; `dotnet tool list --global`
-continued to report `filtrace` `0.6.3`. The wrapper's fake native-process contract
-runs under Windows PowerShell 5.1 and PowerShell 7. Actual Unix activation has not
-run, and interruption or timeout-quarantine recovery remains manual. This does not
-represent completion of broader PP01 command-capture provenance work. PR #94 was
-closed without merge after PR #98 established the replacement.
+continued to report `filtrace` `0.6.3`. Actual Unix activation has not run. Real
+process interruption and timeout-quarantine operator recovery have not been
+exercised end to end and remain manual. These are deferred harness-hardening
+boundaries, not incomplete replacement behavior. Command-capture
+provenance completed separately in PRs #121 and #128; its broader hardening backlog
+is not LT1. PR #94 was closed without merge after PR #98 established the replacement.
 
 ## Decision
 
-Keep the repository-scoped local-testing outcome, but do not merge PR #94's
-current implementation. Build a narrower replacement from `main` after this plan
-is accepted.
+The accepted decision kept the repository-scoped local-testing outcome without
+merging PR #94's implementation. The narrower replacement was built from `main`.
 
-The replacement will:
+The replacement was designed to:
 
 - support one state schema, four persisted statuses, and five explicit
   operations;
@@ -353,7 +361,7 @@ script that is not called by the V1 state engine and remove it after the
 transition window. That decision requires evidence of an external user, not
 merely the existence of review-era schemas.
 
-## Implementation sequence
+## Implementation history
 
 ### Phase 0 - approve the reset
 
@@ -362,11 +370,12 @@ independent state while Filtrace source checkouts targeting the same worktree
 share its lock and baseline. The active PR #94 schema-2 setup was restored before
 Phase 1 began, and PR #94 was closed as superseded after PR #98 merged.
 
-- Review this plan.
-- Confirm the fixed paths and Git-repository requirement.
-- Restore any active PR #94 local setup.
-- With explicit approval, close PR #94 as superseded only after the replacement
-  PR is opened.
+Completed decisions:
+
+- reviewed and accepted this plan;
+- confirmed the fixed paths and Git-repository requirement;
+- restored the active PR #94 local setup;
+- closed PR #94 as superseded after the replacement opened.
 
 ### Phase 1 - plan and state core
 
@@ -375,49 +384,51 @@ Phase 1 began, and PR #94 was closed as superseded after PR #98 merged.
 replacement, and explicit operation classification. The 53 focused tests passed
 on Windows and Linux ARM64 before merge.
 
-- Add the .NET helper project and test project.
-- Implement `ResourcePlan`, manifest serialization, operation classification,
-  and atomic state writes.
-- Add pure unit tests for every status and invalid transition.
+Completed scope:
+
+- added the .NET helper and test projects;
+- implemented `ResourcePlan`, manifest serialization, operation classification,
+  and atomic state writes;
+- added pure unit tests for every status and invalid transition.
 
 **Exit:** no consumer mutation exists yet; plan and state tests pass on Windows
 and Linux ARM64.
 
 ### Phase 2 - Install and Refresh
 
-**Status:** In progress. PR #99 merged exact MCP baseline semantics, bounded and
+**Status:** Complete. PR #99 merged exact MCP baseline semantics, bounded and
 fingerprinted prior-skill capture, managed-path link rejection, and bounded
 `overlay.md` input. PR #100 merged the fixed per-worktree lock after Windows and
 Linux ARM64 validation. PR #101 merged prepared CLI package validation and fresh
 private installation through an isolated one-package NuGet source, including
 bounded package parsing, non-timeout cleanup, timeout quarantine, and installed
-package verification. Its Windows and Linux ARM64 checks passed. The next
-increment reused bounded JSONC parsing for baseline capture and mutation,
+package verification. Its Windows and Linux ARM64 checks passed. PR #102 reused
+bounded JSONC parsing for baseline capture and mutation,
 atomically published the direct local MCP server, preserved unrelated
 configuration and file metadata, and idempotently restored the prior `filtrace`
 property and container/file shape while retaining later additions. PR #102 merged
-that increment after Windows and Linux ARM64 validation.
-The current local increment stages the bounded source skill outside the discovered
+that work after Windows and Linux ARM64 validation.
+PR #105 stages the bounded source skill outside the discovered
 skills directory, verifies the staged fingerprint, carries the exact consumer
 overlay into each publication, atomically swaps fixed sibling directories, and
 idempotently restores either the exact backup or the absent baseline. Fixed
 staging and retirement paths make interrupted swaps recoverable. The helper is
 validated on Windows; broader platform validation is backlog work. PR #105 merged
-that increment. The current increment wires Fresh Install, Resume Install, and
-Refresh through the coordinator while preserving the first baseline. CLI
+that increment. PR #107 wires Fresh Install, Resume Install, and Refresh through
+the coordinator while preserving the first baseline. CLI
 replacement is staged beside the fixed private tool directory so an install
 failure or timeout leaves the prior CLI intact and retains the operation
 quarantine when manual recovery is required.
 
-- Wire Fresh Install, Resume Install, and Refresh through the coordinator while
-  preserving baseline bytes.
+Completed scope: Fresh Install, Resume Install, and Refresh are wired through the
+coordinator while preserving baseline bytes.
 
 **Exit:** fresh/previous MCP and skill combinations install and refresh without
 global writes.
 
 ### Phase 3 - Restore and cleanup retry
 
-**Status:** Implemented and locally validated. The coordinator writes `restoring`
+**Status:** Complete in PR #116. The coordinator writes `restoring`
 before target mutations, restores CLI/MCP/skill and baseline-created empty parents,
 then writes `cleanup`. Private artifacts are deleted before the state manifest.
 Cleanup retry branches before active-resource and baseline inspection.
@@ -431,9 +442,9 @@ Real UAC and hostile same-user filesystem races are not covered by these tests.
 
 ### Phase 4 - wrapper, docs, and CI
 
-**Status:** Partially implemented. The thin PowerShell entry point delegates to
-the unit-tested .NET helper, and its native-apphost-driven Windows CI harness is added
-in this PR. The contract exercises Windows PowerShell 5.1 and PowerShell 7, first
+**Status:** Complete in PRs #117-#120. The thin PowerShell entry point delegates to
+the unit-tested .NET helper, and its native-apphost-driven Windows CI harness
+exercises Windows PowerShell 5.1 and PowerShell 7, first
 directly launchable native `dotnet.exe`/`git.exe` selection on Windows, batch-only
 rejection, source and target paths with spaces, the caller-directory target default,
 working directory and argument order, default Release and explicit Debug configuration,
@@ -445,16 +456,19 @@ The real Windows PowerShell 7 round trip recorded above completed Install, Refre
 and Restore with `info` schema 16, semantic MCP validation, a byte-exact skill, and
 an immutable baseline. It is not evidence for a real Windows PowerShell 5.1 or Unix
 install. Interrupted states and timeout quarantine continue to use the documented
-manual recovery paths. Local repository gates and independent review have completed
-for this command slice. Broader PP01 documentation and command-capture provenance
-remain pending.
+manual recovery paths. Local repository gates, CI, and independent review completed
+for this slice. Command-capture provenance completed separately in
+PRs #121 and #128.
 
-- Replace the large PowerShell implementation with the thin wrapper.
-- Replace the current contract with a compact end-to-end matrix.
-- Update README, CONTRIBUTING, docs, and CI.
-- Run all repository gates and a read-only review pass.
+Completed scope:
 
-**Exit:** the replacement PR is reviewable without relying on PR #94 history.
+- replaced the large PowerShell implementation with the thin wrapper;
+- replaced the prior contract with a compact end-to-end matrix;
+- updated README, CONTRIBUTING, docs, and CI;
+- ran the repository gates and read-only review required for the merged slice.
+
+**Exit:** the merged replacement stands on its own without relying on PR #94
+history.
 
 ## Test strategy
 
@@ -492,7 +506,7 @@ both layers.
 
 ## Acceptance gates
 
-The replacement cannot ship until all of these hold:
+The replacement shipped after these gates held for its supported primary platform:
 
 - one supported manifest schema;
 - no user-selectable managed paths;
@@ -523,12 +537,11 @@ These can return only with a concrete user scenario and dedicated threat model.
   follow-up validation. Address concrete failures without treating exhaustive
   platform coverage as a V1 release gate.
 
-## Open decisions
+## Deferred compatibility decision
 
-Resolve these during plan review, before implementation:
-
-1. How long should the one-shot PR #94 cleanup guidance remain available?
+Phase 4 shipped with bounded detection and guidance for known PR #94 default state
+locations. No automatic removal date has been selected. Removing that guidance
+requires a separate migration-policy decision; it is not unfinished LT1 work.
 
 The Git-target, linked-worktree, 1 MiB overlay-limit, proportional-robustness,
-and status-driven recovery decisions are closed for V1. Resolve the remaining
-transition-window question before Phase 4 ships the wrapper.
+and status-driven recovery decisions are closed for V1.

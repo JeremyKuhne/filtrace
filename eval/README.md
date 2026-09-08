@@ -4,6 +4,11 @@ The eval harness measures filtrace's fitness for an agent mid-investigation. It
 has two arms, both shipped here: a deterministic, no-LLM gate that runs in CI, and
 a live agent arm that scores a real model locally.
 
+The deterministic gate remains active. Broader CLI-plus-skill discovery and
+comparative-agent harness work is parked under PP03 until the canonical primary plan
+schedules it; this page documents the available harness rather than creating a
+parallel implementation queue.
+
 ## Deterministic gate (shipped, runs in CI)
 
 [Invoke-Eval.ps1](Invoke-Eval.ps1) is the **free, no-LLM regression gate**. Each
@@ -173,8 +178,9 @@ manifest batch/diff workflows. They do not yet cover
 `trace_lines`, `trace_heatmap`, `trace_classify`, or `trace_export`, and they do not exercise a full
 orient -> rank -> drill -> compare run on one realistic capture.
 
-Three comprehension scenarios the roadmap asks for cannot be expressed against
-today's surface, and are deliberately absent rather than faked:
+Three comprehension scenarios associated with conditional PP09 workflow work cannot
+be expressed against today's surface and are deliberately absent rather than faked.
+Their priority comes from the canonical primary plan, not this harness document:
 
 | Scenario | Why not yet |
 |---|---|
@@ -217,7 +223,8 @@ the right tool straight from the MCP descriptions:
 | gc-report | copilot / mcp | 100% | 1 | 1501 |
 
 See [docs/design.md](../docs/design.md) for the measures this harness enforces, and
-[docs/roadmap.md](../docs/roadmap.md) for the instrumentation VN0 still needs.
+[docs/roadmap.md](../docs/roadmap.md) for the completed VN0 decisions and conditional
+Filtrace backlog.
 
 ## Tuning the measured surfaces (the loop)
 

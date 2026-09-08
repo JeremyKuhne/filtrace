@@ -13,9 +13,11 @@ to `src/fasttrace/fasttrace.csproj`; the published Touki dependency is unchanged
 Use separate checkouts or `-p:ArtifactsPath="<owned build directory>"` when retaining
 both engines' outputs. Changing engine selection requires a restore; do not reuse
 `--no-restore` assets from the other selection.
-Use FastTrace `73b32fe690491bc3d3ba05080ae2d5eb59ba01cb`, or a coordinated later
-documentation commit with the same production tree. This namespace-adjusted source
-integration is not a binary assembly-identity drop-in.
+Use FastTrace `73b32fe690491bc3d3ba05080ae2d5eb59ba01cb` only to reproduce the
+provisional replacement-assessment baseline. New primary-plan experiments must pin
+the coordinated FastTrace revision recorded by that experiment rather than silently
+reusing this historical hash. This namespace-adjusted source integration is not a
+binary assembly-identity drop-in.
 
 To publish an owned native CLI output on a native x64 host, first install the
 [Native AOT prerequisites](https://learn.microsoft.com/dotnet/core/deploying/native-aot/#prerequisites)
