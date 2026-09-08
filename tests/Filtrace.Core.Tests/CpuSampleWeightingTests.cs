@@ -202,6 +202,36 @@ public sealed class CpuSampleWeightingTests
     }
 
     [TestMethod]
+    [DataRow(1, 0)]
+    [DataRow(32, 1)]
+    [DataRow(33, 2)]
+    public void GetSampleWeight_RestoredIntervalAfterUnknown_StartsNewSegment(
+        int initialSegmentCount,
+        int expectedOmittedSegments)
+    {
+        CpuSampleWeighting weighting = new();
+        int lastInterval = 0;
+        for (int segment = 0; segment < initialSegmentCount; segment++)
+        {
+            lastInterval = segment % 2 == 0 ? 1_250 : 10_000;
+            weighting.ObserveInterval(opcode: 72, sampleSource: 0, lastInterval);
+            weighting.GetSampleWeight();
+        }
+
+        weighting.ObserveInterval(opcode: 72, sampleSource: 0, newInterval100Nanoseconds: 0);
+        weighting.GetSampleWeight().Should().Be(1.0);
+        weighting.ObserveInterval(opcode: 72, sampleSource: 0, lastInterval);
+        weighting.GetSampleWeight().Should().Be(lastInterval / 10_000.0);
+
+        weighting.UnknownIntervalSampleCount.Should().Be(1);
+        weighting.HasCompleteIntervalEvidence.Should().BeFalse();
+        weighting.Intervals.Should().HaveCount(Math.Min(initialSegmentCount + 1, CpuSampleWeighting.MaximumRetainedIntervalSegments));
+        weighting.Intervals.Should().OnlyContain(static interval => interval.SampleCount == 1);
+        weighting.OmittedIntervalSegmentCount.Should().Be(expectedOmittedSegments);
+        weighting.OmittedIntervalSampleCount.Should().Be(expectedOmittedSegments);
+    }
+
+    [TestMethod]
     [DataRow(71, 0, 10_000)]
     [DataRow(73, 1, 10_000)]
     [DataRow(73, 0, 0)]

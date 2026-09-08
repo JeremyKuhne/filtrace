@@ -116,6 +116,7 @@ internal sealed class CpuSampleWeighting
             return intervalMSec;
         }
 
+        _previousAppliedIntervalMSec = null;
         _unknownIntervalSampleCount++;
         return 1.0;
     }

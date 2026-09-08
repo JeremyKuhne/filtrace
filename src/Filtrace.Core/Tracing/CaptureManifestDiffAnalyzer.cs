@@ -132,7 +132,10 @@ public static class CaptureManifestDiffAnalyzer
         }
 
         RankingDiffResult result = new(cases);
-        return new CaptureManifestDiffAnalysis(result, warnings, commonMetric ?? MetricInfo.CpuSamples);
+        return new CaptureManifestDiffAnalysis(result, warnings)
+        {
+            Metric = commonMetric ?? MetricInfo.CpuSamples
+        };
     }
 
     /// <summary>
