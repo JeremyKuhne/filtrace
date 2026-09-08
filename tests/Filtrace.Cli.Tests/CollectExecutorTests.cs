@@ -239,6 +239,99 @@ public sealed class CollectExecutorTests
     }
 
     [TestMethod]
+    public void Run_JsonFormat_ReservesOutputForCaptureEnvelope()
+    {
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "noisy-child.exe",
+            OutputPath = "out.etl",
+        };
+
+        StringWriter output = new();
+        StringWriter error = new();
+        int exit = CollectExecutor.Run(
+            request,
+            OutputFormat.Json,
+            output,
+            error,
+            (_, subjectOutput, subjectError) =>
+            {
+                subjectOutput.Should().BeSameAs(error);
+                subjectError.Should().BeSameAs(error);
+                subjectOutput!.WriteLine("[subject stdout]");
+                subjectOutput.WriteLine("{\"result\":\"not-the-capture\"}");
+                subjectError!.WriteLine("[subject stderr]");
+                subjectError.WriteLine("failed noisily");
+                return Result(processExitCode: 7);
+            });
+
+        exit.Should().Be(ExitCodes.Success, "the capture succeeded even though its subject failed");
+        using JsonDocument document = JsonDocument.Parse(output.ToString());
+        JsonElement resultElement = document.RootElement.GetProperty("result");
+        int processExitCode = resultElement.GetProperty("processExitCode").GetInt32();
+        processExitCode.Should().Be(7);
+        output.ToString().Should().NotContain("not-the-capture");
+        error.ToString().Should().Contain("{\"result\":\"not-the-capture\"}");
+        error.ToString().Should().Contain("failed noisily");
+    }
+
+    [TestMethod]
+    public void Run_TextFormat_LeavesSubjectStreamsInherited()
+    {
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "child.exe",
+            OutputPath = "out.etl",
+        };
+
+        StringWriter output = new();
+        StringWriter error = new();
+        int exit = CollectExecutor.Run(
+            request,
+            OutputFormat.Text,
+            output,
+            error,
+            (_, subjectOutput, subjectError) =>
+            {
+                subjectOutput.Should().BeNull();
+                subjectError.Should().BeNull();
+                return Result(processExitCode: 0);
+            });
+
+        exit.Should().Be(ExitCodes.Success);
+        output.ToString().Should().Contain("Captured");
+        error.ToString().Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void Run_ClampedInterval_ReportsConfiguredValueWithoutClaimingObservedUnits()
+    {
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "child.exe",
+            OutputPath = "out.etl",
+        };
+
+        StringWriter output = new();
+        StringWriter error = new();
+        int exit = CollectExecutor.Run(
+            request,
+            OutputFormat.Json,
+            output,
+            error,
+            (_, _, _) => Result(
+                processExitCode: 0,
+                cpuSample: new CpuSampleInterval(0.0625, 0.1221, 0.1221, 100.0)));
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output.ToString());
+        string warning = document.RootElement.GetProperty("warnings")[0].GetProperty("message").GetString()!;
+        warning.Should().Contain("collector configured the interval at 0.1221 ms");
+        warning.Should().Contain("cpuSampling provenance");
+        warning.Should().NotContain("capture sampled at");
+    }
+
+    [TestMethod]
     public void Run_WhenElevated_SubMillisecondInterval_SamplesMoreDensely()
     {
         if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
@@ -517,4 +610,26 @@ public sealed class CollectExecutorTests
 
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
+
+    private static EtwCollectResult Result(int processExitCode, CpuSampleInterval? cpuSample = null) => new()
+    {
+        OutputPath = Path.GetFullPath("out.etl"),
+        ProcessId = 42,
+        ProcessName = "noisy-child",
+        ProcessExitCode = processExitCode,
+        Invocations =
+        [
+            new EtwInvocation(
+                1,
+                42,
+                processExitCode,
+                DateTimeOffset.UnixEpoch,
+                DateTimeOffset.UnixEpoch.AddMilliseconds(1))
+        ],
+        FileSizeBytes = 1,
+        Profile = CollectProfile.Cpu,
+        KernelKeywords = "Process",
+        ClrKeywords = "none",
+        CpuSample = cpuSample ?? new CpuSampleInterval(1.0, 1.0, 0.1221, 100.0),
+    };
 }

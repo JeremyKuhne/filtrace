@@ -14,7 +14,8 @@ namespace Filtrace.Tracing;
 ///   today; thread-time, allocation, and others later - and the
 ///   provider-agnostic engine that ranks, drills, and folds them. The CPU
 ///   provider's output is the trace's sampled stacks paired with
-///   <see cref="MetricInfo.Cpu"/>.
+///   <see cref="MetricInfo.Cpu"/> when time is established or
+///   <see cref="MetricInfo.CpuSamples"/> otherwise.
 ///  </para>
 ///  <para>
 ///   Until a second family lands there is no provider interface; a family is

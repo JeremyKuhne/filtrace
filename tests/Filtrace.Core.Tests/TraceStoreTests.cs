@@ -232,7 +232,7 @@ public sealed class TraceStoreTests
         LoadedTrace allocations = store.Get(path, metric: TraceMetric.Allocations);
 
         allocations.Should().NotBeSameAs(cpu);
-        cpu.Source.Metric.Should().Be(MetricInfo.Cpu);
+        cpu.Source.Metric.Should().Be(MetricInfo.CpuSamples);
         allocations.Source.Metric.Should().Be(MetricInfo.Allocations);
     }
 

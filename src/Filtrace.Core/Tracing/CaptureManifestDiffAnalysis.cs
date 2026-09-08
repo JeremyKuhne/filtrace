@@ -11,4 +11,10 @@ namespace Filtrace.Tracing;
 /// <param name="Warnings">Bounded pairing and output-cap warnings.</param>
 public sealed record CaptureManifestDiffAnalysis(
     RankingDiffResult Result,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings)
+{
+    /// <summary>
+    ///  The common metric and unit of every compared case.
+    /// </summary>
+    public MetricInfo Metric { get; init; } = MetricInfo.Cpu;
+}

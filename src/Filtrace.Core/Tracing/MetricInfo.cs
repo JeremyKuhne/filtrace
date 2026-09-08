@@ -11,8 +11,8 @@ namespace Filtrace.Tracing;
 /// <remarks>
 ///  <para>
 ///   Each investigation family weights its stacks by a different metric - CPU
-///   time in milliseconds today, allocation bytes or event counts as later
-///   providers land. Threading the metric through the source lets the engine and
+///   milliseconds or samples, allocation bytes, or event counts. Threading the
+///   metric through the source lets the engine and
 ///   its renderers stay provider-agnostic instead of assuming milliseconds.
 ///  </para>
 /// </remarks>
@@ -21,10 +21,15 @@ namespace Filtrace.Tracing;
 public sealed record MetricInfo(string Name, string Unit)
 {
     /// <summary>
-    ///  The CPU-time metric: wall-clock milliseconds per sampled call stack. This
-    ///  is the metric of the CPU provider.
+    ///  The CPU-time metric: trace-established milliseconds per sampled call stack.
     /// </summary>
     public static MetricInfo Cpu { get; } = new("CPU", "ms");
+
+    /// <summary>
+    ///  The CPU sample-count metric used when a trace does not establish the
+    ///  sampling interval for every periodic CPU record.
+    /// </summary>
+    public static MetricInfo CpuSamples { get; } = new("CPU", "samples");
 
     /// <summary>
     ///  The thread-time metric: wall-clock milliseconds per stack, including the

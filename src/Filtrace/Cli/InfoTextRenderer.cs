@@ -30,10 +30,15 @@ internal static class InfoTextRenderer
     {
         TraceInfoView view = envelope.Result;
 
-        // The banner mirrors the header every ranking prints; the weight is the CPU
-        // view's total sampled milliseconds, the metric this orientation load reads.
+        string unit = view.CpuSampling?.WeightUnit ?? "ms";
         output.WriteLine(
-            $"{view.Format}  {view.SampleCount} samples  {view.TotalWeight:N1} ms  symbols {FormatRate(view.SymbolResolutionRate)}");
+            $"{view.Format}  {view.SampleCount} samples  {view.TotalWeight:N1} {unit}  symbols {FormatRate(view.SymbolResolutionRate)}");
+
+        if (view.CpuSampling is CpuSampleProvenance cpuSampling)
+        {
+            output.WriteLine(
+                $"cpu weight provenance: {cpuSampling.Source}; time weights established: {cpuSampling.TimeWeightsEstablished.ToString().ToLowerInvariant()}");
+        }
 
         output.WriteLine();
 

@@ -159,7 +159,7 @@ internal static class Program
 
             string[] availableAnalyses = ["cpu", "alloc", "gcstats"];
             Dictionary<string, object> info = new();
-            info["schemaVersion"] = 16;
+            info["schemaVersion"] = 17;
             if (mode != "analysis-missing-warnings")
             {
                 info["warnings"] = GetWarnings(mode);
@@ -189,6 +189,7 @@ internal static class Program
                 availableAnalyses,
                 etlxCacheState = "converted",
                 analyses = mode == "analysis-wrong-top-level" ? null : analyses,
+                cpuSampling = GetCpuSampling(eventCount),
                 sourceResolution = new
                 {
                     searchedDirectories = Array.Empty<string>(),
@@ -268,17 +269,22 @@ internal static class Program
                 : rows.Count == 0 ? 0 : 11;
         }
 
+        Dictionary<string, object> context = new();
+        context["operation"] = "rank";
+        context["metric"] = metric;
+        context["measure"] = measure;
+        context["unit"] = metric == "cpu" ? "samples" : "bytes";
+
+        if (metric == "cpu")
+        {
+            context["cpuSampling"] = GetCpuSampling(rows.Count == 0 ? 0 : 11);
+        }
+
         object envelope = new
         {
-            schemaVersion = 16,
+            schemaVersion = 17,
             warnings,
-            context = new
-            {
-                operation = "rank",
-                metric,
-                measure,
-                unit = metric == "cpu" ? "ms" : "bytes"
-            },
+            context,
             result
         };
 
@@ -314,6 +320,15 @@ internal static class Program
         _ => Array.Empty<object>()
     };
 
+    private static object GetCpuSampling(int sampleCount) => new
+    {
+        weightUnit = "samples",
+        source = "unavailable",
+        timeWeightsEstablished = false,
+        unknownIntervalSampleCount = sampleCount,
+        intervals = Array.Empty<object>()
+    };
+
     private static void WriteGcReport(string mode)
     {
         if (mode == "gc-malformed")
@@ -324,7 +339,7 @@ internal static class Program
 
         if (mode == "gc-absent")
         {
-            Console.WriteLine("{\"schemaVersion\":16,\"warnings\":[],\"context\":{\"operation\":\"gc\"}}");
+            Console.WriteLine("{\"schemaVersion\":17,\"warnings\":[],\"context\":{\"operation\":\"gc\"}}");
             return;
         }
 
@@ -366,7 +381,7 @@ internal static class Program
 
         object envelope = new
         {
-            schemaVersion = 16,
+            schemaVersion = 17,
             warnings = Array.Empty<object>(),
             context = new
             {

@@ -111,6 +111,75 @@ public sealed class NativeSymbolResolutionTests
     }
 
     [TestMethod]
+    public void ResolveLocal_ModuleScope_AttemptsOnlyTheSelectedModule()
+    {
+        using EtlxTraceLog traceLog = EtlxTraceLog.OpenOrConvert(EtwFixture);
+        using SymbolReader symbolReader = new(TextWriter.Null, "", httpClientDelegatingHandler: null);
+        List<TraceModuleFile> allLookups = [];
+
+        NativeSymbolResolution.ResolveLocal(
+            traceLog,
+            symbolReader,
+            symbolsDirectory: null,
+            lookup: module =>
+            {
+                allLookups.Add(module);
+                return NativeSymbolStatus.NoSymbolFile;
+            });
+
+        allLookups.Should().HaveCountGreaterThan(1);
+        TraceModuleFile selected = allLookups[0];
+        SymbolModuleScope moduleScope = SymbolModuleScope.Create(
+            [(int)selected.ModuleFileIndex],
+            []);
+
+        List<TraceModuleFile> scopedLookups = [];
+        NativeSymbolResolution.ResolveLocal(
+            traceLog,
+            symbolReader,
+            symbolsDirectory: null,
+            moduleScope,
+            module =>
+            {
+                scopedLookups.Add(module);
+                return NativeSymbolStatus.NoSymbolFile;
+            });
+
+        scopedLookups.Should().ContainSingle()
+            .Which.ModuleFileIndex.Should().Be(selected.ModuleFileIndex);
+    }
+
+    [TestMethod]
+    public void ResolveNativeRuntimeSymbols_ModuleScope_DoesNotLookupUnrelatedRuntimeModules()
+    {
+        using EtlxTraceLog traceLog = EtlxTraceLog.OpenOrConvert(EtwFixture);
+        TraceModuleFile[] runtimeModules = [.. traceLog.ModuleFiles.Where(static module =>
+            module.Name?.Contains("coreclr", StringComparison.OrdinalIgnoreCase) == true
+                || module.Name?.Contains("ntdll", StringComparison.OrdinalIgnoreCase) == true
+                || module.Name?.Contains("kernel32", StringComparison.OrdinalIgnoreCase) == true)];
+
+        runtimeModules.Should().HaveCountGreaterThan(1);
+        TraceModuleFile selected = runtimeModules[0];
+        SymbolModuleScope moduleScope = SymbolModuleScope.Create(
+            [(int)selected.ModuleFileIndex],
+            []);
+
+        using TemporaryDirectory cache = new();
+        using SymbolReader symbolReader = new(TextWriter.Null, "", httpClientDelegatingHandler: null);
+        List<TraceModuleFile> lookups = [];
+
+        TraceLogReader.ResolveNativeRuntimeSymbols(
+            traceLog,
+            symbolReader,
+            SymbolOptions.WithCache(cache.Path),
+            moduleScope,
+            lookups.Add);
+
+        lookups.Should().ContainSingle()
+            .Which.ModuleFileIndex.Should().Be(selected.ModuleFileIndex);
+    }
+
+    [TestMethod]
     public void CreateInfo_ReportsEveryOutcomeThatCanReachIt()
     {
         // A failed lookup must not vanish: with no category of its own it would leave

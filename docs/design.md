@@ -72,7 +72,7 @@ Stack-producing providers normalize their observations to weighted stacks:
 
 | Provider family | Weight |
 |---|---|
-| CPU | sampled milliseconds |
+| CPU | trace-reported milliseconds when established; otherwise raw samples |
 | Thread time | running or blocked elapsed milliseconds |
 | Allocation | sampled allocated bytes |
 | Exceptions | throw count |
@@ -191,7 +191,7 @@ These are checked by CI; a change that breaks one is not shippable.
 | Measure | Gate | Current | Enforced by |
 |---|---|---|---|
 | MCP `tools/list` size | <= 7,000 estimated tokens | ~6,701 tokens / 26,515 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
-| MCP stdout purity | pure JSON-RPC, real `tools/call` round trip | envelope `schemaVersion` 16 | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
+| MCP stdout purity | pure JSON-RPC, real `tools/call` round trip | envelope `schemaVersion` 17 | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | Single analysis response | <= 25,000 tokens (`OutputBudget.DefaultCeilingTokens`) | every producer bounds its rows against `OutputBudget.DefaultRowBudgetTokens` | Core budget plus worst-case tests |
 | Per-command `--help` | <= 60 lines | 16 canonical commands; 12 hidden preview aliases remain help-addressable | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
 | Command discoverability | every canonical command in top-level help, README examples, and scope inventory; hidden aliases absent | 16 canonical commands; top-level help 27 lines / 2,171 chars | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
@@ -239,7 +239,7 @@ Changing one of these is a deliberate, announced decision, not a refactor.
 - **`trace_*` MCP tool names.** Clients bind to them. Tools may be added; renaming
   or removing one requires the breaking-change decision described in
   [AGENTS.md](../AGENTS.md) and a versioned surface in [roadmap.md](roadmap.md).
-- **The result envelope.** `schemaVersion` (currently 16), structured `warnings` and `hints`,
+- **The result envelope.** `schemaVersion` (currently 17), structured `warnings` and `hints`,
   effective query `context`, and the typed result. A shape change bumps the version and updates both renderers,
   the goldens, and the budgets together.
 - **CLI exit codes.** Success, usage error, input error, and the quality-gate code.

@@ -133,6 +133,90 @@ public sealed class TraceLoaderTests
 
         trace.Source.Metric.Should().Be(MetricInfo.Cpu);
         trace.Info.Format.Should().Be(TraceFormat.Speedscope);
+        trace.Info.CpuSampling.Should().Be(new CpuSampleProvenance(
+            "ms",
+            "speedscope-profile-declared-time-weights",
+            TimeWeightsEstablished: true,
+            UnknownIntervalSampleCount: 0,
+            Intervals: []));
+    }
+
+    [TestMethod]
+    public void Load_EventPipeCpuMetric_UsesRawSamplesWhenIntervalIsUnavailable()
+    {
+        TraceLoader loader = new();
+
+        LoadedTrace trace = loader.Load(FixturePath("activity.nettrace"), TraceMetric.Cpu);
+
+        trace.Source.Metric.Should().Be(MetricInfo.CpuSamples);
+        trace.Info.TotalWeight.Should().Be(trace.Info.SampleCount);
+        trace.Source.Samples.Should().OnlyContain(static sample => sample.Weight == 1.0);
+        trace.Info.CpuSampling.Should().NotBeNull();
+        trace.Info.CpuSampling!.WeightUnit.Should().Be("samples");
+        trace.Info.CpuSampling.Source.Should().Be("unavailable");
+        trace.Info.CpuSampling.TimeWeightsEstablished.Should().BeFalse();
+        trace.Info.CpuSampling.UnknownIntervalSampleCount.Should().Be(trace.Info.SampleCount);
+        trace.Info.Warnings.Should().Contain(
+            "CPU sampling interval is not recorded for every included sample; CPU weights are raw sample counts, not milliseconds.");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Load_EtwCpuMetric_WithSamplesBeforeInterval_UsesRawSamples()
+    {
+        TraceLoader loader = new();
+
+        LoadedTrace trace = loader.Load(FixturePath("etw.etl"), TraceMetric.Cpu, scope: ScopeRequest.AllProcesses);
+
+        trace.Source.Metric.Should().Be(MetricInfo.CpuSamples);
+        trace.Info.TotalWeight.Should().Be(trace.Info.SampleCount);
+        trace.Info.CpuSampling.Should().NotBeNull();
+        trace.Info.CpuSampling!.TimeWeightsEstablished.Should().BeFalse();
+        trace.Info.CpuSampling.UnknownIntervalSampleCount.Should().Be(157);
+        trace.Info.CpuSampling.Intervals.Should().ContainSingle();
+        trace.Info.CpuSampling.Intervals[0].IntervalMSec.Should().Be(1.0);
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Load_EtwCpuMetric_InitialUnknownWindow_ReportsUnavailableProvenance()
+    {
+        TraceLoader loader = new();
+
+        LoadedTrace trace = loader.Load(
+            FixturePath("etw.etl"),
+            TraceMetric.Cpu,
+            scope: ScopeRequest.AllProcesses.WithTimeWindow(startMSec: null, endMSec: 100));
+
+        trace.Info.SampleCount.Should().BeGreaterThan(0);
+        trace.Source.Metric.Should().Be(MetricInfo.CpuSamples);
+        trace.Info.CpuSampling.Should().NotBeNull();
+        trace.Info.CpuSampling!.Source.Should().Be("unavailable");
+        trace.Info.CpuSampling.UnknownIntervalSampleCount.Should().Be(trace.Info.SampleCount);
+        trace.Info.CpuSampling.Intervals.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Load_EtwCpuMetric_UsesTraceRecordedPerfInfoInterval()
+    {
+        TraceLoader loader = new();
+
+        LoadedTrace trace = loader.Load(
+            FixturePath("etw.etl"),
+            TraceMetric.Cpu,
+            scope: ScopeRequest.AllProcesses.WithTimeWindow(startMSec: 200, endMSec: null));
+
+        trace.Source.Metric.Should().Be(MetricInfo.Cpu);
+        trace.Info.SampleCount.Should().BeGreaterThan(0);
+        trace.Info.CpuSampling.Should().NotBeNull();
+        trace.Info.CpuSampling!.WeightUnit.Should().Be("ms");
+        trace.Info.CpuSampling.Source.Should().Be("etw-perfinfo");
+        trace.Info.CpuSampling.TimeWeightsEstablished.Should().BeTrue();
+        trace.Info.CpuSampling.UnknownIntervalSampleCount.Should().Be(0);
+        trace.Info.CpuSampling.Intervals.Should().ContainSingle();
+        trace.Info.CpuSampling.Intervals[0].IntervalMSec.Should().Be(1.0);
+        trace.Info.CpuSampling.Intervals[0].SampleCount.Should().Be(trace.Info.SampleCount);
     }
 
     [TestMethod]

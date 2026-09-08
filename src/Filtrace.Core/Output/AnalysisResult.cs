@@ -99,8 +99,12 @@ public sealed class AnalysisResult<T>
     ///   Version 16 added the bounded point-in-time snapshot representation to the
     ///   timeline result.
     ///  </para>
+    ///  <para>
+    ///   Version 17 added CPU sample-weight provenance and permits raw sample units
+    ///   when a trace does not establish its sampling interval.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 16;
+    public const int CurrentSchemaVersion = 17;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.

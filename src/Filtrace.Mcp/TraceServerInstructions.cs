@@ -29,7 +29,7 @@ public static class TraceServerInstructions
             + "contention, wait, or activity) "
             + "to find the hottest frames by self or inclusive weight. For unwindowed CPU rankings, trace_callers "
             + "shows what drives a frame; callers/lines/heatmap/tree are CPU-only. trace_lines and trace_heatmap "
-            + "attribute CPU time to a source file:line and need a .nettrace "
+            + "attribute CPU weight to a source file:line and need a .nettrace "
             + "or .etl trace read with portable PDBs - pass the build-output directory as 'symbols'. Every "
             + "result shares one envelope: schemaVersion, structured warning records, structured next steps, effective query context, and the typed result.";
 }

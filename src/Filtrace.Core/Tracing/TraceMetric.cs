@@ -23,8 +23,8 @@ namespace Filtrace.Tracing;
 public enum TraceMetric
 {
     /// <summary>
-    ///  The CPU sampler's stacks, weighted by sampled milliseconds
-    ///  (<see cref="MetricInfo.Cpu"/>). Read from any supported trace format.
+    ///  The CPU sampler's stacks, weighted by sampled milliseconds when the trace
+    ///  establishes time or by raw samples otherwise. Read from any supported trace format.
     /// </summary>
     Cpu,
 

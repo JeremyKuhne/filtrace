@@ -57,12 +57,24 @@ internal static class BatchExecutor
                     return trace;
                 });
 
+            MetricInfo contextMetric = TraceMetricSelector.GetInfo(request.Metric);
+            if (request.Metric == TraceMetric.Cpu)
+            {
+                string[] units = result.Cases
+                    .Select(static captureCase => captureCase.Unit)
+                    .Where(static unit => !string.IsNullOrEmpty(unit))
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+
+                contextMetric = new MetricInfo("CPU", units.Length == 1 ? units[0] : "mixed");
+            }
+
             AnalysisResult<BatchRankingResult> envelope = new(
                 result,
                 hints: SteeringHints.ForBatch(result, request.Scope, request.Symbols, request.Fold),
                 context: AnalysisContext.ForMetric(
                     "batch",
-                    TraceMetricSelector.GetInfo(request.Metric),
+                    contextMetric,
                     request.Measure == Measure.Inclusive ? "inclusive" : "self",
                     request.Root));
 

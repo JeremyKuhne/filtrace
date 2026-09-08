@@ -5,6 +5,7 @@
 using System.Text.Json;
 using Filtrace.Tracing;
 using Filtrace.Tracing.Providers;
+using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Output;
 
@@ -90,6 +91,78 @@ public sealed class OutputContractTests
 
         context.TryGetProperty("measure", out _).Should().BeFalse();
         context.TryGetProperty("scope", out _).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void Serialize_Context_CarriesSubMillisecondCpuIntervalProvenance()
+    {
+        AnalysisResult<RankingResult> envelope = new(
+            new RankingResult(0.125, string.Empty, []),
+            context: new AnalysisContext("rank")
+            {
+                Metric = "cpu",
+                Unit = "ms",
+                CpuSampling = new CpuSampleProvenance(
+                    "ms",
+                    "etw-perfinfo",
+                    TimeWeightsEstablished: true,
+                    UnknownIntervalSampleCount: 0,
+                    Intervals: [new CpuSampleIntervalSegment(0.125, 8_000)])
+            });
+
+        using JsonDocument document = JsonDocument.Parse(OutputJson.Serialize(envelope));
+        JsonElement root = document.RootElement;
+        root.GetProperty("schemaVersion").GetInt32().Should().Be(17);
+        JsonElement cpuSampling = root.GetProperty("context").GetProperty("cpuSampling");
+        cpuSampling.GetProperty("weightUnit").GetString().Should().Be("ms");
+        cpuSampling.GetProperty("source").GetString().Should().Be("etw-perfinfo");
+        cpuSampling.GetProperty("timeWeightsEstablished").GetBoolean().Should().BeTrue();
+        JsonElement interval = cpuSampling.GetProperty("intervals")[0];
+        interval.GetProperty("intervalMSec").GetDouble().Should().Be(0.125);
+        interval.GetProperty("sampleCount").GetInt32().Should().Be(8_000);
+        cpuSampling.TryGetProperty("omittedIntervalSegmentCount", out _).Should().BeFalse();
+        cpuSampling.TryGetProperty("omittedIntervalSampleCount", out _).Should().BeFalse();
+        cpuSampling.TryGetProperty("intervalsTruncated", out _).Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void Serialize_Context_CarriesTruncatedCpuIntervalProvenance()
+    {
+        CpuSampleIntervalSegment[] intervals = new CpuSampleIntervalSegment[CpuSampleWeighting.MaximumRetainedIntervalSegments];
+        for (int segment = 0; segment < intervals.Length; segment++)
+        {
+            intervals[segment] = new CpuSampleIntervalSegment(segment % 2 == 0 ? 1.0 : 0.125, 1);
+        }
+
+        AnalysisResult<RankingResult> envelope = new(
+            new RankingResult(4.0, string.Empty, []),
+            context: new AnalysisContext("rank")
+            {
+                Metric = "cpu",
+                Unit = "ms",
+                CpuSampling = new CpuSampleProvenance(
+                    "ms",
+                    "etw-perfinfo",
+                    TimeWeightsEstablished: true,
+                    UnknownIntervalSampleCount: 0,
+                    Intervals: intervals)
+                {
+                    OmittedIntervalSegmentCount = 40_000,
+                    OmittedIntervalSampleCount = 80_000,
+                    IntervalsTruncated = true
+                }
+            });
+
+        string json = OutputJson.Serialize(envelope);
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        root.GetProperty("schemaVersion").GetInt32().Should().Be(17);
+        JsonElement cpuSampling = root.GetProperty("context").GetProperty("cpuSampling");
+        cpuSampling.GetProperty("intervals").GetArrayLength().Should().Be(CpuSampleWeighting.MaximumRetainedIntervalSegments);
+        cpuSampling.GetProperty("omittedIntervalSegmentCount").GetInt32().Should().Be(40_000);
+        cpuSampling.GetProperty("omittedIntervalSampleCount").GetInt32().Should().Be(80_000);
+        cpuSampling.GetProperty("intervalsTruncated").GetBoolean().Should().BeTrue();
+        OutputBudget.EstimateTokens(json).Should().BeLessThan(OutputBudget.DefaultCeilingTokens);
     }
 
     [TestMethod]

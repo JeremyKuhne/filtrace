@@ -126,6 +126,29 @@ public sealed partial class EmbeddedPdbExtractorTests
         }
     }
 
+    [TestMethod]
+    public void Extract_ModuleScope_DoesNotExamineUnrelatedAssemblies()
+    {
+        using TemporaryDirectory input = new();
+        File.Copy(EmbeddedAssembly, Path.Join(input.Path, "selected.dll"));
+        File.Copy(EmbeddedAssembly, Path.Join(input.Path, "unrelated.dll"));
+        SymbolModuleScope moduleScope = SymbolModuleScope.Create([], ["selected"]);
+
+        List<string> examined = [];
+        string? output = EmbeddedPdbExtractor.Extract(input.Path, moduleScope, examined.Add);
+
+        try
+        {
+            examined.Select(Path.GetFileName).Should().Equal("selected.dll");
+            Directory.GetFiles(output!, "*.pdb").Select(Path.GetFileName)
+                .Should().Equal("selected.pdb");
+        }
+        finally
+        {
+            DeleteOutput(output);
+        }
+    }
+
     private static void CopyTruncatedEmbeddedAssembly(string path)
     {
         File.Copy(EmbeddedAssembly, path);

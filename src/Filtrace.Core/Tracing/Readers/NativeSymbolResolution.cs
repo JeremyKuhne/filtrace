@@ -121,6 +121,8 @@ internal static class NativeSymbolResolution
     /// <param name="traceLog">The trace to resolve against.</param>
     /// <param name="symbolReader">The reader, whose symbol path must not yet carry a symbol-server element.</param>
     /// <param name="symbolsDirectory">The directory the caller supplied, for reason reporting.</param>
+    /// <param name="moduleScope">The modules and process instances relevant to this analysis.</param>
+    /// <param name="lookup">An optional deterministic lookup replacement used by tests.</param>
     /// <returns>
     ///  One entry per module that had unresolved sampled frames, ordered by descending
     ///  unresolved frame count. Empty when the trace has no unresolved native frames.
@@ -128,18 +130,26 @@ internal static class NativeSymbolResolution
     public static IReadOnlyList<NativeModuleSymbolStatus> ResolveLocal(
         EtlxTraceLog traceLog,
         SymbolReader symbolReader,
-        string? symbolsDirectory)
+        string? symbolsDirectory,
+        SymbolModuleScope? moduleScope = null,
+        Func<TraceModuleFile, NativeSymbolStatus>? lookup = null)
     {
+        moduleScope ??= SymbolModuleScope.Create(traceLog, ScopeResolution.Unscoped);
+
         // Cheap gate: a scan of unique code addresses is far smaller than a walk of every
         // sampled frame, so a trace whose frames all resolved never pays for the ranking
         // pass below.
-        Dictionary<int, int> unresolvedAddresses = CountUnresolvedAddressesByModule(traceLog);
+        Dictionary<int, int> unresolvedAddresses = CountUnresolvedAddressesByModule(traceLog, moduleScope);
         if (unresolvedAddresses.Count == 0)
         {
             return [];
         }
 
-        Dictionary<int, int> unresolvedFrames = CountUnresolvedFramesByModule(traceLog, unresolvedAddresses);
+        Dictionary<int, int> unresolvedFrames = CountUnresolvedFramesByModule(
+            traceLog,
+            unresolvedAddresses,
+            moduleScope);
+
         if (unresolvedFrames.Count == 0)
         {
             return [];
@@ -159,7 +169,8 @@ internal static class NativeSymbolResolution
         List<TraceModuleFile> ranked = [];
         foreach (TraceModuleFile moduleFile in traceLog.ModuleFiles)
         {
-            if (unresolvedFrames.ContainsKey((int)moduleFile.ModuleFileIndex))
+            if (moduleScope.Includes(moduleFile)
+                && unresolvedFrames.ContainsKey((int)moduleFile.ModuleFileIndex))
             {
                 ranked.Add(moduleFile);
             }
@@ -173,9 +184,22 @@ internal static class NativeSymbolResolution
         {
             int frames = unresolvedFrames[(int)moduleFile.ModuleFileIndex];
             double share = (double)frames / totalUnresolved;
-            NativeSymbolStatus status = share < MinimumUnresolvedShare
-                ? NativeSymbolStatus.NotAttempted
-                : Attempt(traceLog, symbolReader, moduleFile, symbolsDirectory);
+            NativeSymbolStatus status;
+            if (share < MinimumUnresolvedShare)
+            {
+                status = NativeSymbolStatus.NotAttempted;
+            }
+            else
+            {
+                if (lookup is null)
+                {
+                    status = Attempt(traceLog, symbolReader, moduleFile, symbolsDirectory);
+                }
+                else
+                {
+                    status = lookup(moduleFile);
+                }
+            }
 
             statuses.Add(new NativeModuleSymbolStatus(moduleFile.Name ?? "?", status, frames, share));
         }
@@ -264,7 +288,9 @@ internal static class NativeSymbolResolution
     /// <summary>
     ///  Counts unique code addresses with no resolved method, keyed by module index.
     /// </summary>
-    private static Dictionary<int, int> CountUnresolvedAddressesByModule(EtlxTraceLog traceLog)
+    private static Dictionary<int, int> CountUnresolvedAddressesByModule(
+        EtlxTraceLog traceLog,
+        SymbolModuleScope moduleScope)
     {
         Dictionary<int, int> counts = [];
         TraceCodeAddresses codeAddresses = traceLog.CodeAddresses;
@@ -278,7 +304,7 @@ internal static class NativeSymbolResolution
             }
 
             TraceModuleFile? moduleFile = address.ModuleFile;
-            if (moduleFile is null)
+            if (moduleFile is null || !moduleScope.Includes(moduleFile))
             {
                 continue;
             }
@@ -317,12 +343,14 @@ internal static class NativeSymbolResolution
     /// </summary>
     private static Dictionary<int, int> CountUnresolvedFramesByModule(
         EtlxTraceLog traceLog,
-        Dictionary<int, int> candidates)
+        Dictionary<int, int> candidates,
+        SymbolModuleScope moduleScope)
     {
         Dictionary<int, int> counts = [];
         foreach (TraceEvent data in traceLog.Events)
         {
-            if (data is not (SampledProfileTraceData or ClrThreadSampleTraceData))
+            if (!moduleScope.Includes(data)
+                || data is not (SampledProfileTraceData or ClrThreadSampleTraceData))
             {
                 continue;
             }
@@ -336,7 +364,7 @@ internal static class NativeSymbolResolution
                 }
 
                 TraceModuleFile? moduleFile = address.ModuleFile;
-                if (moduleFile is null)
+                if (moduleFile is null || !moduleScope.Includes(moduleFile))
                 {
                     continue;
                 }

@@ -3,7 +3,7 @@
   "tasks": {
     "cpu-hotspot": {
       "calls": 2,
-      "tokens": 250
+      "tokens": 328
     },
     "alloc-hotspot": {
       "calls": 1,
@@ -23,23 +23,23 @@
     },
     "etl-processes": {
       "calls": 1,
-      "tokens": 234
+      "tokens": 331
     },
     "cpu-tree": {
       "calls": 1,
-      "tokens": 132
+      "tokens": 171
     },
     "alloc-events": {
       "calls": 1,
-      "tokens": 5599
+      "tokens": 5603
     },
     "cpu-inclusive": {
       "calls": 1,
-      "tokens": 154
+      "tokens": 193
     },
     "threadtime-hotpath": {
       "calls": 1,
-      "tokens": 625
+      "tokens": 664
     },
     "timeline-window": {
       "calls": 1,
@@ -47,19 +47,19 @@
     },
     "caller-callee": {
       "calls": 1,
-      "tokens": 198
+      "tokens": 237
     },
     "trace-info-orientation": {
       "calls": 1,
-      "tokens": 119
+      "tokens": 162
     },
     "source-quality": {
       "calls": 1,
-      "tokens": 741
+      "tokens": 823
     },
     "manifest-batch": {
       "calls": 1,
-      "tokens": 358
+      "tokens": 374
     },
     "manifest-diff": {
       "calls": 1,
@@ -75,11 +75,11 @@
     },
     "speedscope-source-limits": {
       "calls": 1,
-      "tokens": 119
+      "tokens": 162
     },
     "capture-status-unknown": {
       "calls": 1,
-      "tokens": 809
+      "tokens": 892
     },
     "event-count-only": {
       "calls": 1,
@@ -91,11 +91,11 @@
     },
     "scope-preserving-drill": {
       "calls": 1,
-      "tokens": 370
+      "tokens": 446
     },
     "manifest-case-drill": {
       "calls": 2,
-      "tokens": 463
+      "tokens": 518
     },
     "threadpool-report": {
       "calls": 1,

@@ -20,10 +20,10 @@ namespace Filtrace.Tracing.Readers;
 ///   managed frames; native frames may remain unresolved.
 ///  </para>
 ///  <para>
-///   Each sample is weighted as one millisecond. Sampled-profile CPU profiling
-///   runs at roughly a 1 kHz cadence on both runtimes, so scoped durations are
-///   accurate to within the sampling interval and the relative percentages -
-///   what the rankings actually report - are unaffected.
+///   ETW samples are weighted by the timer interval recorded in
+///   <c>PerfInfo/CollectionStart</c> and <c>PerfInfo/SetInterval</c> events. When
+///   a trace does not establish the interval for every sample, weights remain
+///   raw sample counts rather than being presented as milliseconds.
 ///  </para>
 /// </remarks>
 internal abstract class TraceLogReader : ITraceReader
@@ -55,6 +55,12 @@ internal abstract class TraceLogReader : ITraceReader
         EtlxCacheState cacheState;
         using EtlxTraceLog traceLog = OpenTraceLog(path, out cacheState);
 
+        // Resolve exact process instances before any directory scan or module lookup.
+        // Module selection then follows those instances' load lifetimes, with sampled
+        // frames retaining shared runtime helpers that the selected workload used.
+        ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
+        SymbolModuleScope? symbolScope = null;
+
         // Local-only symbol reader: an empty symbol path never reaches a symbol
         // server, but portable PDBs sitting next to a traced module still
         // resolve, which is all the managed touki frames need for line-level
@@ -69,7 +75,7 @@ internal abstract class TraceLogReader : ITraceReader
         // TraceEvent can match a module by its PDB GUID and resolve source lines.
         string? extractedPdbDirectory = symbolsDirectory is null
             ? null
-            : EmbeddedPdbExtractor.Extract(symbolsDirectory);
+            : EmbeddedPdbExtractor.Extract(symbolsDirectory, symbolScope ??= SymbolModuleScope.Create(traceLog, resolved));
 
         string? localSymbolPath = null;
 
@@ -96,7 +102,7 @@ internal abstract class TraceLogReader : ITraceReader
             NativeSymbolInfo? nativeSymbols = localSymbolPath is null
                 ? null
                 : NativeSymbolResolution.CreateInfo(
-                    NativeSymbolResolution.ResolveLocal(traceLog, symbolReader, symbolsDirectory));
+                    NativeSymbolResolution.ResolveLocal(traceLog, symbolReader, symbolsDirectory, symbolScope));
 
             // Opt-in native runtime symbols: point the reader at the Microsoft public
             // symbol server (a local cache fronting it) and resolve the unmanaged
@@ -105,17 +111,9 @@ internal abstract class TraceLogReader : ITraceReader
             // and deterministic; managed frames resolve from the rundown regardless.
             if (symbolOptions is { ResolveNativeRuntime: true })
             {
-                ResolveNativeRuntimeSymbols(traceLog, symbolReader, symbolOptions);
+                symbolScope ??= SymbolModuleScope.Create(traceLog, resolved);
+                ResolveNativeRuntimeSymbols(traceLog, symbolReader, symbolOptions, symbolScope);
             }
-
-            // Resolve the scope intent (an explicit selector, the busiest process under
-            // the automatic default, or every process when opted out) to exact process
-            // instances. A null request means "unspecified", which is the
-            // automatic default - the same as ScopeRequest.Auto - so a caller that passes
-            // nothing still gets scenario scope. Null instance membership means no
-            // scoping (the all-processes opt-out). This is lossless: the trace is fully
-            // symbol-resolved by EtlxTraceLog before any sample is dropped.
-            ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
 
             // When an activity scope is requested, pre-pass the trace to find which CPU
             // samples were taken inside that activity (or one nested under it), so the
@@ -128,6 +126,7 @@ internal abstract class TraceLogReader : ITraceReader
 
             return ReadCore(
                 traceLog,
+                Format,
                 symbolReader,
                 resolved,
                 activitySamples,
@@ -248,6 +247,7 @@ internal abstract class TraceLogReader : ITraceReader
 
     private static TraceReadResult ReadCore(
         EtlxTraceLog traceLog,
+        TraceFormat format,
         SymbolReader symbolReader,
         ScopeResolution resolvedScope,
         HashSet<EventIndex>? activitySamples,
@@ -269,10 +269,17 @@ internal abstract class TraceLogReader : ITraceReader
         long resolvedFrames = 0;
         List<string> leafToRoot = [];
         List<string> leafToRootLocations = [];
+        CpuSampleWeighting? cpuWeighting = format == TraceFormat.Etl ? new() : null;
 
         foreach (TraceEvent data in traceLog.Events)
         {
             analysisEvents.Observe(data);
+
+            if (data is SampledProfileIntervalTraceData interval)
+            {
+                cpuWeighting?.ObserveInterval((int)interval.Opcode, interval.SampleSource, interval.NewInterval);
+                continue;
+            }
 
             // ETW (.etl) surfaces CPU samples as SampledProfileTraceData; EventPipe
             // (.nettrace) surfaces them as the SampleProfiler's ClrThreadSampleTraceData.
@@ -376,10 +383,46 @@ internal abstract class TraceLogReader : ITraceReader
 
             samples.Add(new SampleStack(
                 frames,
-                1.0,
+                cpuWeighting?.GetSampleWeight() ?? 1.0,
                 data.ThreadID.ToString(CultureInfo.InvariantCulture),
                 locations,
                 process));
+        }
+
+        bool timeWeightsEstablished = cpuWeighting?.HasCompleteIntervalEvidence == true;
+        MetricInfo metric = timeWeightsEstablished ? MetricInfo.Cpu : MetricInfo.CpuSamples;
+        CpuSampleProvenance cpuSampling;
+
+        if (cpuWeighting is null)
+        {
+            cpuSampling = new CpuSampleProvenance(
+                "samples",
+                "unavailable",
+                TimeWeightsEstablished: false,
+                UnknownIntervalSampleCount: samples.Count,
+                Intervals: []);
+        }
+        else
+        {
+            if (!timeWeightsEstablished && cpuWeighting.Intervals.Count > 0)
+            {
+                for (int i = 0; i < samples.Count; i++)
+                {
+                    samples[i].NormalizeCpuWeightToSampleCount();
+                }
+            }
+
+            cpuSampling = new CpuSampleProvenance(
+                timeWeightsEstablished ? "ms" : "samples",
+                cpuWeighting.Intervals.Count > 0 ? "etw-perfinfo" : "unavailable",
+                timeWeightsEstablished,
+                cpuWeighting.UnknownIntervalSampleCount,
+                cpuWeighting.Intervals)
+            {
+                OmittedIntervalSegmentCount = cpuWeighting.OmittedIntervalSegmentCount,
+                OmittedIntervalSampleCount = cpuWeighting.OmittedIntervalSampleCount,
+                IntervalsTruncated = cpuWeighting.OmittedIntervalSegmentCount > 0
+            };
         }
 
         double resolutionRate = totalFrames > 0 ? (double)resolvedFrames / totalFrames : 0.0;
@@ -389,6 +432,26 @@ internal abstract class TraceLogReader : ITraceReader
         }
 
         List<string> warnings = [.. scopeWarnings];
+        if (timeWeightsEstablished)
+        {
+            warnings.Add(
+                cpuWeighting!.Intervals.Count == 1
+                    ? $"CPU sample weights use the trace-recorded ETW PerfInfo interval ({cpuWeighting.Intervals[0].IntervalMSec.ToString("0.####", CultureInfo.InvariantCulture)} ms)."
+                    : "CPU sample weights use the trace-recorded ETW PerfInfo interval active at each sample; the interval changed during the trace.");
+
+        }
+        else if (samples.Count > 0)
+        {
+            warnings.Add(
+                "CPU sampling interval is not recorded for every included sample; CPU weights are raw sample counts, not milliseconds.");
+        }
+
+        if (cpuWeighting?.OmittedIntervalSegmentCount > 0)
+        {
+            warnings.Add(
+                $"CPU sampling provenance retained the first {cpuWeighting.Intervals.Count} interval segments and omitted {cpuWeighting.OmittedIntervalSegmentCount} later segments covering {cpuWeighting.OmittedIntervalSampleCount} samples.");
+        }
+
         if (samples.Count == 0)
         {
             // An empty result can come from a scope dropping every sample or an absent
@@ -465,6 +528,8 @@ internal abstract class TraceLogReader : ITraceReader
 
         return new TraceReadResult(
             samples,
+            metric,
+            cpuSampling,
             resolutionRate,
             warnings,
             StackRecordSemantics.PeriodicCpuSamples,
@@ -507,10 +572,17 @@ internal abstract class TraceLogReader : ITraceReader
     ///   whole read.
     ///  </para>
     /// </remarks>
-    private static void ResolveNativeRuntimeSymbols(
+    /// <param name="traceLog">The trace whose selected runtime modules are resolved.</param>
+    /// <param name="symbolReader">The symbol reader to configure and use.</param>
+    /// <param name="options">The explicit network opt-in and cache directory.</param>
+    /// <param name="moduleScope">The modules relevant to the selected process instances.</param>
+    /// <param name="lookup">An optional deterministic lookup replacement used by tests.</param>
+    internal static void ResolveNativeRuntimeSymbols(
         EtlxTraceLog traceLog,
         SymbolReader symbolReader,
-        SymbolOptions options)
+        SymbolOptions options,
+        SymbolModuleScope moduleScope,
+        Action<TraceModuleFile>? lookup = null)
     {
         string cacheDirectory = options.CacheDirectory ?? SymbolOptions.DefaultCacheDirectory;
         Directory.CreateDirectory(cacheDirectory);
@@ -525,14 +597,21 @@ internal abstract class TraceLogReader : ITraceReader
 
         foreach (TraceModuleFile moduleFile in traceLog.ModuleFiles)
         {
-            if (!IsRuntimeModule(moduleFile.Name))
+            if (!moduleScope.Includes(moduleFile) || !IsRuntimeModule(moduleFile.Name))
             {
                 continue;
             }
 
             try
             {
-                traceLog.CodeAddresses.LookupSymbolsForModule(symbolReader, moduleFile);
+                if (lookup is null)
+                {
+                    traceLog.CodeAddresses.LookupSymbolsForModule(symbolReader, moduleFile);
+                }
+                else
+                {
+                    lookup(moduleFile);
+                }
             }
             catch (Exception ex) when (ex is not (OutOfMemoryException or AccessViolationException))
             {

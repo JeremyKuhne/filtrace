@@ -124,6 +124,20 @@ foreach ($verb in $verbs) {
     }
 }
 
+foreach ($cpuHelpVerb in @('rank', 'cpu', 'classify')) {
+    $cpuHelp = (& dotnet $cliDll $cpuHelpVerb --help 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0) {
+        Add-Failure "'$cpuHelpVerb --help' failed while checking CPU weight terminology."
+        continue
+    }
+    if ($cpuHelp -notmatch 'trace-recorded sample intervals' -or $cpuHelp -notmatch 'raw sample counts') {
+        Add-Failure "'$cpuHelpVerb --help' does not explain interval-derived milliseconds and raw sample counts."
+    }
+    if ($cpuHelp -match '(?i)(?:each|every)\s+sample\s+(?:weighs|as)\s+1 ms|CPU self-time') {
+        Add-Failure "'$cpuHelpVerb --help' still presents CPU weights as fixed 1 ms time."
+    }
+}
+
 # 4. README documents every canonical verb with a runnable example and carries the workflow.
 $readme = Get-Content $readmeFile -Raw
 if ($readme -notmatch '(?im)workflow') {

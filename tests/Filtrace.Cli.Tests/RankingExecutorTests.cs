@@ -87,6 +87,10 @@ public sealed class RankingExecutorTests
         (int exit, string output, _) = Run(Request(Activity, root: "ActivityLoop.EmitActivities"));
 
         exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("CPU self-weight");
+        output.Should().NotContain("CPU self-time");
+        output.Should().Contain("samples  symbols");
+        output.Should().Contain("CPU weights are raw sample counts, not milliseconds");
         output.Should().Contain("records 179");
         output.Should().Contain("Only 179 periodic CPU records");
         output.Should().Contain("at least 200");
@@ -171,6 +175,20 @@ public sealed class RankingExecutorTests
         json.Should().NotContain("\n");
         json.Should().Contain("\"schemaVersion\"");
         json.Should().Contain("\"result\"");
+    }
+
+    [TestMethod]
+    public void Run_EventPipeJson_ReportsSampleUnitAndUnknownIntervalProvenance()
+    {
+        (int exit, string output, _) = Run(Request(Activity, format: OutputFormat.Json));
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement context = document.RootElement.GetProperty("context");
+        context.GetProperty("unit").GetString().Should().Be("samples");
+        JsonElement cpuSampling = context.GetProperty("cpuSampling");
+        cpuSampling.GetProperty("source").GetString().Should().Be("unavailable");
+        cpuSampling.GetProperty("timeWeightsEstablished").GetBoolean().Should().BeFalse();
     }
 
     [TestMethod]

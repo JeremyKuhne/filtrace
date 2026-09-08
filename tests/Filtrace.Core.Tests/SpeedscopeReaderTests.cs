@@ -42,6 +42,19 @@ public sealed class SpeedscopeReaderTests
     }
 
     [TestMethod]
+    public void Read_EventedProfileWithRawUnit_RejectsMalformedInput()
+    {
+        const string json = """
+            {"shared":{"frames":[{"name":"Work"}]},"profiles":[{"type":"evented","name":"thread","unit":"none","startValue":0,"endValue":2,"events":[{"type":"O","frame":0,"at":0},{"type":"C","frame":0,"at":2}]}]}
+            """;
+
+        Action action = () => Read(json);
+
+        action.Should().Throw<NotSupportedException>()
+            .WithMessage("*evented CPU input requires a time unit*found 'none'*");
+    }
+
+    [TestMethod]
     public void Read_SampledSeconds_NormalizesToMilliseconds()
     {
         const string json = """
@@ -75,6 +88,26 @@ public sealed class SpeedscopeReaderTests
     }
 
     [TestMethod]
+    public void Read_FiltraceRawCpuExport_RoundTripsSampleWeightsAndUnit()
+    {
+        StackSampleSource source = new(
+            MetricInfo.CpuSamples,
+            [
+                new SampleStack(["Root", "First"], 2.0),
+                new SampleStack(["Root", "Second"], 3.0)
+            ]);
+
+        string json = SpeedscopeExporter.Export(source);
+        LoadedTrace trace = Read(json);
+
+        json.Should().Contain("\"unit\":\"none\"");
+        trace.Source.Metric.Should().Be(MetricInfo.CpuSamples);
+        trace.Info.TotalWeight.Should().Be(5.0);
+        trace.Info.CpuSampling!.TimeWeightsEstablished.Should().BeFalse();
+        trace.Info.CpuSampling.UnknownIntervalSampleCount.Should().Be(2);
+    }
+
+    [TestMethod]
     public void Read_ByteProfile_RejectsNonCpuUnit()
     {
         const string json = """
@@ -100,6 +133,20 @@ public sealed class SpeedscopeReaderTests
     }
 
     [TestMethod]
+    [DataRow("{}")]
+    [DataRow("{\"profiles\":[]}")]
+    [DataRow("{\"profiles\":[{\"type\":\"extension\",\"unit\":\"milliseconds\"}]}")]
+    public void Read_NoRecognizedProfile_ReportsUnavailableProvenance(string json)
+    {
+        LoadedTrace trace = Read(json);
+
+        trace.Source.Metric.Should().Be(MetricInfo.CpuSamples);
+        trace.Info.SampleCount.Should().Be(0);
+        trace.Info.CpuSampling!.Source.Should().Be("unavailable");
+        trace.Info.CpuSampling.TimeWeightsEstablished.Should().BeFalse();
+    }
+
+    [TestMethod]
     public void Read_EmptySupportedProfile_ReportsCpuEnabledZero()
     {
         const string json = """
@@ -110,6 +157,9 @@ public sealed class SpeedscopeReaderTests
 
         trace.Info.Analyses["cpu"].Should().Be(
             new AnalysisAvailability(FormatSupported: true, CaptureStatus.Enabled, 0));
+
+        trace.Info.CpuSampling!.Source.Should().Be("speedscope-profile-declared-time-weights");
+        trace.Info.CpuSampling.TimeWeightsEstablished.Should().BeTrue();
     }
 
     [TestMethod]

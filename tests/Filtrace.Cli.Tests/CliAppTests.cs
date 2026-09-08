@@ -710,15 +710,46 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
-    public void Run_ProcessesJson_WritesSingleLineEnvelope()
+    [DataRow("folding.speedscope.json", "ms", "speedscope-profile-declared-time-weights", true)]
+    [DataRow("activity.nettrace", "samples", "unavailable", false)]
+    public void Run_ProcessesJson_ReportsCpuWeightContract(
+        string fixture,
+        string expectedUnit,
+        string expectedSource,
+        bool timeWeightsEstablished)
     {
-        (int exit, string output, _) = Run("processes", Speedscope, "--format", "json");
+        (int exit, string output, _) = Run("processes", FixturePath(fixture), "--format", "json");
 
         exit.Should().Be(ExitCodes.Success);
         string json = output.Trim();
         json.Should().NotContain("\n");
-        json.Should().Contain("\"schemaVersion\"");
-        json.Should().Contain("\"processes\"");
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        root.GetProperty("schemaVersion").GetInt32().Should().Be(17);
+        root.GetProperty("result").GetProperty("processes").GetArrayLength().Should().BeGreaterThan(0);
+        JsonElement context = root.GetProperty("context");
+        context.GetProperty("metric").GetString().Should().Be("cpu");
+        context.GetProperty("unit").GetString().Should().Be(expectedUnit);
+        context.TryGetProperty("scope", out _).Should().BeFalse();
+        JsonElement cpuSampling = context.GetProperty("cpuSampling");
+        cpuSampling.GetProperty("source").GetString().Should().Be(expectedSource);
+        cpuSampling.GetProperty("timeWeightsEstablished").GetBoolean().Should().Be(timeWeightsEstablished);
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_ProcessesJson_EtwReportsRawCpuWeightContract()
+    {
+        (int exit, string output, _) = Run("processes", Etw, "--format", "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement context = document.RootElement.GetProperty("context");
+        context.GetProperty("unit").GetString().Should().Be("samples");
+        context.TryGetProperty("scope", out _).Should().BeFalse();
+        JsonElement cpuSampling = context.GetProperty("cpuSampling");
+        cpuSampling.GetProperty("source").GetString().Should().Be("etw-perfinfo");
+        cpuSampling.GetProperty("timeWeightsEstablished").GetBoolean().Should().BeFalse();
     }
 
     [TestMethod]
@@ -782,7 +813,8 @@ public sealed class CliAppTests
         (int exit, string output, _) = Run("cpu", Etw);
 
         exit.Should().Be(ExitCodes.Success);
-        output.Should().Contain("CPU self-time");
+        output.Should().Contain("CPU self-weight");
+        output.Should().NotContain("CPU self-time");
     }
 
     [TestMethod]

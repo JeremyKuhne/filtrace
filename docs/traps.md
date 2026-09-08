@@ -26,8 +26,9 @@ embeds the marked block below verbatim in its
    `--native-symbols` is the relevant opt-in when the native runtime split matters.
    Conversely, 100% method-name resolution does not prove that any source line is
    available. Before `source`, inspect `trace_info.sourceResolution`:
-   require the relevant module in `matchingPdbModules`, then report mapped versus
-   sampled managed frames and `highestUnmappedModules`. When
+   require the relevant module in a nonempty `matchingPdbModules` result and positive
+   mapped sampled frames or methods before claiming positive source resolution, then
+   report mapped versus sampled managed frames and `highestUnmappedModules`. When
    `pdbIdentityMismatchModules` names the module, the expected PDB filename exists
    but its GUID or age differs from the trace. For BenchmarkDotNet, use the generated
    child output retained with `--keepFiles`, not the outer project output. Once the
@@ -137,9 +138,9 @@ embeds the marked block below verbatim in its
    command outside a session first and keep that baseline. Then: `--profile startup` to
    stop paying for keywords a short run does not read; `--cpu-ms` below the 1 ms default,
    since 1 ms leaves a 50 ms command with tens of samples, though below the machine's
-   floor Windows samples at the floor while echoing your request back, so take the rate
-   from the effective interval `collect` reports rather than the one you passed or one
-   read back from the OS; `--iterations` to amortize the session over repeated launches;
+   floor Windows can sample at the floor while reporting requested or clamped settings,
+   so treat those settings as configuration rather than proof of the recorded physical
+   interval; `--iterations` amortizes the session over repeated launches;
    and `--pid` with the manifest's exact ids, since a common host name matches every
    unrelated instance of it. For a Native AOT parent, rank *inclusive* - its cost sits in
    ancestors self-time never surfaces - and combine `--symbols` for your own native PDBs
@@ -148,10 +149,51 @@ embeds the marked block below verbatim in its
 14. **Wall clock is not CPU, and inclusive rows do not add up.** A process blocked in the
    loader or waiting on a child owns no samples while it waits, so sampled CPU cannot
    explain a command whose elapsed time exceeds it - derive the phases from kernel process
-   and image events (`lifecycle`) instead, and treat the gap between a root's lifetime and
-   its sampled CPU as the blocked time. Two consequences when reporting: sampled
-   milliseconds are an estimate scaled to the *effective* sample interval, not a measured
-   duration; and inclusive rows along one stack contain each other, so summing them
-   double-counts. An invocation whose start or stop the capture never observed is clipped
-   to the capture window, making its lifetime a lower bound rather than a value.
+   and image events (`lifecycle`) instead. A gap between lifetime and estimated sampled
+   CPU is non-CPU or unattributed elapsed, not proof of blocking; scheduling, idle time,
+   unsampled work, and instrumentation can contribute. Use thread-time, wait, or contention
+   evidence before identifying blocked time. Report CPU milliseconds only when the trace and
+   analyzer establish recorded interval provenance and interval-aware weighting. Older
+   fixed-weight versions and unknown intervals support qualified counts/weights, not
+   invented milliseconds, and wall clock times sample share is not a substitute.
+   Inclusive rows along one stack contain each other, so summing them double-counts. An
+   invocation whose start or stop the capture never observed is clipped to the capture
+   window, making its lifetime a lower bound rather than a value.
+
+15. **An A/B launch is not an accepted comparison.** Bind each arm to the exact analyzer
+   executable, core assembly, deps file, and source revision, recording canonical paths,
+   hashes, and explicit absence where an artifact is embedded. Retain subject, trace, and
+   generated-child symbol identities too. Reject or label analyzer substitutions. Require
+   successful setup, nonzero discovered cases and populated rows, equivalent workload
+   phases, and reconciled positive process/iteration/operation counts and units. The
+   per-operation denominator counts completed workload-phase operations, not setup or
+   harness work. A zero exit with all-`NA` rows, a zero-case filter, or an incomplete
+   denominator proves no performance result.
+
+16. **Expense categories need one denominator and a visible remainder.** Start from
+   exclusive CPU weight/counts and close them to the accepted scope, leaving unresolved
+   or unlisted work explicit. Report sampled allocation bytes/types and collector/GC work
+   separately, and distinguish result ownership, temporary/intermediate work, and cache
+   capacity. Matching, formatting, parsing, and growth can explain causes, but inclusive
+   causal paths overlap and must not be added to exclusive totals. Allocation share is not
+   an equal CPU-speedup opportunity, and cumulative allocation does not establish retention.
+
+17. **Capture completion and subject success are different facts.** Accept machine-readable
+   stdout only when that analyzer version isolates the capture result from child streams;
+   never recover an envelope by taking the last JSON-looking line from mixed output. Keep
+   child logs and record capture outcome separately from subject exit. Before launch or
+   handoff, retain the terminal/process handle and ETW session owner; retain failed and
+   partial attempts. Do not bypass reused-PID rejection by widening scope, and stop only
+   resources proven to belong to the run. A slow post-subject interval is a stop-boundary
+   delay until narrower evidence attributes it.
+
+18. **A useful iteration ends in a decision and a next question.** Begin with a read-only
+   orientation query, then the smallest drill that can falsify one hypothesis. Keep
+   uninstrumented timing separate and compare equivalent work with small, large, or
+   sustained controls as the suspected cost requires. Record keep, reject, or inconclusive,
+   plus identities, accepted scope/denominator, failed attempts, next hypothesis, blocker,
+   and standing authorization. Label unmet evidence as blocked and exhausted opportunity
+   as diminishing returns, then route to another eligible group. Do not automatically
+   recapture or turn the investigation into a general harness project, and judge efficacy
+   by decision quality and evidence use rather than claimed token savings or prose size.
 <!-- filtrace:end traps -->

@@ -37,7 +37,13 @@ internal static class DiffTextRenderer
     {
         RankingDiffResult diff = envelope.Result;
         string unit = metric.Unit;
-        string measureLabel = measure == Measure.Inclusive ? "inclusive-time" : "self-time";
+        string measureLabel = (metric == MetricInfo.CpuSamples, measure) switch
+        {
+            (true, Measure.Inclusive) => "inclusive-weight",
+            (true, _) => "self-weight",
+            (false, Measure.Inclusive) => "inclusive-time",
+            _ => "self-time"
+        };
 
         output.WriteLine(
             $"baseline  {before.Format}  {before.SampleCount} samples  symbols {before.SymbolResolutionRate:P0}");

@@ -948,6 +948,25 @@ function Test-FiniteJsonNumber([object] $Value) {
         [double]::IsFinite([double]$Value)
 }
 
+function ConvertTo-ValidatedSamplingCount(
+    [object] $Value,
+    [string] $Owner) {
+    if (
+        -not (Test-FiniteJsonNumber $Value) -or
+        [double]$Value -lt 0 -or
+        [double]$Value -ne [Math]::Truncate([double]$Value)
+    ) {
+        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+    }
+
+    try {
+        return [Convert]::ToInt64($Value, [Globalization.CultureInfo]::InvariantCulture)
+    }
+    catch {
+        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+    }
+}
+
 function Get-ValidatedProfileWarnings([object] $Envelope, [string] $Owner) {
     [object] $warningsProperty = $Envelope.PSObject.Properties['warnings']
     if (
@@ -988,6 +1007,176 @@ function Get-ValidatedProfileWarnings([object] $Envelope, [string] $Owner) {
     }
 }
 
+function Get-ValidatedCpuSampling(
+    [object] $Container,
+    [int] $SchemaVersion,
+    [string] $ExpectedWeightUnit,
+    [long] $ExpectedRecordCount,
+    [string] $Owner) {
+    if ($SchemaVersion -eq 16) {
+        if ($ExpectedWeightUnit -cne 'ms') {
+            throw "$Owner returned an unsupported legacy CPU weight unit '$ExpectedWeightUnit'."
+        }
+
+        return [ordered]@{
+            provenanceStatus = 'legacySchema16Metadata'
+            weightUnit = 'ms'
+            source = $null
+            timeWeightsEstablished = $null
+            unknownIntervalSampleCount = $null
+        }
+    }
+
+    [object] $cpuSamplingProperty = $Container.PSObject.Properties['cpuSampling']
+    if (
+        $null -eq $cpuSamplingProperty -or
+        $cpuSamplingProperty.Value -isnot [pscustomobject]
+    ) {
+        throw "$Owner omitted schema 17 CPU sampling provenance."
+    }
+    [object] $cpuSampling = $cpuSamplingProperty.Value
+    [object] $weightUnitProperty = $cpuSampling.PSObject.Properties['weightUnit']
+    [object] $sourceProperty = $cpuSampling.PSObject.Properties['source']
+    [object] $timeWeightsProperty = $cpuSampling.PSObject.Properties['timeWeightsEstablished']
+    [object] $unknownCountProperty = $cpuSampling.PSObject.Properties['unknownIntervalSampleCount']
+    [object] $intervalsProperty = $cpuSampling.PSObject.Properties['intervals']
+    if (
+        $null -eq $weightUnitProperty -or
+        [string]$weightUnitProperty.Value -cne $ExpectedWeightUnit -or
+        $ExpectedWeightUnit -cnotin @('ms', 'samples') -or
+        $null -eq $sourceProperty -or
+        [string]::IsNullOrWhiteSpace([string]$sourceProperty.Value) -or
+        $null -eq $timeWeightsProperty -or
+        $timeWeightsProperty.Value -isnot [bool] -or
+        $null -eq $unknownCountProperty -or
+        $null -eq $intervalsProperty -or
+        $null -eq $intervalsProperty.Value -or
+        $intervalsProperty.Value -isnot [array] -or
+        $intervalsProperty.Value.Count -gt 32 -or
+        $ExpectedRecordCount -lt 0
+    ) {
+        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+    }
+
+    [long] $unknownIntervalSampleCount = ConvertTo-ValidatedSamplingCount `
+        $unknownCountProperty.Value `
+        $Owner
+    [long] $retainedIntervalSampleCount = 0
+    foreach ($interval in $intervalsProperty.Value) {
+        if ($null -eq $interval) {
+            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        }
+
+        [object] $intervalProperty = $interval.PSObject.Properties['intervalMSec']
+        [object] $sampleCountProperty = $interval.PSObject.Properties['sampleCount']
+        if (
+            $null -eq $intervalProperty -or
+            -not (Test-FiniteJsonNumber $intervalProperty.Value) -or
+            [double]$intervalProperty.Value -le 0 -or
+            $null -eq $sampleCountProperty
+        ) {
+            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        }
+
+        [long] $sampleCount = ConvertTo-ValidatedSamplingCount `
+            $sampleCountProperty.Value `
+            $Owner
+        if (
+            $sampleCount -le 0 -or
+            $sampleCount -gt $ExpectedRecordCount -or
+            $retainedIntervalSampleCount -gt $ExpectedRecordCount - $sampleCount
+        ) {
+            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        }
+        $retainedIntervalSampleCount += $sampleCount
+    }
+
+    [object] $omittedSegmentsProperty = $cpuSampling.PSObject.Properties['omittedIntervalSegmentCount']
+    [object] $omittedSamplesProperty = $cpuSampling.PSObject.Properties['omittedIntervalSampleCount']
+    [object] $truncatedProperty = $cpuSampling.PSObject.Properties['intervalsTruncated']
+    [long] $omittedIntervalSegmentCount = if ($null -eq $omittedSegmentsProperty) {
+        0
+    }
+    else {
+        ConvertTo-ValidatedSamplingCount $omittedSegmentsProperty.Value $Owner
+    }
+    [long] $omittedIntervalSampleCount = if ($null -eq $omittedSamplesProperty) {
+        0
+    }
+    else {
+        ConvertTo-ValidatedSamplingCount $omittedSamplesProperty.Value $Owner
+    }
+    [bool] $intervalsTruncated = if ($null -eq $truncatedProperty) {
+        $false
+    }
+    elseif ($truncatedProperty.Value -is [bool]) {
+        $truncatedProperty.Value
+    }
+    else {
+        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+    }
+    if (
+        $intervalsTruncated -ne ($omittedIntervalSegmentCount -gt 0) -or
+        $omittedIntervalSampleCount -lt $omittedIntervalSegmentCount -or
+        ($omittedIntervalSegmentCount -eq 0 -and $omittedIntervalSampleCount -ne 0)
+    ) {
+        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+    }
+
+    [string] $source = [string]$sourceProperty.Value
+    [bool] $timeWeightsEstablished = [bool]$timeWeightsProperty.Value
+    [int] $intervalCount = $intervalsProperty.Value.Count
+    if ($ExpectedWeightUnit -ceq 'samples') {
+        if (
+            $timeWeightsEstablished -or
+            $source -cnotin @(
+                'unavailable',
+                'etw-perfinfo',
+                'speedscope-profile-declared-sample-weights') -or
+            ($source -cin @('unavailable', 'speedscope-profile-declared-sample-weights') -and
+                ($intervalCount -ne 0 -or $intervalsTruncated -or
+                    $unknownIntervalSampleCount -ne $ExpectedRecordCount)) -or
+            ($source -ceq 'etw-perfinfo' -and
+                ($intervalCount -eq 0 -or
+                    $unknownIntervalSampleCount -le 0 -or
+                    $unknownIntervalSampleCount -gt $ExpectedRecordCount))
+        ) {
+            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        }
+    }
+    elseif (
+        -not $timeWeightsEstablished -or
+        $unknownIntervalSampleCount -ne 0 -or
+        $source -cnotin @('etw-perfinfo', 'speedscope-profile-declared-time-weights') -or
+        ($source -ceq 'etw-perfinfo' -and $intervalCount -eq 0) -or
+        ($source -ceq 'speedscope-profile-declared-time-weights' -and
+            ($intervalCount -ne 0 -or $intervalsTruncated))
+    ) {
+        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+    }
+
+    if ($source -ceq 'etw-perfinfo') {
+        if (
+            $unknownIntervalSampleCount -gt $ExpectedRecordCount -or
+            $retainedIntervalSampleCount -gt $ExpectedRecordCount - $unknownIntervalSampleCount -or
+            $omittedIntervalSampleCount -gt
+                $ExpectedRecordCount - $unknownIntervalSampleCount - $retainedIntervalSampleCount -or
+            $retainedIntervalSampleCount + $omittedIntervalSampleCount +
+                $unknownIntervalSampleCount -ne $ExpectedRecordCount
+        ) {
+            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        }
+    }
+
+    return [ordered]@{
+        provenanceStatus = 'reported'
+        weightUnit = $ExpectedWeightUnit
+        source = $source
+        timeWeightsEstablished = $timeWeightsEstablished
+        unknownIntervalSampleCount = $unknownIntervalSampleCount
+    }
+}
+
 function Get-ValidatedProfileResult(
     [string] $AnalysisDirectory,
     [object] $Query,
@@ -1003,10 +1192,11 @@ function Get-ValidatedProfileResult(
     if (
         $null -eq $schemaProperty -or
         -not (Test-FiniteJsonNumber $schemaProperty.Value) -or
-        [double]$schemaProperty.Value -ne 16
+        [double]$schemaProperty.Value -notin @(16, 17)
     ) {
-        throw "Profile analysis '$AnalysisName' query '$($Query.id)' did not return schema 16."
+        throw "Profile analysis '$AnalysisName' query '$($Query.id)' did not return supported schema 16 or 17."
     }
+    [int] $schemaVersion = [int]$schemaProperty.Value
 
     [object] $validatedWarnings = Get-ValidatedProfileWarnings `
         $envelope `
@@ -1029,7 +1219,6 @@ function Get-ValidatedProfileResult(
 
     if ($ExpectedSummaryKind -ceq 'rank') {
         [string] $expectedMetric = $AnalysisName
-        [string] $expectedUnit = if ($AnalysisName -ceq 'cpu') { 'ms' } else { 'bytes' }
         [object] $operationProperty = $context.PSObject.Properties['operation']
         [object] $metricProperty = $context.PSObject.Properties['metric']
         [object] $unitProperty = $context.PSObject.Properties['unit']
@@ -1039,10 +1228,15 @@ function Get-ValidatedProfileResult(
             $null -eq $metricProperty -or
             [string]$metricProperty.Value -cne $expectedMetric -or
             $null -eq $unitProperty -or
-            [string]$unitProperty.Value -cne $expectedUnit
+            ($AnalysisName -ceq 'alloc' -and [string]$unitProperty.Value -cne 'bytes') -or
+            ($AnalysisName -ceq 'cpu' -and $schemaVersion -eq 16 -and
+                [string]$unitProperty.Value -cne 'ms') -or
+            ($AnalysisName -ceq 'cpu' -and $schemaVersion -eq 17 -and
+                [string]$unitProperty.Value -cnotin @('ms', 'samples'))
         ) {
             throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned the wrong rank context."
         }
+        [string] $weightUnit = [string]$unitProperty.Value
 
         [object] $rowsProperty = $result.PSObject.Properties['rows']
         if (
@@ -1091,6 +1285,24 @@ function Get-ValidatedProfileResult(
         elseif ($AnalysisName -cne 'alloc') {
             throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid rank scope totals."
         }
+        [object] $cpuSampling = if ($AnalysisName -ceq 'cpu') {
+            Get-ValidatedCpuSampling `
+                $context `
+                $schemaVersion `
+                $weightUnit `
+                $contributingRecordCount `
+                "Profile analysis '$AnalysisName' query '$($Query.id)'"
+        }
+        else {
+            $null
+        }
+        if (
+            $AnalysisName -ceq 'cpu' -and
+            $weightUnit -ceq 'samples' -and
+            [double]$scopeWeightProperty.Value -ne $contributingRecordCount
+        ) {
+            throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned invalid raw sample totals."
+        }
         foreach ($row in $rows) {
             [object] $frameProperty = $row.PSObject.Properties['frame']
             [object] $weightProperty = $row.PSObject.Properties['weight']
@@ -1109,11 +1321,23 @@ function Get-ValidatedProfileResult(
             ) {
                 throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned a malformed rank row."
             }
+            if (
+                $AnalysisName -ceq 'cpu' -and
+                $weightUnit -ceq 'samples' -and
+                ([double]$weightProperty.Value -ne
+                    [Math]::Truncate([double]$weightProperty.Value) -or
+                    [double]$weightProperty.Value -gt [double]$scopeWeightProperty.Value)
+            ) {
+                throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned a malformed raw sample row."
+            }
         }
 
         return [ordered]@{
             queryId = [string]$Query.id
             status = if ($qualityLimited) { 'insufficientQuality' } else { 'observed' }
+            schemaVersion = $schemaVersion
+            weightUnit = $weightUnit
+            cpuSampling = $cpuSampling
             scopeWeight = [double]$scopeWeightProperty.Value
             contributingRecordCount = if ($contributingRecordCountAvailable) {
                 $contributingRecordCount
@@ -1245,10 +1469,11 @@ function Get-AnalysisEvidence(
     if (
         $null -eq $schemaProperty -or
         -not (Test-FiniteJsonNumber $schemaProperty.Value) -or
-        [double]$schemaProperty.Value -ne 16
+        [double]$schemaProperty.Value -notin @(16, 17)
     ) {
-        throw "Profile analysis '$AnalysisName' did not return info schema 16."
+        throw "Profile analysis '$AnalysisName' did not return supported info schema 16 or 17."
     }
+    [int] $schemaVersion = [int]$schemaProperty.Value
     [object] $validatedInfoWarnings = Get-ValidatedProfileWarnings `
         $info `
         "Profile analysis '$AnalysisName' info"
@@ -1297,6 +1522,43 @@ function Get-AnalysisEvidence(
     if ($RequireEvents -and $eventCount -eq 0) {
         throw "Profile capture contained no $AnalysisName events."
     }
+    [object] $cpuSampling = $null
+    if ($AnalysisName -ceq 'cpu') {
+        [string] $infoWeightUnit = 'ms'
+        [long] $retainedSampleCount = 0
+        if ($schemaVersion -eq 17) {
+            [object] $sampleCountProperty = $resultProperty.Value.PSObject.Properties['sampleCount']
+            if ($null -eq $sampleCountProperty) {
+                throw "Profile analysis '$AnalysisName' info omitted its retained sample count."
+            }
+            $retainedSampleCount = ConvertTo-ValidatedSamplingCount `
+                $sampleCountProperty.Value `
+                "Profile analysis '$AnalysisName' info"
+            [object] $infoCpuSamplingProperty =
+                $resultProperty.Value.PSObject.Properties['cpuSampling']
+            [object] $infoWeightUnitProperty = if (
+                $null -eq $infoCpuSamplingProperty -or
+                $infoCpuSamplingProperty.Value -isnot [pscustomobject]
+            ) {
+                $null
+            }
+            else {
+                $infoCpuSamplingProperty.Value.PSObject.Properties['weightUnit']
+            }
+            $infoWeightUnit = if ($null -eq $infoWeightUnitProperty) {
+                ''
+            }
+            else {
+                [string]$infoWeightUnitProperty.Value
+            }
+        }
+        $cpuSampling = Get-ValidatedCpuSampling `
+            $resultProperty.Value `
+            $schemaVersion `
+            $infoWeightUnit `
+            $retainedSampleCount `
+            "Profile analysis '$AnalysisName' info"
+    }
 
     [System.Collections.Generic.List[object]] $summaries = @()
     [string] $summaryKind = if ($AnalysisName -ceq 'gcstats') { 'gc' } else { 'rank' }
@@ -1313,6 +1575,17 @@ function Get-AnalysisEvidence(
             $AnalysisName `
             $summaryKind))
     }
+    if (
+        $AnalysisName -ceq 'cpu' -and
+        @($summaries | Where-Object {
+            $_.schemaVersion -ne $schemaVersion -or
+            $_.weightUnit -cne $cpuSampling.weightUnit -or
+            $_.cpuSampling.source -cne $cpuSampling.source -or
+            $_.cpuSampling.timeWeightsEstablished -ne $cpuSampling.timeWeightsEstablished
+        }).Count -ne 0
+    ) {
+        throw "Profile analysis '$AnalysisName' returned inconsistent info and rank CPU sampling provenance."
+    }
     [bool] $qualityLimited = $validatedInfoWarnings.QualityLimited -or @(
         $summaries | Where-Object { $_.status -ceq 'insufficientQuality' }).Count -ne 0
     return [ordered]@{
@@ -1326,6 +1599,9 @@ function Get-AnalysisEvidence(
             'observed'
         }
         eventCount = $eventCount
+        schemaVersion = $schemaVersion
+        weightUnit = if ($null -eq $cpuSampling) { $null } else { $cpuSampling.weightUnit }
+        cpuSampling = $cpuSampling
         warnings = @($validatedInfoWarnings.Warnings)
         summaries = @($summaries)
         runPath = $runPath

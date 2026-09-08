@@ -78,6 +78,12 @@ internal static class DiffExecutor
             return ExitCodes.InputError;
         }
 
+        if (before.Aggregator.Metric != after.Aggregator.Metric)
+        {
+            error.WriteLine($"Cannot compare CPU weights in {before.Aggregator.Metric.Unit} with weights in {after.Aggregator.Metric.Unit}; both traces must establish the same unit.");
+            return ExitCodes.InputError;
+        }
+
         RankingResult beforeRanking = Rank(before, request.Measure, request.Root, request.Fold);
         RankingResult afterRanking = Rank(after, request.Measure, request.Root, request.Fold);
         RankingDiffResult fullDiff = RankingDiff.Diff(beforeRanking, afterRanking, request.Top);
@@ -103,7 +109,7 @@ internal static class DiffExecutor
             SteeringHints.ForDiff(diff),
             AnalysisContext.ForMetric(
                 "diff",
-                MetricInfo.Cpu,
+                before.Aggregator.Metric,
                 request.Measure == Measure.Inclusive ? "inclusive" : "self",
                 request.Root));
 
@@ -154,13 +160,15 @@ internal static class DiffExecutor
                     return trace;
                 });
 
+            MetricInfo metric = analysis.Metric;
+
             AnalysisResult<RankingDiffResult> envelope = new(
                 analysis.Result,
                 analysis.Warnings,
                 SteeringHints.ForDiff(analysis.Result),
                 AnalysisContext.ForMetric(
                     "diff",
-                    MetricInfo.Cpu,
+                    metric,
                     request.Measure == Measure.Inclusive ? "inclusive" : "self",
                     request.Root));
 
@@ -172,7 +180,7 @@ internal static class DiffExecutor
             {
                 DiffTextRenderer.RenderManifest(
                     envelope,
-                    MetricInfo.Cpu,
+                    metric,
                     request.Measure,
                     output);
             }

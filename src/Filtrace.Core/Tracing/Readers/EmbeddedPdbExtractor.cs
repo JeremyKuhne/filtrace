@@ -39,25 +39,44 @@ internal static class EmbeddedPdbExtractor
     private const int CopyBufferSize = 81920;
 
     /// <summary>
-    ///  Extracts every embedded portable PDB found in the DLLs of
-    ///  <paramref name="buildOutputDirectory"/> into a fresh temporary directory.
+    ///  Extracts every embedded portable PDB found in the build-output DLLs into a fresh temporary directory.
     /// </summary>
     /// <param name="buildOutputDirectory">A directory containing built managed assemblies.</param>
+    /// <param name="moduleScope">
+    ///  The relevant trace modules, or <see langword="null"/> to examine every assembly.
+    /// </param>
+    /// <param name="assemblyExamined">An optional observer invoked immediately before an assembly is opened.</param>
     /// <returns>
     ///  The temporary directory holding the extracted standalone PDBs, or
     ///  <see langword="null"/> when the directory does not exist or contains no
     ///  embedded PDBs. The caller owns the returned directory and should delete it
     ///  when finished.
     /// </returns>
-    public static string? Extract(string buildOutputDirectory)
+    public static string? Extract(
+        string buildOutputDirectory,
+        SymbolModuleScope? moduleScope = null,
+        Action<string>? assemblyExamined = null)
     {
         long remainingExtractedBytes = MaximumExtractedBytes;
-        return ExtractCore(buildOutputDirectory, ref remainingExtractedBytes);
+        return ExtractCore(buildOutputDirectory, ref remainingExtractedBytes, moduleScope, assemblyExamined);
     }
 
     private static string? ExtractCore(
         string buildOutputDirectory,
         ref long remainingExtractedBytes)
+    {
+        return ExtractCore(
+            buildOutputDirectory,
+            ref remainingExtractedBytes,
+            moduleScope: null,
+            assemblyExamined: null);
+    }
+
+    private static string? ExtractCore(
+        string buildOutputDirectory,
+        ref long remainingExtractedBytes,
+        SymbolModuleScope? moduleScope,
+        Action<string>? assemblyExamined)
     {
         if (string.IsNullOrEmpty(buildOutputDirectory) || !Directory.Exists(buildOutputDirectory))
         {
@@ -68,6 +87,12 @@ internal static class EmbeddedPdbExtractor
 
         foreach (string dll in Directory.EnumerateFiles(buildOutputDirectory, "*.dll"))
         {
+            if (moduleScope is not null && !moduleScope.IncludesAssembly(dll))
+            {
+                continue;
+            }
+
+            assemblyExamined?.Invoke(dll);
             string? temporaryPdbPath = null;
             try
             {

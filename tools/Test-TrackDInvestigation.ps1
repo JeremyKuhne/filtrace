@@ -48,7 +48,9 @@ try {
         'Get-BoundedAnalyzerFileIdentity',
         'Get-AnalyzerIdentity',
         'Test-FiniteJsonNumber',
+        'ConvertTo-ValidatedSamplingCount',
         'Get-ValidatedProfileWarnings',
+        'Get-ValidatedCpuSampling',
         'Get-ValidatedProfileResult',
         'Get-AnalysisEvidence')
     [object[]] $boundaryDefinitions = @(
@@ -108,22 +110,34 @@ try {
                 stdout = 'rank.json'
             })
     })
-    Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') ([ordered]@{
-        schemaVersion = 16
+    [object] $schema17SampleRank = [ordered]@{
+        schemaVersion = 17
         warnings = @()
-        context = [ordered]@{ operation = 'rank'; metric = 'cpu'; unit = 'ms' }
+        context = [ordered]@{
+            operation = 'rank'
+            metric = 'cpu'
+            unit = 'samples'
+            cpuSampling = [ordered]@{
+                weightUnit = 'samples'
+                source = 'unavailable'
+                timeWeightsEstablished = $false
+                unknownIntervalSampleCount = 128
+                intervals = @()
+            }
+        }
         result = [ordered]@{
             scopeWeight = 128
             contributingRecordCount = 128
             rows = @([ordered]@{ frame = 'Fake.Work'; weight = 128; percentOfScope = 100 })
         }
-    })
-    [string] $realInfoJson = @'
-{"schemaVersion":16,"warnings":[],"hints":[],"context":{"operation":"info"},"result":{"path":"capture.nettrace","format":"NetTrace","totalWeight":128,"sampleCount":128,"symbolResolutionRate":1,"threads":[{"thread":"4860","sampleCount":128}],"availableAnalyses":["cpu","alloc","gcstats"],"etlxCacheState":"converted","analyses":{"cpu":{"captureStatus":"enabled","eventCount":128},"gcstats":{"captureStatus":"enabled","eventCount":1}},"sourceResolution":{"searchedDirectories":[],"sampledManagedFrameCount":128,"mappedManagedFrameCount":0,"matchingPdbModules":[],"highestUnmappedModules":[],"highestUnmappedMethods":[]}}}
+    }
+    Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') $schema17SampleRank
+    [string] $schema17SampleInfoJson = @'
+{"schemaVersion":17,"warnings":[],"hints":[],"context":{"operation":"info"},"result":{"path":"capture.nettrace","format":"NetTrace","totalWeight":128,"sampleCount":128,"symbolResolutionRate":1,"threads":[{"thread":"4860","sampleCount":128}],"availableAnalyses":["cpu","alloc","gcstats"],"etlxCacheState":"converted","analyses":{"cpu":{"captureStatus":"enabled","eventCount":128},"gcstats":{"captureStatus":"enabled","eventCount":1}},"cpuSampling":{"weightUnit":"samples","source":"unavailable","timeWeightsEstablished":false,"unknownIntervalSampleCount":128,"intervals":[]},"sourceResolution":{"searchedDirectories":[],"sampledManagedFrameCount":128,"mappedManagedFrameCount":0,"matchingPdbModules":[],"highestUnmappedModules":[],"highestUnmappedMethods":[]}}}
 '@
     [System.IO.File]::WriteAllText(
         (Join-Path $analysisEvidenceDirectory 'info.json'),
-        $realInfoJson,
+        $schema17SampleInfoJson,
         $utf8)
     [System.Collections.IDictionary] $realShapeEvidence = Get-AnalysisEvidence `
         $analysisEvidenceDirectory `
@@ -131,15 +145,298 @@ try {
         $true
     Assert-True `
         ($realShapeEvidence.status -ceq 'observed' -and $realShapeEvidence.eventCount -eq 128) `
-        'Schema 16 result analyses did not produce observed CPU evidence.'
+        'Schema 17 result analyses did not produce observed CPU evidence.'
     Assert-True `
         ($realShapeEvidence.summaries[0].contributingRecordCount -eq 128 -and
             $realShapeEvidence.summaries[0].contributingRecordCountStatus -ceq 'available') `
         'CPU evidence did not retain its required contributing record count.'
+    Assert-True `
+        ($realShapeEvidence.schemaVersion -eq 17 -and
+            $realShapeEvidence.weightUnit -ceq 'samples' -and
+            $realShapeEvidence.cpuSampling.source -ceq 'unavailable' -and
+            -not $realShapeEvidence.cpuSampling.timeWeightsEstablished -and
+            $realShapeEvidence.summaries[0].scopeWeight -eq 128) `
+        'Schema 17 sample evidence did not preserve raw-count units and provenance.'
+
+    [object] $scopedInfo = $schema17SampleInfoJson | ConvertFrom-Json -Depth 32
+    $scopedInfo.result.analyses.cpu.eventCount = 512
+    Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $scopedInfo
+    [System.Collections.IDictionary] $scopedEvidence = Get-AnalysisEvidence `
+        $analysisEvidenceDirectory 'cpu' $true
+    Assert-True `
+        ($scopedEvidence.eventCount -eq 512 -and
+            $scopedEvidence.cpuSampling.unknownIntervalSampleCount -eq 128 -and
+            $scopedEvidence.summaries[0].contributingRecordCount -eq 128) `
+        'Scoped provenance was compared with capture-wide event counts.'
+
+    [object] $legacyInfo = $schema17SampleInfoJson | ConvertFrom-Json -Depth 32
+    $legacyInfo.schemaVersion = 16
+    $legacyInfo.result.PSObject.Properties.Remove('cpuSampling')
+    [object] $legacyRank = $schema17SampleRank | ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
+    $legacyRank.schemaVersion = 16
+    $legacyRank.context.unit = 'ms'
+    $legacyRank.context.PSObject.Properties.Remove('cpuSampling')
+    $legacyRank.result.scopeWeight = 64
+    $legacyRank.result.rows[0].weight = 64
+    Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $legacyInfo
+    Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') $legacyRank
+    [System.Collections.IDictionary] $legacyEvidence = Get-AnalysisEvidence `
+        $analysisEvidenceDirectory `
+        'cpu' `
+        $true
+    Assert-True `
+        ($legacyEvidence.schemaVersion -eq 16 -and
+            $legacyEvidence.weightUnit -ceq 'ms' -and
+            $legacyEvidence.cpuSampling.provenanceStatus -ceq 'legacySchema16Metadata' -and
+            $null -eq $legacyEvidence.cpuSampling.timeWeightsEstablished -and
+            $legacyEvidence.summaries[0].scopeWeight -eq 64) `
+        'Schema 16 CPU evidence was not retained as explicitly unqualified legacy metadata.'
+
+    [object] $millisecondsInfo = $schema17SampleInfoJson | ConvertFrom-Json -Depth 32
+    $millisecondsInfo.result.cpuSampling = [pscustomobject]@{
+        weightUnit = 'ms'
+        source = 'etw-perfinfo'
+        timeWeightsEstablished = $true
+        unknownIntervalSampleCount = 0
+        intervals = @([pscustomobject]@{ intervalMSec = 0.5; sampleCount = 128 })
+    }
+    [object] $millisecondsRank = $schema17SampleRank | ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
+    $millisecondsRank.context.unit = 'ms'
+    $millisecondsRank.context.cpuSampling = $millisecondsInfo.result.cpuSampling
+    $millisecondsRank.result.scopeWeight = 64
+    $millisecondsRank.result.rows[0].weight = 64
+    Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $millisecondsInfo
+    Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') $millisecondsRank
+    [System.Collections.IDictionary] $millisecondsEvidence = Get-AnalysisEvidence `
+        $analysisEvidenceDirectory `
+        'cpu' `
+        $true
+    Assert-True `
+        ($millisecondsEvidence.schemaVersion -eq 17 -and
+            $millisecondsEvidence.weightUnit -ceq 'ms' -and
+            $millisecondsEvidence.cpuSampling.source -ceq 'etw-perfinfo' -and
+            $millisecondsEvidence.cpuSampling.timeWeightsEstablished -and
+            $millisecondsEvidence.summaries[0].scopeWeight -eq 64) `
+        'Schema 17 millisecond evidence was rejected or normalized to sample counts.'
+
+    [object] $validEtwSampling = [pscustomobject]@{
+        cpuSampling = [pscustomobject]@{
+            weightUnit = 'samples'
+            source = 'etw-perfinfo'
+            timeWeightsEstablished = $false
+            unknownIntervalSampleCount = 27
+            intervals = @([pscustomobject]@{ intervalMSec = 0.5; sampleCount = 101 })
+        }
+    }
+    [object] $validatedEtwSampling = Get-ValidatedCpuSampling `
+        $validEtwSampling 17 'samples' 128 'valid ETW sampling'
+    Assert-True `
+        ($validatedEtwSampling.unknownIntervalSampleCount -eq 27) `
+        'Valid ETW sampling provenance was rejected or changed.'
+
+    [object] $knownEtwSampling = $validEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+    $knownEtwSampling.cpuSampling.weightUnit = 'ms'
+    $knownEtwSampling.cpuSampling.timeWeightsEstablished = $true
+    $knownEtwSampling.cpuSampling.unknownIntervalSampleCount = 0.0
+    $knownEtwSampling.cpuSampling.intervals[0].sampleCount = 27000.0
+    $knownEtwSampling.cpuSampling | Add-Member omittedIntervalSegmentCount 0.0
+    $knownEtwSampling.cpuSampling | Add-Member omittedIntervalSampleCount 0.0
+    $knownEtwSampling.cpuSampling | Add-Member intervalsTruncated $false
+    $null = Get-ValidatedCpuSampling `
+        $knownEtwSampling 17 'ms' 27000 'known ETW sampling'
+
+    foreach ($unitName in @('MS', 'SAMPLES')) {
+        [object] $caseVariantUnit = $knownEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+        $caseVariantUnit.cpuSampling.weightUnit = $unitName
+        [bool] $caseVariantUnitRejected = $false
+        try {
+            $null = Get-ValidatedCpuSampling $caseVariantUnit 17 $unitName 27000 'case-variant unit'
+        }
+        catch {
+            $caseVariantUnitRejected = $_.Exception.Message.Contains(
+                'incompatible schema 17 CPU sampling provenance',
+                [StringComparison]::Ordinal)
+        }
+        Assert-True $caseVariantUnitRejected "Noncanonical unit '$unitName' bypassed validation."
+    }
+
+    foreach ($weightUnit in @('samples', 'ms')) {
+        [object] $caseVariantSampling = $validEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+        $caseVariantSampling.cpuSampling.source = 'ETW-PERFINFO'
+        $caseVariantSampling.cpuSampling.weightUnit = $weightUnit
+        $caseVariantSampling.cpuSampling.timeWeightsEstablished = $weightUnit -ceq 'ms'
+        $caseVariantSampling.cpuSampling.unknownIntervalSampleCount = 0
+        $caseVariantSampling.cpuSampling.intervals = @()
+        [bool] $caseVariantRejected = $false
+        try {
+            $null = Get-ValidatedCpuSampling $caseVariantSampling 17 $weightUnit 128 'case-variant provenance'
+        }
+        catch {
+            $caseVariantRejected = $_.Exception.Message.Contains(
+                'incompatible schema 17 CPU sampling provenance',
+                [StringComparison]::Ordinal)
+        }
+        Assert-True $caseVariantRejected "Case-variant $weightUnit provenance bypassed exact validation."
+    }
+
+    [object] $speedscopeTimeSampling = [pscustomobject]@{
+        cpuSampling = [pscustomobject]@{
+            weightUnit = 'ms'
+            source = 'speedscope-profile-declared-time-weights'
+            timeWeightsEstablished = $true
+            unknownIntervalSampleCount = 0
+            intervals = @()
+        }
+    }
+    $null = Get-ValidatedCpuSampling `
+        $speedscopeTimeSampling 17 'ms' 128 'speedscope time sampling'
+
+    [object] $largeCountSampling = $validEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+    $largeCountSampling.cpuSampling.weightUnit = 'ms'
+    $largeCountSampling.cpuSampling.timeWeightsEstablished = $true
+    $largeCountSampling.cpuSampling.unknownIntervalSampleCount = 0
+    $largeCountSampling.cpuSampling.intervals[0].sampleCount = [double]3000000000
+    $null = Get-ValidatedCpuSampling `
+        $largeCountSampling 17 'ms' 3000000000 'large ETW sampling count'
+
+    [object] $truncatedSampling = $validEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+    $truncatedSampling.cpuSampling.weightUnit = 'ms'
+    $truncatedSampling.cpuSampling.timeWeightsEstablished = $true
+    $truncatedSampling.cpuSampling.unknownIntervalSampleCount = 0
+    $truncatedSampling.cpuSampling.intervals = @(
+        1..32 | ForEach-Object { [pscustomobject]@{ intervalMSec = [double]$_; sampleCount = 1.0 } })
+    $truncatedSampling.cpuSampling | Add-Member -NotePropertyName omittedIntervalSegmentCount -NotePropertyValue 1.0
+    $truncatedSampling.cpuSampling | Add-Member -NotePropertyName omittedIntervalSampleCount -NotePropertyValue 2.0
+    $truncatedSampling.cpuSampling | Add-Member -NotePropertyName intervalsTruncated -NotePropertyValue $true
+    $null = Get-ValidatedCpuSampling `
+        $truncatedSampling 17 'ms' 34 'truncated ETW sampling'
+
+    [object[]] $invalidIntervalCases = @(
+        @{ Name = 'null-segment'; Mutate = { param($sampling) $sampling.cpuSampling.intervals = @($null) } },
+        @{ Name = 'missing-interval'; Mutate = { param($sampling) $sampling.cpuSampling.intervals = @([pscustomobject]@{ sampleCount = 101 }) } },
+        @{ Name = 'missing-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals = @([pscustomobject]@{ intervalMSec = 0.5 }) } },
+        @{ Name = 'zero-interval'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].intervalMSec = 0 } },
+        @{ Name = 'negative-interval'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].intervalMSec = -0.5 } },
+        @{ Name = 'nan-interval'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].intervalMSec = [double]::NaN } },
+        @{ Name = 'infinite-interval'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].intervalMSec = [double]::PositiveInfinity } },
+        @{ Name = 'zero-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = 0 } },
+        @{ Name = 'negative-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = -1 } },
+        @{ Name = 'fractional-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = 100.5 } },
+        @{ Name = 'nan-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = [double]::NaN } },
+        @{ Name = 'infinite-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = [double]::PositiveInfinity } },
+        @{ Name = 'too-many-segments'; Mutate = { param($sampling) $sampling.cpuSampling.intervals = @(1..33 | ForEach-Object { [pscustomobject]@{ intervalMSec = 1; sampleCount = 1 } }) } },
+        @{ Name = 'retained-count-mismatch'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = 100 } },
+        @{ Name = 'null-omitted-segments'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount $null } },
+        @{ Name = 'negative-omitted-segments'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount -1 } },
+        @{ Name = 'nan-omitted-segments'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount ([double]::NaN) } },
+        @{ Name = 'fractional-omitted-samples'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSampleCount 1.5 } },
+        @{ Name = 'infinite-omitted-samples'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSampleCount ([double]::PositiveInfinity) } },
+        @{ Name = 'omitted-samples-without-segments'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSampleCount 1 } },
+        @{ Name = 'omission-without-truncation'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount 1 } },
+        @{ Name = 'omission-with-false-truncation'; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount 1
+            $sampling.cpuSampling | Add-Member omittedIntervalSampleCount 1
+            $sampling.cpuSampling | Add-Member intervalsTruncated $false
+        } },
+        @{ Name = 'truncation-without-omission'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member intervalsTruncated $true } },
+        @{ Name = 'too-few-omitted-samples'; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount 2
+            $sampling.cpuSampling | Add-Member omittedIntervalSampleCount 1
+            $sampling.cpuSampling | Add-Member intervalsTruncated $true
+        } },
+        @{ Name = 'non-boolean-truncation'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member intervalsTruncated 1 } })
+    foreach ($case in $invalidIntervalCases) {
+        [object] $invalidSampling = $validEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+        & $case.Mutate $invalidSampling
+        [bool] $invalidSamplingFailed = $false
+        try {
+            $null = Get-ValidatedCpuSampling $invalidSampling 17 'samples' 128 'invalid ETW sampling'
+        }
+        catch {
+            $invalidSamplingFailed = $_.Exception.Message.Contains(
+                'incompatible schema 17 CPU sampling provenance',
+                [StringComparison]::Ordinal)
+        }
+        Assert-True `
+            $invalidSamplingFailed `
+            "Invalid interval case '$($case.Name)' was accepted."
+    }
+
+    [object[]] $invalidCpuSamplingCases = @(
+        [pscustomobject]@{ Name = 'future-info-schema'; Mutate = {
+            param($info, $rank)
+            $info.schemaVersion = 18
+        }; Message = 'supported info schema 16 or 17' },
+        [pscustomobject]@{ Name = 'future-rank-schema'; Mutate = {
+            param($info, $rank)
+            $rank.schemaVersion = 18
+        }; Message = 'supported schema 16 or 17' },
+        [pscustomobject]@{ Name = 'unknown-info-unit'; Mutate = {
+            param($info, $rank)
+            $info.result.cpuSampling.weightUnit = 'ticks'
+        }; Message = 'incompatible schema 17 CPU sampling provenance' },
+        [pscustomobject]@{ Name = 'rank-unit-mismatch'; Mutate = {
+            param($info, $rank)
+            $rank.context.unit = 'ms'
+        }; Message = 'incompatible schema 17 CPU sampling provenance' },
+        [pscustomobject]@{ Name = 'sample-time-claim'; Mutate = {
+            param($info, $rank)
+            $rank.context.cpuSampling.timeWeightsEstablished = $true
+        }; Message = 'incompatible schema 17 CPU sampling provenance' },
+        [pscustomobject]@{ Name = 'unknown-source'; Mutate = {
+            param($info, $rank)
+            $info.result.cpuSampling.source = 'requested-interval'
+        }; Message = 'incompatible schema 17 CPU sampling provenance' },
+        [pscustomobject]@{ Name = 'info-count-mismatch'; Mutate = {
+            param($info, $rank)
+            $info.result.cpuSampling.unknownIntervalSampleCount = 127
+        }; Message = 'incompatible schema 17 CPU sampling provenance' },
+        [pscustomobject]@{ Name = 'rank-count-mismatch'; Mutate = {
+            param($info, $rank)
+            $rank.context.cpuSampling.unknownIntervalSampleCount = 127
+        }; Message = 'incompatible schema 17 CPU sampling provenance' },
+        [pscustomobject]@{ Name = 'raw-scope-mismatch'; Mutate = {
+            param($info, $rank)
+            $rank.result.scopeWeight = 127
+        }; Message = 'invalid raw sample totals' },
+        [pscustomobject]@{ Name = 'fractional-raw-row'; Mutate = {
+            param($info, $rank)
+            $rank.result.rows[0].weight = 127.5
+        }; Message = 'malformed raw sample row' },
+        [pscustomobject]@{ Name = 'info-rank-source-mismatch'; Mutate = {
+            param($info, $rank)
+            $rank.context.cpuSampling.source = 'speedscope-profile-declared-sample-weights'
+        }; Message = 'inconsistent info and rank CPU sampling provenance' })
+    foreach ($case in $invalidCpuSamplingCases) {
+        [object] $invalidInfo = $schema17SampleInfoJson | ConvertFrom-Json -Depth 32
+        [object] $invalidRank = $schema17SampleRank | ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
+        & $case.Mutate $invalidInfo $invalidRank
+        Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $invalidInfo
+        Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') $invalidRank
+        [bool] $invalidCpuSamplingFailed = $false
+        try {
+            $null = Get-AnalysisEvidence $analysisEvidenceDirectory 'cpu' $true
+        }
+        catch {
+            $invalidCpuSamplingFailed = $_.Exception.Message.Contains(
+                $case.Message,
+                [StringComparison]::Ordinal)
+        }
+        Assert-True `
+            $invalidCpuSamplingFailed `
+            "Invalid CPU sampling case '$($case.Name)' was accepted."
+    }
+
+    Write-Json `
+        (Join-Path $analysisEvidenceDirectory 'info.json') `
+        ($schema17SampleInfoJson | ConvertFrom-Json -Depth 32)
+    Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') $schema17SampleRank
 
     foreach ($validEventCount in @([int]128, [double]128, [long]::MaxValue, [double]0)) {
-        [object] $numericInfo = $realInfoJson | ConvertFrom-Json -Depth 32
-        $numericInfo.schemaVersion = [double]16
+        [object] $numericInfo = $schema17SampleInfoJson | ConvertFrom-Json -Depth 32
+        $numericInfo.schemaVersion = [double]17
         $numericInfo.result.analyses.cpu.eventCount = $validEventCount
         Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $numericInfo
         [System.Collections.IDictionary] $numericEvidence = Get-AnalysisEvidence `
@@ -149,11 +446,11 @@ try {
             'Valid numeric profile counts or schema identifiers were rejected or changed.'
     }
     [object[]] $invalidProfileNumbers = @(
-        @{ Member = 'schemaVersion'; Value = $null; Message = 'info schema 16' },
-        @{ Member = 'schemaVersion'; Value = '16'; Message = 'info schema 16' },
-        @{ Member = 'schemaVersion'; Value = $true; Message = 'info schema 16' },
-        @{ Member = 'schemaVersion'; Value = 16.4; Message = 'info schema 16' },
-        @{ Member = 'schemaVersion'; Value = [double]::PositiveInfinity; Message = 'info schema 16' },
+        @{ Member = 'schemaVersion'; Value = $null; Message = 'supported info schema 16 or 17' },
+        @{ Member = 'schemaVersion'; Value = '17'; Message = 'supported info schema 16 or 17' },
+        @{ Member = 'schemaVersion'; Value = $true; Message = 'supported info schema 16 or 17' },
+        @{ Member = 'schemaVersion'; Value = 17.4; Message = 'supported info schema 16 or 17' },
+        @{ Member = 'schemaVersion'; Value = [double]::PositiveInfinity; Message = 'supported info schema 16 or 17' },
         @{ Member = 'eventCount'; Value = $null; Message = 'valid event count' },
         @{ Member = 'eventCount'; Value = '128'; Message = 'valid event count' },
         @{ Member = 'eventCount'; Value = $true; Message = 'valid event count' },
@@ -163,7 +460,7 @@ try {
         @{ Member = 'eventCount'; Value = [double]::NaN; Message = 'valid event count' },
         @{ Member = 'eventCount'; Value = [double]9223372036854775808; Message = 'valid event count' })
     foreach ($invalidProfileNumber in $invalidProfileNumbers) {
-        [object] $numericInfo = $realInfoJson | ConvertFrom-Json -Depth 32
+        [object] $numericInfo = $schema17SampleInfoJson | ConvertFrom-Json -Depth 32
         if ($invalidProfileNumber.Member -ceq 'schemaVersion') {
             $numericInfo.schemaVersion = $invalidProfileNumber.Value
         }
@@ -172,15 +469,88 @@ try {
         }
         Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $numericInfo
         [bool] $invalidNumberFailed = $false
+        [string] $invalidNumberMessage = ''
         try {
             $null = Get-AnalysisEvidence $analysisEvidenceDirectory 'cpu' $false
         }
         catch {
+            $invalidNumberMessage = $_.Exception.Message
             $invalidNumberFailed = $_.Exception.Message.Contains(
                 $invalidProfileNumber.Message, [StringComparison]::Ordinal)
         }
-        Assert-True $invalidNumberFailed "Invalid profile number '$($invalidProfileNumber.Member)' was accepted."
+        Assert-True `
+            $invalidNumberFailed `
+            "Invalid profile number '$($invalidProfileNumber.Member)' value '$($invalidProfileNumber.Value)' type '$(if ($null -eq $invalidProfileNumber.Value) { '<null>' } else { $invalidProfileNumber.Value.GetType().FullName })' was accepted or rejected incorrectly. Actual: $invalidNumberMessage"
     }
+
+    [string] $realAnalyzerName = if ($IsWindows) { 'filtrace.exe' } else { 'filtrace' }
+    [string] $realAnalyzer = Join-Path `
+        $root `
+        "src/Filtrace/bin/Release/net10.0/$realAnalyzerName"
+    [string] $realEventPipeTrace = Join-Path `
+        $root `
+        'tests/Filtrace.Core.Tests/Fixtures/threadpool.nettrace'
+    Assert-True `
+        (Test-Path -LiteralPath $realAnalyzer -PathType Leaf) `
+        "Real analyzer smoke requires the Release CLI at '$realAnalyzer'."
+    Assert-True `
+        (Test-Path -LiteralPath $realEventPipeTrace -PathType Leaf) `
+        "Real analyzer smoke requires the EventPipe fixture at '$realEventPipeTrace'."
+    [string] $realAnalysisDirectory = Join-Path $temporaryRoot 'real-schema17-analysis'
+    [System.IO.Directory]::CreateDirectory($realAnalysisDirectory) | Out-Null
+    [string] $realInfoPath = Join-Path $realAnalysisDirectory 'info.json'
+    [string] $realInfoErrorPath = Join-Path $realAnalysisDirectory 'info.stderr.txt'
+    [string] $realRankPath = Join-Path $realAnalysisDirectory 'rank.json'
+    [string] $realRankErrorPath = Join-Path $realAnalysisDirectory 'rank.stderr.txt'
+    $null = Invoke-NativeText `
+        $realAnalyzer `
+        @('info', $realEventPipeTrace, '--format', 'json') `
+        $root `
+        'real schema 17 info smoke' `
+        $realInfoPath `
+        $realInfoErrorPath
+    $null = Invoke-NativeText `
+        $realAnalyzer `
+        @(
+            'rank', $realEventPipeTrace,
+            '--metric', 'cpu',
+            '--measure', 'self',
+            '--no-fold',
+            '--top', '20',
+            '--format', 'json') `
+        $root `
+        'real schema 17 rank smoke' `
+        $realRankPath `
+        $realRankErrorPath
+    Write-Json (Join-Path $realAnalysisDirectory 'run.json') ([ordered]@{
+        status = 'completed'
+        queries = @(
+            [ordered]@{
+                id = 'orientation'
+                operation = 'info'
+                status = 'completed'
+                stdout = 'info.json'
+            },
+            [ordered]@{
+                id = 'rank-self'
+                operation = 'rank'
+                status = 'completed'
+                stdout = 'rank.json'
+            })
+    })
+    [System.Collections.IDictionary] $realCliEvidence = Get-AnalysisEvidence `
+        $realAnalysisDirectory `
+        'cpu' `
+        $true
+    Assert-True `
+        ($realCliEvidence.schemaVersion -eq 17 -and
+            $realCliEvidence.weightUnit -ceq 'samples' -and
+            $realCliEvidence.cpuSampling.source -ceq 'unavailable' -and
+            -not $realCliEvidence.cpuSampling.timeWeightsEstablished -and
+            $realCliEvidence.eventCount -eq 11587 -and
+            $realCliEvidence.summaries[0].scopeWeight -eq
+                $realCliEvidence.summaries[0].contributingRecordCount) `
+        'The real current CLI EventPipe result did not retain raw sample-count semantics.'
 
     [string] $realAllocationRankJson = @'
 {"schemaVersion":16,"warnings":[],"context":{"operation":"rank","metric":"alloc","measure":"self","unit":"bytes"},"result":{"scopeWeight":34054816,"rootFrame":"","rows":[{"frame":"Filtrace.Tracing.Readers.TraceLogReader.ReadCore","weight":26442304,"percentOfScope":77.65}]}}
@@ -1013,7 +1383,7 @@ try {
             [pscustomobject]@{ Name = 'analysis-nonzero'; Mode = 'analysis-nonzero'; Message = 'exited with code 9' },
             [pscustomobject]@{ Name = 'analysis-malformed'; Mode = 'analysis-malformed'; Message = 'did not complete' },
             [pscustomobject]@{ Name = 'gc-absent'; Mode = 'gc-absent'; Message = 'omitted context or result' },
-            [pscustomobject]@{ Name = 'gc-malformed'; Mode = 'gc-malformed'; Message = 'did not return schema 16' },
+            [pscustomobject]@{ Name = 'gc-malformed'; Mode = 'gc-malformed'; Message = 'did not return supported schema 16 or 17' },
             [pscustomobject]@{ Name = 'gc-missing-records'; Mode = 'gc-missing-records'; Message = 'omitted GC records' },
             [pscustomobject]@{ Name = 'gc-scalar-records'; Mode = 'gc-scalar-records'; Message = 'omitted GC records' })
         foreach ($case in $postMeasurementFailures) {

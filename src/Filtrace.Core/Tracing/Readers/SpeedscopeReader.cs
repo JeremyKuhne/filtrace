@@ -7,15 +7,16 @@ using System.Text.Json;
 namespace Filtrace.Tracing.Readers;
 
 /// <summary>
-///  Reads standard evented or sampled time-based speedscope profiles
-///  (<c>.speedscope.json</c>) into CPU samples weighted in milliseconds.
+///  Reads standard evented or sampled speedscope profiles
+///  (<c>.speedscope.json</c>) into CPU samples weighted in milliseconds or raw samples.
 /// </summary>
 /// <remarks>
 ///  <para>
 ///   Evented profiles record frame open (<c>O</c>) and close (<c>C</c>) events;
 ///   sampled profiles record stacks and weights directly. Both normalize their
-///   declared time unit to milliseconds, the CPU metric the aggregator consumes.
-///   Each profile maps to one thread, and frame names are already symbol-resolved.
+///   declared time unit to milliseconds. Sampled profiles with <c>unit: none</c>
+///   retain raw sample weights. Each profile maps to one thread, and frame names
+///   are already symbol-resolved.
 ///  </para>
 /// </remarks>
 internal sealed class SpeedscopeReader : ITraceReader
@@ -45,6 +46,7 @@ internal sealed class SpeedscopeReader : ITraceReader
         List<SampleStack> samples = [];
         bool readEventedProfile = false;
         bool readSampledProfile = false;
+        MetricInfo? metric = null;
 
         if (root.TryGetProperty("profiles", out JsonElement profiles)
             && profiles.ValueKind == JsonValueKind.Array)
@@ -68,14 +70,16 @@ internal sealed class SpeedscopeReader : ITraceReader
                 if (string.Equals(type, "evented", StringComparison.Ordinal))
                 {
                     readEventedProfile = true;
-                    double millisecondsPerUnit = ResolveMillisecondsPerUnit(profile);
-                    ReadEventedProfile(profile, frameNames, samples, millisecondsPerUnit);
+                    (double weightMultiplier, MetricInfo profileMetric) = ResolveWeightUnit(profile, allowRawWeights: false);
+                    metric = ResolveCommonMetric(metric, profileMetric);
+                    ReadEventedProfile(profile, frameNames, samples, weightMultiplier);
                 }
                 else if (string.Equals(type, "sampled", StringComparison.Ordinal))
                 {
                     readSampledProfile = true;
-                    double millisecondsPerUnit = ResolveMillisecondsPerUnit(profile);
-                    ReadSampledProfile(profile, frameNames, samples, millisecondsPerUnit);
+                    (double weightMultiplier, MetricInfo profileMetric) = ResolveWeightUnit(profile, allowRawWeights: true);
+                    metric = ResolveCommonMetric(metric, profileMetric);
+                    ReadSampledProfile(profile, frameNames, samples, weightMultiplier);
                 }
             }
         }
@@ -103,8 +107,24 @@ internal sealed class SpeedscopeReader : ITraceReader
             _ => StackRecordSemantics.Unavailable
         };
 
+        MetricInfo resolvedMetric = metric ?? MetricInfo.CpuSamples;
+        bool timeWeightsEstablished = resolvedMetric == MetricInfo.Cpu;
+        string provenanceSource = (metric, timeWeightsEstablished) switch
+        {
+            (null, _) => "unavailable",
+            (_, true) => "speedscope-profile-declared-time-weights",
+            _ => "speedscope-profile-declared-sample-weights"
+        };
+
         return new TraceReadResult(
             samples,
+            resolvedMetric,
+            new CpuSampleProvenance(
+                resolvedMetric.Unit,
+                provenanceSource,
+                timeWeightsEstablished,
+                UnknownIntervalSampleCount: timeWeightsEstablished ? 0 : samples.Count,
+                Intervals: []),
             1.0,
             warnings,
             recordSemantics,
@@ -136,7 +156,7 @@ internal sealed class SpeedscopeReader : ITraceReader
         JsonElement profile,
         string[] frameNames,
         List<SampleStack> samples,
-        double millisecondsPerUnit)
+        double weightMultiplier)
     {
         if (!profile.TryGetProperty("events", out JsonElement events)
             || events.ValueKind != JsonValueKind.Array)
@@ -157,7 +177,7 @@ internal sealed class SpeedscopeReader : ITraceReader
 
             if (lastAt is double previous && stack.Count > 0)
             {
-                double delta = (at - previous) * millisecondsPerUnit;
+                double delta = (at - previous) * weightMultiplier;
                 if (delta > 0)
                 {
                     string[] frames = new string[stack.Count];
@@ -198,7 +218,7 @@ internal sealed class SpeedscopeReader : ITraceReader
         JsonElement profile,
         string[] frameNames,
         List<SampleStack> samples,
-        double millisecondsPerUnit)
+        double weightMultiplier)
     {
         if (!profile.TryGetProperty("samples", out JsonElement profileSamples)
             || profileSamples.ValueKind != JsonValueKind.Array)
@@ -223,8 +243,8 @@ internal sealed class SpeedscopeReader : ITraceReader
             }
 
             double weight = hasWeights && sampleIndex < weights.GetArrayLength()
-                ? weights[sampleIndex].GetDouble() * millisecondsPerUnit
-                : millisecondsPerUnit;
+                ? weights[sampleIndex].GetDouble() * weightMultiplier
+                : weightMultiplier;
 
             sampleIndex++;
             if (weight <= 0.0)
@@ -249,7 +269,20 @@ internal sealed class SpeedscopeReader : ITraceReader
         }
     }
 
-    private static double ResolveMillisecondsPerUnit(JsonElement profile)
+    private static MetricInfo ResolveCommonMetric(MetricInfo? metric, MetricInfo profileMetric)
+    {
+        if (metric is not null && metric != profileMetric)
+        {
+            throw new NotSupportedException(
+                $"Speedscope CPU input cannot mix weights in {metric.Unit} with weights in {profileMetric.Unit}.");
+        }
+
+        return profileMetric;
+    }
+
+    private static (double WeightMultiplier, MetricInfo Metric) ResolveWeightUnit(
+        JsonElement profile,
+        bool allowRawWeights)
     {
         string unit = profile.TryGetProperty("unit", out JsonElement profileUnit)
             ? profileUnit.GetString() ?? ""
@@ -257,12 +290,15 @@ internal sealed class SpeedscopeReader : ITraceReader
 
         return unit switch
         {
-            "nanoseconds" => 0.000001,
-            "microseconds" => 0.001,
-            "milliseconds" => 1.0,
-            "seconds" => 1000.0,
+            "nanoseconds" => (0.000001, MetricInfo.Cpu),
+            "microseconds" => (0.001, MetricInfo.Cpu),
+            "milliseconds" => (1.0, MetricInfo.Cpu),
+            "seconds" => (1000.0, MetricInfo.Cpu),
+            "none" when allowRawWeights => (1.0, MetricInfo.CpuSamples),
             _ => throw new NotSupportedException(
-                $"Speedscope CPU input requires a time unit (nanoseconds, microseconds, milliseconds, or seconds); found '{unit}'.")
+                allowRawWeights
+                    ? $"Speedscope sampled CPU input requires a time unit (nanoseconds, microseconds, milliseconds, or seconds) or raw weights (none); found '{unit}'."
+                    : $"Speedscope evented CPU input requires a time unit (nanoseconds, microseconds, milliseconds, or seconds); found '{unit}'.")
         };
     }
 }

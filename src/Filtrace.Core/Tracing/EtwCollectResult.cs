@@ -71,17 +71,13 @@ public sealed class EtwCollectResult
     public required string ClrKeywords { get; init; }
 
     /// <summary>
-    ///  The CPU sample interval this capture asked for and the one the operating system
-    ///  will honor, with the bounds it reported.
+    ///  The requested CPU sample interval, its clamp, and the reported operating-system bounds.
     /// </summary>
     /// <remarks>
     ///  <para>
-    ///   Windows accepts and echoes back any interval but only honors it inside the
-    ///   profile source's bounds, so the applied rate cannot be read back from the
-    ///   session - it is derived from those bounds. When
-    ///   <see cref="CpuSampleInterval.Clamped"/> is set the capture sampled at a
-    ///   different rate than requested, and every weight derived from it is scaled to
-    ///   the effective interval rather than the requested one.
+    ///   This is configuration provenance, not evidence of the physical interval for
+    ///   every sample. CPU analysis derives time weights from recorded interval events
+    ///   and uses raw sample counts when that evidence is incomplete.
     ///  </para>
     /// </remarks>
     public required CpuSampleInterval CpuSample { get; init; }
