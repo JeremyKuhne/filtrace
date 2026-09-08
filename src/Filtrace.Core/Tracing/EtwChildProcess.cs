@@ -37,7 +37,7 @@ internal static class EtwChildProcess
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Failed to launch '{startInfo.FileName}'.");
 
-        object writeLock = new();
+        Lock writeLock = new();
         using CancellationTokenSource drainCancellation = new();
         Task outputDrain = Task.CompletedTask;
         if (standardOutput is not null)
@@ -96,6 +96,7 @@ internal static class EtwChildProcess
             exitCode = -1;
         }
 
+        DateTimeOffset stoppedUtc = DateTimeOffset.UtcNow;
         Task drains = Task.WhenAll(outputDrain, errorDrain);
         if (!WaitForCompletion(drains, s_postExitDrainGrace))
         {
@@ -118,14 +119,14 @@ internal static class EtwChildProcess
         }
 
         GetDrainResult(drains);
-        return new EtwInvocation(ordinal, process.Id, exitCode, startedUtc, DateTimeOffset.UtcNow);
+        return new EtwInvocation(ordinal, process.Id, exitCode, startedUtc, stoppedUtc);
     }
 
     private static async Task ForwardAsync(
         StreamReader reader,
         TextWriter writer,
         string streamName,
-        object writeLock,
+        Lock writeLock,
         CancellationToken cancellationToken)
     {
         char[] buffer = new char[4096];

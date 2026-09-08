@@ -149,8 +149,10 @@ embeds the marked block below verbatim in its
 14. **Wall clock is not CPU, and inclusive rows do not add up.** A process blocked in the
    loader or waiting on a child owns no samples while it waits, so sampled CPU cannot
    explain a command whose elapsed time exceeds it - derive the phases from kernel process
-   and image events (`lifecycle`) instead, and treat the gap between a root's lifetime and
-   its sampled CPU as the blocked time. Report CPU milliseconds only when the trace and
+   and image events (`lifecycle`) instead. A gap between lifetime and estimated sampled
+   CPU is non-CPU or unattributed elapsed, not proof of blocking; scheduling, idle time,
+   unsampled work, and instrumentation can contribute. Use thread-time, wait, or contention
+   evidence before identifying blocked time. Report CPU milliseconds only when the trace and
    analyzer establish recorded interval provenance and interval-aware weighting. Older
    fixed-weight versions and unknown intervals support qualified counts/weights, not
    invented milliseconds, and wall clock times sample share is not a substitute.

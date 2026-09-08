@@ -109,13 +109,7 @@ public sealed class EtwChildProcessTests
             $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
             $startInfo.FileName = "$PSHOME\powershell.exe"
             $startInfo.UseShellExecute = $false
-            $startInfo.ArgumentList.Add('-NoLogo')
-            $startInfo.ArgumentList.Add('-NoProfile')
-            $startInfo.ArgumentList.Add('-NonInteractive')
-            $startInfo.ArgumentList.Add('-ExecutionPolicy')
-            $startInfo.ArgumentList.Add('Bypass')
-            $startInfo.ArgumentList.Add('-File')
-            $startInfo.ArgumentList.Add($DescendantScript)
+            $startInfo.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$DescendantScript`""
             $descendant = [System.Diagnostics.Process]::Start($startInfo)
             $descendant.Id | Set-Content -LiteralPath $DescendantPidPath -Encoding ascii
             $descendant.Dispose()
@@ -141,6 +135,7 @@ public sealed class EtwChildProcessTests
             descendantPid = int.Parse(File.ReadAllText(descendantPidPath));
             result.ExitCode.Should().Be(23);
             stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(15));
+            (DateTimeOffset.UtcNow - result.StoppedUtc).Should().BeGreaterThan(TimeSpan.FromSeconds(1));
             string log = subjectLog.ToString();
             log.Should().Contain("[subject stdout]");
             log.Should().Contain("[subject stderr]");

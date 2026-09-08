@@ -447,8 +447,9 @@ are wrong. Work in this order.
 
 6. **Split the wall clock before ranking CPU.** `lifecycle` attributes the parts sampled
    CPU cannot see - time before the first child started, the child span, teardown. A
-   command whose wall clock far exceeds its sampled CPU was blocked, and no CPU ranking
-   will show you where.
+  command whose wall clock exceeds estimated sampled CPU has non-CPU or unattributed
+  elapsed time. That gap does not establish blocking; use thread-time, wait, or
+  contention evidence to distinguish it from scheduling, idle time, or unsampled work.
 
 7. **Then rank, and rank inclusive for a Native AOT parent.** Self-time finds the hot
    leaf; a Native AOT host's cost lives in ancestors that self-time never surfaces.

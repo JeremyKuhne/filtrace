@@ -8,8 +8,7 @@ using Filtrace.Output;
 namespace Filtrace.Tracing;
 
 /// <summary>
-///  The CPU sample interval a capture asked for and the one it will actually get, with
-///  the bounds the operating system reported.
+///  The requested CPU sample interval and its clamp to operating-system bounds.
 /// </summary>
 /// <remarks>
 ///  <para>
@@ -21,16 +20,15 @@ namespace Filtrace.Tracing;
 ///   0.03125 ms fewer still - the same rate, not twice and four times it.
 ///  </para>
 ///  <para>
-///   So the interval a caller gets cannot be read back; it has to be derived from the
-///   bounds. That is what this carries, and why <see cref="Clamped"/> is worth
-///   reporting: a capture that silently sampled eight times slower than requested
-///   produces a ranking whose weights are wrong by that factor.
+///   These values describe capture configuration, not proof of the physical interval
+///   for every recorded sample. Analysis uses trace-recorded interval evidence and
+///   reports raw samples when that evidence is incomplete.
 ///  </para>
 /// </remarks>
 /// <param name="RequestedMSec">The interval the caller asked for.</param>
-/// <param name="EffectiveMSec">The interval the operating system will honor.</param>
-/// <param name="MinimumMSec">The smallest interval the profile source honors.</param>
-/// <param name="MaximumMSec">The largest interval the profile source honors.</param>
+/// <param name="EffectiveMSec">The requested interval clamped to the reported bounds.</param>
+/// <param name="MinimumMSec">The minimum interval reported by the profile source.</param>
+/// <param name="MaximumMSec">The maximum interval reported by the profile source.</param>
 public sealed record CpuSampleInterval(
     [property: JsonConverter(typeof(SubMillisecondDoubleConverter))] double RequestedMSec,
     [property: JsonConverter(typeof(SubMillisecondDoubleConverter))] double EffectiveMSec,
@@ -38,7 +36,7 @@ public sealed record CpuSampleInterval(
     [property: JsonConverter(typeof(SubMillisecondDoubleConverter))] double MaximumMSec)
 {
     /// <summary>
-    ///  Whether the operating system will sample at a different rate than requested.
+    ///  Whether the requested interval was clamped to the reported bounds.
     /// </summary>
     public bool Clamped => RequestedMSec != EffectiveMSec;
 }
