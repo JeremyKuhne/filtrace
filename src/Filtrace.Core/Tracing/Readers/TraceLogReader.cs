@@ -55,6 +55,12 @@ internal abstract class TraceLogReader : ITraceReader
         EtlxCacheState cacheState;
         using EtlxTraceLog traceLog = OpenTraceLog(path, out cacheState);
 
+        // Resolve exact process instances before any directory scan or module lookup.
+        // Module selection then follows those instances' load lifetimes, with sampled
+        // frames retaining shared runtime helpers that the selected workload used.
+        ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
+        SymbolModuleScope? symbolScope = null;
+
         // Local-only symbol reader: an empty symbol path never reaches a symbol
         // server, but portable PDBs sitting next to a traced module still
         // resolve, which is all the managed touki frames need for line-level
@@ -69,7 +75,7 @@ internal abstract class TraceLogReader : ITraceReader
         // TraceEvent can match a module by its PDB GUID and resolve source lines.
         string? extractedPdbDirectory = symbolsDirectory is null
             ? null
-            : EmbeddedPdbExtractor.Extract(symbolsDirectory);
+            : EmbeddedPdbExtractor.Extract(symbolsDirectory, symbolScope ??= SymbolModuleScope.Create(traceLog, resolved));
 
         string? localSymbolPath = null;
 
@@ -96,7 +102,7 @@ internal abstract class TraceLogReader : ITraceReader
             NativeSymbolInfo? nativeSymbols = localSymbolPath is null
                 ? null
                 : NativeSymbolResolution.CreateInfo(
-                    NativeSymbolResolution.ResolveLocal(traceLog, symbolReader, symbolsDirectory));
+                    NativeSymbolResolution.ResolveLocal(traceLog, symbolReader, symbolsDirectory, symbolScope));
 
             // Opt-in native runtime symbols: point the reader at the Microsoft public
             // symbol server (a local cache fronting it) and resolve the unmanaged
@@ -105,17 +111,9 @@ internal abstract class TraceLogReader : ITraceReader
             // and deterministic; managed frames resolve from the rundown regardless.
             if (symbolOptions is { ResolveNativeRuntime: true })
             {
-                ResolveNativeRuntimeSymbols(traceLog, symbolReader, symbolOptions);
+                symbolScope ??= SymbolModuleScope.Create(traceLog, resolved);
+                ResolveNativeRuntimeSymbols(traceLog, symbolReader, symbolOptions, symbolScope);
             }
-
-            // Resolve the scope intent (an explicit selector, the busiest process under
-            // the automatic default, or every process when opted out) to exact process
-            // instances. A null request means "unspecified", which is the
-            // automatic default - the same as ScopeRequest.Auto - so a caller that passes
-            // nothing still gets scenario scope. Null instance membership means no
-            // scoping (the all-processes opt-out). This is lossless: the trace is fully
-            // symbol-resolved by EtlxTraceLog before any sample is dropped.
-            ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
 
             // When an activity scope is requested, pre-pass the trace to find which CPU
             // samples were taken inside that activity (or one nested under it), so the
@@ -568,10 +566,17 @@ internal abstract class TraceLogReader : ITraceReader
     ///   whole read.
     ///  </para>
     /// </remarks>
-    private static void ResolveNativeRuntimeSymbols(
+    /// <param name="traceLog">The trace whose selected runtime modules are resolved.</param>
+    /// <param name="symbolReader">The symbol reader to configure and use.</param>
+    /// <param name="options">The explicit network opt-in and cache directory.</param>
+    /// <param name="moduleScope">The modules relevant to the selected process instances.</param>
+    /// <param name="lookup">An optional deterministic lookup replacement used by tests.</param>
+    internal static void ResolveNativeRuntimeSymbols(
         EtlxTraceLog traceLog,
         SymbolReader symbolReader,
-        SymbolOptions options)
+        SymbolOptions options,
+        SymbolModuleScope moduleScope,
+        Action<TraceModuleFile>? lookup = null)
     {
         string cacheDirectory = options.CacheDirectory ?? SymbolOptions.DefaultCacheDirectory;
         Directory.CreateDirectory(cacheDirectory);
@@ -586,14 +591,21 @@ internal abstract class TraceLogReader : ITraceReader
 
         foreach (TraceModuleFile moduleFile in traceLog.ModuleFiles)
         {
-            if (!IsRuntimeModule(moduleFile.Name))
+            if (!moduleScope.Includes(moduleFile) || !IsRuntimeModule(moduleFile.Name))
             {
                 continue;
             }
 
             try
             {
-                traceLog.CodeAddresses.LookupSymbolsForModule(symbolReader, moduleFile);
+                if (lookup is null)
+                {
+                    traceLog.CodeAddresses.LookupSymbolsForModule(symbolReader, moduleFile);
+                }
+                else
+                {
+                    lookup(moduleFile);
+                }
             }
             catch (Exception ex) when (ex is not (OutOfMemoryException or AccessViolationException))
             {

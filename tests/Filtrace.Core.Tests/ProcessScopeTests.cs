@@ -144,6 +144,26 @@ public sealed class ProcessScopeValidationTests
     }
 
     [TestMethod]
+    public void ResolveProcessInstanceIndexes_NameScope_KeepsSameNamedReusedPidInstancesOnly()
+    {
+        ProcessTree.ProcessInstanceDescriptor[] processes =
+        [
+            new(1, 42, "App", ParentIndex: null),
+            new(2, 42, "Unrelated", ParentIndex: null),
+            new(3, 42, "App", ParentIndex: null)
+        ];
+
+        ProcessTree.ProcessInstanceSelection selection = ProcessTree.ResolveProcessInstanceIndexes(
+            processes,
+            new ProcessNameSelector("App"),
+            includeChildren: false);
+
+        selection.RootIndexes.Should().BeEquivalentTo([1, 3]);
+        selection.IncludedIndexes.Should().BeEquivalentTo([1, 3]);
+        selection.IncludedIndexes.Should().NotContain(2);
+    }
+
+    [TestMethod]
     public void ResolveProcessInstanceIndexes_NameScopeExcludesIdleProcess()
     {
         ProcessTree.ProcessInstanceDescriptor[] processes =
@@ -440,6 +460,67 @@ public sealed class ScopeRequestTests
 public sealed class ProcessScopeTests
 {
     private static string EtwFixture => Path.Join(AppContext.BaseDirectory, "Fixtures", "etw.etl");
+
+    [TestMethod]
+    public void SymbolModuleScope_Create_IncludesSelectedModulesAndExcludesUnrelatedModule()
+    {
+        using EtlxTraceLog traceLog = EtlxTraceLog.OpenOrConvert(EtwFixture);
+        ScopeResolution resolution = ProcessTree.ResolveScope(
+            traceLog,
+            ScopeRequest.ForProcess("HotLoopBench-Job", includeChildren: false));
+
+        TraceModuleFile[] loadedModules = [.. traceLog.Processes
+            .Where(resolution.Includes)
+            .SelectMany(static process => process.LoadedModules)
+            .Select(static module => module.ModuleFile)
+            .OfType<TraceModuleFile>()];
+
+        List<TraceModuleFile> sampledModules = [];
+        foreach (TraceEvent data in traceLog.Events)
+        {
+            if (!resolution.Includes(data) || data is not (SampledProfileTraceData or ClrThreadSampleTraceData))
+            {
+                continue;
+            }
+
+            for (TraceCallStack? frame = data.CallStack(); frame is not null; frame = frame.Caller)
+            {
+                if (frame.CodeAddress.ModuleFile is TraceModuleFile moduleFile)
+                {
+                    sampledModules.Add(moduleFile);
+                }
+            }
+        }
+
+        HashSet<int> selectedModuleIndexes = [.. loadedModules
+            .Concat(sampledModules)
+            .Select(static module => (int)module.ModuleFileIndex)];
+
+        HashSet<int> loadedModuleIndexes = [.. loadedModules
+            .Select(static module => (int)module.ModuleFileIndex)];
+
+        TraceModuleFile[] sampledOnlyModules = [.. sampledModules
+            .Where(module => !loadedModuleIndexes.Contains((int)module.ModuleFileIndex))
+            .DistinctBy(static module => module.ModuleFileIndex)];
+
+        TraceModuleFile? unrelatedModule = traceLog.Processes
+            .Where(process => !resolution.Includes(process))
+            .SelectMany(static process => process.LoadedModules)
+            .Select(static module => module.ModuleFile)
+            .OfType<TraceModuleFile>()
+            .FirstOrDefault(module => !selectedModuleIndexes.Contains((int)module.ModuleFileIndex));
+
+        loadedModules.Should().NotBeEmpty("the selected fixture process records image-load metadata");
+        sampledModules.Should().NotBeEmpty("the selected fixture process has sampled stack modules");
+        sampledOnlyModules.Should().NotBeEmpty("the fixture has sampled modules absent from image-load metadata");
+        unrelatedModule.Should().NotBeNull("the fixture records a module unique to an excluded process");
+
+        SymbolModuleScope moduleScope = SymbolModuleScope.Create(traceLog, resolution);
+
+        loadedModules.Should().OnlyContain(module => moduleScope.Includes(module));
+        sampledOnlyModules.Should().OnlyContain(module => moduleScope.Includes(module));
+        moduleScope.Includes(unrelatedModule!).Should().BeFalse();
+    }
 
     // The load path treats a null request as the automatic busiest-process default,
     // so tests that want the whole capture pass ScopeRequest.AllProcesses explicitly.
