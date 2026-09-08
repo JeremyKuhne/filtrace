@@ -18,7 +18,7 @@ namespace Filtrace.Tracing;
 /// <param name="UnknownIntervalSampleCount">
 ///  Number of included periodic CPU samples for which no interval was recorded.
 /// </param>
-/// <param name="Intervals">Trace-recorded ETW timer intervals applied to included samples.</param>
+/// <param name="Intervals">Trace-recorded ETW timer intervals associated with included samples.</param>
 public sealed record CpuSampleProvenance(
     string WeightUnit,
     string Source,

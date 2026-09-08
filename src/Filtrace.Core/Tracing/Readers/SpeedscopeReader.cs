@@ -107,16 +107,21 @@ internal sealed class SpeedscopeReader : ITraceReader
             _ => StackRecordSemantics.Unavailable
         };
 
-        MetricInfo resolvedMetric = metric ?? MetricInfo.Cpu;
+        MetricInfo resolvedMetric = metric ?? MetricInfo.CpuSamples;
         bool timeWeightsEstablished = resolvedMetric == MetricInfo.Cpu;
+        string provenanceSource = (metric, timeWeightsEstablished) switch
+        {
+            (null, _) => "unavailable",
+            (_, true) => "speedscope-profile-declared-time-weights",
+            _ => "speedscope-profile-declared-sample-weights"
+        };
+
         return new TraceReadResult(
             samples,
             resolvedMetric,
             new CpuSampleProvenance(
                 resolvedMetric.Unit,
-                timeWeightsEstablished
-                    ? "speedscope-profile-declared-time-weights"
-                    : "speedscope-profile-declared-sample-weights",
+                provenanceSource,
                 timeWeightsEstablished,
                 UnknownIntervalSampleCount: timeWeightsEstablished ? 0 : samples.Count,
                 Intervals: []),

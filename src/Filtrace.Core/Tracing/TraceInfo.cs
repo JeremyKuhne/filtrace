@@ -102,9 +102,9 @@ public sealed class TraceInfo
     /// <summary>
     ///  Sum of the per-sample weights across all samples, in the source metric's
     ///  unit - milliseconds or raw samples for a CPU trace, bytes for an allocation
-    ///  trace, one count per event for the exceptions trace. For CPU this is busy
-    ///  time, not wall-clock: because every thread's samples are included, the value
-    ///  can exceed the trace's wall-clock span when multiple threads ran concurrently.
+    ///  trace, one count per event for the exceptions trace. CPU weights in milliseconds
+    ///  estimate busy time, not wall-clock time, and can exceed the trace span when
+    ///  multiple threads ran concurrently. Raw CPU sample counts are not a duration.
     /// </summary>
     public double TotalWeight { get; }
 

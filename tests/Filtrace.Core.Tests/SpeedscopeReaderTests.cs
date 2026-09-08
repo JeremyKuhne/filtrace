@@ -133,6 +133,20 @@ public sealed class SpeedscopeReaderTests
     }
 
     [TestMethod]
+    [DataRow("{}")]
+    [DataRow("{\"profiles\":[]}")]
+    [DataRow("{\"profiles\":[{\"type\":\"extension\",\"unit\":\"milliseconds\"}]}")]
+    public void Read_NoRecognizedProfile_ReportsUnavailableProvenance(string json)
+    {
+        LoadedTrace trace = Read(json);
+
+        trace.Source.Metric.Should().Be(MetricInfo.CpuSamples);
+        trace.Info.SampleCount.Should().Be(0);
+        trace.Info.CpuSampling!.Source.Should().Be("unavailable");
+        trace.Info.CpuSampling.TimeWeightsEstablished.Should().BeFalse();
+    }
+
+    [TestMethod]
     public void Read_EmptySupportedProfile_ReportsCpuEnabledZero()
     {
         const string json = """
@@ -143,6 +157,9 @@ public sealed class SpeedscopeReaderTests
 
         trace.Info.Analyses["cpu"].Should().Be(
             new AnalysisAvailability(FormatSupported: true, CaptureStatus.Enabled, 0));
+
+        trace.Info.CpuSampling!.Source.Should().Be("speedscope-profile-declared-time-weights");
+        trace.Info.CpuSampling.TimeWeightsEstablished.Should().BeTrue();
     }
 
     [TestMethod]
