@@ -1043,7 +1043,7 @@ function Get-ValidatedCpuSampling(
     if (
         $null -eq $weightUnitProperty -or
         [string]$weightUnitProperty.Value -cne $ExpectedWeightUnit -or
-        $ExpectedWeightUnit -notin @('ms', 'samples') -or
+        $ExpectedWeightUnit -cnotin @('ms', 'samples') -or
         $null -eq $sourceProperty -or
         [string]::IsNullOrWhiteSpace([string]$sourceProperty.Value) -or
         $null -eq $timeWeightsProperty -or
@@ -1232,7 +1232,7 @@ function Get-ValidatedProfileResult(
             ($AnalysisName -ceq 'cpu' -and $schemaVersion -eq 16 -and
                 [string]$unitProperty.Value -cne 'ms') -or
             ($AnalysisName -ceq 'cpu' -and $schemaVersion -eq 17 -and
-                [string]$unitProperty.Value -notin @('ms', 'samples'))
+                [string]$unitProperty.Value -cnotin @('ms', 'samples'))
         ) {
             throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned the wrong rank context."
         }

@@ -245,6 +245,21 @@ try {
     $null = Get-ValidatedCpuSampling `
         $knownEtwSampling 17 'ms' 27000 'known ETW sampling'
 
+    foreach ($unitName in @('MS', 'SAMPLES')) {
+        [object] $caseVariantUnit = $knownEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+        $caseVariantUnit.cpuSampling.weightUnit = $unitName
+        [bool] $caseVariantUnitRejected = $false
+        try {
+            $null = Get-ValidatedCpuSampling $caseVariantUnit 17 $unitName 27000 'case-variant unit'
+        }
+        catch {
+            $caseVariantUnitRejected = $_.Exception.Message.Contains(
+                'incompatible schema 17 CPU sampling provenance',
+                [StringComparison]::Ordinal)
+        }
+        Assert-True $caseVariantUnitRejected "Noncanonical unit '$unitName' bypassed validation."
+    }
+
     foreach ($weightUnit in @('samples', 'ms')) {
         [object] $caseVariantSampling = $validEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
         $caseVariantSampling.cpuSampling.source = 'ETW-PERFINFO'
