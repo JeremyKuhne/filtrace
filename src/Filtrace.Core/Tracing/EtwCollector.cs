@@ -64,7 +64,21 @@ public static class EtwCollector
     /// <exception cref="ArgumentOutOfRangeException">A numeric field is out of range.</exception>
     /// <exception cref="PlatformNotSupportedException">Not running on Windows.</exception>
     /// <exception cref="UnauthorizedAccessException">Not elevated.</exception>
-    public static EtwCollectResult Collect(EtwCollectRequest request)
+    public static EtwCollectResult Collect(EtwCollectRequest request) =>
+        Collect(request, standardOutput: null, standardError: null);
+
+    /// <summary>
+    ///  Launches and captures the requested process while forwarding identified subject
+    ///  streams to explicit writers.
+    /// </summary>
+    /// <param name="request">The capture inputs.</param>
+    /// <param name="standardOutput">The destination for identified subject output.</param>
+    /// <param name="standardError">The destination for identified subject errors.</param>
+    /// <returns>The capture outcome.</returns>
+    internal static EtwCollectResult Collect(
+        EtwCollectRequest request,
+        TextWriter? standardOutput,
+        TextWriter? standardError)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrEmpty(request.LaunchExecutable);
@@ -110,11 +124,14 @@ public static class EtwCollector
                 "ETW capture needs Administrator. Re-run elevated.");
         }
 
-        return CollectCore(request);
+        return CollectCore(request, standardOutput, standardError);
     }
 
     [SupportedOSPlatform("windows")]
-    private static EtwCollectResult CollectCore(EtwCollectRequest request)
+    private static EtwCollectResult CollectCore(
+        EtwCollectRequest request,
+        TextWriter? standardOutput,
+        TextWriter? standardError)
     {
         string outputPath = Path.GetFullPath(request.OutputPath);
         string? outputDirectory = Path.GetDirectoryName(outputPath);
@@ -178,7 +195,12 @@ public static class EtwCollector
             // windows useless for attributing time.
             for (int ordinal = 1; ordinal <= request.Iterations; ordinal++)
             {
-                invocations.Add(RunOnce(startInfo, ordinal, request.DurationSeconds));
+                invocations.Add(EtwChildProcess.Run(
+                    startInfo,
+                    ordinal,
+                    request.DurationSeconds,
+                    standardOutput,
+                    standardError));
             }
         }
 
@@ -204,61 +226,4 @@ public static class EtwCollector
         };
     }
 
-    /// <summary>
-    ///  Launches the command once and waits for it, applying the duration cap to this run.
-    /// </summary>
-    /// <remarks>
-    ///  <para>
-    ///   The cap bounds a single wedged launch rather than the whole session, which keeps
-    ///   its meaning the same whether one run or many were asked for.
-    ///  </para>
-    /// </remarks>
-    [SupportedOSPlatform("windows")]
-    private static EtwInvocation RunOnce(ProcessStartInfo startInfo, int ordinal, int? durationSeconds)
-    {
-        DateTimeOffset startedUtc = DateTimeOffset.UtcNow;
-        using Process process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException($"Failed to launch '{startInfo.FileName}'.");
-
-        int exitCode;
-        bool exited;
-        if (durationSeconds is int seconds and > 0)
-        {
-            exited = process.WaitForExit(seconds * 1000);
-        }
-        else
-        {
-            process.WaitForExit();
-            exited = true;
-        }
-
-        if (exited)
-        {
-            exitCode = process.ExitCode;
-        }
-        else if (process.HasExited)
-        {
-            // The process exited on its own in the race between the wait timing out
-            // and the kill below, so report the real exit code it produced.
-            exitCode = process.ExitCode;
-        }
-        else
-        {
-            // The duration cap elapsed while the process was still running; stop the
-            // tree. Tolerate the process exiting in the moment before the kill lands.
-            try
-            {
-                process.Kill(entireProcessTree: true);
-            }
-            catch (InvalidOperationException)
-            {
-                // The process exited between the HasExited check and the kill.
-            }
-
-            process.WaitForExit();
-            exitCode = -1;
-        }
-
-        return new EtwInvocation(ordinal, process.Id, exitCode, startedUtc, DateTimeOffset.UtcNow);
-    }
 }

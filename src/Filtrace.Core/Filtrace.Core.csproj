@@ -24,13 +24,14 @@
   </ItemGroup>
 
   <!--
-    The analysis object model is public: the CLI head (Filtrace) and the MCP facade
-    (Filtrace.Mcp) consume it through the public surface, not via InternalsVisibleTo.
-    The test projects still see internals (the format readers behind TraceLoader,
-    the LRU cache, and a few test-only members) for white-box testing. filtrace
-    assemblies are not strong-named, so no PublicKey is required.
+    The analysis object model is public. The CLI sees the internal structured-capture
+    stream routing that keeps its JSON protocol separate from subject output. The test
+    projects see internals (the format readers behind TraceLoader, the LRU cache, and a
+    few test-only members) for white-box testing. filtrace assemblies are not strong-named,
+    so no PublicKey is required.
   -->
   <ItemGroup>
+    <InternalsVisibleTo Include="Filtrace" />
     <InternalsVisibleTo Include="Filtrace.Core.Tests" />
     <InternalsVisibleTo Include="Filtrace.Parity.Tests" />
   </ItemGroup>

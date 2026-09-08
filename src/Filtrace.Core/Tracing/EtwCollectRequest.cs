@@ -5,7 +5,7 @@
 namespace Filtrace.Tracing;
 
 /// <summary>
-///  The inputs for an ETW capture (see <see cref="EtwCollector.Collect"/>).
+///  The inputs for an ETW capture (see <see cref="EtwCollector.Collect(EtwCollectRequest)"/>).
 /// </summary>
 public sealed class EtwCollectRequest
 {

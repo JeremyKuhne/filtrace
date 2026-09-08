@@ -63,9 +63,30 @@ internal static class CollectExecutor
         TextWriter output,
         TextWriter error)
     {
+        return Run(request, format, output, error, EtwCollector.Collect);
+    }
+
+    /// <summary>
+    ///  Runs and renders a capture through the supplied collection operation.
+    /// </summary>
+    /// <param name="request">The capture inputs.</param>
+    /// <param name="format">Whether to write text or the structured capture result.</param>
+    /// <param name="output">The capture result destination.</param>
+    /// <param name="error">The failure and identified subject-stream destination.</param>
+    /// <param name="collect">The collection operation.</param>
+    /// <returns>Success when a trace was produced; otherwise an input-error exit code.</returns>
+    internal static int Run(
+        EtwCollectRequest request,
+        OutputFormat format,
+        TextWriter output,
+        TextWriter error,
+        Func<EtwCollectRequest, TextWriter?, TextWriter?, EtwCollectResult> collect)
+    {
         try
         {
-            EtwCollectResult result = EtwCollector.Collect(request);
+            TextWriter? subjectOutput = format == OutputFormat.Json ? error : null;
+            TextWriter? subjectError = format == OutputFormat.Json ? error : null;
+            EtwCollectResult result = collect(request, subjectOutput, subjectError);
 
             // A silently clamped interval scales every weight the capture produces, so both
             // heads report it rather than leave it to be discovered from a thin ranking.

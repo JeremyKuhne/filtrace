@@ -225,6 +225,11 @@ filtrace collect --launch MyApp.exe --output start.etl --profile startup        
 filtrace collect --launch MyApp.exe --output ring.etl --max-size-mb 512                 # bounded ring buffer
 ```
 
+With `--format json`, stdout contains only the capture-result JSON; identified
+subject stdout and stderr are forwarded to stderr. The command still exits successfully
+when capture succeeds even if the subject fails, and reports that failure in
+`processExitCode` and `invocations`. Text output continues to inherit the subject's streams.
+
 For an EventPipe (`.nettrace`) capture - cross-platform, no elevation - use the
 first-party `dotnet-trace` (`dotnet tool install -g dotnet-trace`, then
 `dotnet-trace collect -- <app>`); `collect` is ETW-only.
