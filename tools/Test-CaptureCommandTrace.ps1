@@ -355,7 +355,7 @@ if ($args[0] -eq 'collect' -and $args[1] -eq '--help') {
 $outputIndex = [Array]::IndexOf($args, '--output')
 $tracePath = $args[$outputIndex + 1]
 if ([System.IO.Path]::GetFileName($tracePath) -eq 'failed.etl') {
-    Write-Output 'bounded failure detail'
+    Write-Error 'bounded failure detail' -ErrorAction Continue
     $global:LASTEXITCODE = 23
     return
 }
@@ -365,10 +365,15 @@ if ([System.IO.Path]::GetFileName($tracePath) -eq 'diagnostic-surrogate.etl') {
     return
 }
 if ($env:FILTRACE_COMMAND_MODE -eq 'malformed-collect') {
-    Write-Output 'workload emitted {"unrelated":true}'
     Write-Output '{not valid collect json'
     $global:LASTEXITCODE = 0
     return
+}
+if ($env:FILTRACE_COMMAND_MODE -eq 'extra-stdout-document') {
+    Write-Output '{"unrelated":true}'
+}
+if ($env:FILTRACE_COMMAND_MODE -eq 'json-looking-stderr') {
+    Write-Error 'subject stderr: {"unrelated":true}' -ErrorAction Continue
 }
 [System.IO.File]::WriteAllText($tracePath, 'fake trace')
 $iterationsIndex = [Array]::IndexOf($args, '--iterations')
@@ -385,6 +390,9 @@ $invocations = @(
         }
     }
 )
+if ([System.IO.Path]::GetFileName($tracePath) -eq 'child-failed.etl') {
+    $invocations[0].exitCode = 23
+}
 switch ($env:FILTRACE_COMMAND_MODE) {
     'missing-invocation-field' { $invocations[0].Remove('stoppedUtc') }
     'noninteger-ordinal' { $invocations[0].ordinal = 'one' }
@@ -396,7 +404,7 @@ switch ($env:FILTRACE_COMMAND_MODE) {
     'invalid-timestamp' { $invocations[0].startedUtc = 'not-a-timestamp' }
     'reversed-timestamps' { $invocations[0].stoppedUtc = '2026-09-05T11:59:59.0000000+00:00' }
 }
-Write-Output 'workload output before result'
+Write-Error 'subject stdout: workload output before result' -ErrorAction Continue
 [ordered]@{
     result = [ordered]@{
         cpuSample = [ordered]@{ effectiveMSec = 1.0; clamped = $false }
@@ -615,6 +623,7 @@ $global:LASTEXITCODE = 0
             [ordered]@{ name = 'legacy'; command = $pwshPath; arguments = '-NoProfile -Command "exit 0"' }
             [ordered]@{ name = 'structured'; command = $dotnetPath; argumentList = @('tool with spaces.dll', '', 'quote"inside', 'path with trailing\') }
             [ordered]@{ name = 'control-display'; command = $pwshPath; argumentList = @("line1`r`nline2", ('x' * 2048)) }
+            [ordered]@{ name = 'child-failed'; command = $pwshPath; argumentList = @('-NoProfile', '-Command', 'exit 23') }
             [ordered]@{ name = 'failed'; command = $pwshPath; argumentList = @('-NoProfile', '-Command', 'exit 23') }
         )
         iterations = 2
@@ -639,10 +648,12 @@ $global:LASTEXITCODE = 0
     $manifest = $manifestText | ConvertFrom-Json
     Assert-True ($manifest.schemaVersion -eq 2) 'Additive command provenance changed the manifest schema version.'
     Assert-True ($manifest.kind -eq 'command') 'Command manifest kind changed.'
-    Assert-True (@($manifest.cases).Count -eq 3) 'The successful command cases were not retained after one failure.'
+    Assert-True (@($manifest.cases).Count -eq 4) 'The successful command cases were not retained after one collector failure.'
     Assert-True ($null -ne $manifest.failedCases -and @($manifest.failedCases).Count -eq 1) 'The failed scenario did not retain a structured failure record.'
     Assert-True ($manifest.failedCases[0].collectExitCode -eq 23) 'The failed scenario lost the native collect exit code.'
-    Assert-True ($manifest.failedCases[0].diagnostic -eq 'bounded failure detail') 'The failed scenario lost its bounded diagnostic.'
+    Assert-True ($manifest.failedCases[0].diagnostic -match 'bounded failure detail') 'The failed scenario lost its bounded stderr diagnostic.'
+    Assert-True ([System.IO.Path]::GetFullPath([string]$manifest.failedCases[0].diagnosticArtifact) -eq (Join-Path $runDirectory 'failed.err')) 'The failed scenario lost its raw stderr artifact path.'
+    Assert-True ((Get-Content -LiteralPath $manifest.failedCases[0].diagnosticArtifact -Raw) -match 'bounded failure detail') 'The failed scenario lost its raw stderr artifact.'
     Assert-True ($manifest.workingDirectory -eq [System.IO.Path]::GetFullPath($workingDirectory)) 'The original working directory was not retained.'
     Assert-True ($manifest.filtrace.path -eq [System.IO.Path]::GetFullPath($fakeFiltrace)) 'The resolved filtrace path was not retained.'
     Assert-True ($manifest.filtrace.version -eq '1.2.3-contract') 'The verified filtrace version was not retained.'
@@ -654,6 +665,7 @@ $global:LASTEXITCODE = 0
     $legacyCase = @($manifest.cases | Where-Object id -eq 'legacy')[0]
     $structuredCase = @($manifest.cases | Where-Object id -eq 'structured')[0]
     $controlDisplayCase = @($manifest.cases | Where-Object id -eq 'control-display')[0]
+    $childFailedCase = @($manifest.cases | Where-Object id -eq 'child-failed')[0]
     Assert-True ($legacyCase.command.arguments.kind -eq 'legacyCommandLine') 'Legacy arguments were presented as parsed argv.'
     Assert-True ($legacyCase.command.arguments.commandLine -eq '-NoProfile -Command "exit 0"') 'Legacy command-line text changed.'
     Assert-True ($null -eq $legacyCase.command.arguments.argumentList) 'Legacy command-line text fabricated structured argv.'
@@ -666,6 +678,7 @@ $global:LASTEXITCODE = 0
     Assert-True ($structuredCase.command.executable.path -eq [System.IO.Path]::GetFullPath($dotnetPath)) 'The mixed executable case did not retain its resolved executable path.'
     Assert-True (@($legacyCase.invocations).Count -eq 2 -and $legacyCase.invocations[0].processId -eq 4100) 'The exact legacy invocation roots were not retained.'
     Assert-True (@($structuredCase.invocations).Count -eq 2 -and $structuredCase.invocations[0].processId -eq 4200) 'The exact structured invocation roots were not retained.'
+    Assert-True (@($childFailedCase.invocations).Count -eq 2 -and $childFailedCase.invocations[0].exitCode -eq 23) 'A nonzero subject exit was changed into a collector failure or lost from the invocation roots.'
     Assert-True (-not ($manifest.warnings -match 'different executables|no manifest-wide process scope')) 'The stale mixed-executable warning remained.'
 
     $collectCalls = @(
@@ -673,7 +686,7 @@ $global:LASTEXITCODE = 0
             ForEach-Object { $_ | ConvertFrom-Json } |
             Where-Object { $_.arguments[0] -eq 'collect' -and $_.arguments[1] -ne '--help' }
     )
-    Assert-True ($collectCalls.Count -eq 4) 'The fake filtrace boundary did not observe all scenarios.'
+    Assert-True ($collectCalls.Count -eq 5) 'The fake filtrace boundary did not observe all scenarios.'
     foreach ($collectCall in $collectCalls) {
         Assert-True ($collectCall.workingDirectory -eq [System.IO.Path]::GetFullPath($workingDirectory)) 'A collect invocation did not run in the recorded working directory.'
     }
@@ -704,6 +717,30 @@ $global:LASTEXITCODE = 0
     $diagnosticManifest = Get-Content -LiteralPath (Join-Path $diagnosticRunDirectory 'manifest.json') -Raw | ConvertFrom-Json
     $expectedDiagnostic = ('d' * 2047) + '... [truncated]'
     Assert-True ($diagnosticManifest.failedCases[0].diagnostic -ceq $expectedDiagnostic) 'Diagnostic truncation split the surrogate pair at its 2048-character boundary.'
+
+    $jsonNoiseRunDirectory = Join-Path $temporaryRoot 'run-json-looking-stderr'
+    $jsonNoiseSpecPath = Join-Path $temporaryRoot 'spec-json-looking-stderr.json'
+    $jsonNoiseSpec = [ordered]@{
+        scenarios = @([ordered]@{ name = 'json-looking-stderr'; command = $pwshPath; argumentList = @() })
+        iterations = 1
+        profile = 'startup'
+        cpuSampleMSec = 1.0
+        outputDirectory = $jsonNoiseRunDirectory
+        workingDirectory = $workingDirectory
+        filtracePath = $fakeFiltrace
+    }
+    [System.IO.File]::WriteAllText(
+        $jsonNoiseSpecPath,
+        ($jsonNoiseSpec | ConvertTo-Json -Depth 6),
+        [System.Text.UTF8Encoding]::new($false))
+    $env:FILTRACE_COMMAND_MODE = 'json-looking-stderr'
+    $jsonNoiseResult = Invoke-CaptureChild $testCaptureScript $jsonNoiseSpecPath
+    Assert-True ($jsonNoiseResult.ExitCode -eq 0) "JSON-looking subject stderr contaminated the collect envelope.`n$($jsonNoiseResult.Output)"
+    $jsonNoiseManifest = Get-Content -LiteralPath (Join-Path $jsonNoiseRunDirectory 'manifest.json') -Raw | ConvertFrom-Json
+    Assert-True (@($jsonNoiseManifest.cases).Count -eq 1) 'JSON-looking subject stderr dropped the successful case.'
+    $jsonNoiseStderrPath = [System.IO.Path]::ChangeExtension([string]$jsonNoiseManifest.cases[0].trace, '.err')
+    Assert-True ((Get-Content -LiteralPath $jsonNoiseStderrPath -Raw) -match 'subject stderr.*unrelated') 'JSON-looking subject stderr was not retained in its raw diagnostic artifact.'
+    Remove-Item Env:FILTRACE_COMMAND_MODE -ErrorAction SilentlyContinue
 
     if ($WindowsNativeArgv) {
         $probeBuildDirectory = Join-Path $root 'tests/Filtrace.LocalTesting.Tests/bin/Release/net10.0'
@@ -819,6 +856,7 @@ $global:LASTEXITCODE = 0
 
     $invalidResultModes = @(
         'malformed-collect',
+        'extra-stdout-document',
         'missing-invocation-field',
         'noninteger-ordinal',
         'zero-process-id',

@@ -55,9 +55,11 @@
 
 .PARAMETER CpuSampleMSec
     CPU sample interval in milliseconds. Default 1 (the ETW default). A 30-100 ms command
-    gets only tens of samples at 1 ms, so lower it - sub-millisecond sampling is honored,
-    down to roughly 0.12 ms on the Windows 11 machine this was measured on - and the
-    manifest records what was requested against what the machine actually honored.
+    gets only tens of samples at 1 ms, so lower it. The collector accepts sub-millisecond
+    requests and clamps them to its configured bounds, down to roughly 0.12 ms on the
+    Windows 11 machine this was measured on. The manifest records the requested and
+    collector-reported configured intervals. Analyze the trace's cpuSampling data for
+    the sample units actually present in the trace.
 
 .PARAMETER OutputDirectory
     Run directory for the traces, manifest, and log. Defaults to a run-stamped directory
@@ -311,6 +313,36 @@ function Write-BoundedUtf8File([string]$Path, [string]$Content) {
     [System.IO.File]::WriteAllBytes($Path, $bytes)
 }
 
+function Read-BoundedUtf8File([string]$Path, [string]$Description) {
+    $stream = [System.IO.File]::Open(
+        $Path,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::Read)
+    try {
+        if ($stream.Length -ge $maxSerializedBytes) {
+            throw "$Description is $($stream.Length) bytes; it must be under the 16 MiB control-read limit."
+        }
+
+        [byte[]]$bytes = [byte[]]::new([int]$stream.Length)
+        $offset = 0
+        while ($offset -lt $bytes.Length) {
+            $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+            if ($read -eq 0) { throw "$Description changed while it was being read." }
+            $offset += $read
+        }
+        if ($stream.ReadByte() -ne -1) {
+            throw "$Description changed while it was being read."
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+
+    $strictUtf8 = [System.Text.UTF8Encoding]::new($false, $true)
+    return $strictUtf8.GetString($bytes)
+}
+
 function Assert-ValidScenarioName([string]$Name) {
     if ([string]::IsNullOrWhiteSpace($Name)) { throw 'Every scenario needs a Name.' }
     if ($Name.Length -gt $maxCaseIdLength) {
@@ -411,28 +443,6 @@ function Resolve-Scenarios([object[]]$Entries) {
     }
 
     return @($resolved)
-}
-
-# The launched command inherits filtrace's stdout, so its own output is interleaved with
-# the JSON result - a scenario that prints anything would otherwise be dropped as
-# unparseable and vanish from the manifest. The result is a single line written last, so
-# scan back a line at a time; going character by character would work too but records a
-# failed parse per attempt in the transcript, which reads like a broken run.
-function Get-TrailingJson([string]$Text) {
-    $lines = $Text -split "`r?`n"
-    for ($line = $lines.Length - 1; $line -ge 0; $line--) {
-        $start = $lines[$line].IndexOf('{')
-        while ($start -ge 0) {
-            try {
-                return $lines[$line].Substring($start) | ConvertFrom-Json
-            }
-            catch {
-                $start = $lines[$line].IndexOf('{', $start + 1)
-            }
-        }
-    }
-
-    return $null
 }
 
 function Get-RequiredInvocationInt32([object]$Invocation, [string]$PropertyName, [string]$ScenarioName) {
@@ -721,9 +731,22 @@ foreach ($item in $scenarios) {
     if ($item.Arguments) { $collectArgs += @('--launch-args', $item.Arguments) }
 
     # The JSON result is what carries each launch; the human summary would have to be
-    # parsed back, which is not a contract worth depending on.
-    $raw = & $filtrace @collectArgs 2>&1 | Out-String
+    # parsed back, which is not a contract worth depending on. Shell redirection drains
+    # both native streams concurrently without merging diagnostic text into the envelope.
+    $stdoutPath = [System.IO.Path]::ChangeExtension($tracePath, '.out')
+    $stderrPath = [System.IO.Path]::ChangeExtension($tracePath, '.err')
+    & $filtrace @collectArgs 1> $stdoutPath 2> $stderrPath
     $collectExitCode = $LASTEXITCODE
+    $stdout = $null
+    $stderr = $null
+    $streamReadError = $null
+    try {
+        $stdout = Read-BoundedUtf8File $stdoutPath "Scenario '$($item.Name)' collect stdout"
+        $stderr = Read-BoundedUtf8File $stderrPath "Scenario '$($item.Name)' collect stderr"
+    }
+    catch {
+        $streamReadError = $_.Exception.Message
+    }
     $commandProvenance = [ordered]@{
         executable       = [ordered]@{
             requested = $item.RequestedCommand
@@ -738,7 +761,16 @@ foreach ($item in $scenarios) {
         workingDirectory = $workingDirectory
     }
     if ($collectExitCode -ne 0) {
-        $diagnostic = Get-BoundedDiagnostic $raw
+        $diagnosticText = if ($streamReadError) {
+            $streamReadError
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($stderr)) {
+            $stderr
+        }
+        else {
+            $stdout
+        }
+        $diagnostic = Get-BoundedDiagnostic $diagnosticText
         $warnings += "Scenario '$($item.Name)' failed (exit $collectExitCode): $diagnostic"
         $failedCases += [ordered]@{
             id              = $item.Name
@@ -747,18 +779,20 @@ foreach ($item in $scenarios) {
             command         = $commandProvenance
             collectExitCode = $collectExitCode
             diagnostic      = $diagnostic
+            diagnosticArtifact = $stderrPath
         }
         Write-Warning "Scenario '$($item.Name)' failed; continuing with the rest of the matrix."
         continue
     }
 
-    $result = (Get-TrailingJson $raw)?.result
     try {
+        if ($streamReadError) { throw $streamReadError }
+        $result = ($stdout | ConvertFrom-Json -ErrorAction Stop).result
         Assert-ValidCollectResult $result $Iterations $item.Name
     }
     catch {
         $validationError = $_.Exception.Message
-        $diagnostic = Get-BoundedDiagnostic "$validationError`n$raw"
+        $diagnostic = Get-BoundedDiagnostic "$validationError`ncollect stderr:`n$stderr`ncollect stdout:`n$stdout"
         $warnings += $validationError
         $failedCases += [ordered]@{
             id              = $item.Name
@@ -767,6 +801,7 @@ foreach ($item in $scenarios) {
             command         = $commandProvenance
             collectExitCode = $collectExitCode
             diagnostic      = $diagnostic
+            diagnosticArtifact = $stderrPath
         }
         Write-Warning "$validationError Continuing with the rest of the matrix."
         continue
@@ -779,8 +814,8 @@ foreach ($item in $scenarios) {
         benchmarkDisplay = $item.Name
         trace            = $tracePath
         command          = $commandProvenance
-        # What this case actually sampled at, which is the requested interval only when
-        # the machine honored it.
+        # Collector-reported configured interval, or the requested setting when the
+        # collector omits it. Trace cpuSampling data is authoritative for actual units.
         cpuSampleMSec    = if ($result.cpuSample) { $result.cpuSample.effectiveMSec } else { $CpuSampleMSec }
         invocations      = @($result.invocations | ForEach-Object {
                 [ordered]@{
@@ -798,17 +833,15 @@ foreach ($item in $scenarios) {
     if ($SymbolsDirectory) { $case['symbolsDirectory'] = $SymbolsDirectory }
     $cases += $case
 
-    # Windows honors the interval only inside the profile source's bounds and reports no
-    # error outside them, so a clamp is only visible if the capture records it. Every
-    # weight in the trace is scaled to the effective interval, not the requested one.
+    # The collector reports when it clamps the requested configuration to its bounds.
     if ($result.cpuSample) {
         $effectiveMSec = $result.cpuSample.effectiveMSec
         if ($result.cpuSample.clamped) {
             # Four decimals or the floor renders as 0.12, losing the distinction between
             # 0.1221 and 0.125 that the interval reporting exists to make.
-            $warnings += ("Scenario '{0}' requested a {1:0.####} ms sample interval but this machine honors {2:0.####} to {3:0.####} ms; it sampled at {4:0.####} ms." -f `
+            $warnings += ("Scenario '{0}' requested a {1:0.####} ms sample interval but the collector allows {2:0.####} to {3:0.####} ms; its configured interval was {4:0.####} ms." -f `
                     $item.Name, $result.cpuSample.requestedMSec, $result.cpuSample.minimumMSec, $result.cpuSample.maximumMSec, $effectiveMSec)
-            Write-Warning ("Scenario '{0}' sampled at {1:0.####} ms, not the requested {2:0.####} ms." -f `
+            Write-Warning ("Scenario '{0}' collector interval was configured at {1:0.####} ms, not the requested {2:0.####} ms." -f `
                     $item.Name, $effectiveMSec, $result.cpuSample.requestedMSec)
         }
     }
@@ -821,8 +854,8 @@ $manifest = [ordered]@{
     completedUtc             = [DateTimeOffset]::UtcNow.ToString('O')
     profile                  = $CaptureProfile
     iterations               = $Iterations
-    # The run's setting, alongside profile and iterations. What each case actually got is
-    # its own cpuSampleMSec, which differs whenever the machine clamped the request.
+    # The requested run setting. Each case carries the collector-reported configured
+    # interval when available; neither field is trace-derived sample provenance.
     requestedCpuSampleMSec   = $CpuSampleMSec
     workingDirectory         = $workingDirectory
     filtrace                 = $filtraceIdentity
