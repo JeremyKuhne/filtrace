@@ -5,13 +5,12 @@
 namespace Filtrace.Tracing;
 
 /// <summary>
-///  A CPU profile summarized by runtime work category, answering "where did the time
-///  go - zeroing memory? copying strings? in the GC?" - the complement to a per-method
-///  ranking.
+///  A CPU profile summarized by runtime work category, answering where sampled CPU
+///  weight landed - zeroing memory, copying strings, the GC, or other work.
 /// </summary>
 /// <remarks>
 ///  <para>
-///   Each sample's self-time leaf is bucketed by <see cref="FrameCategories.Classify"/>
+///   Each sample's leaf is bucketed by <see cref="FrameCategories.Classify"/>
 ///   and the categories are ranked by weight. The classification only distinguishes the
 ///   runtime work once native symbols are resolved; without them the native leaves are
 ///   the unresolved <c>?</c> frame and fall in <see cref="FrameCategories.Other"/>, so

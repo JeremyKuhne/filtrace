@@ -179,6 +179,25 @@ public sealed class TraceLoaderTests
 
     [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
+    public void Load_EtwCpuMetric_InitialUnknownWindow_ReportsUnavailableProvenance()
+    {
+        TraceLoader loader = new();
+
+        LoadedTrace trace = loader.Load(
+            FixturePath("etw.etl"),
+            TraceMetric.Cpu,
+            scope: ScopeRequest.AllProcesses.WithTimeWindow(startMSec: null, endMSec: 100));
+
+        trace.Info.SampleCount.Should().BeGreaterThan(0);
+        trace.Source.Metric.Should().Be(MetricInfo.CpuSamples);
+        trace.Info.CpuSampling.Should().NotBeNull();
+        trace.Info.CpuSampling!.Source.Should().Be("unavailable");
+        trace.Info.CpuSampling.UnknownIntervalSampleCount.Should().Be(trace.Info.SampleCount);
+        trace.Info.CpuSampling.Intervals.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
     public void Load_EtwCpuMetric_UsesTraceRecordedPerfInfoInterval()
     {
         TraceLoader loader = new();

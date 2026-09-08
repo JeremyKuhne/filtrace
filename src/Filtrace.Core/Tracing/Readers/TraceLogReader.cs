@@ -420,10 +420,15 @@ internal abstract class TraceLogReader : ITraceReader
 
             cpuSampling = new CpuSampleProvenance(
                 timeWeightsEstablished ? "ms" : "samples",
-                "etw-perfinfo",
+                cpuWeighting.Intervals.Count > 0 ? "etw-perfinfo" : "unavailable",
                 timeWeightsEstablished,
                 cpuWeighting.UnknownIntervalSampleCount,
-                cpuWeighting.Intervals);
+                cpuWeighting.Intervals)
+            {
+                OmittedIntervalSegmentCount = cpuWeighting.OmittedIntervalSegmentCount,
+                OmittedIntervalSampleCount = cpuWeighting.OmittedIntervalSampleCount,
+                IntervalsTruncated = cpuWeighting.OmittedIntervalSegmentCount > 0
+            };
         }
 
         double resolutionRate = totalFrames > 0 ? (double)resolvedFrames / totalFrames : 0.0;
@@ -439,11 +444,18 @@ internal abstract class TraceLogReader : ITraceReader
                 cpuWeighting!.Intervals.Count == 1
                     ? $"CPU sample weights use the trace-recorded ETW PerfInfo interval ({cpuWeighting.Intervals[0].IntervalMSec.ToString("0.####", CultureInfo.InvariantCulture)} ms)."
                     : "CPU sample weights use the trace-recorded ETW PerfInfo interval active at each sample; the interval changed during the trace.");
+
         }
         else if (samples.Count > 0)
         {
             warnings.Add(
                 "CPU sampling interval is not recorded for every included sample; CPU weights are raw sample counts, not milliseconds.");
+        }
+
+        if (cpuWeighting?.OmittedIntervalSegmentCount > 0)
+        {
+            warnings.Add(
+                $"CPU sampling provenance retained the first {cpuWeighting.Intervals.Count} interval segments and omitted {cpuWeighting.OmittedIntervalSegmentCount} later segments covering {cpuWeighting.OmittedIntervalSampleCount} samples.");
         }
 
         if (samples.Count == 0)

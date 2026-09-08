@@ -228,6 +228,7 @@ foreach ($line in $stdout) {
 
 # 2. schema budget: measure the serialized tools array from the tools/list response.
 $toolNames = @()
+$classifyDescription = $null
 $scopeTools = [ordered]@{
     process = [System.Collections.Generic.List[string]]::new()
     root = [System.Collections.Generic.List[string]]::new()
@@ -249,6 +250,9 @@ if ($null -ne $toolsLine) {
         $descriptionTokens = 0
         if ($tool.TryGetProperty('description', [ref]$descriptionElement)) {
             $descriptionTokens = [int](Get-TokenEstimate -Text $descriptionElement.GetString())
+            if ($toolName -eq 'trace_classify') {
+                $classifyDescription = $descriptionElement.GetString()
+            }
         }
         $outputElement = [System.Text.Json.JsonElement]::new()
         $outputTokens = 0
@@ -291,6 +295,14 @@ if ($null -ne $toolsLine) {
     Write-Host "Schema size: $chars chars, ~$estimatedTokens tokens (budget $MaxSchemaTokens)"
     if ($estimatedTokens -gt $MaxSchemaTokens) {
         Add-Failure "Tool-list schema is ~$estimatedTokens tokens (budget $MaxSchemaTokens). Tighten descriptions or trim the surface."
+    }
+    if ($null -eq $classifyDescription -or
+        $classifyDescription -notmatch 'trace-recorded sample intervals' -or
+        $classifyDescription -notmatch 'raw sample counts') {
+        Add-Failure 'trace_classify does not explain interval-derived milliseconds and raw sample counts.'
+    }
+    elseif ($classifyDescription -match '(?i)CPU self-time|(?:each|every)\s+sample\s+(?:weighs|as)\s+1 ms') {
+        Add-Failure 'trace_classify still presents CPU weights as fixed time.'
     }
 
     if ($SchemaReportPath) {

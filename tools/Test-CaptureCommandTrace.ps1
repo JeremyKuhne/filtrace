@@ -369,6 +369,14 @@ if ($env:FILTRACE_COMMAND_MODE -eq 'malformed-collect') {
     $global:LASTEXITCODE = 0
     return
 }
+if ($env:FILTRACE_COMMAND_MODE -in @('oversized-stderr', 'malformed-collect-oversized-stderr')) {
+    Write-Error ('e' * ((16 * 1024 * 1024) + 1)) -ErrorAction Continue
+}
+if ($env:FILTRACE_COMMAND_MODE -eq 'malformed-collect-oversized-stderr') {
+    Write-Output '{not valid collect json'
+    $global:LASTEXITCODE = 0
+    return
+}
 if ($env:FILTRACE_COMMAND_MODE -eq 'extra-stdout-document') {
     Write-Output '{"unrelated":true}'
 }
@@ -740,6 +748,52 @@ $global:LASTEXITCODE = 0
     Assert-True (@($jsonNoiseManifest.cases).Count -eq 1) 'JSON-looking subject stderr dropped the successful case.'
     $jsonNoiseStderrPath = [System.IO.Path]::ChangeExtension([string]$jsonNoiseManifest.cases[0].trace, '.err')
     Assert-True ((Get-Content -LiteralPath $jsonNoiseStderrPath -Raw) -match 'subject stderr.*unrelated') 'JSON-looking subject stderr was not retained in its raw diagnostic artifact.'
+    Remove-Item Env:FILTRACE_COMMAND_MODE -ErrorAction SilentlyContinue
+
+    foreach ($oversizedStderrMode in @('oversized-stderr', 'malformed-collect-oversized-stderr')) {
+        $oversizedStderrRunDirectory = Join-Path $temporaryRoot "run-$oversizedStderrMode"
+        $oversizedStderrSpecPath = Join-Path $temporaryRoot "spec-$oversizedStderrMode.json"
+        $oversizedStderrCaseName = if ($oversizedStderrMode -eq 'oversized-stderr') { 'o' * 256 } else { 'm' * 256 }
+        $oversizedStderrSpec = [ordered]@{
+            scenarios = @([ordered]@{ name = $oversizedStderrCaseName; command = $pwshPath; argumentList = @() })
+            iterations = 1
+            profile = 'startup'
+            cpuSampleMSec = 1.0
+            outputDirectory = $oversizedStderrRunDirectory
+            workingDirectory = $workingDirectory
+            filtracePath = $fakeFiltrace
+        }
+        [System.IO.File]::WriteAllText(
+            $oversizedStderrSpecPath,
+            ($oversizedStderrSpec | ConvertTo-Json -Depth 6),
+            [System.Text.UTF8Encoding]::new($false))
+        $env:FILTRACE_COMMAND_MODE = $oversizedStderrMode
+        $oversizedStderrResult = Invoke-CaptureChild $testCaptureScript $oversizedStderrSpecPath
+        $oversizedStderrManifest = Get-Content -LiteralPath (Join-Path $oversizedStderrRunDirectory 'manifest.json') -Raw | ConvertFrom-Json
+        $oversizedStderrEntry = if ($oversizedStderrMode -eq 'oversized-stderr') { $oversizedStderrManifest.cases[0] } else { $oversizedStderrManifest.failedCases[0] }
+        $oversizedStderrArtifact = [string]$oversizedStderrEntry.diagnosticArtifact
+        Assert-True ((Get-Item -LiteralPath $oversizedStderrArtifact).Length -gt $maxSerializedBytes) "Mode '$oversizedStderrMode' did not retain the full oversized raw stderr artifact."
+        Assert-True ([System.IO.Path]::GetFullPath($oversizedStderrArtifact) -eq [System.IO.Path]::ChangeExtension([string]$oversizedStderrEntry.trace, '.err')) "Mode '$oversizedStderrMode' did not pair its raw stderr artifact with the hashed trace path."
+        Assert-True ([System.IO.Path]::GetFileName($oversizedStderrArtifact).Length -le 255) "Mode '$oversizedStderrMode' produced an oversized stderr filename."
+        Assert-True (@($oversizedStderrManifest.warnings -match 'stderr preview was truncated').Count -eq 1) "Mode '$oversizedStderrMode' did not warn that its stderr preview was truncated."
+
+        if ($oversizedStderrMode -eq 'oversized-stderr') {
+            Assert-True ($oversizedStderrResult.ExitCode -eq 0) "Valid stdout with oversized stderr was rejected.`n$($oversizedStderrResult.Output)"
+            Assert-True (@($oversizedStderrManifest.cases).Count -eq 1) 'Valid stdout with oversized stderr lost its successful case.'
+            $oversizedStderrCase = $oversizedStderrManifest.cases[0]
+            Assert-True ($oversizedStderrCase.diagnosticPreviewTruncated) 'The successful oversized-stderr case lost its preview truncation metadata.'
+            Assert-True ([System.IO.Path]::GetFullPath([string]$oversizedStderrCase.diagnosticArtifact) -eq $oversizedStderrArtifact) 'The successful oversized-stderr case lost its raw artifact path.'
+            Assert-True ([System.Text.Encoding]::UTF8.GetByteCount([string]$oversizedStderrCase.diagnosticPreview) -le 8192) 'The successful stderr preview exceeded its in-memory byte bound.'
+        }
+        else {
+            Assert-True ($oversizedStderrResult.ExitCode -ne 0) 'Malformed stdout with oversized stderr was accepted.'
+            Assert-True (@($oversizedStderrManifest.failedCases).Count -eq 1) 'Malformed stdout with oversized stderr lost its failed case.'
+            $oversizedStderrFailure = $oversizedStderrManifest.failedCases[0]
+            Assert-True ($oversizedStderrFailure.status -eq 'invalidResult') 'Malformed stdout with oversized stderr did not remain an invalid result.'
+            Assert-True ($oversizedStderrFailure.diagnosticPreviewTruncated) 'The malformed oversized-stderr case lost its preview truncation metadata.'
+            Assert-True ([System.IO.Path]::GetFullPath([string]$oversizedStderrFailure.diagnosticArtifact) -eq $oversizedStderrArtifact) 'The malformed oversized-stderr case lost its raw artifact path.'
+        }
+    }
     Remove-Item Env:FILTRACE_COMMAND_MODE -ErrorAction SilentlyContinue
 
     if ($WindowsNativeArgv) {

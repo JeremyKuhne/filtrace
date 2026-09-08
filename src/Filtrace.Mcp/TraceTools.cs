@@ -1413,8 +1413,9 @@ public sealed class TraceTools
     }
 
     /// <summary>
-    ///  Buckets CPU self-time by runtime work category - zeroing, copying, write-barrier,
-    ///  GC, JIT, or other - to answer where the time went at the machine level.
+    ///  Buckets CPU leaf weight by runtime work category - zeroing, copying, write-barrier,
+    ///  GC, JIT, or other. Weights use trace-recorded sample intervals when complete and
+    ///  raw sample counts otherwise.
     /// </summary>
     /// <param name="store">The trace cache (injected).</param>
     /// <param name="path">Path to the trace file.</param>
@@ -1436,8 +1437,8 @@ public sealed class TraceTools
     /// <returns>The classification envelope.</returns>
     [McpServerTool(Name = "trace_classify", ReadOnly = true, Idempotent = true, OpenWorld = true, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
-        "Bucket CPU self-time into zeroing, copying, write barrier, GC, JIT, or other. nativeSymbols=true is the "
-            + "networked .etl path for accurate runtime categories; scope with root/process or benchmark.")]
+        "Bucket CPU leaf weight into zeroing, copying, write barrier, GC, JIT, or other. Weights use trace-recorded "
+            + "sample intervals when complete, or raw sample counts. nativeSymbols=true resolves .etl runtime categories.")]
     public static AnalysisResult<ClassifyResult> Classify(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,

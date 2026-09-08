@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Text.Json.Serialization;
+
 namespace Filtrace.Tracing;
 
 /// <summary>
@@ -22,4 +24,23 @@ public sealed record CpuSampleProvenance(
     string Source,
     bool TimeWeightsEstablished,
     int UnknownIntervalSampleCount,
-    IReadOnlyList<CpuSampleIntervalSegment> Intervals);
+    IReadOnlyList<CpuSampleIntervalSegment> Intervals)
+{
+    /// <summary>
+    ///  Gets the number of later interval segments omitted from <see cref="Intervals"/>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int OmittedIntervalSegmentCount { get; init; }
+
+    /// <summary>
+    ///  Gets the number of samples belonging to omitted interval segments.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int OmittedIntervalSampleCount { get; init; }
+
+    /// <summary>
+    ///  Gets whether <see cref="Intervals"/> omits later segments because its retention limit was reached.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IntervalsTruncated { get; init; }
+}

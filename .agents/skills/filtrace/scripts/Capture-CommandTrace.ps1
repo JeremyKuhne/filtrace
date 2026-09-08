@@ -115,6 +115,7 @@ $maxCaptureCases = 256
 $maxCaseIdLength = 256
 $maxTraceFileNameLength = 255
 $maxSerializedBytes = 16 * 1024 * 1024
+$maxDiagnosticPreviewBytes = 8 * 1024
 
 function Test-Elevated {
     $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -341,6 +342,51 @@ function Read-BoundedUtf8File([string]$Path, [string]$Description) {
 
     $strictUtf8 = [System.Text.UTF8Encoding]::new($false, $true)
     return $strictUtf8.GetString($bytes)
+}
+
+function Read-BoundedUtf8Preview([string]$Path, [string]$Description) {
+    $stream = [System.IO.File]::Open(
+        $Path,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::Read)
+    try {
+        $totalBytes = $stream.Length
+        $previewByteCount = [int][Math]::Min($totalBytes, $maxDiagnosticPreviewBytes)
+        [byte[]]$bytes = [byte[]]::new($previewByteCount)
+        $offset = 0
+        while ($offset -lt $bytes.Length) {
+            $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+            if ($read -eq 0) { throw "$Description changed while its preview was being read." }
+            $offset += $read
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+
+    $decoder = [System.Text.UTF8Encoding]::new($false, $false).GetDecoder()
+    [char[]]$characters = [char[]]::new($bytes.Length)
+    $bytesUsed = 0
+    $charactersUsed = 0
+    $completed = $false
+    $decoder.Convert(
+        $bytes,
+        0,
+        $bytes.Length,
+        $characters,
+        0,
+        $characters.Length,
+        $false,
+        [ref]$bytesUsed,
+        [ref]$charactersUsed,
+        [ref]$completed)
+    return [pscustomobject]@{
+        Text       = [string]::new($characters, 0, $charactersUsed)
+        Truncated  = $totalBytes -gt $offset -or $bytesUsed -lt $offset
+        TotalBytes = $totalBytes
+        ReadBytes  = $bytesUsed
+    }
 }
 
 function Assert-ValidScenarioName([string]$Name) {
@@ -738,14 +784,31 @@ foreach ($item in $scenarios) {
     & $filtrace @collectArgs 1> $stdoutPath 2> $stderrPath
     $collectExitCode = $LASTEXITCODE
     $stdout = $null
-    $stderr = $null
-    $streamReadError = $null
+    $stdoutReadError = $null
     try {
         $stdout = Read-BoundedUtf8File $stdoutPath "Scenario '$($item.Name)' collect stdout"
-        $stderr = Read-BoundedUtf8File $stderrPath "Scenario '$($item.Name)' collect stderr"
     }
     catch {
-        $streamReadError = $_.Exception.Message
+        $stdoutReadError = $_.Exception.Message
+    }
+    $stderrPreview = $null
+    $stderrPreviewReadError = $null
+    $stderrPreviewTruncated = $false
+    $stderrTotalBytes = 0
+    $stderrReadBytes = 0
+    try {
+        $stderrPreview = Read-BoundedUtf8Preview $stderrPath "Scenario '$($item.Name)' collect stderr"
+        $stderrPreviewTruncated = $stderrPreview.Truncated
+        $stderrTotalBytes = $stderrPreview.TotalBytes
+        $stderrReadBytes = $stderrPreview.ReadBytes
+    }
+    catch {
+        $stderrPreviewReadError = $_.Exception.Message
+        $warnings += "$stderrPreviewReadError Full stderr remains at '$stderrPath'."
+    }
+    $stderr = if ($null -ne $stderrPreview) { $stderrPreview.Text } else { '' }
+    if ($stderrPreviewTruncated) {
+        $warnings += "Scenario '$($item.Name)' collect stderr preview was truncated to its first $stderrReadBytes of $stderrTotalBytes bytes; full stderr remains at '$stderrPath'."
     }
     $commandProvenance = [ordered]@{
         executable       = [ordered]@{
@@ -761,11 +824,14 @@ foreach ($item in $scenarios) {
         workingDirectory = $workingDirectory
     }
     if ($collectExitCode -ne 0) {
-        $diagnosticText = if ($streamReadError) {
-            $streamReadError
+        $diagnosticText = if ($stdoutReadError) {
+            $stdoutReadError
         }
         elseif (-not [string]::IsNullOrWhiteSpace($stderr)) {
             $stderr
+        }
+        elseif ($stderrPreviewReadError) {
+            $stderrPreviewReadError
         }
         else {
             $stdout
@@ -780,13 +846,15 @@ foreach ($item in $scenarios) {
             collectExitCode = $collectExitCode
             diagnostic      = $diagnostic
             diagnosticArtifact = $stderrPath
+            diagnosticPreview = $stderr
+            diagnosticPreviewTruncated = $stderrPreviewTruncated
         }
         Write-Warning "Scenario '$($item.Name)' failed; continuing with the rest of the matrix."
         continue
     }
 
     try {
-        if ($streamReadError) { throw $streamReadError }
+        if ($stdoutReadError) { throw $stdoutReadError }
         $result = ($stdout | ConvertFrom-Json -ErrorAction Stop).result
         Assert-ValidCollectResult $result $Iterations $item.Name
     }
@@ -802,6 +870,8 @@ foreach ($item in $scenarios) {
             collectExitCode = $collectExitCode
             diagnostic      = $diagnostic
             diagnosticArtifact = $stderrPath
+            diagnosticPreview = $stderr
+            diagnosticPreviewTruncated = $stderrPreviewTruncated
         }
         Write-Warning "$validationError Continuing with the rest of the matrix."
         continue
@@ -831,6 +901,11 @@ foreach ($item in $scenarios) {
     # Omitted rather than written empty: an unset [string] parameter is "", and the reader
     # rejects an empty optional field rather than treating it as absent.
     if ($SymbolsDirectory) { $case['symbolsDirectory'] = $SymbolsDirectory }
+    if ($stderrTotalBytes -gt 0) {
+        $case['diagnosticArtifact'] = $stderrPath
+        $case['diagnosticPreview'] = $stderr
+        if ($stderrPreviewTruncated) { $case['diagnosticPreviewTruncated'] = $true }
+    }
     $cases += $case
 
     # The collector reports when it clamps the requested configuration to its bounds.

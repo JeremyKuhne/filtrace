@@ -88,16 +88,17 @@ internal static class CollectExecutor
             TextWriter? subjectError = format == OutputFormat.Json ? error : null;
             EtwCollectResult result = collect(request, subjectOutput, subjectError);
 
-            // A silently clamped interval scales every weight the capture produces, so both
-            // heads report it rather than leave it to be discovered from a thin ranking.
+            // Report the collector's configured clamp without claiming that the trace
+            // established the interval applied to every sample.
             List<string> warnings = [];
             if (result.CpuSample.Clamped)
             {
                 warnings.Add(
                     $"Requested a {FormatMSec(result.CpuSample.RequestedMSec)} ms sample interval, but this "
                         + $"machine honors {FormatMSec(result.CpuSample.MinimumMSec)} to "
-                        + $"{FormatMSec(result.CpuSample.MaximumMSec)} ms; the capture sampled at "
-                        + $"{FormatMSec(result.CpuSample.EffectiveMSec)} ms.");
+                        + $"{FormatMSec(result.CpuSample.MaximumMSec)} ms; the collector configured "
+                        + $"the interval at {FormatMSec(result.CpuSample.EffectiveMSec)} ms. Analyze the trace's "
+                        + "cpuSampling provenance for the units applied to CPU weights.");
             }
 
             if (format == OutputFormat.Json)

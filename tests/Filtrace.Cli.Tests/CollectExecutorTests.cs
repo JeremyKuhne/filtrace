@@ -304,6 +304,34 @@ public sealed class CollectExecutorTests
     }
 
     [TestMethod]
+    public void Run_ClampedInterval_ReportsConfiguredValueWithoutClaimingObservedUnits()
+    {
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "child.exe",
+            OutputPath = "out.etl",
+        };
+
+        StringWriter output = new();
+        StringWriter error = new();
+        int exit = CollectExecutor.Run(
+            request,
+            OutputFormat.Json,
+            output,
+            error,
+            (_, _, _) => Result(
+                processExitCode: 0,
+                cpuSample: new CpuSampleInterval(0.0625, 0.1221, 0.1221, 100.0)));
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output.ToString());
+        string warning = document.RootElement.GetProperty("warnings")[0].GetProperty("message").GetString()!;
+        warning.Should().Contain("collector configured the interval at 0.1221 ms");
+        warning.Should().Contain("cpuSampling provenance");
+        warning.Should().NotContain("capture sampled at");
+    }
+
+    [TestMethod]
     public void Run_WhenElevated_SubMillisecondInterval_SamplesMoreDensely()
     {
         if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
@@ -583,7 +611,7 @@ public sealed class CollectExecutorTests
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
-    private static EtwCollectResult Result(int processExitCode) => new()
+    private static EtwCollectResult Result(int processExitCode, CpuSampleInterval? cpuSample = null) => new()
     {
         OutputPath = Path.GetFullPath("out.etl"),
         ProcessId = 42,
@@ -602,6 +630,6 @@ public sealed class CollectExecutorTests
         Profile = CollectProfile.Cpu,
         KernelKeywords = "Process",
         ClrKeywords = "none",
-        CpuSample = new CpuSampleInterval(1.0, 1.0, 0.1221, 100.0),
+        CpuSample = cpuSample ?? new CpuSampleInterval(1.0, 1.0, 0.1221, 100.0),
     };
 }

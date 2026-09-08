@@ -10,6 +10,11 @@ namespace Filtrace.Tracing.Readers;
 /// </summary>
 internal sealed class CpuSampleWeighting
 {
+    /// <summary>
+    ///  Maximum number of interval segments retained as provenance metadata.
+    /// </summary>
+    internal const int MaximumRetainedIntervalSegments = 32;
+
     private const int TimerSampleSource = 0;
     private const int SetIntervalOpcode = 72;
     private const int CollectionStartOpcode = 73;
@@ -17,6 +22,10 @@ internal sealed class CpuSampleWeighting
 
     private readonly List<CpuSampleIntervalSegment> _intervals = [];
     private double? _currentIntervalMSec;
+    private double? _previousAppliedIntervalMSec;
+    private bool _retainCurrentIntervalSegment;
+    private int _omittedIntervalSegmentCount;
+    private int _omittedIntervalSampleCount;
     private int _unknownIntervalSampleCount;
 
     /// <summary>
@@ -33,6 +42,16 @@ internal sealed class CpuSampleWeighting
     ///  Number of samples observed before a valid timer interval was established.
     /// </summary>
     public int UnknownIntervalSampleCount => _unknownIntervalSampleCount;
+
+    /// <summary>
+    ///  Number of interval segments omitted after the retained metadata limit.
+    /// </summary>
+    public int OmittedIntervalSegmentCount => _omittedIntervalSegmentCount;
+
+    /// <summary>
+    ///  Number of samples belonging to omitted interval segments.
+    /// </summary>
+    public int OmittedIntervalSampleCount => _omittedIntervalSampleCount;
 
     /// <summary>
     ///  Observes one ETW sampled-profile interval record.
@@ -67,14 +86,31 @@ internal sealed class CpuSampleWeighting
     {
         if (_currentIntervalMSec is double intervalMSec)
         {
-            if (_intervals.Count > 0 && _intervals[^1].IntervalMSec == intervalMSec)
+            if (_previousAppliedIntervalMSec == intervalMSec)
             {
-                CpuSampleIntervalSegment current = _intervals[^1];
-                _intervals[^1] = current with { SampleCount = current.SampleCount + 1 };
+                if (_retainCurrentIntervalSegment)
+                {
+                    CpuSampleIntervalSegment current = _intervals[^1];
+                    _intervals[^1] = current with { SampleCount = current.SampleCount + 1 };
+                }
+                else
+                {
+                    _omittedIntervalSampleCount++;
+                }
             }
             else
             {
-                _intervals.Add(new CpuSampleIntervalSegment(intervalMSec, 1));
+                _previousAppliedIntervalMSec = intervalMSec;
+                _retainCurrentIntervalSegment = _intervals.Count < MaximumRetainedIntervalSegments;
+                if (_retainCurrentIntervalSegment)
+                {
+                    _intervals.Add(new CpuSampleIntervalSegment(intervalMSec, 1));
+                }
+                else
+                {
+                    _omittedIntervalSegmentCount++;
+                    _omittedIntervalSampleCount++;
+                }
             }
 
             return intervalMSec;

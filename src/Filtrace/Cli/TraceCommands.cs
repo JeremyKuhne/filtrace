@@ -89,10 +89,10 @@ internal sealed class TraceCommands
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="metric">
     ///  Provider metric to rank: cpu (default), alloc, exceptions, threadtime,
-    ///  contention, wait, or activity. The cpu metric weights each sample as 1 ms, so its weights
-    ///  are approximate; the relative percentages are exact.
+    ///  contention, wait, or activity. CPU weights use trace-recorded sample intervals
+    ///  when complete; otherwise they are raw sample counts, not milliseconds.
     /// </param>
-    /// <param name="measure">-m, Which measure to report: self (leaf time, helpers folded) or inclusive.</param>
+    /// <param name="measure">-m, Which measure to report: self (leaf weight, helpers folded) or inclusive.</param>
     /// <param name="root">Substring scoping the ranking to the subtree under a frame.</param>
     /// <param name="top">-n, Maximum number of rows to return.</param>
     /// <param name="fold">Extra leaf-frame fold regexes (comma-separated); omit to use the built-in defaults.</param>
@@ -219,9 +219,9 @@ internal sealed class TraceCommands
     /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="measure">
-    ///  -m, Which measure to report: self (leaf time, helpers folded) or inclusive. Each
-    ///  sample weighs 1 ms, so the weights are approximate; the relative percentages are
-    ///  exact.
+    ///  -m, Which measure to report: self (leaf weight, helpers folded) or inclusive.
+    ///  CPU weights use trace-recorded sample intervals when complete; otherwise they
+    ///  are raw sample counts, not milliseconds.
     /// </param>
     /// <param name="root">Substring scoping the ranking to the subtree under a frame.</param>
     /// <param name="top">-n, Maximum number of rows to return.</param>
@@ -751,10 +751,10 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Summarize CPU self-time by runtime work category - zeroing, copying, GC,
-    ///  write-barrier, JIT, or other - answering "where did the time go: zeroing memory?
-    ///  copying strings? in the GC?". Pair with --native-symbols so the native runtime
-    ///  work resolves; without it the native leaves fall in 'other'.
+    ///  Summarize CPU leaf weight by runtime work category - zeroing, copying, GC,
+    ///  write-barrier, JIT, or other. Weights use trace-recorded sample intervals when
+    ///  complete; otherwise they are raw sample counts. Pair with --native-symbols so
+    ///  native runtime work resolves; without it native leaves fall in 'other'.
     /// </summary>
     /// <param name="trace">Path to a .speedscope.json, .nettrace, or .etl file.</param>
     /// <param name="root">Substring scoping the classification to the subtree under a frame.</param>

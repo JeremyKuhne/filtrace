@@ -67,6 +67,84 @@ public sealed class CpuSampleWeightingTests
     }
 
     [TestMethod]
+    public void GetSampleWeight_AtRetainedSegmentLimit_RetainsEverySegment()
+    {
+        CpuSampleWeighting weighting = new();
+
+        for (int segment = 0; segment < CpuSampleWeighting.MaximumRetainedIntervalSegments; segment++)
+        {
+            int interval = segment % 2 == 0 ? 10_000 : 1_250;
+            weighting.ObserveInterval(opcode: 72, sampleSource: 0, interval);
+            weighting.GetSampleWeight();
+        }
+
+        weighting.Intervals.Should().HaveCount(CpuSampleWeighting.MaximumRetainedIntervalSegments);
+        weighting.OmittedIntervalSegmentCount.Should().Be(0);
+        weighting.OmittedIntervalSampleCount.Should().Be(0);
+    }
+
+    [TestMethod]
+    public void GetSampleWeight_OneSegmentPastLimit_OmitsOnlyTheOverflowSegment()
+    {
+        CpuSampleWeighting weighting = new();
+
+        for (int segment = 0; segment <= CpuSampleWeighting.MaximumRetainedIntervalSegments; segment++)
+        {
+            int interval = segment % 2 == 0 ? 10_000 : 1_250;
+            weighting.ObserveInterval(opcode: 72, sampleSource: 0, interval);
+            weighting.GetSampleWeight();
+        }
+
+        weighting.Intervals.Should().HaveCount(CpuSampleWeighting.MaximumRetainedIntervalSegments);
+        weighting.OmittedIntervalSegmentCount.Should().Be(1);
+        weighting.OmittedIntervalSampleCount.Should().Be(1);
+    }
+
+    [TestMethod]
+    public void GetSampleWeight_ConsecutiveSamplesAfterLimit_CountsOneOmittedSegment()
+    {
+        CpuSampleWeighting weighting = new();
+        for (int segment = 0; segment < CpuSampleWeighting.MaximumRetainedIntervalSegments; segment++)
+        {
+            int interval = segment % 2 == 0 ? 10_000 : 1_250;
+            weighting.ObserveInterval(opcode: 72, sampleSource: 0, interval);
+            weighting.GetSampleWeight();
+        }
+
+        weighting.ObserveInterval(opcode: 72, sampleSource: 0, newInterval100Nanoseconds: 10_000);
+        weighting.GetSampleWeight();
+        weighting.GetSampleWeight();
+        weighting.GetSampleWeight();
+        weighting.ObserveInterval(opcode: 72, sampleSource: 0, newInterval100Nanoseconds: 1_250);
+        weighting.GetSampleWeight();
+
+        weighting.OmittedIntervalSegmentCount.Should().Be(2);
+        weighting.OmittedIntervalSampleCount.Should().Be(4);
+        weighting.Intervals.Should().HaveCount(CpuSampleWeighting.MaximumRetainedIntervalSegments);
+    }
+
+    [TestMethod]
+    public void GetSampleWeight_LargeAlternatingIntervals_BoundsMetadataAndPreservesWeights()
+    {
+        const int sampleCount = 100_000;
+        CpuSampleWeighting weighting = new();
+        double totalWeight = 0.0;
+
+        for (int sample = 0; sample < sampleCount; sample++)
+        {
+            int interval = sample % 2 == 0 ? 10_000 : 1_250;
+            weighting.ObserveInterval(opcode: 72, sampleSource: 0, interval);
+            totalWeight += weighting.GetSampleWeight();
+        }
+
+        weighting.Intervals.Should().HaveCount(CpuSampleWeighting.MaximumRetainedIntervalSegments);
+        weighting.OmittedIntervalSegmentCount.Should().Be(sampleCount - CpuSampleWeighting.MaximumRetainedIntervalSegments);
+        weighting.OmittedIntervalSampleCount.Should().Be(sampleCount - CpuSampleWeighting.MaximumRetainedIntervalSegments);
+        totalWeight.Should().Be((sampleCount / 2 * 1.0) + (sampleCount / 2 * 0.125));
+        weighting.HasCompleteIntervalEvidence.Should().BeTrue();
+    }
+
+    [TestMethod]
     public void GetSampleWeight_MissingInterval_UsesRawCountAndReportsIncompleteEvidence()
     {
         CpuSampleWeighting weighting = new();
