@@ -1129,11 +1129,11 @@ function Get-ValidatedCpuSampling(
     if ($ExpectedWeightUnit -ceq 'samples') {
         if (
             $timeWeightsEstablished -or
-            $source -notin @(
+            $source -cnotin @(
                 'unavailable',
                 'etw-perfinfo',
                 'speedscope-profile-declared-sample-weights') -or
-            ($source -in @('unavailable', 'speedscope-profile-declared-sample-weights') -and
+            ($source -cin @('unavailable', 'speedscope-profile-declared-sample-weights') -and
                 ($intervalCount -ne 0 -or $intervalsTruncated -or
                     $unknownIntervalSampleCount -ne $ExpectedRecordCount)) -or
             ($source -ceq 'etw-perfinfo' -and
@@ -1147,7 +1147,7 @@ function Get-ValidatedCpuSampling(
     elseif (
         -not $timeWeightsEstablished -or
         $unknownIntervalSampleCount -ne 0 -or
-        $source -notin @('etw-perfinfo', 'speedscope-profile-declared-time-weights') -or
+        $source -cnotin @('etw-perfinfo', 'speedscope-profile-declared-time-weights') -or
         ($source -ceq 'etw-perfinfo' -and $intervalCount -eq 0) -or
         ($source -ceq 'speedscope-profile-declared-time-weights' -and
             ($intervalCount -ne 0 -or $intervalsTruncated))

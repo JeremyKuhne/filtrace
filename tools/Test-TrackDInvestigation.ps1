@@ -245,6 +245,25 @@ try {
     $null = Get-ValidatedCpuSampling `
         $knownEtwSampling 17 'ms' 27000 'known ETW sampling'
 
+    foreach ($weightUnit in @('samples', 'ms')) {
+        [object] $caseVariantSampling = $validEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+        $caseVariantSampling.cpuSampling.source = 'ETW-PERFINFO'
+        $caseVariantSampling.cpuSampling.weightUnit = $weightUnit
+        $caseVariantSampling.cpuSampling.timeWeightsEstablished = $weightUnit -ceq 'ms'
+        $caseVariantSampling.cpuSampling.unknownIntervalSampleCount = 0
+        $caseVariantSampling.cpuSampling.intervals = @()
+        [bool] $caseVariantRejected = $false
+        try {
+            $null = Get-ValidatedCpuSampling $caseVariantSampling 17 $weightUnit 128 'case-variant provenance'
+        }
+        catch {
+            $caseVariantRejected = $_.Exception.Message.Contains(
+                'incompatible schema 17 CPU sampling provenance',
+                [StringComparison]::Ordinal)
+        }
+        Assert-True $caseVariantRejected "Case-variant $weightUnit provenance bypassed exact validation."
+    }
+
     [object] $speedscopeTimeSampling = [pscustomobject]@{
         cpuSampling = [pscustomobject]@{
             weightUnit = 'ms'
