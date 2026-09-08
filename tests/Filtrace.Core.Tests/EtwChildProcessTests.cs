@@ -93,6 +93,90 @@ public sealed class EtwChildProcessTests
         }
     }
 
+    [TestMethod]
+    public void Run_RootExitsWhileDescendantInheritsPipes_ReturnsAfterDrainGrace()
+    {
+        RequireWindows();
+        string descendantScript = CreatePowerShellScript("Start-Sleep -Seconds 30\r\n");
+        string descendantPidPath = Path.Join(Path.GetTempPath(), $"filtrace-descendant-{Guid.NewGuid():N}.pid");
+        string rootScript = CreatePowerShellScript(
+            """
+            param(
+                [string] $DescendantScript,
+                [string] $DescendantPidPath
+            )
+
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = "$PSHOME\powershell.exe"
+            $startInfo.UseShellExecute = $false
+            $startInfo.ArgumentList.Add('-NoLogo')
+            $startInfo.ArgumentList.Add('-NoProfile')
+            $startInfo.ArgumentList.Add('-NonInteractive')
+            $startInfo.ArgumentList.Add('-ExecutionPolicy')
+            $startInfo.ArgumentList.Add('Bypass')
+            $startInfo.ArgumentList.Add('-File')
+            $startInfo.ArgumentList.Add($DescendantScript)
+            $descendant = [System.Diagnostics.Process]::Start($startInfo)
+            $descendant.Id | Set-Content -LiteralPath $DescendantPidPath -Encoding ascii
+            $descendant.Dispose()
+
+            [Console]::Out.WriteLine('root-stdout-before-exit')
+            [Console]::Error.WriteLine('root-stderr-before-exit')
+            exit 23
+            """);
+
+        int? descendantPid = null;
+        try
+        {
+            StringWriter subjectLog = new();
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            ProcessStartInfo startInfo = PowerShellStartInfo(
+                rootScript, descendantScript, descendantPidPath);
+
+            EtwInvocation result = EtwChildProcess.Run(
+                startInfo, 1, 30, subjectLog, subjectLog);
+
+            stopwatch.Stop();
+
+            descendantPid = int.Parse(File.ReadAllText(descendantPidPath));
+            result.ExitCode.Should().Be(23);
+            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(15));
+            string log = subjectLog.ToString();
+            log.Should().Contain("[subject stdout]");
+            log.Should().Contain("[subject stderr]");
+            log.Should().Contain("root-stdout-before-exit");
+            log.Should().Contain("root-stderr-before-exit");
+        }
+        finally
+        {
+            if (descendantPid is null && File.Exists(descendantPidPath))
+            {
+                descendantPid = int.Parse(File.ReadAllText(descendantPidPath));
+            }
+
+            if (descendantPid is int processId)
+            {
+                try
+                {
+                    using Process descendant = Process.GetProcessById(processId);
+                    if (!descendant.HasExited)
+                    {
+                        descendant.Kill(entireProcessTree: true);
+                        descendant.WaitForExit(5000).Should().BeTrue();
+                    }
+                }
+                catch (ArgumentException)
+                {
+                    // The bounded fixture may have exited before cleanup.
+                }
+            }
+
+            File.Delete(rootScript);
+            File.Delete(descendantScript);
+            File.Delete(descendantPidPath);
+        }
+    }
+
     private static ProcessStartInfo StartInfo(string script) => new("cmd.exe")
     {
         Arguments = $"/d /c \"{script}\"",
@@ -102,6 +186,35 @@ public sealed class EtwChildProcessTests
     private static string CreateScript(string content)
     {
         string path = Path.Join(Path.GetTempPath(), $"filtrace-child-{Guid.NewGuid():N}.cmd");
+        File.WriteAllText(path, content);
+        return path;
+    }
+
+    private static ProcessStartInfo PowerShellStartInfo(string script, params string[] arguments)
+    {
+        ProcessStartInfo startInfo = new("powershell.exe")
+        {
+            UseShellExecute = false,
+        };
+
+        startInfo.ArgumentList.Add("-NoLogo");
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-NonInteractive");
+        startInfo.ArgumentList.Add("-ExecutionPolicy");
+        startInfo.ArgumentList.Add("Bypass");
+        startInfo.ArgumentList.Add("-File");
+        startInfo.ArgumentList.Add(script);
+        foreach (string argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        return startInfo;
+    }
+
+    private static string CreatePowerShellScript(string content)
+    {
+        string path = Path.Join(Path.GetTempPath(), $"filtrace-child-{Guid.NewGuid():N}.ps1");
         File.WriteAllText(path, content);
         return path;
     }

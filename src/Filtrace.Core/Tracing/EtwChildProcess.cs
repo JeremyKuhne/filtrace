@@ -12,6 +12,8 @@ namespace Filtrace.Tracing;
 /// </summary>
 internal static class EtwChildProcess
 {
+    private static readonly TimeSpan s_postExitDrainGrace = TimeSpan.FromSeconds(2);
+
     /// <summary>
     ///  Runs one subject process, terminating it at the configured duration cap.
     /// </summary>
@@ -36,16 +38,27 @@ internal static class EtwChildProcess
             ?? throw new InvalidOperationException($"Failed to launch '{startInfo.FileName}'.");
 
         object writeLock = new();
+        using CancellationTokenSource drainCancellation = new();
         Task outputDrain = Task.CompletedTask;
         if (standardOutput is not null)
         {
-            outputDrain = ForwardAsync(process.StandardOutput, standardOutput, "stdout", writeLock);
+            outputDrain = ForwardAsync(
+                process.StandardOutput,
+                standardOutput,
+                "stdout",
+                writeLock,
+                drainCancellation.Token);
         }
 
         Task errorDrain = Task.CompletedTask;
         if (standardError is not null)
         {
-            errorDrain = ForwardAsync(process.StandardError, standardError, "stderr", writeLock);
+            errorDrain = ForwardAsync(
+                process.StandardError,
+                standardError,
+                "stderr",
+                writeLock,
+                drainCancellation.Token);
         }
 
         int exitCode;
@@ -83,7 +96,28 @@ internal static class EtwChildProcess
             exitCode = -1;
         }
 
-        Task.WhenAll(outputDrain, errorDrain).GetAwaiter().GetResult();
+        Task drains = Task.WhenAll(outputDrain, errorDrain);
+        if (!WaitForCompletion(drains, s_postExitDrainGrace))
+        {
+            drainCancellation.Cancel();
+            if (standardOutput is not null)
+            {
+                process.StandardOutput.Dispose();
+            }
+
+            if (standardError is not null)
+            {
+                process.StandardError.Dispose();
+            }
+
+            if (!WaitForCompletion(drains, s_postExitDrainGrace))
+            {
+                ObserveFault(drains);
+                throw new TimeoutException("The subject's redirected output did not stop after cancellation.");
+            }
+        }
+
+        GetDrainResult(drains);
         return new EtwInvocation(ordinal, process.Id, exitCode, startedUtc, DateTimeOffset.UtcNow);
     }
 
@@ -91,37 +125,81 @@ internal static class EtwChildProcess
         StreamReader reader,
         TextWriter writer,
         string streamName,
-        object writeLock)
+        object writeLock,
+        CancellationToken cancellationToken)
     {
         char[] buffer = new char[4096];
         ExceptionDispatchInfo? writeFailure = null;
 
-        while (await reader.ReadAsync(buffer).ConfigureAwait(continueOnCapturedContext: false) is int count and > 0)
+        try
         {
-            if (writeFailure is not null)
+            while (await reader.ReadAsync(buffer.AsMemory(), cancellationToken)
+                .ConfigureAwait(continueOnCapturedContext: false) is int count and > 0)
             {
-                continue;
-            }
-
-            try
-            {
-                lock (writeLock)
+                if (writeFailure is not null)
                 {
-                    writer.WriteLine($"[subject {streamName}]");
-                    writer.Write(buffer, 0, count);
-                    if (buffer[count - 1] != '\n')
+                    continue;
+                }
+
+                try
+                {
+                    lock (writeLock)
                     {
-                        writer.WriteLine();
+                        writer.WriteLine($"[subject {streamName}]");
+                        writer.Write(buffer, 0, count);
+                        if (buffer[count - 1] != '\n')
+                        {
+                            writer.WriteLine();
+                        }
                     }
                 }
+                catch (Exception ex)
+                {
+                    // Keep draining both pipes so a writer failure cannot strand the child.
+                    writeFailure = ExceptionDispatchInfo.Capture(ex);
+                }
             }
-            catch (Exception ex)
-            {
-                // Keep draining both pipes so a writer failure cannot strand the child.
-                writeFailure = ExceptionDispatchInfo.Capture(ex);
-            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested)
+        {
         }
 
         writeFailure?.Throw();
+    }
+
+    private static bool WaitForCompletion(Task task, TimeSpan timeout)
+    {
+        if (task.IsCompleted)
+        {
+            return true;
+        }
+
+        Task completed = Task.WhenAny(task, Task.Delay(timeout)).GetAwaiter().GetResult();
+        return ReferenceEquals(completed, task) || task.IsCompleted;
+    }
+
+    private static void GetDrainResult(Task drains)
+    {
+        try
+        {
+            drains.GetAwaiter().GetResult();
+        }
+        catch
+        {
+            _ = drains.Exception;
+            throw;
+        }
+    }
+
+    private static void ObserveFault(Task task)
+    {
+        _ = task.ContinueWith(
+            static completed => _ = completed.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 }
