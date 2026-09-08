@@ -56,9 +56,11 @@ At the default 1 ms interval a 30-100 ms command yields only tens of samples, so
 `--cpu-ms`. Windows honors sub-millisecond sampling - measured down to **0.1221 ms** on
 Windows 11, where 0.25 ms produced 3.99x the samples of 1 ms and 0.1221 ms produced
 8.31x - but below the floor it silently keeps sampling at the floor rate while still
-reporting the interval you asked for. `collect` reads the machine's honored range and
-says so when your request was clamped; trust the reported effective interval, never the
-requested one, because every weight in the trace is scaled to it.
+reporting the interval you asked for. `collect` reports requested and clamped settings,
+but those settings alone do not prove the physical interval recorded in the trace. Use
+milliseconds only when the analyzer version and trace establish interval-aware weights
+with recorded provenance; older fixed-weight output and unknown intervals are qualified
+sample counts/weights instead.
 Only a `diskio` capture needs those File/Disk keywords, and `collect` has
 no switch for them: that capture comes from another recorder (PerfView, `wpr`, or
 a custom BenchmarkDotNet `EtwProfilerConfig` enabling `DiskIO` / `DiskFileIO`;
@@ -400,8 +402,9 @@ are wrong. Work in this order.
 3. **Lower `--cpu-ms` and check what you got.** At the 1 ms default a 50 ms command
    yields tens of samples - not a ranking, a rumor. Sub-millisecond sampling is honored
    (about 0.12 ms on the machine this was measured on). Below the machine's floor
-   Windows silently keeps sampling at the floor while reporting the interval you asked
-   for, so read the effective interval `collect` returns rather than the one you passed.
+    Windows can keep sampling at the floor while reporting the requested or clamped
+    setting. Treat that setting as configuration evidence, not recorded interval
+    provenance; use counts unless the trace and analyzer establish the physical interval.
 
 4. **Repeat inside one session with `--iterations`.** Session startup dwarfs the process,
    so N separate captures pay that cost N times and produce N thin traces. One session
@@ -452,9 +455,10 @@ are wrong. Work in this order.
    Supply local PDBs for your own native binary with `--symbols` and add
    `--native-symbols` for the host, runtime, and OS frames - the two compose.
 
-8. **Report the interval and the counts with the finding.** Sampled milliseconds at a
-   0.12 ms interval are an estimate from a few hundred samples, and inclusive rows along
-   one stack overlap, so they cannot be added together.
+8. **Report interval provenance and counts with the finding.** Convert to sampled
+    milliseconds only when the trace and analyzer establish interval-aware weighting;
+    otherwise report qualified counts/weights. Inclusive rows along one stack overlap,
+    so they cannot be added together.
 
 ## Scope to the relevant slice
 
@@ -598,14 +602,16 @@ cleanly and stays cheap in tokens.
   that the behavior does not exist.
 - State the trace format, selected process/root/time window, metric, and
   self-versus-inclusive measure with the finding. Percentages are relative to that
-  scope; CPU milliseconds are sampled estimates, not exact elapsed duration.
+  scope. CPU units are analyzer-version dependent: call them milliseconds only when
+  recorded interval provenance and interval-aware weighting are established; otherwise
+  use qualified sample counts/weights. Never derive CPU time from wall clock times share.
 - Keep counts separate from weight. `trace_info.sampleCount` describes the loaded
   whole trace after process/activity/time filters; it does not establish that a
   narrower root/method/file query is well sampled. Stack rankings and callers expose
   `contributingRecordCount`; lines and heat maps expose `attributedRecordCount` and
-  `unattributedRecordCount`. `scopeWeight` remains metric weight (CPU milliseconds,
+  `unattributedRecordCount`. `scopeWeight` remains metric weight (CPU weight,
   allocation bytes, event counts, or elapsed interval milliseconds), never a generic
-  record count.
+  record count; interpret CPU weight using the unit gate above.
 - The default 200-record method and 1,000-record line warnings apply only when the
   reader establishes periodic CPU sampling. Evented speedscope records are duration
   intervals: report their count separately from weight, but do not apply periodic
