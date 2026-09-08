@@ -24,7 +24,7 @@ public sealed class SampleStack
     /// </summary>
     /// <param name="frames">Frames ordered outermost-first.</param>
     /// <param name="weight">
-    ///  Weight attributed to the sample, in the source metric's unit (milliseconds for CPU, bytes for allocations).
+    ///  Weight attributed to the sample, in the source metric's unit (milliseconds or raw samples for CPU, bytes for allocations).
     /// </param>
     /// <param name="thread">A label identifying the thread the sample came from.</param>
     /// <param name="frameLocations">

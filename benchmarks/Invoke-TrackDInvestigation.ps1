@@ -1525,7 +1525,15 @@ function Get-AnalysisEvidence(
     [object] $cpuSampling = $null
     if ($AnalysisName -ceq 'cpu') {
         [string] $infoWeightUnit = 'ms'
+        [long] $retainedSampleCount = 0
         if ($schemaVersion -eq 17) {
+            [object] $sampleCountProperty = $resultProperty.Value.PSObject.Properties['sampleCount']
+            if ($null -eq $sampleCountProperty) {
+                throw "Profile analysis '$AnalysisName' info omitted its retained sample count."
+            }
+            $retainedSampleCount = ConvertTo-ValidatedSamplingCount `
+                $sampleCountProperty.Value `
+                "Profile analysis '$AnalysisName' info"
             [object] $infoCpuSamplingProperty =
                 $resultProperty.Value.PSObject.Properties['cpuSampling']
             [object] $infoWeightUnitProperty = if (
@@ -1548,7 +1556,7 @@ function Get-AnalysisEvidence(
             $resultProperty.Value `
             $schemaVersion `
             $infoWeightUnit `
-            $eventCount `
+            $retainedSampleCount `
             "Profile analysis '$AnalysisName' info"
     }
 

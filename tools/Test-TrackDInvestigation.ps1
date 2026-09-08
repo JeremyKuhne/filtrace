@@ -158,6 +158,17 @@ try {
             $realShapeEvidence.summaries[0].scopeWeight -eq 128) `
         'Schema 17 sample evidence did not preserve raw-count units and provenance.'
 
+    [object] $scopedInfo = $schema17SampleInfoJson | ConvertFrom-Json -Depth 32
+    $scopedInfo.result.analyses.cpu.eventCount = 512
+    Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $scopedInfo
+    [System.Collections.IDictionary] $scopedEvidence = Get-AnalysisEvidence `
+        $analysisEvidenceDirectory 'cpu' $true
+    Assert-True `
+        ($scopedEvidence.eventCount -eq 512 -and
+            $scopedEvidence.cpuSampling.unknownIntervalSampleCount -eq 128 -and
+            $scopedEvidence.summaries[0].contributingRecordCount -eq 128) `
+        'Scoped provenance was compared with capture-wide event counts.'
+
     [object] $legacyInfo = $schema17SampleInfoJson | ConvertFrom-Json -Depth 32
     $legacyInfo.schemaVersion = 16
     $legacyInfo.result.PSObject.Properties.Remove('cpuSampling')
@@ -393,7 +404,6 @@ try {
         [object] $numericInfo = $schema17SampleInfoJson | ConvertFrom-Json -Depth 32
         $numericInfo.schemaVersion = [double]17
         $numericInfo.result.analyses.cpu.eventCount = $validEventCount
-        $numericInfo.result.cpuSampling.unknownIntervalSampleCount = $validEventCount
         Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $numericInfo
         [System.Collections.IDictionary] $numericEvidence = Get-AnalysisEvidence `
             $analysisEvidenceDirectory 'cpu' $false

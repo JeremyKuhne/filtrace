@@ -239,7 +239,7 @@ Changing one of these is a deliberate, announced decision, not a refactor.
 - **`trace_*` MCP tool names.** Clients bind to them. Tools may be added; renaming
   or removing one requires the breaking-change decision described in
   [AGENTS.md](../AGENTS.md) and a versioned surface in [roadmap.md](roadmap.md).
-- **The result envelope.** `schemaVersion` (currently 16), structured `warnings` and `hints`,
+- **The result envelope.** `schemaVersion` (currently 17), structured `warnings` and `hints`,
   effective query `context`, and the typed result. A shape change bumps the version and updates both renderers,
   the goldens, and the budgets together.
 - **CLI exit codes.** Success, usage error, input error, and the quality-gate code.
