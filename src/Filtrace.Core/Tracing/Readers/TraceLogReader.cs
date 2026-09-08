@@ -408,13 +408,7 @@ internal abstract class TraceLogReader : ITraceReader
             {
                 for (int i = 0; i < samples.Count; i++)
                 {
-                    SampleStack sample = samples[i];
-                    samples[i] = new SampleStack(
-                        sample.Frames,
-                        1.0,
-                        sample.Thread,
-                        sample.FrameLocations,
-                        sample.Process);
+                    samples[i].NormalizeCpuWeightToSampleCount();
                 }
             }
 

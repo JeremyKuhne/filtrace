@@ -68,7 +68,12 @@ public sealed class SampleStack
     ///  Weight attributed to this sample, in the source metric's unit
     ///  (milliseconds or raw samples for CPU, bytes for allocations).
     /// </summary>
-    public double Weight { get; }
+    public double Weight { get; private set; }
+
+    /// <summary>
+    ///  Normalizes an unpublished reader-owned CPU sample when time units are unavailable.
+    /// </summary>
+    internal void NormalizeCpuWeightToSampleCount() => Weight = 1.0;
 
     /// <summary>
     ///  A label identifying the thread the sample came from.

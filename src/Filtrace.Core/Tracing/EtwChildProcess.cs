@@ -88,9 +88,11 @@ internal static class EtwChildProcess
         }
         else
         {
+            bool terminated = false;
             try
             {
                 process.Kill(entireProcessTree: true);
+                terminated = true;
             }
             catch (InvalidOperationException)
             {
@@ -98,7 +100,7 @@ internal static class EtwChildProcess
             }
 
             process.WaitForExit();
-            exitCode = -1;
+            exitCode = terminated ? -1 : process.ExitCode;
         }
 
         DateTimeOffset stoppedUtc = DateTimeOffset.UtcNow;
