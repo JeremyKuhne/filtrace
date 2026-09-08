@@ -782,7 +782,8 @@ public sealed class CliAppTests
         (int exit, string output, _) = Run("cpu", Etw);
 
         exit.Should().Be(ExitCodes.Success);
-        output.Should().Contain("CPU self-time");
+        output.Should().Contain("CPU self-weight");
+        output.Should().NotContain("CPU self-time");
     }
 
     [TestMethod]

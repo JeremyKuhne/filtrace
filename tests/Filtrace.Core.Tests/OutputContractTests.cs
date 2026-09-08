@@ -93,6 +93,35 @@ public sealed class OutputContractTests
     }
 
     [TestMethod]
+    public void Serialize_Context_CarriesSubMillisecondCpuIntervalProvenance()
+    {
+        AnalysisResult<RankingResult> envelope = new(
+            new RankingResult(0.125, string.Empty, []),
+            context: new AnalysisContext("rank")
+            {
+                Metric = "cpu",
+                Unit = "ms",
+                CpuSampling = new CpuSampleProvenance(
+                    "ms",
+                    "etw-perfinfo",
+                    TimeWeightsEstablished: true,
+                    UnknownIntervalSampleCount: 0,
+                    Intervals: [new CpuSampleIntervalSegment(0.125, 8_000)])
+            });
+
+        using JsonDocument document = JsonDocument.Parse(OutputJson.Serialize(envelope));
+        JsonElement root = document.RootElement;
+        root.GetProperty("schemaVersion").GetInt32().Should().Be(17);
+        JsonElement cpuSampling = root.GetProperty("context").GetProperty("cpuSampling");
+        cpuSampling.GetProperty("weightUnit").GetString().Should().Be("ms");
+        cpuSampling.GetProperty("source").GetString().Should().Be("etw-perfinfo");
+        cpuSampling.GetProperty("timeWeightsEstablished").GetBoolean().Should().BeTrue();
+        JsonElement interval = cpuSampling.GetProperty("intervals")[0];
+        interval.GetProperty("intervalMSec").GetDouble().Should().Be(0.125);
+        interval.GetProperty("sampleCount").GetInt32().Should().Be(8_000);
+    }
+
+    [TestMethod]
     public void Serialize_Context_CarriesResolvedProcessScope()
     {
         AnalysisResult<RankingResult> envelope = new(

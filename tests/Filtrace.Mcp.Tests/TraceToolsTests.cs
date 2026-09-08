@@ -79,8 +79,11 @@ public sealed class TraceToolsTests
         AnalysisAvailabilityView allocation = envelope.Result.Analyses!["alloc"];
         allocation.CaptureStatus.Should().Be("enabled");
         allocation.EventCount.Should().BeGreaterThan(0);
-        envelope.Result.Analyses["wait"].Should().Be(
-            new AnalysisAvailabilityView("unknown", EventCount: null));
+        envelope.Result.Analyses["wait"].Should().Be(new AnalysisAvailabilityView("unknown", EventCount: null));
+        envelope.Result.CpuSampling.Should().NotBeNull();
+        envelope.Result.CpuSampling!.WeightUnit.Should().Be("samples");
+        envelope.Result.CpuSampling.Source.Should().Be("unavailable");
+        envelope.Result.CpuSampling.TimeWeightsEstablished.Should().BeFalse();
     }
 
     [TestMethod]
@@ -754,6 +757,20 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Diff_DifferentCpuWeightUnits_ThrowsMcpException()
+    {
+        TraceStore store = new();
+
+        Action act = () => TraceTools.Diff(
+            store,
+            FixturePath(Speedscope),
+            FixturePath(Activity));
+
+        act.Should().Throw<McpException>()
+            .WithMessage("Cannot compare CPU weights in ms with weights in samples*");
+    }
+
+    [TestMethod]
     public void Diff_UnknownMeasure_Throws()
     {
         TraceStore store = new();
@@ -818,6 +835,44 @@ public sealed class TraceToolsTests
             captureCase.OperationUnit.Should().Be("items");
             captureCase.BeforeScopeWeightPerOperation.Should().Be(2.5);
             captureCase.AfterScopeWeightPerOperation.Should().Be(1.25);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Diff_PairedManifestsWithDifferentCpuWeightUnits_ThrowsMcpException()
+    {
+        TraceStore store = new();
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-mcp-unit-diff-{Guid.NewGuid():N}");
+        string beforeDirectory = Path.Join(directory, "before");
+        string afterDirectory = Path.Join(directory, "after");
+        Directory.CreateDirectory(beforeDirectory);
+        Directory.CreateDirectory(afterDirectory);
+        string beforeManifest = Path.Join(beforeDirectory, "manifest.json");
+        string afterManifest = Path.Join(afterDirectory, "manifest.json");
+        string beforeTrace = FixturePath(Speedscope).Replace("\\", "\\\\", StringComparison.Ordinal);
+        string afterTrace = FixturePath(Activity).Replace("\\", "\\\\", StringComparison.Ordinal);
+        try
+        {
+            File.WriteAllText(
+                beforeManifest,
+                $$"""
+                {"schemaVersion":1,"cases":[{"id":"before","benchmark":"Bench.Work","parameters":"","benchmarkDisplay":"Before","speedscope":"{{beforeTrace}}"}]}
+                """);
+
+            File.WriteAllText(
+                afterManifest,
+                $$"""
+                {"schemaVersion":1,"cases":[{"id":"after","benchmark":"Bench.Work","parameters":"","benchmarkDisplay":"After","speedscope":"{{afterTrace}}"}]}
+                """);
+
+            Action act = () => TraceTools.Diff(store, beforeManifest, afterManifest);
+
+            act.Should().Throw<McpException>()
+                .WithMessage("Cannot compare CPU weights in ms with weights in samples*");
         }
         finally
         {

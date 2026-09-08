@@ -42,7 +42,14 @@ internal static class RankingTextRenderer
     {
         RankingResult ranking = envelope.Result;
         string unit = metric.Unit;
-        string measureLabel = measure == Measure.Inclusive ? "inclusive-time" : "self-time";
+        string measureLabel = (metric == MetricInfo.CpuSamples, measure) switch
+        {
+            (true, Measure.Inclusive) => "inclusive-weight",
+            (true, _) => "self-weight",
+            (false, Measure.Inclusive) => "inclusive-time",
+            _ => "self-time"
+        };
+
         string scope = ranking.RootFrame.Length > 0 ? $"scoped to '{ranking.RootFrame}'" : "whole trace";
 
         // The banner total is the sum of the sample weights in the metric's own unit

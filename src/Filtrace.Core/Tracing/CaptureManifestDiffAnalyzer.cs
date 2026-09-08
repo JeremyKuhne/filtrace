@@ -54,6 +54,7 @@ public static class CaptureManifestDiffAnalyzer
 
         int rowsPerCase = Math.Min(top, MaxRowsPerCase);
         List<string> warnings = [.. pairing.Warnings];
+        MetricInfo? commonMetric = null;
         if (top > MaxRowsPerCase)
         {
             warnings.Add($"manifest diff rows are capped to {MaxRowsPerCase} per case");
@@ -63,10 +64,26 @@ public static class CaptureManifestDiffAnalyzer
         foreach (CaptureManifestCasePair pair in pairing.Pairs)
         {
             List<string> caseWarnings = [];
+            bool incompatibleUnits = false;
             try
             {
                 LoadedTrace beforeTrace = load(before, pair.Before);
                 LoadedTrace afterTrace = load(after, pair.After);
+                if (beforeTrace.Aggregator.Metric != afterTrace.Aggregator.Metric)
+                {
+                    incompatibleUnits = true;
+                    throw new InvalidDataException(
+                        $"Cannot compare CPU weights in {beforeTrace.Aggregator.Metric.Unit} with weights in {afterTrace.Aggregator.Metric.Unit}; both traces must establish the same unit.");
+                }
+
+                if (commonMetric is not null && commonMetric != beforeTrace.Aggregator.Metric)
+                {
+                    incompatibleUnits = true;
+                    throw new InvalidDataException(
+                        $"Manifest diff mixes CPU weight units ({commonMetric.Unit} and {beforeTrace.Aggregator.Metric.Unit}); analyze each unit separately.");
+                }
+
+                commonMetric = beforeTrace.Aggregator.Metric;
                 RankingResult beforeRanking = Rank(
                     beforeTrace,
                     inclusive,
@@ -100,7 +117,7 @@ public static class CaptureManifestDiffAnalyzer
                         ? null
                         : afterTrace.Aggregator.GetRootScopeCoverage(root)));
             }
-            catch (Exception exception) when (IsCaseFailure(exception))
+            catch (Exception exception) when (!incompatibleUnits && IsCaseFailure(exception))
             {
                 CaptureManifestOutput.AddWarning(caseWarnings, exception.Message);
                 cases.Add(new RankingDiffCaseResult(
@@ -115,7 +132,7 @@ public static class CaptureManifestDiffAnalyzer
         }
 
         RankingDiffResult result = new(cases);
-        return new CaptureManifestDiffAnalysis(result, warnings);
+        return new CaptureManifestDiffAnalysis(result, warnings, commonMetric ?? MetricInfo.CpuSamples);
     }
 
     /// <summary>

@@ -20,10 +20,10 @@ namespace Filtrace.Tracing.Readers;
 ///   managed frames; native frames may remain unresolved.
 ///  </para>
 ///  <para>
-///   Each sample is weighted as one millisecond. Sampled-profile CPU profiling
-///   runs at roughly a 1 kHz cadence on both runtimes, so scoped durations are
-///   accurate to within the sampling interval and the relative percentages -
-///   what the rankings actually report - are unaffected.
+///   ETW samples are weighted by the timer interval recorded in
+///   <c>PerfInfo/CollectionStart</c> and <c>PerfInfo/SetInterval</c> events. When
+///   a trace does not establish the interval for every sample, weights remain
+///   raw sample counts rather than being presented as milliseconds.
 ///  </para>
 /// </remarks>
 internal abstract class TraceLogReader : ITraceReader
@@ -128,6 +128,7 @@ internal abstract class TraceLogReader : ITraceReader
 
             return ReadCore(
                 traceLog,
+                Format,
                 symbolReader,
                 resolved,
                 activitySamples,
@@ -248,6 +249,7 @@ internal abstract class TraceLogReader : ITraceReader
 
     private static TraceReadResult ReadCore(
         EtlxTraceLog traceLog,
+        TraceFormat format,
         SymbolReader symbolReader,
         ScopeResolution resolvedScope,
         HashSet<EventIndex>? activitySamples,
@@ -269,10 +271,17 @@ internal abstract class TraceLogReader : ITraceReader
         long resolvedFrames = 0;
         List<string> leafToRoot = [];
         List<string> leafToRootLocations = [];
+        CpuSampleWeighting? cpuWeighting = format == TraceFormat.Etl ? new() : null;
 
         foreach (TraceEvent data in traceLog.Events)
         {
             analysisEvents.Observe(data);
+
+            if (data is SampledProfileIntervalTraceData interval)
+            {
+                cpuWeighting?.ObserveInterval((int)interval.Opcode, interval.SampleSource, interval.NewInterval);
+                continue;
+            }
 
             // ETW (.etl) surfaces CPU samples as SampledProfileTraceData; EventPipe
             // (.nettrace) surfaces them as the SampleProfiler's ClrThreadSampleTraceData.
@@ -376,10 +385,47 @@ internal abstract class TraceLogReader : ITraceReader
 
             samples.Add(new SampleStack(
                 frames,
-                1.0,
+                cpuWeighting?.GetSampleWeight() ?? 1.0,
                 data.ThreadID.ToString(CultureInfo.InvariantCulture),
                 locations,
                 process));
+        }
+
+        bool timeWeightsEstablished = cpuWeighting?.HasCompleteIntervalEvidence == true;
+        MetricInfo metric = timeWeightsEstablished ? MetricInfo.Cpu : MetricInfo.CpuSamples;
+        CpuSampleProvenance cpuSampling;
+
+        if (cpuWeighting is null)
+        {
+            cpuSampling = new CpuSampleProvenance(
+                "samples",
+                "unavailable",
+                TimeWeightsEstablished: false,
+                UnknownIntervalSampleCount: samples.Count,
+                Intervals: []);
+        }
+        else
+        {
+            if (!timeWeightsEstablished && cpuWeighting.Intervals.Count > 0)
+            {
+                for (int i = 0; i < samples.Count; i++)
+                {
+                    SampleStack sample = samples[i];
+                    samples[i] = new SampleStack(
+                        sample.Frames,
+                        1.0,
+                        sample.Thread,
+                        sample.FrameLocations,
+                        sample.Process);
+                }
+            }
+
+            cpuSampling = new CpuSampleProvenance(
+                timeWeightsEstablished ? "ms" : "samples",
+                "etw-perfinfo",
+                timeWeightsEstablished,
+                cpuWeighting.UnknownIntervalSampleCount,
+                cpuWeighting.Intervals);
         }
 
         double resolutionRate = totalFrames > 0 ? (double)resolvedFrames / totalFrames : 0.0;
@@ -389,6 +435,19 @@ internal abstract class TraceLogReader : ITraceReader
         }
 
         List<string> warnings = [.. scopeWarnings];
+        if (timeWeightsEstablished)
+        {
+            warnings.Add(
+                cpuWeighting!.Intervals.Count == 1
+                    ? $"CPU sample weights use the trace-recorded ETW PerfInfo interval ({cpuWeighting.Intervals[0].IntervalMSec.ToString("0.####", CultureInfo.InvariantCulture)} ms)."
+                    : "CPU sample weights use the trace-recorded ETW PerfInfo interval active at each sample; the interval changed during the trace.");
+        }
+        else if (samples.Count > 0)
+        {
+            warnings.Add(
+                "CPU sampling interval is not recorded for every included sample; CPU weights are raw sample counts, not milliseconds.");
+        }
+
         if (samples.Count == 0)
         {
             // An empty result can come from a scope dropping every sample or an absent
@@ -465,6 +524,8 @@ internal abstract class TraceLogReader : ITraceReader
 
         return new TraceReadResult(
             samples,
+            metric,
+            cpuSampling,
             resolutionRate,
             warnings,
             StackRecordSemantics.PeriodicCpuSamples,

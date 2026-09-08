@@ -270,7 +270,7 @@ public static class SteeringHints
             return Guidance(EmptyScope);
         }
 
-        if (metric != MetricInfo.Cpu)
+        if (!string.Equals(metric.Name, MetricInfo.Cpu.Name, StringComparison.Ordinal))
         {
             string reason =
                 $"refine the {metric.Name} ranking with self/inclusive measure, root, or time; callers, lines, heatmap, and tree analyze CPU only";

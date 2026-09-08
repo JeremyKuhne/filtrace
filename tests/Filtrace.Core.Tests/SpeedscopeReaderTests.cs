@@ -75,6 +75,26 @@ public sealed class SpeedscopeReaderTests
     }
 
     [TestMethod]
+    public void Read_FiltraceRawCpuExport_RoundTripsSampleWeightsAndUnit()
+    {
+        StackSampleSource source = new(
+            MetricInfo.CpuSamples,
+            [
+                new SampleStack(["Root", "First"], 2.0),
+                new SampleStack(["Root", "Second"], 3.0)
+            ]);
+
+        string json = SpeedscopeExporter.Export(source);
+        LoadedTrace trace = Read(json);
+
+        json.Should().Contain("\"unit\":\"none\"");
+        trace.Source.Metric.Should().Be(MetricInfo.CpuSamples);
+        trace.Info.TotalWeight.Should().Be(5.0);
+        trace.Info.CpuSampling!.TimeWeightsEstablished.Should().BeFalse();
+        trace.Info.CpuSampling.UnknownIntervalSampleCount.Should().Be(2);
+    }
+
+    [TestMethod]
     public void Read_ByteProfile_RejectsNonCpuUnit()
     {
         const string json = """

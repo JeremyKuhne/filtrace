@@ -9,6 +9,8 @@ namespace Filtrace.Tracing;
 /// </summary>
 /// <param name="Result">Case-keyed ranking diff result.</param>
 /// <param name="Warnings">Bounded pairing and output-cap warnings.</param>
+/// <param name="Metric">The common metric and unit of every compared case.</param>
 public sealed record CaptureManifestDiffAnalysis(
     RankingDiffResult Result,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    MetricInfo Metric);

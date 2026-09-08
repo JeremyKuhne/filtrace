@@ -40,6 +40,13 @@ public sealed record AnalysisContext(string Operation)
     public AnalysisScopeContext? Scope { get; init; }
 
     /// <summary>
+    ///  Provenance and uncertainty for CPU sample weights, or
+    ///  <see langword="null"/> for non-CPU metrics.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CpuSampleProvenance? CpuSampling { get; init; }
+
+    /// <summary>
     ///  Builds context for an operation over one loaded stack source.
     /// </summary>
     /// <param name="operation">The surface-neutral operation name.</param>
@@ -61,6 +68,7 @@ public sealed record AnalysisContext(string Operation)
             Metric = MetricSelector(trace.Aggregator.Metric),
             Measure = measure,
             Unit = trace.Aggregator.Metric.Unit,
+            CpuSampling = trace.Info.CpuSampling,
             Scope = AnalysisScopeContext.Create(
                 root,
                 trace.Info.AppliedProcessScope,

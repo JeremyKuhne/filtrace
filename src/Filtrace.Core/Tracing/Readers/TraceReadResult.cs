@@ -9,6 +9,8 @@ namespace Filtrace.Tracing.Readers;
 ///  format-specific quality signals the loader folds into a <see cref="TraceInfo"/>.
 /// </summary>
 /// <param name="Samples">The weighted samples, each ordered outermost-first.</param>
+/// <param name="Metric">The metric and unit carried by the sample weights.</param>
+/// <param name="CpuSampling">The provenance of CPU sample weights.</param>
 /// <param name="SymbolResolutionRate">Fraction in <c>[0, 1]</c> of frames that resolved to a method name.</param>
 /// <param name="Warnings">Format-specific quality warnings.</param>
 /// <param name="RecordSemantics">What each normalized record represents.</param>
@@ -21,6 +23,8 @@ namespace Filtrace.Tracing.Readers;
 /// </param>
 internal sealed record TraceReadResult(
     IReadOnlyList<SampleStack> Samples,
+    MetricInfo Metric,
+    CpuSampleProvenance CpuSampling,
     double SymbolResolutionRate,
     IReadOnlyList<string> Warnings,
     StackRecordSemantics RecordSemantics,

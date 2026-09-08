@@ -444,7 +444,7 @@ public sealed class TraceTools
     }
 
     /// <summary>
-    ///  Returns the line-level self-time ranking, attributing leaf samples to the
+    ///  Returns the line-level self-weight ranking, attributing leaf samples to the
     ///  source line that was executing, scoped to the matching methods.
     /// </summary>
     /// <param name="store">The trace cache (injected).</param>
@@ -461,10 +461,10 @@ public sealed class TraceTools
     /// </param>
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
-    /// <returns>The line-level self-time envelope.</returns>
+    /// <returns>The line-level self-weight envelope.</returns>
     [McpServerTool(Name = "trace_lines", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
-        "Rank CPU leaf self-time by source line, for methods whose name contains method. Requires .nettrace/.etl "
+        "Rank CPU leaf self weight by source line, for methods whose name contains method. Requires .nettrace/.etl "
             + "and optional local PDBs; unresolved locations are '<no source>'. Speedscope carries no line data, so it "
             + "can only ever return nothing - trace_info's availableAnalyses says whether to call this at all.")]
     public static async Task<AnalysisResult<LineRankingResult>> LinesAsync(
@@ -511,7 +511,7 @@ public sealed class TraceTools
     }
 
     /// <summary>
-    ///  Builds a per-line self-time heat map for one source file, ordered by line
+    ///  Builds a per-line self-weight heat map for one source file, ordered by line
     ///  number for overlaying onto the source.
     /// </summary>
     /// <param name="store">The trace cache (injected).</param>
@@ -529,7 +529,7 @@ public sealed class TraceTools
     /// <returns>The heat-map envelope.</returns>
     [McpServerTool(Name = "trace_heatmap", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
-        "CPU self-time heat map for one source filename, ordered by line. Requires .nettrace/.etl and optional "
+        "CPU self-weight heat map for one source filename, ordered by line. Requires .nettrace/.etl and optional "
             + "local PDBs. Speedscope carries no line data, so it can only ever return nothing - trace_info's "
             + "availableAnalyses says whether to call this at all.")]
     public static AnalysisResult<SourceHeatmapResult> Heatmap(
@@ -652,7 +652,7 @@ public sealed class TraceTools
                     SteeringHints.ForDiff(analysis.Result),
                     AnalysisContext.ForMetric(
                         "diff",
-                        MetricInfo.Cpu,
+                        analysis.Metric,
                         inclusive ? "inclusive" : "self",
                         resolvedRoot));
             }
@@ -668,6 +668,11 @@ public sealed class TraceTools
 
         LoadedTrace before = Load(store, beforePath, resolvedSymbols, scope: scope);
         LoadedTrace after = Load(store, afterPath, resolvedSymbols, scope: scope);
+        if (before.Aggregator.Metric != after.Aggregator.Metric)
+        {
+            throw new McpException(
+                $"Cannot compare CPU weights in {before.Aggregator.Metric.Unit} with weights in {after.Aggregator.Metric.Unit}; both traces must establish the same unit.");
+        }
 
         // Rank every frame (no row cap) so the diff is not skewed by per-side truncation;
         // RankingDiff applies the requested top to the changed rows instead.
@@ -707,7 +712,7 @@ public sealed class TraceTools
             SteeringHints.ForDiff(diff),
             AnalysisContext.ForMetric(
                 "diff",
-                MetricInfo.Cpu,
+                before.Aggregator.Metric,
                 inclusive ? "inclusive" : "self",
                 resolvedRoot));
     }
@@ -768,12 +773,24 @@ public sealed class TraceTools
                     resolvedMetric,
                     captureManifest.ResolveCaseScope(captureCase, scope)));
 
+            MetricInfo contextMetric = TraceMetricSelector.GetInfo(resolvedMetric);
+            if (resolvedMetric == TraceMetric.Cpu)
+            {
+                string[] units = result.Cases
+                    .Select(static captureCase => captureCase.Unit)
+                    .Where(static unit => !string.IsNullOrEmpty(unit))
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+
+                contextMetric = new MetricInfo("CPU", units.Length == 1 ? units[0] : "mixed");
+            }
+
             return new AnalysisResult<BatchRankingResult>(
                 result,
                 hints: SteeringHints.ForBatch(result, scope, resolvedSymbols, foldPatterns),
                 context: AnalysisContext.ForMetric(
                     "batch",
-                    TraceMetricSelector.GetInfo(resolvedMetric),
+                    contextMetric,
                     inclusive ? "inclusive" : "self",
                     resolvedRoot));
         }

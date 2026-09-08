@@ -16,6 +16,8 @@ public sealed class DiffExecutorTests
 
     private static string Speedscope => FixturePath("folding.speedscope.json");
 
+    private static string Activity => FixturePath("activity.nettrace");
+
     // A minimal evented speedscope where frame A wraps frame B: the B close at
     // 'bCloseAt' fixes B's self-weight, and A's self-weight is the remainder up to
     // 'aCloseAt'. Authoring both sides lets a test assert exact diff deltas.
@@ -72,6 +74,16 @@ public sealed class DiffExecutorTests
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("no changes in scope");
+    }
+
+    [TestMethod]
+    public void Run_DifferentCpuWeightUnits_ReturnsInputError()
+    {
+        (int exit, string output, string error) = Run(Request(Speedscope, Activity));
+
+        exit.Should().Be(ExitCodes.InputError);
+        output.Should().BeEmpty();
+        error.Should().Contain("Cannot compare CPU weights in ms with weights in samples");
     }
 
     [TestMethod]
@@ -212,6 +224,8 @@ public sealed class DiffExecutorTests
         (int exit, string output, _) = Run(Request(path, path, root: "ActivityLoop"));
 
         exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("CPU self-weight diff");
+        output.Should().NotContain("CPU self-time");
         output.Should().Contain("baseline: Only 180 periodic CPU records");
         output.Should().Contain("current: Only 180 periodic CPU records");
     }
@@ -293,6 +307,44 @@ public sealed class DiffExecutorTests
             (int textExit, string textOutput, _) = Run(Request(beforeManifest, afterManifest));
             textExit.Should().Be(ExitCodes.Success);
             textOutput.Should().Contain("per items:");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Run_PairedManifestsWithDifferentCpuWeightUnits_ReturnsInputError()
+    {
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-unit-diff-{Guid.NewGuid():N}");
+        string beforeDirectory = Path.Join(directory, "before");
+        string afterDirectory = Path.Join(directory, "after");
+        Directory.CreateDirectory(beforeDirectory);
+        Directory.CreateDirectory(afterDirectory);
+        string beforeManifest = Path.Join(beforeDirectory, "manifest.json");
+        string afterManifest = Path.Join(afterDirectory, "manifest.json");
+        string beforeTrace = Speedscope.Replace("\\", "\\\\", StringComparison.Ordinal);
+        string afterTrace = Activity.Replace("\\", "\\\\", StringComparison.Ordinal);
+        try
+        {
+            File.WriteAllText(
+                beforeManifest,
+                $$"""
+                {"schemaVersion":1,"cases":[{"id":"before","benchmark":"Bench.Work","parameters":"","benchmarkDisplay":"Before","speedscope":"{{beforeTrace}}"}]}
+                """);
+
+            File.WriteAllText(
+                afterManifest,
+                $$"""
+                {"schemaVersion":1,"cases":[{"id":"after","benchmark":"Bench.Work","parameters":"","benchmarkDisplay":"After","speedscope":"{{afterTrace}}"}]}
+                """);
+
+            (int exit, string output, string error) = Run(Request(beforeManifest, afterManifest));
+
+            exit.Should().Be(ExitCodes.InputError);
+            output.Should().BeEmpty();
+            error.Should().Contain("Cannot compare CPU weights in ms with weights in samples");
         }
         finally
         {

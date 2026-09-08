@@ -101,7 +101,7 @@ public sealed class TraceInfo
 
     /// <summary>
     ///  Sum of the per-sample weights across all samples, in the source metric's
-    ///  unit - milliseconds of CPU time for a CPU trace, bytes for an allocation
+    ///  unit - milliseconds or raw samples for a CPU trace, bytes for an allocation
     ///  trace, one count per event for the exceptions trace. For CPU this is busy
     ///  time, not wall-clock: because every thread's samples are included, the value
     ///  can exceed the trace's wall-clock span when multiple threads ran concurrently.
@@ -180,4 +180,10 @@ public sealed class TraceInfo
     ///  The time window that actually applied, or <see langword="null"/>.
     /// </summary>
     public TimeWindow? AppliedTimeWindow { get; init; }
+
+    /// <summary>
+    ///  Provenance and uncertainty for CPU sample weights, or
+    ///  <see langword="null"/> when the active metric is not CPU.
+    /// </summary>
+    public CpuSampleProvenance? CpuSampling { get; init; }
 }

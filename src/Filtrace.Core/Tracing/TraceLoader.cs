@@ -144,9 +144,10 @@ public sealed class TraceLoader
             result.NativeSymbols,
             result.AppliedProcessScope,
             result.AppliedActivityName,
-            result.AppliedTimeWindow);
+            result.AppliedTimeWindow,
+            result.CpuSampling);
 
-        StackSampleSource source = new(MetricInfo.Cpu, result.Samples, result.RecordSemantics);
+        StackSampleSource source = new(result.Metric, result.Samples, result.RecordSemantics);
         return new LoadedTrace(info, source);
     }
 
@@ -439,7 +440,8 @@ public sealed class TraceLoader
         NativeSymbolInfo? nativeSymbols = null,
         AppliedProcessScope? appliedProcessScope = null,
         string? appliedActivityName = null,
-        TimeWindow? appliedTimeWindow = null)
+        TimeWindow? appliedTimeWindow = null,
+        CpuSampleProvenance? cpuSampling = null)
     {
         double totalWeight = 0.0;
         Dictionary<string, int> threadCounts = new(StringComparer.Ordinal);
@@ -484,7 +486,8 @@ public sealed class TraceLoader
             NativeSymbols = nativeSymbols,
             AppliedProcessScope = appliedProcessScope,
             AppliedActivityName = appliedActivityName,
-            AppliedTimeWindow = appliedTimeWindow
+            AppliedTimeWindow = appliedTimeWindow,
+            CpuSampling = cpuSampling
         };
     }
 

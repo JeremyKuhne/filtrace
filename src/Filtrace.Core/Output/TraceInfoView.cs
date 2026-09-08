@@ -20,7 +20,7 @@ namespace Filtrace.Output;
 /// <param name="Path">The absolute path the trace was loaded from.</param>
 /// <param name="Format">The on-disk format the trace was read from.</param>
 /// <param name="TotalWeight">
-///  Sum of the per-sample weights, in the metric's unit (CPU milliseconds, bytes
+///  Sum of the per-sample weights, in the metric's unit (CPU milliseconds or samples, bytes
 ///  allocated, or one count per event).
 /// </param>
 /// <param name="SampleCount">Number of weighted samples in the normalized model.</param>
@@ -67,6 +67,11 @@ public sealed record TraceInfoView(
     public NativeSymbolInfo? NativeSymbols { get; init; }
 
     /// <summary>
+    ///  Provenance and uncertainty for CPU sample weights.
+    /// </summary>
+    public CpuSampleProvenance? CpuSampling { get; init; }
+
+    /// <summary>
     ///  Creates the shared CLI/MCP view of <paramref name="info"/>.
     /// </summary>
     /// <param name="info">The loaded trace information to map.</param>
@@ -102,7 +107,8 @@ public sealed record TraceInfoView(
         {
             Analyses = analyses,
             SourceResolution = info.SourceResolution,
-            NativeSymbols = info.NativeSymbols
+            NativeSymbols = info.NativeSymbols,
+            CpuSampling = info.CpuSampling
         };
     }
 

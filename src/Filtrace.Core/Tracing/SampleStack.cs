@@ -8,7 +8,7 @@ namespace Filtrace.Tracing;
 ///  A single weighted sample: the full call stack captured at a point in time,
 ///  ordered outermost-first (<c>Frames[0]</c> is the process/thread root,
 ///  <c>Frames[^1]</c> is the leaf), together with the weight attributed to it in
-///  the source metric's unit (milliseconds for CPU time, bytes for allocations).
+///  the source metric's unit (milliseconds or raw samples for CPU, bytes for allocations).
 /// </summary>
 /// <remarks>
 ///  <para>
@@ -66,7 +66,7 @@ public sealed class SampleStack
 
     /// <summary>
     ///  Weight attributed to this sample, in the source metric's unit
-    ///  (milliseconds for CPU time, bytes for allocations).
+    ///  (milliseconds or raw samples for CPU, bytes for allocations).
     /// </summary>
     public double Weight { get; }
 
