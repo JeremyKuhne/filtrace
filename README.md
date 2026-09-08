@@ -71,7 +71,7 @@ ranking when needed, then diff comparable traces or capture manifests against a 
 ```pwsh
 # Workflow: orient, rank the hottest frames, drill into one, then diff two runs.
 filtrace info app.nettrace                     # 0. orient: format, providers, event counts, symbol rate
-filtrace rank app.nettrace --metric cpu        # 1. what's hot (self-time)
+filtrace rank app.nettrace --metric cpu        # 1. what's hot (self weight: milliseconds or raw samples)
 filtrace callers app.nettrace MyApp.Parse      # 2. who calls the hot frame
 filtrace source app.nettrace --view lines --symbols bin/Release/net10.0   # 3. hot source lines
 filtrace diff before.nettrace after.nettrace   # 4. what changed between runs
@@ -188,7 +188,7 @@ filtrace rank app.etl --metric cpu --process MyApp --native-symbols   # name the
 | Command | Purpose | Example |
 |---|---|---|
 | `processes` | List processes by CPU-sample weight, to pick a `--process` target | `filtrace processes machinewide.etl` |
-| `classify` | Summarize CPU time by runtime work category (zeroing / copying / GC / ...) | `filtrace classify app.etl --native-symbols` |
+| `classify` | Summarize CPU weight by runtime work category (`ms` when established, otherwise samples) | `filtrace classify app.etl --native-symbols` |
 
 **Temporal** - see what happened when, then scope a ranking to the busy window:
 

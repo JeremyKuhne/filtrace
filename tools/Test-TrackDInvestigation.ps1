@@ -48,6 +48,7 @@ try {
         'Get-BoundedAnalyzerFileIdentity',
         'Get-AnalyzerIdentity',
         'Test-FiniteJsonNumber',
+        'ConvertTo-ValidatedSamplingCount',
         'Get-ValidatedProfileWarnings',
         'Get-ValidatedCpuSampling',
         'Get-ValidatedProfileResult',
@@ -206,6 +207,117 @@ try {
             $millisecondsEvidence.cpuSampling.timeWeightsEstablished -and
             $millisecondsEvidence.summaries[0].scopeWeight -eq 64) `
         'Schema 17 millisecond evidence was rejected or normalized to sample counts.'
+
+    [object] $validEtwSampling = [pscustomobject]@{
+        cpuSampling = [pscustomobject]@{
+            weightUnit = 'samples'
+            source = 'etw-perfinfo'
+            timeWeightsEstablished = $false
+            unknownIntervalSampleCount = 27
+            intervals = @([pscustomobject]@{ intervalMSec = 0.5; sampleCount = 101 })
+        }
+    }
+    [object] $validatedEtwSampling = Get-ValidatedCpuSampling `
+        $validEtwSampling 17 'samples' 128 'valid ETW sampling'
+    Assert-True `
+        ($validatedEtwSampling.unknownIntervalSampleCount -eq 27) `
+        'Valid ETW sampling provenance was rejected or changed.'
+
+    [object] $knownEtwSampling = $validEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+    $knownEtwSampling.cpuSampling.weightUnit = 'ms'
+    $knownEtwSampling.cpuSampling.timeWeightsEstablished = $true
+    $knownEtwSampling.cpuSampling.unknownIntervalSampleCount = 0.0
+    $knownEtwSampling.cpuSampling.intervals[0].sampleCount = 27000.0
+    $knownEtwSampling.cpuSampling | Add-Member omittedIntervalSegmentCount 0.0
+    $knownEtwSampling.cpuSampling | Add-Member omittedIntervalSampleCount 0.0
+    $knownEtwSampling.cpuSampling | Add-Member intervalsTruncated $false
+    $null = Get-ValidatedCpuSampling `
+        $knownEtwSampling 17 'ms' 27000 'known ETW sampling'
+
+    [object] $speedscopeTimeSampling = [pscustomobject]@{
+        cpuSampling = [pscustomobject]@{
+            weightUnit = 'ms'
+            source = 'speedscope-profile-declared-time-weights'
+            timeWeightsEstablished = $true
+            unknownIntervalSampleCount = 0
+            intervals = @()
+        }
+    }
+    $null = Get-ValidatedCpuSampling `
+        $speedscopeTimeSampling 17 'ms' 128 'speedscope time sampling'
+
+    [object] $largeCountSampling = $validEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+    $largeCountSampling.cpuSampling.weightUnit = 'ms'
+    $largeCountSampling.cpuSampling.timeWeightsEstablished = $true
+    $largeCountSampling.cpuSampling.unknownIntervalSampleCount = 0
+    $largeCountSampling.cpuSampling.intervals[0].sampleCount = [double]3000000000
+    $null = Get-ValidatedCpuSampling `
+        $largeCountSampling 17 'ms' 3000000000 'large ETW sampling count'
+
+    [object] $truncatedSampling = $validEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+    $truncatedSampling.cpuSampling.weightUnit = 'ms'
+    $truncatedSampling.cpuSampling.timeWeightsEstablished = $true
+    $truncatedSampling.cpuSampling.unknownIntervalSampleCount = 0
+    $truncatedSampling.cpuSampling.intervals = @(
+        1..32 | ForEach-Object { [pscustomobject]@{ intervalMSec = [double]$_; sampleCount = 1.0 } })
+    $truncatedSampling.cpuSampling | Add-Member -NotePropertyName omittedIntervalSegmentCount -NotePropertyValue 1.0
+    $truncatedSampling.cpuSampling | Add-Member -NotePropertyName omittedIntervalSampleCount -NotePropertyValue 2.0
+    $truncatedSampling.cpuSampling | Add-Member -NotePropertyName intervalsTruncated -NotePropertyValue $true
+    $null = Get-ValidatedCpuSampling `
+        $truncatedSampling 17 'ms' 34 'truncated ETW sampling'
+
+    [object[]] $invalidIntervalCases = @(
+        @{ Name = 'null-segment'; Mutate = { param($sampling) $sampling.cpuSampling.intervals = @($null) } },
+        @{ Name = 'missing-interval'; Mutate = { param($sampling) $sampling.cpuSampling.intervals = @([pscustomobject]@{ sampleCount = 101 }) } },
+        @{ Name = 'missing-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals = @([pscustomobject]@{ intervalMSec = 0.5 }) } },
+        @{ Name = 'zero-interval'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].intervalMSec = 0 } },
+        @{ Name = 'negative-interval'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].intervalMSec = -0.5 } },
+        @{ Name = 'nan-interval'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].intervalMSec = [double]::NaN } },
+        @{ Name = 'infinite-interval'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].intervalMSec = [double]::PositiveInfinity } },
+        @{ Name = 'zero-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = 0 } },
+        @{ Name = 'negative-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = -1 } },
+        @{ Name = 'fractional-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = 100.5 } },
+        @{ Name = 'nan-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = [double]::NaN } },
+        @{ Name = 'infinite-count'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = [double]::PositiveInfinity } },
+        @{ Name = 'too-many-segments'; Mutate = { param($sampling) $sampling.cpuSampling.intervals = @(1..33 | ForEach-Object { [pscustomobject]@{ intervalMSec = 1; sampleCount = 1 } }) } },
+        @{ Name = 'retained-count-mismatch'; Mutate = { param($sampling) $sampling.cpuSampling.intervals[0].sampleCount = 100 } },
+        @{ Name = 'null-omitted-segments'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount $null } },
+        @{ Name = 'negative-omitted-segments'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount -1 } },
+        @{ Name = 'nan-omitted-segments'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount ([double]::NaN) } },
+        @{ Name = 'fractional-omitted-samples'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSampleCount 1.5 } },
+        @{ Name = 'infinite-omitted-samples'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSampleCount ([double]::PositiveInfinity) } },
+        @{ Name = 'omitted-samples-without-segments'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSampleCount 1 } },
+        @{ Name = 'omission-without-truncation'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount 1 } },
+        @{ Name = 'omission-with-false-truncation'; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount 1
+            $sampling.cpuSampling | Add-Member omittedIntervalSampleCount 1
+            $sampling.cpuSampling | Add-Member intervalsTruncated $false
+        } },
+        @{ Name = 'truncation-without-omission'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member intervalsTruncated $true } },
+        @{ Name = 'too-few-omitted-samples'; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling | Add-Member omittedIntervalSegmentCount 2
+            $sampling.cpuSampling | Add-Member omittedIntervalSampleCount 1
+            $sampling.cpuSampling | Add-Member intervalsTruncated $true
+        } },
+        @{ Name = 'non-boolean-truncation'; Mutate = { param($sampling) $sampling.cpuSampling | Add-Member intervalsTruncated 1 } })
+    foreach ($case in $invalidIntervalCases) {
+        [object] $invalidSampling = $validEtwSampling | ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+        & $case.Mutate $invalidSampling
+        [bool] $invalidSamplingFailed = $false
+        try {
+            $null = Get-ValidatedCpuSampling $invalidSampling 17 'samples' 128 'invalid ETW sampling'
+        }
+        catch {
+            $invalidSamplingFailed = $_.Exception.Message.Contains(
+                'incompatible schema 17 CPU sampling provenance',
+                [StringComparison]::Ordinal)
+        }
+        Assert-True `
+            $invalidSamplingFailed `
+            "Invalid interval case '$($case.Name)' was accepted."
+    }
 
     [object[]] $invalidCpuSamplingCases = @(
         [pscustomobject]@{ Name = 'future-info-schema'; Mutate = {
@@ -391,7 +503,7 @@ try {
             $realCliEvidence.weightUnit -ceq 'samples' -and
             $realCliEvidence.cpuSampling.source -ceq 'unavailable' -and
             -not $realCliEvidence.cpuSampling.timeWeightsEstablished -and
-            $realCliEvidence.eventCount -gt 0 -and
+            $realCliEvidence.eventCount -eq 11587 -and
             $realCliEvidence.summaries[0].scopeWeight -eq
                 $realCliEvidence.summaries[0].contributingRecordCount) `
         'The real current CLI EventPipe result did not retain raw sample-count semantics.'

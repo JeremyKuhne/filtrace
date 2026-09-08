@@ -14,7 +14,10 @@ namespace Filtrace.Tracing;
 ///  single-process trace format.
 /// </param>
 /// <param name="SampleCount">The number of CPU samples attributed to the process.</param>
-/// <param name="Weight">The summed sample weight, in the metric's unit (milliseconds for CPU time).</param>
+/// <param name="Weight">
+///  The summed sample weight, in the metric's unit (milliseconds when CPU time weights
+///  are established, otherwise raw samples).
+/// </param>
 /// <param name="PercentOfScope">The process's share of the whole capture's weight, in percent.</param>
 public sealed record ProcessSummary(
     string Process,

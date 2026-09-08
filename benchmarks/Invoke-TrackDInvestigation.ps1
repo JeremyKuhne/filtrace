@@ -948,6 +948,25 @@ function Test-FiniteJsonNumber([object] $Value) {
         [double]::IsFinite([double]$Value)
 }
 
+function ConvertTo-ValidatedSamplingCount(
+    [object] $Value,
+    [string] $Owner) {
+    if (
+        -not (Test-FiniteJsonNumber $Value) -or
+        [double]$Value -lt 0 -or
+        [double]$Value -ne [Math]::Truncate([double]$Value)
+    ) {
+        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+    }
+
+    try {
+        return [Convert]::ToInt64($Value, [Globalization.CultureInfo]::InvariantCulture)
+    }
+    catch {
+        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+    }
+}
+
 function Get-ValidatedProfileWarnings([object] $Envelope, [string] $Owner) {
     [object] $warningsProperty = $Envelope.PSObject.Properties['warnings']
     if (
@@ -1030,23 +1049,77 @@ function Get-ValidatedCpuSampling(
         $null -eq $timeWeightsProperty -or
         $timeWeightsProperty.Value -isnot [bool] -or
         $null -eq $unknownCountProperty -or
-        -not (Test-FiniteJsonNumber $unknownCountProperty.Value) -or
-        [double]$unknownCountProperty.Value -lt 0 -or
-        [double]$unknownCountProperty.Value -ne
-            [Math]::Truncate([double]$unknownCountProperty.Value) -or
         $null -eq $intervalsProperty -or
         $null -eq $intervalsProperty.Value -or
-        $intervalsProperty.Value -isnot [array]
+        $intervalsProperty.Value -isnot [array] -or
+        $intervalsProperty.Value.Count -gt 32 -or
+        $ExpectedRecordCount -lt 0
     ) {
         throw "$Owner returned incompatible schema 17 CPU sampling provenance."
     }
 
-    try {
-        [long] $unknownIntervalSampleCount = [Convert]::ToInt64(
-            $unknownCountProperty.Value,
-            [Globalization.CultureInfo]::InvariantCulture)
+    [long] $unknownIntervalSampleCount = ConvertTo-ValidatedSamplingCount `
+        $unknownCountProperty.Value `
+        $Owner
+    [long] $retainedIntervalSampleCount = 0
+    foreach ($interval in $intervalsProperty.Value) {
+        if ($null -eq $interval) {
+            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        }
+
+        [object] $intervalProperty = $interval.PSObject.Properties['intervalMSec']
+        [object] $sampleCountProperty = $interval.PSObject.Properties['sampleCount']
+        if (
+            $null -eq $intervalProperty -or
+            -not (Test-FiniteJsonNumber $intervalProperty.Value) -or
+            [double]$intervalProperty.Value -le 0 -or
+            $null -eq $sampleCountProperty
+        ) {
+            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        }
+
+        [long] $sampleCount = ConvertTo-ValidatedSamplingCount `
+            $sampleCountProperty.Value `
+            $Owner
+        if (
+            $sampleCount -le 0 -or
+            $sampleCount -gt $ExpectedRecordCount -or
+            $retainedIntervalSampleCount -gt $ExpectedRecordCount - $sampleCount
+        ) {
+            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        }
+        $retainedIntervalSampleCount += $sampleCount
     }
-    catch {
+
+    [object] $omittedSegmentsProperty = $cpuSampling.PSObject.Properties['omittedIntervalSegmentCount']
+    [object] $omittedSamplesProperty = $cpuSampling.PSObject.Properties['omittedIntervalSampleCount']
+    [object] $truncatedProperty = $cpuSampling.PSObject.Properties['intervalsTruncated']
+    [long] $omittedIntervalSegmentCount = if ($null -eq $omittedSegmentsProperty) {
+        0
+    }
+    else {
+        ConvertTo-ValidatedSamplingCount $omittedSegmentsProperty.Value $Owner
+    }
+    [long] $omittedIntervalSampleCount = if ($null -eq $omittedSamplesProperty) {
+        0
+    }
+    else {
+        ConvertTo-ValidatedSamplingCount $omittedSamplesProperty.Value $Owner
+    }
+    [bool] $intervalsTruncated = if ($null -eq $truncatedProperty) {
+        $false
+    }
+    elseif ($truncatedProperty.Value -is [bool]) {
+        $truncatedProperty.Value
+    }
+    else {
+        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+    }
+    if (
+        $intervalsTruncated -ne ($omittedIntervalSegmentCount -gt 0) -or
+        $omittedIntervalSampleCount -lt $omittedIntervalSegmentCount -or
+        ($omittedIntervalSegmentCount -eq 0 -and $omittedIntervalSampleCount -ne 0)
+    ) {
         throw "$Owner returned incompatible schema 17 CPU sampling provenance."
     }
 
@@ -1061,7 +1134,7 @@ function Get-ValidatedCpuSampling(
                 'etw-perfinfo',
                 'speedscope-profile-declared-sample-weights') -or
             ($source -in @('unavailable', 'speedscope-profile-declared-sample-weights') -and
-                ($intervalCount -ne 0 -or
+                ($intervalCount -ne 0 -or $intervalsTruncated -or
                     $unknownIntervalSampleCount -ne $ExpectedRecordCount)) -or
             ($source -ceq 'etw-perfinfo' -and
                 ($intervalCount -eq 0 -or
@@ -1076,9 +1149,23 @@ function Get-ValidatedCpuSampling(
         $unknownIntervalSampleCount -ne 0 -or
         $source -notin @('etw-perfinfo', 'speedscope-profile-declared-time-weights') -or
         ($source -ceq 'etw-perfinfo' -and $intervalCount -eq 0) -or
-        ($source -ceq 'speedscope-profile-declared-time-weights' -and $intervalCount -ne 0)
+        ($source -ceq 'speedscope-profile-declared-time-weights' -and
+            ($intervalCount -ne 0 -or $intervalsTruncated))
     ) {
         throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+    }
+
+    if ($source -ceq 'etw-perfinfo') {
+        if (
+            $unknownIntervalSampleCount -gt $ExpectedRecordCount -or
+            $retainedIntervalSampleCount -gt $ExpectedRecordCount - $unknownIntervalSampleCount -or
+            $omittedIntervalSampleCount -gt
+                $ExpectedRecordCount - $unknownIntervalSampleCount - $retainedIntervalSampleCount -or
+            $retainedIntervalSampleCount + $omittedIntervalSampleCount +
+                $unknownIntervalSampleCount -ne $ExpectedRecordCount
+        ) {
+            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        }
     }
 
     return [ordered]@{

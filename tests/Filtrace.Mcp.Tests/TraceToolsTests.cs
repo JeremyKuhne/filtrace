@@ -1515,6 +1515,31 @@ public sealed class TraceToolsTests
         AssertEnvelope(envelope);
         envelope.Result.Processes.Should().NotBeEmpty();
         envelope.Result.TotalSamples.Should().BeGreaterThan(0);
+        AnalysisContext context = envelope.Context!;
+        context.Metric.Should().Be("cpu");
+        context.Unit.Should().Be("ms");
+        context.Scope.Should().BeNull();
+        context.CpuSampling.Should().NotBeNull();
+        context.CpuSampling!.Source.Should().Be("speedscope-profile-declared-time-weights");
+        context.CpuSampling.TimeWeightsEstablished.Should().BeTrue();
+    }
+
+    [TestMethod]
+    public void Processes_EventPipe_ReportsRawCpuWeightContract()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<ProcessListResult> envelope = TraceTools.Processes(store, FixturePath(Activity));
+
+        AssertEnvelope(envelope);
+        envelope.Result.Processes.Should().NotBeEmpty();
+        AnalysisContext context = envelope.Context!;
+        context.Metric.Should().Be("cpu");
+        context.Unit.Should().Be("samples");
+        context.Scope.Should().BeNull();
+        context.CpuSampling.Should().NotBeNull();
+        context.CpuSampling!.Source.Should().Be("unavailable");
+        context.CpuSampling.TimeWeightsEstablished.Should().BeFalse();
     }
 
     [TestMethod]
@@ -1530,6 +1555,13 @@ public sealed class TraceToolsTests
         // and reports them highest weight first.
         envelope.Result.Processes.Should().NotBeEmpty();
         envelope.Result.Processes.Should().BeInDescendingOrder(static p => p.Weight);
+        AnalysisContext context = envelope.Context!;
+        context.Metric.Should().Be("cpu");
+        context.Unit.Should().Be("samples");
+        context.Scope.Should().BeNull();
+        context.CpuSampling.Should().NotBeNull();
+        context.CpuSampling!.Source.Should().Be("etw-perfinfo");
+        context.CpuSampling.TimeWeightsEstablished.Should().BeFalse();
     }
 
     [TestMethod]

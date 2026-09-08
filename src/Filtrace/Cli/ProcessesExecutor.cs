@@ -51,7 +51,7 @@ internal static class ProcessesExecutor
         AnalysisResult<ProcessListResult> envelope = new(
             processes,
             TraceExecution.ResultWarnings(info),
-            context: new AnalysisContext("processes"));
+            context: AnalysisContext.ForTrace("processes", trace));
 
         if (request.Format == OutputFormat.Json)
         {

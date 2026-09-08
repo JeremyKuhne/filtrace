@@ -189,10 +189,11 @@ $candidate = (Resolve-Path src/Filtrace/bin/Release/net10.0/filtrace.exe).Path
 
 Capture the same scenario names in separate baseline and candidate manifests. Use
 `startup` to minimize observer effect and the same machine-honored sub-millisecond
-interval for both arms. The current ETW reader weights every periodic record as 1.0;
-it does not consume the effective interval recorded in the command manifest. Treat
-self-profile weights as records and percentages, not absolute CPU milliseconds, and
-fail the comparison if the manifests report different effective intervals.
+interval for both arms. The ETW reader uses trace-recorded PerfInfo intervals when
+they cover every included periodic sample; otherwise it reports raw sample weights
+with that uncertainty in the analysis context. Interpret self-profile weights by
+their reported unit, and fail the comparison if the manifests report different
+effective intervals.
 
 For deeper ETW target-frame and source-line attribution, start with 25 iterations,
 then raise the count until the **target query** is thick:

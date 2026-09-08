@@ -72,7 +72,7 @@ Stack-producing providers normalize their observations to weighted stacks:
 
 | Provider family | Weight |
 |---|---|
-| CPU | sampled milliseconds |
+| CPU | trace-reported milliseconds when established; otherwise raw samples |
 | Thread time | running or blocked elapsed milliseconds |
 | Allocation | sampled allocated bytes |
 | Exceptions | throw count |

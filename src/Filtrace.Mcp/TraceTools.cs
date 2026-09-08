@@ -370,7 +370,8 @@ public sealed class TraceTools
 
     /// <summary>
     ///  Reports the immediate callers of the frame matching <paramref name="frame"/>,
-    ///  with the CPU time each contributes.
+    ///  with the CPU weight each contributes (milliseconds when established, otherwise
+    ///  raw samples).
     /// </summary>
     /// <param name="store">The trace cache (injected).</param>
     /// <param name="path">Path to the trace file.</param>
@@ -1335,7 +1336,7 @@ public sealed class TraceTools
         return new AnalysisResult<ProcessListResult>(
             processes,
             info.Warnings,
-            context: new AnalysisContext("processes"));
+            context: AnalysisContext.ForTrace("processes", trace));
     }
 
     /// <summary>
