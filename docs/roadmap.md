@@ -59,7 +59,7 @@ true.
 | Active primary-plan work | FastTrace existing-API sweep | Filtrace supplies workloads and self-hosted evidence. Further Filtrace implementation is active only when it exposes or removes a demonstrated blocker to valid comparison evidence. |
 | Next when scheduled | PP02 evidence gaps, SC10, PP08 dispositions | Complete comparison-needed measurement evidence, make lifecycle manifest-addressable, and reach measured keep/reject/blocked decisions for relevant LP hypotheses. |
 | Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the primary plan's named scenario and gate; these are not the current default implementation queue. |
-| Later or outside the finish line | VC4-VC8, general harness hardening, LP-1..LP-5 | Capability, harness, and optimization work remains demand-, dependency-, or measurement-gated. An LP item can close as rejected or blocked. |
+| Later or outside the finish line | VC4-VC8, general harness hardening, LP-1..LP-5 | Capability, harness, and optimization work remains demand-, dependency-, or measurement-gated. Each LP item closes with a kept, rejected, or explicitly blocked disposition. |
 | Dependency opportunities | TE-P1..TE-P5 | Measure through PP07 against the selected dependency. They are not Filtrace-only changes and do not justify speculative upstream work. |
 | Backlog | VC1 ([issue #92](https://github.com/JeremyKuhne/filtrace/issues/92)) | DATAS applies only to modern server-GC workloads; retain the design without scheduling it ahead of broader capabilities. |
 
@@ -75,7 +75,7 @@ each row is active and owns its scenario acceptance matrix and work-item exits;
 | Area | Remaining outcome | Kind |
 | --- | --- | --- |
 | Active cross-repository work | Complete the breadth-first FastTrace existing-API sweep using Filtrace workloads and equivalent consumer behavior. Change Filtrace only to expose or remove a demonstrated evidence blocker. | Primarily FastTrace implementation and measured comparison |
-| PP02 / Track D evidence | Recheck the durable corpus and complete an exact baseline-versus-baseline default-job reconstruction. Add provider-rich, negative-control, repeated-query, disposal/eviction, and bounded-concurrency evidence only as a selected comparison needs it. | Harness and evidence |
+| PP02 / Track D evidence | Recheck the durable corpus and complete an exact baseline-versus-baseline default-job reconstruction. Add provider-rich, negative-control, repeated-query, disposal/eviction, and bounded-concurrency evidence only as a selected comparison needs it. Reach a kept, rejected, or explicitly blocked disposition for each scheduled LP item; inconclusive experiments do not close one. | Harness and evidence |
 | PP09 workflow | Evaluate SC10 manifest-addressed lifecycle first. Implement ambiguity, routing, or hint improvements only from a reproduced agent failure; VC3 remains optional. | Conditional Filtrace implementation |
 | PP10 adoption | Decide whether and how FastTrace becomes a product dependency; complete required native host evidence or explicitly narrow the claim, and resolve default DIA/native-symbol distribution. | Validation and product decision |
 | PP11 efficacy | Run a fully accounted skill-mediated development loop, including one interruption/resume, and obtain controlled comparative agent evidence without reviving the parked broad evaluator campaign. | End-to-end evidence |
@@ -628,7 +628,7 @@ tool count is not worth extra orientation, repair calls, or weaker scope selecti
 ### VN4 - CLI surface
 
 **Status:** Complete. **Decision:** retain 16 canonical commands and 12 hidden
-preview aliases for one release.
+preview aliases during an explicit migration window.
 
 The selected surface is `info`, `rank`, `callers`, `tree`, `source`, `processes`,
 `classify`, `report`, `lifecycle`, `timeline`, `diff`, `batch`, `events`, `export`,
@@ -658,7 +658,9 @@ per command instead.
 The help contract now requires canonical commands to be listed and documented,
 hidden aliases to remain callable but absent from the list, and top-level help not
 to exceed the pre-VN4 line or character baseline. Aliases are migration-only text,
-not runnable examples in README or the packaged skill.
+not runnable examples in README or the packaged skill. Their removal requires the
+explicit migration policy tracked by VN5; it is not triggered automatically by the
+passage of one preview release.
 
 **Exit:** one canonical path per intent in top-level help; no alias leaks into agent
 guidance.
@@ -1304,7 +1306,7 @@ selected contracts; active changes must not silently reopen them.
 | Query context inflates every response | omit inapplicable and null fields; measure total investigation cost after transport selection |
 | Structured diagnostics become rigid | keep a human message and an extensible `data` object; version codes through schema revisions |
 | CLI grouping hurts shell discoverability | compare top-level help and completion; retain intent-bearing commands |
-| Compatibility aliases erase token gains | never advertise old and new MCP tools together; bound CLI aliases to one preview |
+| Compatibility aliases erase token gains | never advertise old and new MCP tools together; keep CLI aliases hidden and remove them only through an explicit migration policy |
 | Eval overfits one model | run multiple model families, repeat each task, reject any per-model success drop |
 | Reclaimed schema headroom is spent on tool sprawl | hold the 7,000-token gate and require a measured task before adding a standalone tool |
 | Parallelism regresses small traces | gate LP-2 on a sample-count threshold and measure the fast path |
@@ -1329,9 +1331,10 @@ selected contracts; active changes must not silently reopen them.
 5. **Deferred:** global CLI format/detail options are not required by the selected
   surface. Revisit only if a measured consistency or help task justifies changing
   every command's parsing and help contract.
-6. ~~Is one preview release of hidden aliases useful, or is a clean pre-1.0 break
-  less confusing?~~ **Resolved.** ConsoleAppFramework hides aliases without breaking
-  direct routing or help; retain them for one preview and remove them in VN5.
+6. ~~Are hidden aliases useful during migration?~~ **Resolved.**
+  ConsoleAppFramework hides aliases without breaking direct routing or help, so
+  retain them during the current migration window. VN5 owns an explicit removal
+  policy; elapsed preview releases alone do not remove them.
 7. ~~Where does `lifecycle` belong in a consolidated surface?~~ **Resolved.** Keep
   `trace_lifecycle` separate; hiding its root selectors caused wrong-scope calls.
 

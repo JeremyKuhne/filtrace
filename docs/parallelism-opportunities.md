@@ -13,8 +13,9 @@ of the existing FastTrace APIs consumed by
 Filtrace. Use this harness where it supplies a workload or removes a demonstrated
 evidence blocker; complete remaining PP02 measurements only as comparison
 iterations need them. LP-1 through LP-5 remain PP08 hypotheses that require measured
-kept, rejected, inconclusive, or blocked dispositions, not mandated parallel
-implementations. Further hardening goes into the
+kept, rejected, or explicitly blocked dispositions, not mandated parallel
+implementations. An individual experiment may be inconclusive, but that is not a
+terminal Track D state. Further hardening goes into the
 [shared backlog](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/harness-hardening-backlog.md).
 The prepared agent evaluator and full Track D Phase 0 closeout are not prerequisites
 for the active API sweep.
@@ -39,15 +40,16 @@ The outcomes below define the evidence needed for an LP disposition. Their origi
 numeric targets are retained as historical screening hypotheses, not current
 completion floors. The primary plan imposes no universal minimum improvement:
 equivalent work, semantic parity, absolute measurements, uncertainty, memory/GC
-effects, and attribution decide whether a candidate is kept, rejected, or
-inconclusive.
+effects, and attribution decide whether an experiment is kept, rejected, or
+inconclusive. An inconclusive experiment records evidence and a next action but does
+not close its LP item.
 
 ## Outcomes
 
-Track D is complete when LP-1 through LP-4 have each produced a retained or rejected
-experiment with reconstructable evidence, and LP-5 has either obtained the upstream
-thread-safety contract it needs or remains explicitly blocked. Each retained change
-must satisfy all of these:
+Track D is complete when LP-1 through LP-4 each have a measured kept, rejected, or
+explicitly blocked disposition with reconstructable evidence, and LP-5 has either
+obtained the upstream thread-safety contract it needs or remains explicitly blocked.
+Each retained change must satisfy all of these:
 
 - deterministic output and numeric parity are unchanged;
 - the target BenchmarkDotNet row improves outside normal run-to-run noise;
@@ -853,7 +855,9 @@ its own measurement-only PR.
 Track D exits when:
 
 - the Phase 0 no-op experiment proves reconstruction and neutral comparison;
-- LP-1 through LP-4 each have a benchmark-backed kept/rejected decision;
+- LP-1 through LP-4 each have a benchmark-backed kept/rejected/blocked decision;
+  a blocked disposition names the unmet dependency or evidence prerequisite and its
+  next action;
 - LP-5 is shipped after TE-P3 or remains explicitly blocked with current baseline
   evidence;
 - retained changes pass all normal filtrace gates on Windows and Linux ARM64;

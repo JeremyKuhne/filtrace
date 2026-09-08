@@ -371,9 +371,11 @@ before removing its cache.
 
 ### Preview alias migration
 
-The previous command names remain callable for one preview and print their canonical
-replacement to stderr, but they are hidden from top-level help and are not used in
-examples or generated guidance:
+The previous command names remain callable during the current migration window and
+print their canonical replacement to stderr, but they are hidden from top-level help
+and are not used in examples or generated guidance. Removal requires the explicit
+VN5 migration policy; it is not tied automatically to the passage of one preview
+release:
 
 | Previous names | Canonical command |
 |---|---|
