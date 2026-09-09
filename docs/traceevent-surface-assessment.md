@@ -9,11 +9,9 @@ and PMC members were rechecked from the four restored assembly metadata tables.
 Capture measurements remain historical observations, not new measurements of this
 package version.
 
-This is not a second roadmap. The
-[canonical primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md)
-controls schedule and priority; [roadmap.md](roadmap.md) retains the corresponding
-Filtrace IDs and conditional backlog. The design constraints they are judged against
-are in [design.md](design.md).
+This is not a second roadmap. The public [roadmap.md](roadmap.md) controls schedule
+and priority and retains the corresponding Filtrace IDs and conditional backlog.
+The design constraints they are judged against are in [design.md](design.md).
 
 ## What filtrace builds on today
 
@@ -113,4 +111,4 @@ When the pin in [../Directory.Packages.props](../Directory.Packages.props) moves
 bump the version above, re-audit the `Computers` namespace and the event surface,
 and re-check the absent list. A new finding enters [roadmap.md](roadmap.md) only
 after it is judged against agent value, capture feasibility, dependency cost, and
-response bounds; it becomes active only through the canonical primary plan.
+response bounds; it becomes active only when that public schedule says so.

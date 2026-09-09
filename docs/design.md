@@ -5,10 +5,9 @@ that govern further development.
 
 **Last verified:** 2026-09-08 against `main` at `a7ebd5e`.
 
-Cross-repository ordering belongs in the
-[canonical primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md).
-Filtrace-specific conditional work and completed surface decisions belong in
-[roadmap.md](roadmap.md); comparisons with other tools belong in
+Filtrace ordering, conditional work, and completed surface decisions belong in the
+public [roadmap.md](roadmap.md). Cross-repository coordination becomes actionable in
+this repository only when reflected there. Comparisons with other tools belong in
 [competitive-analysis.md](competitive-analysis.md). This page is the standing
 contract that all of them are judged against.
 

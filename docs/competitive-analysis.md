@@ -11,10 +11,9 @@ pinned version; verify any single row before acting on it.
 
 This page exists to answer two questions: **how is filtrace different**, and **what
 should we take from everyone else**. It does not track our own work - actionable
-items are carried into [roadmap.md](roadmap.md) with an ID and scheduled only by the
-[canonical primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md).
-The scope guard that keeps this page from turning into a feature-parity checklist
-is in [design.md](design.md#non-goals).
+items are carried into the public [roadmap.md](roadmap.md) with an ID and schedule.
+The scope guard that keeps this page from turning into a feature-parity checklist is
+in [design.md](design.md#non-goals).
 
 ## The landscape
 

@@ -6,19 +6,17 @@ PR #124 and indexed traversal shipped in PR #126. The
 measured consumer change. Phase 0 final reconstruction and the broader LP
 dispositions remain open, but they are not the immediate implementation queue.
 
-**Execution update, 2026-09-08:** the
-[primary plan's](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md)
-user-approved 2026-09-07 Existing-API Sweep Update prioritizes a breadth-first sweep
-of the existing FastTrace APIs consumed by
-Filtrace. Use this harness where it supplies a workload or removes a demonstrated
-evidence blocker; complete remaining PP02 measurements only as comparison
-iterations need them. LP-1 through LP-5 remain PP08 hypotheses that require measured
-kept, rejected, or explicitly blocked dispositions, not mandated parallel
-implementations. An individual experiment may be inconclusive, but that is not a
-terminal Track D state. Further hardening goes into the
-[shared backlog](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/harness-hardening-backlog.md).
-The prepared agent evaluator and full Track D Phase 0 closeout are not prerequisites
-for the active API sweep.
+**Execution update, 2026-09-08:** [roadmap.md](roadmap.md) records the approved
+2026-09-07 coordination update: prioritize a breadth-first sweep of the existing
+FastTrace APIs consumed by Filtrace. Use this harness where it supplies a workload or
+removes a demonstrated evidence blocker; complete remaining PP02 measurements only
+as comparison iterations need them. LP-1 through LP-5 remain PP08 hypotheses that
+require measured kept, rejected, or explicitly blocked dispositions, not mandated
+parallel implementations. An individual experiment may be inconclusive, but that is
+not a terminal Track D state. General harness hardening remains deferred unless a
+selected scenario demonstrates that it blocks valid evidence. The prepared agent
+evaluator and full Track D Phase 0 closeout are not prerequisites for the active API
+sweep.
 
 This plan turns the performance and parallelism hypotheses in
 [roadmap.md](roadmap.md#track-d---performance-and-parallelism) into repeatable

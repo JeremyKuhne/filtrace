@@ -44,8 +44,8 @@ or redistribute DIA in the output. Managed portable PDB support does not require
 This path is build-only evaluation guidance. It does not change Filtrace's default
 engine, publish packages or version tags, or authorize distributing source-built
 CLI or MCP packages. The measured boundaries are recorded in the
-[indexed traversal report](stack-traversal-experiment.md) and the coordinated
-[provisional replacement assessment](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/filtrace-replacement-assessment.md).
+[indexed traversal report](stack-traversal-experiment.md) and the local validation
+record below. Private coordination records are supplemental.
 
 ## Local Validation And Blocked CI
 
@@ -63,9 +63,8 @@ exact JSON agreement for six committed-fixture queries. Use an isolated checkout
 the restore/build outputs described above. A local x64 pass does not validate ARM64
 or another operating system.
 
-The coordinated
-[provisional replacement assessment](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/filtrace-replacement-assessment.md)
-records the separate Linux x64 execution evidence: six JIT/Native AOT command pairs
+The retained coordination assessment records the separate Linux x64 execution
+evidence: six JIT/Native AOT command pairs
 matched under WSL Ubuntu 26.04 with .NET 10.0.9, and unsupported ETW collection
 returned an explicit EventPipe handoff. That assessment identifies dependency commit
 `73b32fe690491bc3d3ba05080ae2d5eb59ba01cb`, Filtrace PR #126 at

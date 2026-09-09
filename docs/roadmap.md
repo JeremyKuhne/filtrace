@@ -1,16 +1,16 @@
 # filtrace roadmap
 
-**Planning authority:** The
-[canonical primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md)
-controls cross-repository ordering and completion. The feature backlog below is
-conditional: work on it only when that plan schedules or permits it.
+**Planning authority:** This page is the public source of truth for Filtrace
+schedule and completion status. Cross-repository coordination may reorder work, but
+the change must be reflected here before it makes a Filtrace item active. Private
+coordination records are supplemental evidence, not required to interpret this plan.
 
-**Status:** Subordinate source plan and local backlog. The canonical primary plan
-selects active work; this page preserves completed product decisions and conditional
-Filtrace opportunities without making them an independent queue.
+**Status:** Current public plan and conditional backlog. The priorities and
+remaining-outcomes tables below state what is active, next, conditional, complete,
+or outside the current finish line.
 
-**Last verified:** 2026-09-08 against `main` at `a7ebd5e` and the canonical primary
-plan updated 2026-09-07.
+**Last verified:** 2026-09-08 against `main` at `a7ebd5e` and the coordinated
+cross-repository priorities updated 2026-09-07.
 
 Completed sections remain only where their measured decisions constrain future
 work. Git history and release tags record what landed; durable lessons live in
@@ -56,7 +56,7 @@ true.
 | When | Items | Why now |
 | --- | --- | --- |
 | Done | VN0-VN4, VC2, SC8, SC11, SC13, LT1 | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, command provenance, decisive-query replay, and repository-local activation are implemented. |
-| Active primary-plan work | FastTrace existing-API sweep | Filtrace supplies workloads and self-hosted evidence. Further Filtrace implementation is active only when it exposes or removes a demonstrated blocker to valid comparison evidence. |
+| Active coordinated work | FastTrace existing-API sweep | Filtrace supplies workloads and self-hosted evidence. Further Filtrace implementation is active only when it exposes or removes a demonstrated blocker to valid comparison evidence. |
 | Next when scheduled | PP02 evidence gaps, SC10, PP08 dispositions | Complete comparison-needed measurement evidence, make lifecycle manifest-addressable, and reach measured keep/reject/blocked decisions for relevant LP hypotheses. |
 | Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the primary plan's named scenario and gate; these are not the current default implementation queue. |
 | Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the row above; production implementation follows only for a kept candidate. |
@@ -68,9 +68,10 @@ operation unless a measured task demonstrates that a standalone tool is better.
 
 ### What remains before primary-plan closeout
 
-This is an outcome list, not a new execution order. The canonical plan decides when
-each row is active and owns its scenario acceptance matrix and work-item exits;
-[design.md](design.md#measures-of-success) owns Filtrace's standing product gates.
+This is the public outcome list, not a second execution order. The priorities table
+above decides which row is active; any cross-repository scheduling change must update
+it. [design.md](design.md#measures-of-success) owns Filtrace's standing product
+gates.
 
 | Area | Remaining outcome | Kind |
 | --- | --- | --- |
@@ -1115,8 +1116,8 @@ confirmation is procedurally invalid for agent-efficiency claims, not a passing
 comparison. The byte reduction and passing package/drift checks are the verified
 outcome; actual host tokens, end-to-end latency, and broader task efficacy remain
 open. Local evidence is `worker-comparison-b7410e497d384f89b6d7ef8b40a062d0` in the
-primary-plan evidence root. The earlier three-way comparison is recorded in the
-[primary-plan results](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/filtrace-comparison-2026-09-06.md#coarse-agent-comparison).
+coordination evidence root. The figures above retain the public conclusion from the
+earlier three-way comparison; that private coordination record is supplemental.
 
 ---
 
@@ -1341,15 +1342,12 @@ selected contracts; active changes must not silently reopen them.
 
 ## Current routing
 
-Follow the canonical primary plan rather than selecting the next item from this
-page. As of its 2026-09-07 update, the immediate work is the breadth-first FastTrace
+Follow the priorities and remaining-outcomes tables on this page. As of the
+2026-09-07 coordination update, the immediate work is the breadth-first FastTrace
 existing-API sweep consumed by Filtrace. Filtrace changes enter that path only when
 they expose or remove a demonstrated evidence blocker and are applied fairly to
-comparison arms.
-
-The primary plan's executive Existing-API Sweep Update supersedes its older work
-graph and "Immediate Start After Review" checklist where those still name completed
-PP00/PP01 setup work.
+comparison arms. Older external setup checklists that still name completed
+PP00/PP01 work do not override the completed status recorded here.
 
 When Filtrace workflow work is scheduled, PP09 prioritizes SC10
 manifest-addressed lifecycle. VC3 temporal buckets remain a bounded experiment,

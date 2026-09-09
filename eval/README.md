@@ -4,10 +4,10 @@ The eval harness measures filtrace's fitness for an agent mid-investigation. It
 has two arms, both shipped here: a deterministic, no-LLM gate that runs in CI, and
 a live agent arm that scores a real model locally.
 
-The deterministic gate remains active. Broader CLI-plus-skill discovery and
-comparative-agent harness work is parked under PP03 until the canonical primary plan
-schedules it; this page documents the available harness rather than creating a
-parallel implementation queue.
+The deterministic gate remains active. The public
+[Filtrace roadmap](../docs/roadmap.md) parks broader CLI-plus-skill discovery and
+comparative-agent harness work under PP03; this page documents the available harness
+rather than creating a parallel implementation queue.
 
 ## Deterministic gate (shipped, runs in CI)
 
@@ -180,7 +180,7 @@ orient -> rank -> drill -> compare run on one realistic capture.
 
 Three comprehension scenarios associated with conditional PP09 workflow work cannot
 be expressed against today's surface and are deliberately absent rather than faked.
-Their priority comes from the canonical primary plan, not this harness document:
+Their priority comes from the public roadmap, not this harness document:
 
 | Scenario | Why not yet |
 |---|---|

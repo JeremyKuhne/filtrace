@@ -1,14 +1,14 @@
 # filtrace docs
 
-The cross-repository primary plan controls sequencing. Local pages preserve product
-principles, a conditional backlog, executable measurement detail, operational
-guidance, and completed decision records; they are not independent work queues.
+The public Filtrace roadmap controls this repository's sequencing and completion
+status. Other pages preserve product principles, executable measurement detail,
+operational guidance, and completed decision records; they are not independent work
+queues.
 
 | Page | What it is |
 | --- | --- |
-| [Primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md) | Canonical ordering and completion plan; filtrace's feature backlog is conditional on it. |
 | [design.md](design.md) | Principles, goals, non-goals, and the measures of success every change is judged against. |
-| [roadmap.md](roadmap.md) | Subordinate Filtrace source plan: completed product decisions and conditional backlog items selected only through the primary plan. |
+| [roadmap.md](roadmap.md) | Public source of truth for Filtrace priorities, completion status, and conditional backlog. |
 | [competitive-analysis.md](competitive-analysis.md) | How filtrace differs from other .NET performance tools, and what to learn from each. |
 | [parallelism-opportunities.md](parallelism-opportunities.md) | Executable BenchmarkDotNet and CLI self-profiling detail for PP02/PP08 Track D experiments. |
 | [source-build.md](source-build.md) | Explicit build-only FastTrace source integration and Native AOT commands. |
