@@ -1302,7 +1302,7 @@ selected contracts; active changes must not silently reopen them.
 |---|---|
 | Removing output schemas harms composition | transport A/B/C multi-model eval; retain typed output when inconclusive |
 | Consolidated tools become bags of optional parameters | require discriminated schemas; keep separate tools when the SDK cannot express them |
-| Summary defaults hide evidence | include counts and truncation diagnostics; provide explicit `rows`/`full` escalation |
+| Summary defaults hide evidence | preserve aggregate counts and truncation diagnostics; use the implemented `top: 0` / `take: 0` cardinality endpoints instead of a second detail vocabulary |
 | Query context inflates every response | omit inapplicable and null fields; measure total investigation cost after transport selection |
 | Structured diagnostics become rigid | keep a human message and an extensible `data` object; version codes through schema revisions |
 | CLI grouping hurts shell discoverability | compare top-level help and completion; retain intent-bearing commands |

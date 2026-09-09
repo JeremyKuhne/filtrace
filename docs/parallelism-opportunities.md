@@ -46,10 +46,10 @@ not close its LP item.
 
 ## Outcomes
 
-Track D is complete when LP-1 through LP-4 each have a measured kept, rejected, or
-explicitly blocked disposition with reconstructable evidence, and LP-5 has either
-obtained the upstream thread-safety contract it needs or remains explicitly blocked.
-Each retained change must satisfy all of these:
+Track D is complete when LP-1 through LP-5 each have a measured kept, rejected, or
+explicitly blocked disposition with reconstructable evidence. LP-5 remains blocked
+until its thread-safety prerequisite is met; after that, a neutral production
+experiment may close it as rejected. Each retained change must satisfy all of these:
 
 - deterministic output and numeric parity are unchanged;
 - the target BenchmarkDotNet row improves outside normal run-to-run noise;
@@ -855,11 +855,11 @@ its own measurement-only PR.
 Track D exits when:
 
 - the Phase 0 no-op experiment proves reconstruction and neutral comparison;
-- LP-1 through LP-4 each have a benchmark-backed kept/rejected/blocked decision;
+- LP-1 through LP-5 each have a benchmark-backed kept/rejected/blocked decision;
   a blocked disposition names the unmet dependency or evidence prerequisite and its
   next action;
-- LP-5 is shipped after TE-P3 or remains explicitly blocked with current baseline
-  evidence;
+- LP-5 records the TE-P3 disposition and current sequential baseline whether its
+  eventual production experiment is kept or rejected;
 - retained changes pass all normal filtrace gates on Windows and Linux ARM64;
 - the roadmap links each decision to its benchmark class, CLI scenario, and durable
   experiment summary.
