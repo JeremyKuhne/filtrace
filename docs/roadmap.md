@@ -58,7 +58,7 @@ true.
 | Done | VN0-VN4, VC2, SC8, SC11, SC13, LT1 | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, command provenance, decisive-query replay, and repository-local activation are implemented. |
 | Active coordinated work | FastTrace existing-API sweep | Filtrace supplies workloads and self-hosted evidence. Further Filtrace implementation is active only when it exposes or removes a demonstrated blocker to valid comparison evidence. |
 | Next when scheduled | PP02 evidence gaps, SC10, PP08 dispositions | Complete comparison-needed measurement evidence, make lifecycle manifest-addressable, and reach measured keep/reject/blocked decisions for relevant LP hypotheses. |
-| Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the primary plan's named scenario and gate; these are not the current default implementation queue. |
+| Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the named public scenario and gate recorded here; these are not the current default implementation queue. |
 | Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the row above; production implementation follows only for a kept candidate. |
 | Dependency opportunities | TE-P1..TE-P5 | Measure through PP07 against the selected dependency. They are not Filtrace-only changes and do not justify speculative upstream work. |
 | Backlog | VC1 ([issue #92](https://github.com/JeremyKuhne/filtrace/issues/92)) | DATAS applies only to modern server-GC workloads; retain the design without scheduling it ahead of broader capabilities. |
@@ -819,7 +819,9 @@ name fallback would have silently analyzed the matching process instead.
 
 ### SC9 - cross-machine native symbol fixtures
 
-**Priority:** Later. **Gate:** requires a merge/symbol-injection capture step.
+**Priority:** Conditional. Promote only when reproducible cross-machine native
+symbol evidence is required. **Gate:** requires a merge/symbol-injection capture
+step.
 
 A filtrace capture records no PDB identity of its own, so `TraceEvent` resolves a
 native module by reading the binary back from the absolute path in the trace. A
@@ -878,8 +880,9 @@ ETW process graph rather than being duplicated as a child-id snapshot.
 
 ### SC12 - kernel-only profile and observer-effect measurement
 
-**Priority:** Later. **Gate:** add a profile only if repeated measurement shows a
-material lifetime reduction over `startup` for a supported short-command scenario.
+**Priority:** Conditional. Promote only when a short-command scenario needs lower
+capture perturbation. **Gate:** add a profile only if repeated measurement shows a
+material lifetime reduction over `startup` for that supported scenario.
 
 The shipped `startup` profile removes unused machine-wide kernel traffic and most CLR
 events, but deliberately retains CLR method-naming keywords. It is low perturbation,
