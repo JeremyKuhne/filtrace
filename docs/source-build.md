@@ -63,6 +63,18 @@ exact JSON agreement for six committed-fixture queries. Use an isolated checkout
 the restore/build outputs described above. A local x64 pass does not validate ARM64
 or another operating system.
 
+The coordinated
+[provisional replacement assessment](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/filtrace-replacement-assessment.md)
+records the separate Linux x64 execution evidence: six JIT/Native AOT command pairs
+matched under WSL Ubuntu 26.04 with .NET 10.0.9, and unsupported ETW collection
+returned an explicit EventPipe handoff. That assessment identifies dependency commit
+`73b32fe690491bc3d3ba05080ae2d5eb59ba01cb`, Filtrace PR #126 at
+`1a5645045a7614c4ba2b3aa11188e354cd06e930`, and retained evidence directories
+`linux-adoption-9710705d818740f39482fb22b8a95940` and
+`indexed-native-adoption-af8bd8ed299d44d8813419a4f8ad384d` beneath its documented
+local evidence root. This is bounded Linux x64 evidence, not Linux ARM64, macOS, or
+the blocked hosted matrix.
+
 The `source adoption` CI matrix remains **blocked** while FastTrace is private.
 Run `34087396758` stopped at repository checkout on Linux ARM64, Windows ARM64,
 macOS ARM64, and macOS x64; none of those rows produced native-build evidence.

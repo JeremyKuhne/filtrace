@@ -59,7 +59,7 @@ true.
 | Active primary-plan work | FastTrace existing-API sweep | Filtrace supplies workloads and self-hosted evidence. Further Filtrace implementation is active only when it exposes or removes a demonstrated blocker to valid comparison evidence. |
 | Next when scheduled | PP02 evidence gaps, SC10, PP08 dispositions | Complete comparison-needed measurement evidence, make lifecycle manifest-addressable, and reach measured keep/reject/blocked decisions for relevant LP hypotheses. |
 | Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the primary plan's named scenario and gate; these are not the current default implementation queue. |
-| Later or outside the finish line | VC4-VC8, general harness hardening, LP-1..LP-5 | Capability, harness, and optimization work remains demand-, dependency-, or measurement-gated. Each LP item closes with a kept, rejected, or explicitly blocked disposition. |
+| Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the row above; production implementation follows only for a kept candidate. |
 | Dependency opportunities | TE-P1..TE-P5 | Measure through PP07 against the selected dependency. They are not Filtrace-only changes and do not justify speculative upstream work. |
 | Backlog | VC1 ([issue #92](https://github.com/JeremyKuhne/filtrace/issues/92)) | DATAS applies only to modern server-GC workloads; retain the design without scheduling it ahead of broader capabilities. |
 
@@ -1263,10 +1263,11 @@ thin PowerShell wrapper, executable helper, documentation, and Windows contract.
 The implementation and remaining validation boundaries are recorded in
 [local-testing-redesign.md](local-testing-redesign.md).
 
-Replace PR #94's review-era implementation with one fixed-path, one-schema
-workflow rooted in the consumer repository's Git directory. Keep the useful
-failure corpus, but remove arbitrary managed paths, global CLI mutation, implicit
-schema migration, and the machine-wide ownership registry from V1.
+The accepted redesign replaced PR #94's review-era implementation with one
+fixed-path, one-schema workflow rooted in the consumer repository's Git directory.
+It kept the useful failure corpus while removing arbitrary managed paths, global
+CLI mutation, implicit schema migration, and the machine-wide ownership registry
+from V1.
 
 Wider Unix coverage, interactive elevation acceptance, and additional interrupted
 preparation automation are deferred harness hardening, not unfinished LT1 product
