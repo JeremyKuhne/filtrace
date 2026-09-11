@@ -1257,8 +1257,9 @@ exit $LASTEXITCODE
         finally {
             $raceJobs | Remove-Job -Force
         }
-        Assert-True (@($raceResults | Where-Object ExitCode -eq 0).Count -eq 1) "Prepare/capture race did not produce exactly one winner: $($raceResults | ConvertTo-Json -Compress)"
-        Assert-True (@($raceResults | Where-Object ExitCode -ne 0).Count -eq 1) 'Prepare/capture race did not reject exactly one contender.'
+        Assert-True ($raceResults.Count -eq 2) 'Prepare/capture race did not return both contenders.'
+        $reservationLosers = @($raceResults | Where-Object { Test-StringContains $_.Output 'already reserved' })
+        Assert-True ($reservationLosers.Count -eq 1) "Prepare/capture race did not reject exactly one contender: $($raceResults | ConvertTo-Json -Compress)"
         Assert-True (Test-Path -LiteralPath (Join-Path $reservationRaceRoot 'reservation-race-run.claim') -PathType Leaf) 'Prepare/capture race did not retain one shared claim.'
         $raceLauncherExists = Test-Path -LiteralPath (Join-Path $reservationRaceRoot 'launchers/reservation-race-run.ps1') -PathType Leaf
         $raceManifestExists = Test-Path -LiteralPath (Join-Path $reservationRaceRoot 'reservation-race-run/manifest.json') -PathType Leaf
