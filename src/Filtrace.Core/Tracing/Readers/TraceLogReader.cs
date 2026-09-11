@@ -61,10 +61,9 @@ internal abstract class TraceLogReader : ITraceReader
         ScopeResolution resolved = ProcessTree.ResolveScope(traceLog, scope ?? ScopeRequest.Auto);
         SymbolModuleScope? symbolScope = null;
 
-        // Local-only symbol reader: an empty symbol path never reaches a symbol
-        // server, but portable PDBs sitting next to a traced module still
-        // resolve, which is all the managed touki frames need for line-level
-        // attribution. Frames without a local PDB (BCL, OS) simply carry no line.
+        // Local-only symbol reader: source lookup is enabled below only when the
+        // caller supplies a symbol directory, and that path never reaches a symbol
+        // server. Frames without a matching local PDB simply carry no source line.
         using SymbolReader symbolReader = new(TextWriter.Null, "", httpClientDelegatingHandler: null);
 
         // touki and its sibling assemblies ship embedded portable PDBs, which
@@ -134,7 +133,8 @@ internal abstract class TraceLogReader : ITraceReader
                 scope?.Window,
                 cacheState,
                 new SourceResolutionTracker(symbolsDirectory, localSymbolPath),
-                nativeSymbols);
+                nativeSymbols,
+                resolveSourceLocations: localSymbolPath is not null);
         }
         finally
         {
@@ -255,20 +255,21 @@ internal abstract class TraceLogReader : ITraceReader
         TimeWindow? window,
         EtlxCacheState cacheState,
         SourceResolutionTracker sourceResolution,
-        NativeSymbolInfo? nativeSymbols)
+        NativeSymbolInfo? nativeSymbols,
+        bool resolveSourceLocations)
     {
         string? appliedScope = resolvedScope.Phrase;
         bool processScopeDroppedSample = false;
         IReadOnlyList<string> scopeWarnings = resolvedScope.Warnings;
         AnalysisEventCounter analysisEvents = new();
-        Dictionary<int, string> locationCache = [];
+        Dictionary<int, string>? locationCache = resolveSourceLocations ? [] : null;
         Dictionary<(string Module, string Method), string> frameNameCache = [];
 
         List<SampleStack> samples = [];
         long totalFrames = 0;
         long resolvedFrames = 0;
         List<string> leafToRoot = [];
-        List<string> leafToRootLocations = [];
+        List<string>? leafToRootLocations = resolveSourceLocations ? [] : null;
         CpuSampleWeighting? cpuWeighting = format == TraceFormat.Etl ? new() : null;
 
         foreach (TraceEvent data in traceLog.Events)
@@ -325,7 +326,7 @@ internal abstract class TraceLogReader : ITraceReader
             }
 
             leafToRoot.Clear();
-            leafToRootLocations.Clear();
+            leafToRootLocations?.Clear();
             for (CallStackIndex frameIndex = callStack.CallStackIndex;
                 frameIndex != CallStackIndex.Invalid;
                 frameIndex = traceLog.CallStacks.Caller(frameIndex))
@@ -355,8 +356,13 @@ internal abstract class TraceLogReader : ITraceReader
                 }
 
                 leafToRoot.Add(name);
-                string location = ResolveLocation(symbolReader, address, locationCache);
-                leafToRootLocations.Add(location);
+                string location = string.Empty;
+                if (locationCache is not null)
+                {
+                    location = ResolveLocation(symbolReader, address, locationCache);
+                    leafToRootLocations!.Add(location);
+                }
+
                 sourceResolution.Observe(address, method, location.Length > 0);
             }
 
@@ -367,11 +373,14 @@ internal abstract class TraceLogReader : ITraceReader
 
             int count = leafToRoot.Count;
             string[] frames = new string[count];
-            string[] locations = new string[count];
+            string[]? locations = leafToRootLocations is null ? null : new string[count];
             for (int i = 0; i < count; i++)
             {
                 frames[i] = leafToRoot[count - 1 - i];
-                locations[i] = leafToRootLocations[count - 1 - i];
+                if (locations is not null)
+                {
+                    locations[i] = leafToRootLocations![count - 1 - i];
+                }
             }
 
             // Tag the sample with its owning process so a multi-process trace can be
