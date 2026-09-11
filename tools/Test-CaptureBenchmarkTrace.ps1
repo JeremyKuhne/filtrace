@@ -745,11 +745,15 @@ $global:LASTEXITCODE = 0
             }
 
             Assert-True ($preflightExitCode -ne 0) "Incompatible filtrace mode '$($preflightCase.mode)' was accepted."
-            Assert-True (Test-StringContains $preflightOutput $preflightCase.expected) "Incompatible filtrace mode '$($preflightCase.mode)' did not explain the failed contract."
+            $preflightResultPath = Join-Path $globalArtifacts "filtrace-runs/$($preflightCase.runId).preflight-failure.json"
+            Assert-True (Test-Path -LiteralPath $preflightResultPath -PathType Leaf) "Incompatible filtrace mode '$($preflightCase.mode)' did not write a durable failure result."
+            $preflightResult = Get-Content -LiteralPath $preflightResultPath -Raw | ConvertFrom-Json
+            Assert-True (Test-StringContains $preflightResult.message $preflightCase.expected) "Incompatible filtrace mode '$($preflightCase.mode)' did not explain the failed contract. Message: $($preflightResult.message)"
             Assert-True (
-                (Test-StringContains $preflightOutput 'Upgrade') -and
-                (Test-StringContains $preflightOutput 'KlutzyNinja.Filtrace')) `
-                "Incompatible filtrace mode '$($preflightCase.mode)' omitted upgrade guidance. Output: $preflightOutput"
+                (Test-StringContains $preflightResult.message 'Upgrade') -and
+                (Test-StringContains $preflightResult.message 'KlutzyNinja.Filtrace')) `
+                "Incompatible filtrace mode '$($preflightCase.mode)' omitted upgrade guidance. Message: $($preflightResult.message)"
+            Assert-True (Test-StringContains $preflightOutput 'Failure result:') "Incompatible filtrace mode '$($preflightCase.mode)' did not surface its durable failure result."
             Assert-True (-not (Test-Path -LiteralPath $preflightArgsPath)) "Incompatible filtrace mode '$($preflightCase.mode)' started BenchmarkDotNet."
             Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts "filtrace-runs/$($preflightCase.runId)"))) "Incompatible filtrace mode '$($preflightCase.mode)' created a run directory."
         }
