@@ -89,6 +89,10 @@ try {
         'Test-HasAnalysisInfo',
         'ConvertTo-AnalysisMap',
         'Get-CaseWarnings',
+        'Write-PreparationResult',
+        'Read-BoundedUtf8File',
+        'Get-ProcessPropertySafely',
+        'Get-FirstExistingFile',
         'Test-TimeoutOwnedByCurrentProcess')
     $commandFunctionDefinitions = @(
         $captureAst.FindAll(
@@ -109,6 +113,29 @@ try {
         ([ordered]@{ status = 'timeout'; owner = [ordered]@{ processId = $PID + 1 } } | ConvertTo-Json -Compress))
     Assert-True (Test-TimeoutOwnedByCurrentProcess $ownedTimeoutPath) 'A matching timeout owner was not recognized.'
     Assert-True (-not (Test-TimeoutOwnedByCurrentProcess $foreignTimeoutPath)) 'A foreign timeout owner was accepted.'
+    $oversizedSidecar = Join-Path $temporaryRoot 'oversized-sidecar.json'
+    [System.IO.File]::WriteAllText($oversizedSidecar, [string]::new('x', 64))
+    $boundedReadRejected = $false
+    try { [void](Read-BoundedUtf8File $oversizedSidecar 32) } catch { $boundedReadRejected = $true }
+    Assert-True $boundedReadRejected 'The bounded UTF-8 reader accepted an oversized file.'
+    $throwingProcess = New-Object psobject
+    $throwingProcess | Add-Member -MemberType ScriptProperty -Name Id -Value { throw 'inaccessible id' }
+    $throwingProcess | Add-Member -MemberType ScriptProperty -Name ProcessName -Value { throw 'exited process' }
+    Assert-True ($null -eq (Get-ProcessPropertySafely $throwingProcess 'Id')) 'An inaccessible process ID escaped the safe accessor.'
+    Assert-True ($null -eq (Get-ProcessPropertySafely $throwingProcess 'ProcessName')) 'An inaccessible process name escaped the safe accessor.'
+    Assert-True ($null -eq (Get-FirstExistingFile @((Join-Path $temporaryRoot 'missing-result.json')))) 'A missing failure result was reported as observed.'
+    Assert-True ((Get-FirstExistingFile @($foreignTimeoutPath)) -eq $foreignTimeoutPath) 'An existing result was not reported as observed.'
+    $longPreparationPath = "C:\$([string]::new('x', 12000))"
+    $boundedPreparationJson = Write-PreparationResult `
+        "$longPreparationPath\launcher.ps1" `
+        "$longPreparationPath\manifest.json" `
+        'bounded-preparation' `
+        'Json'
+    $boundedPreparationResult = $boundedPreparationJson | ConvertFrom-Json
+    Assert-True ([Text.Encoding]::UTF8.GetByteCount($boundedPreparationJson) -lt 20KB) 'Prepared JSON fallback exceeded 20 KiB.'
+    Assert-True ($boundedPreparationResult.pathsRelativeToOutputDirectory) 'Prepared JSON fallback did not mark its paths as output-root relative.'
+    Assert-True ($boundedPreparationResult.launcher -eq 'launchers/bounded-preparation.ps1') 'Prepared JSON fallback returned the wrong launcher path.'
+    Assert-True ($boundedPreparationResult.manifest -eq 'bounded-preparation/manifest.json') 'Prepared JSON fallback returned the wrong manifest path.'
     $runtimeLog = Join-Path $temporaryRoot 'runtime-summaries.log'
     [System.IO.File]::WriteAllLines(
         $runtimeLog,

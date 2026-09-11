@@ -799,13 +799,28 @@ function Write-PreparationResult(
     [string]$CaptureRunId,
     [string]$OutputFormat) {
     if ($OutputFormat -eq 'Json') {
-        [ordered]@{
+        $result = [ordered]@{
             schemaVersion = 1
             status = 'prepared'
             runId = $CaptureRunId
             launcher = $LauncherPath
             manifest = $ManifestPath
-        } | ConvertTo-Json -Compress
+        }
+        $encoding = New-Object System.Text.UTF8Encoding($false)
+        $json = $result | ConvertTo-Json -Compress
+        if ($encoding.GetByteCount($json) -ge 20KB) {
+            $result = [ordered]@{
+                schemaVersion = 1
+                status = 'prepared'
+                runId = $CaptureRunId
+                launcher = "launchers/$CaptureRunId.ps1"
+                manifest = "$CaptureRunId/manifest.json"
+                pathsRelativeToOutputDirectory = $true
+                message = 'Prepared paths exceeded 20 KiB; launcher and manifest are relative to OutputDirectory.'
+            }
+            $json = $result | ConvertTo-Json -Compress
+        }
+        $json
         return
     }
 
@@ -1088,10 +1103,55 @@ function Test-SafeElevationArgument([string]$Value) {
         -not $Value.EndsWith('\', [StringComparison]::Ordinal)
 }
 
+function Read-BoundedUtf8File([string]$Path, [int]$MaxBytes) {
+    $stream = [System.IO.File]::Open(
+        $Path,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::Read)
+    try {
+        if ($stream.Length -ge $MaxBytes) {
+            throw "File '$Path' is $($stream.Length) bytes; the safety limit is $MaxBytes bytes."
+        }
+        $length = [int]$stream.Length
+        $bytes = [byte[]]::new($length)
+        $offset = 0
+        while ($offset -lt $length) {
+            $read = $stream.Read($bytes, $offset, $length - $offset)
+            if ($read -eq 0) { throw "File '$Path' ended before $length bytes could be read." }
+            $offset += $read
+        }
+        return [System.Text.Encoding]::UTF8.GetString($bytes)
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Get-ProcessPropertySafely($Process, [string]$Name) {
+    try {
+        if ($null -eq $Process.PSObject.Properties[$Name]) { return $null }
+        return $Process.$Name
+    }
+    catch {
+        return $null
+    }
+}
+
+function Get-FirstExistingFile([string[]]$Paths) {
+    foreach ($path in $Paths) {
+        if (-not [string]::IsNullOrWhiteSpace($path) -and
+            (Test-Path -LiteralPath $path -PathType Leaf)) {
+            return $path
+        }
+    }
+    return $null
+}
+
 function Test-TimeoutOwnedByCurrentProcess([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
     try {
-        $timeout = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        $timeout = Read-BoundedUtf8File $Path 16MB | ConvertFrom-Json
         return $timeout.status -eq 'timeout' -and
             $null -ne $timeout.owner -and
             -not [string]::IsNullOrWhiteSpace([string]$timeout.owner.processId) -and
@@ -1358,9 +1418,11 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     $exited = $false
     try { $exited = $proc.WaitForExit($waitMs) } catch { $exited = $false }
     if (-not $exited) {
+        $ownerProcessId = Get-ProcessPropertySafely $proc 'Id'
+        $ownerProcessName = Get-ProcessPropertySafely $proc 'ProcessName'
         $owner = [ordered]@{
-            processId = if ($null -ne $proc.PSObject.Properties['Id']) { $proc.Id } else { $null }
-            processName = if ($null -ne $proc.PSObject.Properties['ProcessName']) { $proc.ProcessName } else { $null }
+            processId = $ownerProcessId
+            processName = $ownerProcessName
         }
         $ownerDescription = if ($null -ne $owner.processId) {
             "PID $($owner.processId)"
@@ -1388,18 +1450,14 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     $childExit = 0
     try { if ($proc.HasExited) { $childExit = $proc.ExitCode } } catch { $childExit = 0 }
     if ($childExit -ne 0) {
-        $observedResult = @(
+        $observedResult = Get-FirstExistingFile @(
             (Join-Path $runDirectory 'failure.json'),
             (Join-Path $runsDirectory "$RunId.failure.json"),
-            $preflightFailurePath) |
-            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
-            Select-Object -First 1
-        $observedLog = @(
+            $preflightFailurePath)
+        $observedLog = Get-FirstExistingFile @(
             $log,
             (Join-Path $runsDirectory "$RunId.failure.log"),
-            $preflightLog) |
-            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
-            Select-Object -First 1
+            $preflightLog)
         $failureMessage = "Elevated capture failed (exit $childExit)."
         if ($observedLog) { $failureMessage += " See $observedLog." }
         if ($observedResult) { $failureMessage += " Failure result: $observedResult" }
@@ -1610,7 +1668,10 @@ if (-not $ElevatedChild) {
                 Write-Error "Capture failed and its failure result could not be written: $resultWriteMessage" -ErrorAction Continue
             }
         }
-        Write-Error "$failureMessage Failure result: $failurePath" -ErrorAction Continue
+        $observedFailurePath = Get-FirstExistingFile @($failurePath, $fallbackFailurePath)
+        $failureDiagnostic = $failureMessage
+        if ($observedFailurePath) { $failureDiagnostic += " Failure result: $observedFailurePath" }
+        Write-Error $failureDiagnostic -ErrorAction Continue
         exit $captureExitCode
     }
 }
