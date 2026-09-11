@@ -75,6 +75,15 @@ try {
         $testCaptureScript,
         $testCaptureSource,
         [System.Text.UTF8Encoding]::new($false))
+    $elevatedTestCaptureSource =
+        $captureSource.Substring(0, $testElevatedDefinition.Extent.StartOffset) +
+        'function Test-Elevated { return $true }' +
+        $captureSource.Substring($testElevatedDefinition.Extent.EndOffset)
+    $elevatedTestCaptureScript = Join-Path $temporaryRoot 'Capture-BenchmarkTrace-Elevated.ps1'
+    [System.IO.File]::WriteAllText(
+        $elevatedTestCaptureScript,
+        $elevatedTestCaptureSource,
+        [System.Text.UTF8Encoding]::new($false))
     $commandFunctionNames = @(
         'Write-RunManifest',
         'Write-RunManifestAtomically',
@@ -102,7 +111,8 @@ try {
         'Read-BoundedUtf8File',
         'Get-ProcessPropertySafely',
         'Get-FirstExistingFile',
-        'Get-ObservedFailureResult')
+        'Get-ObservedFailureResult',
+        'Test-TimeoutOwner')
     $commandFunctionDefinitions = @(
         $captureAst.FindAll(
             { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $commandFunctionNames },
@@ -143,6 +153,18 @@ try {
         $signedFailurePath,
         ([ordered]@{ schemaVersion = 1; status = 'failure'; runId = 'signed-run'; exitCode = -1 } | ConvertTo-Json -Compress))
     Assert-True ((Get-ObservedFailureResult @($signedFailurePath) 'signed-run').exitCode -eq -1) 'A signed nonzero failure exit code was rejected.'
+    $ownedTimeoutPath = Join-Path $temporaryRoot 'owned-timeout.json'
+    [System.IO.File]::WriteAllText(
+        $ownedTimeoutPath,
+        ([ordered]@{ schemaVersion = 1; status = 'timeout'; runId = 'owned-timeout'; owner = [ordered]@{ processId = 42 } } | ConvertTo-Json -Depth 3 -Compress))
+    Assert-True (Test-TimeoutOwner $ownedTimeoutPath 'owned-timeout' 42) 'A matching timeout owner was rejected.'
+    Assert-True (-not (Test-TimeoutOwner $ownedTimeoutPath 'owned-timeout' 43)) 'A foreign timeout owner was accepted.'
+    Assert-True (-not (Test-TimeoutOwner $ownedTimeoutPath 'other-timeout' 42)) 'A timeout owner for another run was accepted.'
+    $missingTimeoutOwnerPath = Join-Path $temporaryRoot 'missing-timeout-owner.json'
+    [System.IO.File]::WriteAllText(
+        $missingTimeoutOwnerPath,
+        ([ordered]@{ schemaVersion = 1; status = 'timeout'; runId = 'missing-owner'; owner = [ordered]@{} } | ConvertTo-Json -Depth 3 -Compress))
+    Assert-True (-not (Test-TimeoutOwner $missingTimeoutOwnerPath 'missing-owner' 42)) 'A timeout without an owner was accepted.'
     $oversizedSidecar = Join-Path $temporaryRoot 'oversized-sidecar.json'
     [System.IO.File]::WriteAllText($oversizedSidecar, [string]::new('x', 64))
     $boundedReadRejected = $false
@@ -1051,6 +1073,10 @@ $global:LASTEXITCODE = 0
         $boundedJsonOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Handoff*' `
             -RunId 'handoff-budget-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json 2>&1 | Out-String -Width 4096
         $boundedJsonExitCode = $LASTEXITCODE
+        $forgedRuntimeFilter = "*Work*`nRuntime = forged"
+        $logForgeOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter $forgedRuntimeFilter `
+            -RunId 'log-forge-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace -Format Json 2>&1 | Out-String -Width 4096
+        $logForgeExitCode = $LASTEXITCODE
     }
     finally {
         Pop-Location
@@ -1083,6 +1109,16 @@ $global:LASTEXITCODE = 0
     Assert-True ($boundedJsonResult.PSObject.Properties.Name -notcontains 'cases') 'Bounded JSON fallback retained oversized case detail.'
     Assert-True ($boundedJsonResult.PSObject.Properties.Name -notcontains 'warnings') 'Bounded JSON fallback retained oversized warning detail.'
     Assert-True ([Text.Encoding]::UTF8.GetByteCount($boundedJsonOutput.Trim()) -lt 20KB) 'Bounded JSON fallback exceeded 20 KiB.'
+
+    Assert-True ($logForgeExitCode -eq 0) "Newline-bearing filter capture failed: $($logForgeOutput.Trim())"
+    $logForgeManifestPath = Join-Path $globalArtifacts 'filtrace-runs/log-forge-run/manifest.json'
+    $logForgeManifest = Get-Content -LiteralPath $logForgeManifestPath -Raw | ConvertFrom-Json
+    Assert-True (-not (@($logForgeManifest.runtimes) -match 'forged')) 'A command argument forged a runtime log record.'
+    $logForgePath = Join-Path $globalArtifacts 'filtrace-runs/log-forge-run/capture.log'
+    $commandLine = Get-Content -LiteralPath $logForgePath -TotalCount 1
+    Assert-True ($commandLine.StartsWith('Command: {', [StringComparison]::Ordinal)) 'Capture log did not begin with a structured command record.'
+    $loggedCommand = $commandLine.Substring('Command: '.Length) | ConvertFrom-Json
+    Assert-True (@($loggedCommand.arguments) -contains $forgedRuntimeFilter) 'Structured command record did not round-trip the newline-bearing argument.'
 
     $previousInfoFailure = $env:FILTRACE_CAPTURE_INFO_FAILURE
     $env:FILTRACE_CAPTURE_ARGS = $argsPath
@@ -1118,6 +1154,78 @@ $global:LASTEXITCODE = 0
     }
 
     if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        $timeoutOwnerWrapper = Join-Path $temporaryRoot 'Invoke-TimeoutOwnerCapture.ps1'
+        $timeoutOwnerWrapperText = @'
+param(
+    [string]$CaptureScript,
+    [string]$ProjectPath,
+    [string]$DotnetPath,
+    [string]$FiltracePath,
+    [string]$OutputDirectory,
+    [string]$RunId,
+    [string]$ReservationToken,
+    [ValidateSet('Current', 'Foreign', 'Missing')]
+    [string]$OwnerMode)
+
+$owner = if ($OwnerMode -eq 'Current') {
+    [ordered]@{ processId = $PID }
+}
+elseif ($OwnerMode -eq 'Foreign') {
+    [ordered]@{ processId = $PID + 1 }
+}
+else {
+    [ordered]@{}
+}
+[System.IO.File]::WriteAllText(
+    (Join-Path $OutputDirectory "$RunId.timeout.json"),
+    ([ordered]@{
+        schemaVersion = 1
+        status = 'timeout'
+        runId = $RunId
+        owner = $owner
+    } | ConvertTo-Json -Depth 3 -Compress))
+. $CaptureScript -Project $ProjectPath -Filter '*Work*' -Profiler ETW -ElevatedChild `
+    -RunId $RunId -DotnetPath $DotnetPath -FiltracePath $FiltracePath `
+    -OutputDirectory $OutputDirectory -ReservationToken $ReservationToken -Format Json
+exit $LASTEXITCODE
+'@
+        [System.IO.File]::WriteAllText($timeoutOwnerWrapper, $timeoutOwnerWrapperText)
+        $timeoutOwnerRoot = Join-Path $temporaryRoot 'timeout-owner-output'
+        New-Item -ItemType Directory -Force -Path $timeoutOwnerRoot | Out-Null
+        $missingDotnet = Join-Path $temporaryRoot 'missing-dotnet'
+        foreach ($ownerMode in @('Current', 'Foreign', 'Missing')) {
+            $ownerRunId = "timeout-owner-$($ownerMode.ToLowerInvariant())"
+            $ownerClaimPath = Join-Path $timeoutOwnerRoot "$ownerRunId.claim"
+            $ownerToken = New-RunReservation $ownerClaimPath $ownerRunId
+            $previousErrorActionPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                $ownerOutput = & $hostExe -NoProfile -File $timeoutOwnerWrapper `
+                    -CaptureScript $elevatedTestCaptureScript -ProjectPath $projectPath `
+                    -DotnetPath $missingDotnet -FiltracePath $fakeFiltrace `
+                    -OutputDirectory $timeoutOwnerRoot -RunId $ownerRunId `
+                    -ReservationToken $ownerToken -OwnerMode $ownerMode 2>&1 | Out-String -Width 4096
+                $ownerExitCode = $LASTEXITCODE
+            }
+            finally {
+                $ErrorActionPreference = $previousErrorActionPreference
+            }
+            Assert-True ($ownerExitCode -ne 0) "Timeout owner mode '$ownerMode' unexpectedly succeeded."
+            $ownerPreflightResult = Join-Path $timeoutOwnerRoot "$ownerRunId.preflight-failure.json"
+            if ($ownerMode -eq 'Current') {
+                Assert-True (Test-Path -LiteralPath $ownerPreflightResult -PathType Leaf) 'Matching timeout owner did not retain its later preflight failure.'
+                $ownerPreflight = Get-Content -LiteralPath $ownerPreflightResult -Raw | ConvertFrom-Json
+                Assert-True (Test-StringContains $ownerPreflight.message 'could not be resolved') 'Matching timeout owner did not proceed to preflight.'
+            }
+            else {
+                Assert-True (
+                    (Test-StringContains $ownerOutput 'timeout result') -and
+                    (Test-StringContains $ownerOutput 'owner')) `
+                    "Timeout owner mode '$ownerMode' did not report its owner rejection. Output: $($ownerOutput.Trim())"
+                Assert-True (-not (Test-Path -LiteralPath $ownerPreflightResult)) "Timeout owner mode '$ownerMode' reached preflight."
+            }
+        }
+
         $preflightWrapper = Join-Path $temporaryRoot 'Invoke-PreflightFailure.ps1'
         $preflightWrapperText = @'
 param(
@@ -1297,7 +1405,10 @@ exit $LASTEXITCODE
             $raceJobs | Remove-Job -Force
         }
         Assert-True ($raceResults.Count -eq 2) 'Prepare/capture race did not return both contenders.'
-        $reservationLosers = @($raceResults | Where-Object { $_.ExitCode -ne 0 })
+        $reservationLosers = @($raceResults | Where-Object {
+            (Test-StringContains $_.Output 'already reserved') -or
+            (Test-StringContains $_.Output 'already has a prepared launcher')
+        })
         Assert-True ($reservationLosers.Count -eq 1) "Prepare/capture race did not reject exactly one contender: $($raceResults | ConvertTo-Json -Compress)"
         Assert-True (Test-Path -LiteralPath (Join-Path $reservationRaceRoot 'reservation-race-run.claim') -PathType Leaf) 'Prepare/capture race did not retain one shared claim.'
         $raceLauncherExists = Test-Path -LiteralPath (Join-Path $reservationRaceRoot 'launchers/reservation-race-run.ps1') -PathType Leaf

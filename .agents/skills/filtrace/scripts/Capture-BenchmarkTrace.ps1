@@ -1318,6 +1318,24 @@ function Get-ObservedFailureResult(
     return $null
 }
 
+function Test-TimeoutOwner(
+    [string]$Path,
+    [string]$CaptureRunId,
+    [int]$ProcessId) {
+    try {
+        $timeout = Read-BoundedUtf8File $Path 16KB | ConvertFrom-Json
+        $ownerProcessId = 0
+        return $timeout.schemaVersion -eq 1 -and
+            [string]$timeout.status -ceq 'timeout' -and
+            [string]$timeout.runId -ceq $CaptureRunId -and
+            [int]::TryParse([string]$timeout.owner.processId, [ref]$ownerProcessId) -and
+            $ownerProcessId -eq $ProcessId
+    }
+    catch {
+        return $false
+    }
+}
+
 function Stop-ReservedRun([string]$Message, [int]$ExitCode = 1) {
     $failurePath = Join-Path $runsDirectory "$RunId.failure.json"
     $failureLog = Join-Path $runsDirectory "$RunId.failure.log"
@@ -1433,9 +1451,15 @@ if (Test-Path -LiteralPath $runDirectory) {
     Write-Error "Capture run ID '$RunId' already exists at '$runDirectory'. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
     exit 1
 }
+    $hasTimeoutResult = Test-Path -LiteralPath $timeoutPath -PathType Leaf
+if ($hasTimeoutResult -and $inheritedReservation -and $ElevatedChild -and
+    -not (Test-TimeoutOwner $timeoutPath $RunId $PID)) {
+    Write-Error "Capture run ID '$RunId' timeout result does not name this elevated child (PID $PID) as owner." -ErrorAction Continue
+    exit 1
+}
 if ((Test-Path -LiteralPath $preflightFailurePath) -or
     (Test-Path -LiteralPath $preflightLog) -or
-    ((Test-Path -LiteralPath $timeoutPath) -and -not ($inheritedReservation -and $ElevatedChild))) {
+    ($hasTimeoutResult -and -not ($inheritedReservation -and $ElevatedChild))) {
     Write-Error "Capture run ID '$RunId' already has a terminal result. Choose a new RunId; terminal results are never reused." -ErrorAction Continue
     exit 1
 }
@@ -1774,16 +1798,14 @@ $profArg = @('-p', $Profiler, '--keepFiles')
 $benchmarkArguments = @('run', '-c', 'Release', '-f', $Tfm, '--project', $projFile.FullName, '--', '--filter', $Filter) +
     $profArg + @('--artifacts', $artifacts)
 $startedUtc = [DateTimeOffset]::UtcNow
-$commandLine = @(
-    ConvertTo-PowerShellArgument $DotnetPath
-    foreach ($argument in $benchmarkArguments) {
-        ConvertTo-PowerShellArgument ([string]$argument)
-    }
-) -join ' '
+$commandRecord = [ordered]@{
+    executable = $DotnetPath
+    arguments = $benchmarkArguments
+} | ConvertTo-Json -Depth 3 -Compress
 $encoding = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText(
     $log,
-    "Command: $commandLine$([Environment]::NewLine)",
+    "Command: $commandRecord$([Environment]::NewLine)",
     $encoding)
 
 if ($showProgress) {
