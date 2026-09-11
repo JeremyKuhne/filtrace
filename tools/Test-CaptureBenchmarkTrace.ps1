@@ -42,6 +42,7 @@ try {
     Assert-True (Test-StringContains $help '[-OutputDirectory] <string>') 'OutputDirectory was not discoverable in Get-Help syntax.'
     $captureSource = Get-Content -LiteralPath $captureScript -Raw
     Assert-True (Test-StringContains $captureSource '.PARAMETER ElevatedChild' ([StringComparison]::Ordinal)) 'ElevatedChild has no comment-based help entry.'
+    Assert-True (Test-StringContains $captureSource '.PARAMETER PreparedLauncher' ([StringComparison]::Ordinal)) 'PreparedLauncher has no comment-based help entry.'
     Assert-True (Test-StringContains $captureSource 'Internal switch reserved for the self-elevated ETW child process') 'ElevatedChild help did not identify the switch as internal.'
     Assert-True (Test-StringContains $captureSource 'reports the capture.log path') 'Elevated timeout help did not describe reporting capture.log.'
     foreach ($staleElevationPhrase in @('surfaces the log tail', 'live progress', 'references for progress', 'log still surfaces', 'hang/no-tail')) {
@@ -87,7 +88,8 @@ try {
         'ConvertTo-CaptureStatus',
         'Test-HasAnalysisInfo',
         'ConvertTo-AnalysisMap',
-        'Get-CaseWarnings')
+        'Get-CaseWarnings',
+        'Test-TimeoutOwnedByCurrentProcess')
     $commandFunctionDefinitions = @(
         $captureAst.FindAll(
             { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $commandFunctionNames },
@@ -97,6 +99,16 @@ try {
     )
     Assert-True ($commandFunctionDefinitions.Count -eq $commandFunctionNames.Count) 'Capture command-builder functions could not be isolated.'
     . ([scriptblock]::Create(($commandFunctionDefinitions -join [Environment]::NewLine)))
+    $ownedTimeoutPath = Join-Path $temporaryRoot 'owned-timeout.json'
+    $foreignTimeoutPath = Join-Path $temporaryRoot 'foreign-timeout.json'
+    [System.IO.File]::WriteAllText(
+        $ownedTimeoutPath,
+        ([ordered]@{ status = 'timeout'; owner = [ordered]@{ processId = $PID } } | ConvertTo-Json -Compress))
+    [System.IO.File]::WriteAllText(
+        $foreignTimeoutPath,
+        ([ordered]@{ status = 'timeout'; owner = [ordered]@{ processId = $PID + 1 } } | ConvertTo-Json -Compress))
+    Assert-True (Test-TimeoutOwnedByCurrentProcess $ownedTimeoutPath) 'A matching timeout owner was not recognized.'
+    Assert-True (-not (Test-TimeoutOwnedByCurrentProcess $foreignTimeoutPath)) 'A foreign timeout owner was accepted.'
     $runtimeLog = Join-Path $temporaryRoot 'runtime-summaries.log'
     [System.IO.File]::WriteAllLines(
         $runtimeLog,
@@ -211,6 +223,9 @@ try {
     $fakeDotnet = Join-Path $temporaryRoot 'Fake-Dotnet.ps1'
     $fakeDotnetText = @'
 if ($args[0] -eq 'msbuild') {
+    if ($args -notcontains '-property:Configuration=Release') {
+        throw 'Capture preflight did not evaluate the Release configuration.'
+    }
     if ($args -contains '-getProperty:TargetFramework,TargetFrameworks') {
         [ordered]@{
             Properties = [ordered]@{
@@ -1087,6 +1102,7 @@ exit $LASTEXITCODE
         $launcherSource = Get-Content -LiteralPath $prepareResult.launcher -Raw
         Assert-True (Test-StringContains $launcherSource $preparedOutputRoot ([StringComparison]::OrdinalIgnoreCase)) 'Prepared launcher did not retain the explicit output root.'
         Assert-True (Test-StringContains $launcherSource $projectPath ([StringComparison]::OrdinalIgnoreCase)) 'Prepared launcher did not retain the resolved project path.'
+        Assert-True (Test-StringContains $launcherSource 'PreparedLauncher = $PSCommandPath' ([StringComparison]::Ordinal)) 'Prepared launcher did not identify itself to the capture helper.'
 
         $timeoutWrapper = Join-Path $temporaryRoot 'Invoke-TimeoutCapture.ps1'
         $timeoutWrapperText = @'
@@ -1097,10 +1113,11 @@ param(
     [string]$FiltracePath,
     [string]$RunId,
     [string]$OutputDirectory,
+    [string]$PreparedLauncher,
     [ValidateSet('Text', 'Json')]
     [string]$OutputFormat,
     [string]$LaunchSentinel,
-    [ValidateSet('Absent', 'Success', 'Nonzero', 'Malformed', 'Timeout')]
+    [ValidateSet('Absent', 'Success', 'Nonzero', 'FailureResult', 'Malformed', 'Timeout')]
     [string]$LaunchOutcome,
     [switch]$Quiet)
 
@@ -1116,25 +1133,36 @@ function Start-Process {
     # Exercise the parent handoff without launching a process or showing a UAC prompt.
     [System.IO.File]::WriteAllText($LaunchSentinel, $LaunchOutcome)
     if ($LaunchOutcome -eq 'Absent') { return $null }
+    if ($PreparedLauncher -and $ArgumentList -notcontains '-PreparedLauncher') {
+        throw 'Prepared launcher identity was not passed to the elevated child.'
+    }
 
-    if ($LaunchOutcome -in @('Success', 'Malformed')) {
-        $runDirectory = Join-Path $WorkingDirectory "BenchmarkDotNet.Artifacts/filtrace-runs/$RunId"
+    if ($LaunchOutcome -in @('Success', 'FailureResult', 'Malformed')) {
+        $runDirectory = Join-Path $OutputDirectory $RunId
         New-Item -ItemType Directory -Force -Path $runDirectory | Out-Null
-        $manifestPath = Join-Path $runDirectory 'manifest.json'
-        $manifestContent = if ($LaunchOutcome -eq 'Success') {
-            [ordered]@{ cases = @() } | ConvertTo-Json -Compress
+        if ($LaunchOutcome -eq 'FailureResult') {
+            [System.IO.File]::WriteAllText((Join-Path $runDirectory 'capture.log'), 'failed child log')
+            [System.IO.File]::WriteAllText(
+                (Join-Path $runDirectory 'failure.json'),
+                ([ordered]@{ status = 'failure'; exitCode = 23 } | ConvertTo-Json -Compress))
         }
         else {
-            '{not json'
+            $manifestPath = Join-Path $runDirectory 'manifest.json'
+            $manifestContent = if ($LaunchOutcome -eq 'Success') {
+                [ordered]@{ cases = @() } | ConvertTo-Json -Compress
+            }
+            else {
+                '{not json'
+            }
+            [System.IO.File]::WriteAllText($manifestPath, $manifestContent)
         }
-        [System.IO.File]::WriteAllText($manifestPath, $manifestContent)
     }
 
     $process = [pscustomobject]@{
             Id = 4242
             ProcessName = 'pwsh'
         HasExited = $LaunchOutcome -ne 'Timeout'
-        ExitCode = if ($LaunchOutcome -eq 'Nonzero') { 23 } else { 0 }
+        ExitCode = if ($LaunchOutcome -in @('Nonzero', 'FailureResult')) { 23 } else { 0 }
     }
     $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {
         param([int]$Milliseconds)
@@ -1154,6 +1182,7 @@ $captureParameters = @{
     Format = $OutputFormat
     ElevatedTimeoutSeconds = 1
 }
+if ($PreparedLauncher) { $captureParameters.PreparedLauncher = $PreparedLauncher }
 if ($Quiet) { $captureParameters.Quiet = $true }
 . $CaptureScript @captureParameters
 exit $LASTEXITCODE
@@ -1218,6 +1247,34 @@ exit $LASTEXITCODE
         Assert-True (Test-StringContains $timeoutQuiet 'did not signal completion') 'Elevated quiet timeout suppressed its warning.'
         Assert-True (-not (Test-StringContains $timeoutQuiet 'Captured ')) 'Elevated quiet timeout emitted a capture summary.'
 
+        $staleLauncherSentinel = Join-Path $temporaryRoot 'stale-launcher-start.txt'
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $staleLauncherOutput = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
+                -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                -OutputDirectory $preparedOutputRoot -RunId 'prepared-run' -OutputFormat Json `
+                -LaunchSentinel $staleLauncherSentinel -LaunchOutcome Success 2>&1 | Out-String -Width 4096
+            $staleLauncherExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        Assert-True ($staleLauncherExitCode -ne 0) 'A direct capture reused a prepared launcher run ID.'
+        Assert-True (-not (Test-Path -LiteralPath $staleLauncherSentinel)) 'Stale launcher reuse reached Start-Process.'
+        Assert-True (Test-StringContains $staleLauncherOutput 'already has a prepared launcher') 'Stale launcher reuse did not explain the collision.'
+
+        $preparedLauncherSentinel = Join-Path $temporaryRoot 'prepared-launcher-start.txt'
+        $preparedLauncherOutput = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
+            -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+            -OutputDirectory $preparedOutputRoot -RunId 'prepared-run' -OutputFormat Json `
+            -PreparedLauncher $prepareResult.launcher -LaunchSentinel $preparedLauncherSentinel `
+            -LaunchOutcome Success | Out-String -Width 4096
+        $preparedLauncherExitCode = $LASTEXITCODE
+        Assert-True ($preparedLauncherExitCode -eq 0) "The canonical prepared launcher could not start capture: $($preparedLauncherOutput.Trim())"
+        Assert-True (Test-Path -LiteralPath $preparedLauncherSentinel) 'Prepared launcher did not reach Start-Process.'
+        Assert-True (($preparedLauncherOutput | ConvertFrom-Json).status -eq 'completed') 'Prepared launcher did not complete its parent handoff.'
+
         $timeoutReuseLaunch = Join-Path $temporaryRoot 'timeout-reuse-launch.txt'
         $previousErrorActionPreference = $ErrorActionPreference
         try {
@@ -1251,6 +1308,11 @@ exit $LASTEXITCODE
                 outcome = 'Nonzero'
                 expectedExitCode = 23
                 expectedError = 'Elevated capture failed (exit 23)'
+            },
+            [ordered]@{
+                outcome = 'FailureResult'
+                expectedExitCode = 23
+                expectedError = 'Failure result:'
             },
             [ordered]@{
                 outcome = 'Malformed'
@@ -1305,6 +1367,15 @@ exit $LASTEXITCODE
             else {
                 Assert-True ([string]::IsNullOrWhiteSpace($launchOutput)) "Failed launch outcome '$($launchCase.outcome)' polluted JSON stdout."
                 Assert-True (Test-StringContains $launchError $launchCase.expectedError) "Launch outcome '$($launchCase.outcome)' omitted its diagnostic error."
+                if ($launchCase.outcome -eq 'Nonzero') {
+                    Assert-True (-not (Test-StringContains $launchError 'Failure result:')) 'A missing failure artifact was advertised.'
+                }
+                elseif ($launchCase.outcome -eq 'FailureResult') {
+                    $expectedFailureResult = Join-Path $timeoutOutputDirectory "$launchRunId/failure.json"
+                    $normalizedLaunchError = [regex]::Replace($launchError, '\s+', '')
+                    $normalizedExpectedFailureResult = [regex]::Replace($expectedFailureResult, '\s+', '')
+                    Assert-True (Test-StringContains $normalizedLaunchError $normalizedExpectedFailureResult) 'The observed failure result path was not surfaced.'
+                }
             }
         }
     }
@@ -1351,6 +1422,59 @@ exit $LASTEXITCODE
     foreach ($captureCase in $fallbackManifest.cases) {
         Assert-True (@($captureCase.analyses.PSObject.Properties.Value.eventCount | Where-Object { $null -ne $_ }).Count -eq 0) "Recorder fallback fabricated an observed event count for case '$($captureCase.id)'."
     }
+
+    $artifactFailureWrapper = Join-Path $temporaryRoot 'Invoke-ArtifactDirectoryFailure.ps1'
+    $artifactFailureWrapperText = @'
+param(
+    [string]$CaptureScript,
+    [string]$ProjectPath,
+    [string]$DotnetPath,
+    [string]$FiltracePath,
+    [string]$OutputDirectory)
+
+function New-Item {
+    [CmdletBinding()]
+    param(
+        [string]$ItemType,
+        [string[]]$Path,
+        [switch]$Force)
+
+    if ($Path.Count -eq 1 -and [System.IO.Path]::GetFileName($Path[0]) -eq 'artifacts') {
+        throw 'injected artifacts directory failure'
+    }
+
+    Microsoft.PowerShell.Management\New-Item @PSBoundParameters
+}
+
+. $CaptureScript -Project $ProjectPath -Filter '*Work*' -RunId 'artifact-directory-failure-run' `
+    -DotnetPath $DotnetPath -FiltracePath $FiltracePath -OutputDirectory $OutputDirectory -Format Json
+exit $LASTEXITCODE
+'@
+    [System.IO.File]::WriteAllText($artifactFailureWrapper, $artifactFailureWrapperText)
+    $artifactFailureRoot = Join-Path $temporaryRoot 'artifact-directory-failure-output'
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $artifactFailureOutput = & $hostExe -NoProfile -File $artifactFailureWrapper `
+            -CaptureScript $captureScript -ProjectPath $projectPath -DotnetPath $fakeDotnet `
+            -FiltracePath $missingFiltrace -OutputDirectory $artifactFailureRoot 2>&1 | Out-String -Width 4096
+        $artifactFailureExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    $artifactFailureClaim = Join-Path $artifactFailureRoot 'artifact-directory-failure-run.claim'
+    $artifactFailureResultPath = Join-Path $artifactFailureRoot 'artifact-directory-failure-run.failure.json'
+    $artifactFailureLog = Join-Path $artifactFailureRoot 'artifact-directory-failure-run.failure.log'
+    Assert-True ($artifactFailureExitCode -ne 0) 'Injected artifact-directory creation failure was accepted.'
+    Assert-True (Test-Path -LiteralPath $artifactFailureClaim -PathType Leaf) 'Artifact-directory failure did not retain its claim.'
+    Assert-True (Test-Path -LiteralPath $artifactFailureResultPath -PathType Leaf) 'Artifact-directory failure did not retain a sibling failure result.'
+    Assert-True (Test-Path -LiteralPath $artifactFailureLog -PathType Leaf) 'Artifact-directory failure did not retain a sibling log.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $artifactFailureRoot 'artifact-directory-failure-run'))) 'Artifact-directory failure unexpectedly created a run directory.'
+    $artifactFailureResult = Get-Content -LiteralPath $artifactFailureResultPath -Raw | ConvertFrom-Json
+    Assert-True ($artifactFailureResult.status -eq 'failure') 'Artifact-directory failure result did not report failure.'
+    Assert-True (Test-StringContains $artifactFailureResult.message 'injected artifacts directory failure') 'Artifact-directory failure result omitted its diagnostic.'
+    Assert-True (Test-StringContains $artifactFailureOutput 'Failure result:') 'Artifact-directory failure did not surface its durable result.'
 
     $failureArgsPath = Join-Path $temporaryRoot 'benchmark-failure-dotnet-args.txt'
     $previousProjectMode = $env:FILTRACE_CAPTURE_PROJECT_MODE

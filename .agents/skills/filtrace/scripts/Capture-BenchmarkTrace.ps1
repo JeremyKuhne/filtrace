@@ -110,6 +110,10 @@
     Internal switch reserved for the self-elevated ETW child process. Do not pass it
     directly; non-ETW or non-elevated use is rejected.
 
+.PARAMETER PreparedLauncher
+    Internal path identifying the validated launcher that initiated this capture. Do
+    not pass it directly; it must match the canonical launcher for RunId.
+
 .EXAMPLE
     ./Capture-BenchmarkTrace.ps1 -Project src/App.Perf -Filter '*GlobMatchBench*'
 
@@ -137,7 +141,8 @@ param(
     [string]$FiltracePath = 'filtrace',
     [ValidateSet('Text', 'Json')][string]$Format = 'Text',
     [switch]$Quiet,
-    [switch]$ElevatedChild
+    [switch]$ElevatedChild,
+    [string]$PreparedLauncher
 )
 
 $ErrorActionPreference = 'Stop'
@@ -734,6 +739,7 @@ function Assert-ProjectPreflight(
     [string]$CaptureProfiler,
     [string]$DotnetCommand) {
     $properties = Invoke-MsbuildQuery $ProjectPath $DotnetCommand @(
+        '-property:Configuration=Release',
         '-getProperty:TargetFramework,TargetFrameworks')
     $declaredFrameworks = if (-not [string]::IsNullOrWhiteSpace([string]$properties.Properties.TargetFrameworks)) {
         @([string]$properties.Properties.TargetFrameworks -split ';' | Where-Object { $_ })
@@ -754,6 +760,7 @@ function Assert-ProjectPreflight(
     if ($CaptureProfiler -ne 'ETW') { return }
 
     $items = Invoke-MsbuildQuery $ProjectPath $DotnetCommand @(
+        '-property:Configuration=Release',
         "-property:TargetFramework=$TargetFramework",
         '-getItem:PackageReference')
     $windowsDiagnosticsPackage = @(
@@ -1063,6 +1070,11 @@ $artifacts = Join-Path $runDirectory 'artifacts'
 $log = Join-Path $runDirectory 'capture.log'
 $manifestPath = Join-Path $runDirectory 'manifest.json'
 $runClaimPath = Join-Path $runsDirectory "$RunId.claim"
+$preflightFailurePath = Join-Path $runsDirectory "$RunId.preflight-failure.json"
+$preflightLog = Join-Path $runsDirectory "$RunId.preflight.log"
+$timeoutPath = Join-Path $runsDirectory "$RunId.timeout.json"
+$launcherDirectory = Join-Path $runsDirectory 'launchers'
+$launcherPath = Join-Path $launcherDirectory "$RunId.ps1"
 
 function Test-Elevated {
     $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -1076,6 +1088,20 @@ function Test-SafeElevationArgument([string]$Value) {
         -not $Value.EndsWith('\', [StringComparison]::Ordinal)
 }
 
+function Test-TimeoutOwnedByCurrentProcess([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    try {
+        $timeout = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        return $timeout.status -eq 'timeout' -and
+            $null -ne $timeout.owner -and
+            -not [string]::IsNullOrWhiteSpace([string]$timeout.owner.processId) -and
+            [string]$timeout.owner.processId -eq [string]$PID
+    }
+    catch {
+        return $false
+    }
+}
+
 if ($ElevatedChild -and $Profiler -ne 'ETW') {
     Write-Error '-ElevatedChild is reserved for the internal elevated ETW handoff.' -ErrorAction Continue
     exit 1
@@ -1084,6 +1110,51 @@ if ($ElevatedChild -and $Profiler -ne 'ETW') {
 if ($Prepare -and ($Profiler -ne 'ETW' -or $ElevatedChild)) {
     Write-Error '-Prepare is valid only for a non-child ETW capture.' -ErrorAction Continue
     exit 1
+}
+
+$invokedFromPreparedLauncher = $false
+if (-not [string]::IsNullOrWhiteSpace($PreparedLauncher)) {
+    if ($Profiler -ne 'ETW' -or $Prepare) {
+        Write-Error '-PreparedLauncher is reserved for a prepared ETW capture.' -ErrorAction Continue
+        exit 1
+    }
+    try {
+        $preparedLauncherPath = [System.IO.Path]::GetFullPath($PreparedLauncher)
+    }
+    catch {
+        Write-Error "PreparedLauncher '$PreparedLauncher' is invalid: $($_.Exception.Message)" -ErrorAction Continue
+        exit 1
+    }
+    if (-not $preparedLauncherPath.Equals($launcherPath, [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath $launcherPath -PathType Leaf)) {
+        Write-Error "PreparedLauncher must identify the existing canonical launcher '$launcherPath'." -ErrorAction Continue
+        exit 1
+    }
+    $PreparedLauncher = $preparedLauncherPath
+    $invokedFromPreparedLauncher = $true
+}
+
+# Validate user-controlled handoff values before the platform check so unsafe
+# arguments are rejected consistently on every host without reaching UAC.
+if ($Profiler -eq 'ETW') {
+    $requestedElevationArguments = [ordered]@{
+        Script = $PSCommandPath
+        Project = $projFile.FullName
+        Filter = $Filter
+        Tfm = $Tfm
+        Process = $Process
+        OutputDirectory = $runsDirectory
+        DotnetPath = $DotnetPath
+        FiltracePath = $FiltracePath
+    }
+    if ($hasOperationUnit) { $requestedElevationArguments.OperationUnit = $OperationUnit }
+    if ($invokedFromPreparedLauncher) { $requestedElevationArguments.PreparedLauncher = $PreparedLauncher }
+    foreach ($argument in $requestedElevationArguments.GetEnumerator()) {
+        if (-not (Test-SafeElevationArgument ([string]$argument.Value))) {
+            Write-Error "ETW elevation argument '$($argument.Key)' cannot contain quotes, newlines, or end in a backslash." -ErrorAction Continue
+            exit 1
+        }
+    }
 }
 
 # Recording an .etl is Windows-only, and Test-Elevated below calls a Windows-only API, so
@@ -1115,13 +1186,15 @@ if (Test-Path -LiteralPath $runClaimPath) {
     Write-Error "Capture run ID '$RunId' is already reserved. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
     exit 1
 }
-$preflightFailurePath = Join-Path $runsDirectory "$RunId.preflight-failure.json"
-$preflightLog = Join-Path $runsDirectory "$RunId.preflight.log"
-$timeoutPath = Join-Path $runsDirectory "$RunId.timeout.json"
+$matchingTimeoutOwner = $ElevatedChild -and (Test-TimeoutOwnedByCurrentProcess $timeoutPath)
 if ((Test-Path -LiteralPath $preflightFailurePath) -or
     (Test-Path -LiteralPath $preflightLog) -or
-    (Test-Path -LiteralPath $timeoutPath)) {
+    ((Test-Path -LiteralPath $timeoutPath) -and -not $matchingTimeoutOwner)) {
     Write-Error "Capture run ID '$RunId' already has a terminal result. Choose a new RunId; terminal results are never reused." -ErrorAction Continue
+    exit 1
+}
+if ((Test-Path -LiteralPath $launcherPath) -and -not $invokedFromPreparedLauncher) {
+    Write-Error "Capture run ID '$RunId' already has a prepared launcher at '$launcherPath'. Run that launcher or choose a new RunId." -ErrorAction Continue
     exit 1
 }
 
@@ -1170,6 +1243,7 @@ if ($Profiler -eq 'ETW') {
         FiltracePath = $FiltracePath
     }
     if ($hasOperationUnit) { $elevationArguments.OperationUnit = $OperationUnit }
+    if ($invokedFromPreparedLauncher) { $elevationArguments.PreparedLauncher = $PreparedLauncher }
     foreach ($argument in $elevationArguments.GetEnumerator()) {
         if (-not (Test-SafeElevationArgument ([string]$argument.Value))) {
             $preflightMessage = "ETW elevation argument '$($argument.Key)' cannot contain quotes, newlines, or end in a backslash."
@@ -1181,8 +1255,6 @@ if ($Profiler -eq 'ETW') {
 }
 
 if ($Prepare) {
-    $launcherDirectory = Join-Path $runsDirectory 'launchers'
-    $launcherPath = Join-Path $launcherDirectory "$RunId.ps1"
     New-Item -ItemType Directory -Force -Path $launcherDirectory | Out-Null
     $parameterLines = @(
         "    Project = $(ConvertTo-PowerShellArgument $projFile.FullName)",
@@ -1196,7 +1268,8 @@ if ($Prepare) {
         "    RunId = $(ConvertTo-PowerShellArgument $RunId)",
         "    DotnetPath = $(ConvertTo-PowerShellArgument $DotnetPath)",
         "    FiltracePath = $(ConvertTo-PowerShellArgument $FiltracePath)",
-        "    Format = $(ConvertTo-PowerShellArgument $Format)")
+        "    Format = $(ConvertTo-PowerShellArgument $Format)",
+        '    PreparedLauncher = $PSCommandPath')
     if ($hasOperationCount) {
         $parameterLines += "    OperationCount = $($OperationCount.ToString('R', [Globalization.CultureInfo]::InvariantCulture))"
         $parameterLines += "    OperationUnit = $(ConvertTo-PowerShellArgument $OperationUnit)"
@@ -1258,6 +1331,9 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
             '-OperationCount', $OperationCount.ToString('R', [Globalization.CultureInfo]::InvariantCulture),
             '-OperationUnit', "`"$OperationUnit`"")
     }
+    if ($invokedFromPreparedLauncher) {
+        $argList += @('-PreparedLauncher', "`"$PreparedLauncher`"")
+    }
     if ($Quiet) { $argList += '-Quiet' }
     # Relaunch with the host that is ALREADY running this script, not a hardcoded 'pwsh' -
     # a caller on Windows PowerShell 5.1 without PowerShell 7 installed would otherwise
@@ -1312,8 +1388,22 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     $childExit = 0
     try { if ($proc.HasExited) { $childExit = $proc.ExitCode } } catch { $childExit = 0 }
     if ($childExit -ne 0) {
-        $failurePath = Join-Path $runDirectory 'failure.json'
-        Write-Error "Elevated capture failed (exit $childExit). See $log. Failure result: $failurePath" -ErrorAction Continue
+        $observedResult = @(
+            (Join-Path $runDirectory 'failure.json'),
+            (Join-Path $runsDirectory "$RunId.failure.json"),
+            $preflightFailurePath) |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+        $observedLog = @(
+            $log,
+            (Join-Path $runsDirectory "$RunId.failure.log"),
+            $preflightLog) |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+        $failureMessage = "Elevated capture failed (exit $childExit)."
+        if ($observedLog) { $failureMessage += " See $observedLog." }
+        if ($observedResult) { $failureMessage += " Failure result: $observedResult" }
+        Write-Error $failureMessage -ErrorAction Continue
         exit $childExit
     }
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -1367,21 +1457,21 @@ try {
         exit 1
     }
 
-    # A pre-existing directory from an older helper may not have a claim file. Recheck
-    # after the atomic claim to close the check/create race before writing any output.
-    if (Test-Path -LiteralPath $runDirectory) {
-        $failureMessage = "Capture run ID '$RunId' became occupied at '$runDirectory' after it was reserved; existing run artifacts were not modified."
-        $claimFailureLog = Join-Path $runsDirectory "$RunId.failure.log"
-        $claimFailurePath = Join-Path $runsDirectory "$RunId.failure.json"
-        Write-FailureResult $claimFailurePath $claimFailureLog $RunId $failureMessage 1
-        Write-Error "$failureMessage Failure result: $claimFailurePath" -ErrorAction Continue
-        exit 1
-    }
-
-    New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
-    $failurePath = Join-Path $runDirectory 'failure.json'
+    $fallbackFailurePath = Join-Path $runsDirectory "$RunId.failure.json"
+    $fallbackFailureLog = Join-Path $runsDirectory "$RunId.failure.log"
+    $failurePath = $fallbackFailurePath
+    $failureLog = $fallbackFailureLog
     $captureExitCode = 1
     try {
+        # A pre-existing directory from an older helper may not have a claim file.
+        # Recheck after the atomic claim to close the check/create race.
+        if (Test-Path -LiteralPath $runDirectory) {
+            throw "Capture run ID '$RunId' became occupied at '$runDirectory' after it was reserved; existing run artifacts were not modified."
+        }
+
+        New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
+        $failurePath = Join-Path $runDirectory 'failure.json'
+        $failureLog = $log
 
 # Preserve the BenchmarkDotNet build output for source-symbol resolution under both
 # profilers. Both branches are multi-element arrays, so they stay arrays (a
@@ -1503,10 +1593,22 @@ if (-not $ElevatedChild) {
     catch {
         $failureMessage = $_.Exception.Message
         try {
-            Write-FailureResult $failurePath $log $RunId $failureMessage $captureExitCode
+            Write-FailureResult $failurePath $failureLog $RunId $failureMessage $captureExitCode
         }
         catch {
-            Write-Error "Capture failed and its failure result could not be written: $($_.Exception.Message)" -ErrorAction Continue
+            $resultWriteMessage = $_.Exception.Message
+            if ($failurePath -ne $fallbackFailurePath) {
+                try {
+                    Write-FailureResult $fallbackFailurePath $fallbackFailureLog $RunId $failureMessage $captureExitCode
+                    $failurePath = $fallbackFailurePath
+                }
+                catch {
+                    Write-Error "Capture failed and its failure results could not be written: $resultWriteMessage; $($_.Exception.Message)" -ErrorAction Continue
+                }
+            }
+            else {
+                Write-Error "Capture failed and its failure result could not be written: $resultWriteMessage" -ErrorAction Continue
+            }
         }
         Write-Error "$failureMessage Failure result: $failurePath" -ErrorAction Continue
         exit $captureExitCode
