@@ -146,6 +146,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $false
 $showProgress = $Format -eq 'Text' -and -not $Quiet
 
 function Write-CaptureMetadata([string]$TracePath, [System.Collections.IDictionary]$Analyses) {
@@ -177,6 +178,18 @@ function Write-RunManifest([string]$Path, [System.Collections.IDictionary]$Manif
     }
 
     [System.IO.File]::WriteAllText($Path, $json, $encoding)
+}
+
+function Write-RunManifestAtomically([string]$Path, [System.Collections.IDictionary]$Manifest) {
+    $directory = Split-Path -Parent $Path
+    $temporaryPath = Join-Path $directory ".$([Guid]::NewGuid().ToString('N')).tmp"
+    try {
+        Write-RunManifest $temporaryPath $Manifest
+        [System.IO.File]::Move($temporaryPath, $Path)
+    }
+    finally {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Write-FailureResult(
@@ -931,6 +944,7 @@ function Write-CaptureResult(
     [string]$CaptureRunId,
     [string]$OutputFormat,
     [bool]$QuietOutput,
+    [string]$CaptureOutputDirectory = $null,
     [ValidateSet('completed', 'timeout')]
     [string]$Status = 'completed',
     [string]$LogPath = $null,
@@ -1004,14 +1018,26 @@ function Write-CaptureResult(
                 status = $Status
                 runId = $CaptureRunId
                 manifest = $ManifestPath
+                outputDirectory = $CaptureOutputDirectory
                 runDirectory = $runDirectoryPath
                 message = $fallbackMessage
             }
             $json = $result | ConvertTo-Json -Depth 3 -Compress
             if ($encoding.GetByteCount($json) -ge $maxResultBytes) {
-                $result.manifest = $null
-                $result.runDirectory = "BenchmarkDotNet.Artifacts/filtrace-runs/$CaptureRunId"
-                $result.message = 'JSON handoff exceeded 20 KiB; inspect runDirectory relative to the invocation working directory.'
+                $result = [ordered]@{
+                    schemaVersion = 1
+                    status = $Status
+                    runId = $CaptureRunId
+                    manifest = if ($Status -eq 'completed') { "$CaptureRunId/manifest.json" } else { $null }
+                    runDirectory = $CaptureRunId
+                    pathsRelativeToOutputDirectory = $true
+                    message = 'JSON handoff exceeded 20 KiB; paths are relative to OutputDirectory.'
+                }
+                if ($Status -eq 'timeout') {
+                    $result.log = "$CaptureRunId/capture.log"
+                    $result.result = "$CaptureRunId.timeout.json"
+                    $result.owner = $Owner
+                }
                 $json = $result | ConvertTo-Json -Depth 3 -Compress
             }
         }
@@ -1431,7 +1457,7 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
             'the elevated child process'
         }
         $timeoutMessage = "Elevated capture owner $ownerDescription did not signal completion within $ElevatedTimeoutSeconds s; not blocking further. See $log for progress."
-        Write-RunManifest $timeoutPath ([ordered]@{
+        Write-RunManifestAtomically $timeoutPath ([ordered]@{
             schemaVersion = 1
             status = 'timeout'
             runId = $RunId
@@ -1441,7 +1467,7 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
             message = $timeoutMessage
         })
         Write-CaptureResult -CaptureCases @() -ManifestPath $null -CaptureRunId $RunId `
-            -OutputFormat $Format -QuietOutput ([bool]$Quiet) -Status timeout `
+            -OutputFormat $Format -QuietOutput ([bool]$Quiet) -CaptureOutputDirectory $runsDirectory -Status timeout `
             -LogPath $log -Message $timeoutMessage -ResultPath $timeoutPath -Owner $owner
         exit 0
     }
@@ -1469,7 +1495,7 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
         exit 1
     }
     $childManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    Write-CaptureResult @($childManifest.cases) $manifestPath $RunId $Format ([bool]$Quiet)
+    Write-CaptureResult @($childManifest.cases) $manifestPath $RunId $Format ([bool]$Quiet) $runsDirectory
     exit 0
 }
 
@@ -1557,6 +1583,7 @@ if ($showProgress) {
 # handoff rather than a duplicate benchmark transcript.
 $logWriter = New-Object System.IO.StreamWriter($log, $true, $encoding)
 try {
+    $PSNativeCommandUseErrorActionPreference = $false
     & $DotnetPath @benchmarkArguments 2>&1 |
         ForEach-Object { $logWriter.WriteLine($_.ToString()) }
     $benchmarkExitCode = $LASTEXITCODE
@@ -1645,7 +1672,7 @@ $manifest = [ordered]@{
 Write-RunManifest $manifestPath $manifest
 
 if (-not $ElevatedChild) {
-    Write-CaptureResult $captureCases $manifestPath $RunId $Format ([bool]$Quiet)
+    Write-CaptureResult $captureCases $manifestPath $RunId $Format ([bool]$Quiet) $runsDirectory
 }
     }
     catch {

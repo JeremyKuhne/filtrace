@@ -133,6 +133,14 @@ jobs:
       - name: Test
         run: dotnet test filtrace.slnx --configuration Release --no-build
 
+      - name: Capture helper contract (PowerShell 7)
+        shell: pwsh
+        run: ./tools/Test-CaptureBenchmarkTrace.ps1
+
+      - name: Capture helper contract (Windows PowerShell 5.1)
+        shell: powershell
+        run: ./tools/Test-CaptureBenchmarkTrace.ps1
+
       - name: Command capture native argv contract
         shell: pwsh
         run: ./tools/Test-CaptureCommandTrace.ps1 -WindowsNativeArgv

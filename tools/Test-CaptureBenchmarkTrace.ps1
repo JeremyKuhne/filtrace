@@ -75,6 +75,8 @@ try {
         $testCaptureSource,
         [System.Text.UTF8Encoding]::new($false))
     $commandFunctionNames = @(
+        'Write-RunManifest',
+        'Write-RunManifestAtomically',
         'ConvertTo-RuntimeSummary',
         'ConvertTo-PowerShellArgument',
         'Get-RuntimeSummaries',
@@ -90,6 +92,7 @@ try {
         'ConvertTo-AnalysisMap',
         'Get-CaseWarnings',
         'Write-PreparationResult',
+        'Write-CaptureResult',
         'Read-BoundedUtf8File',
         'Get-ProcessPropertySafely',
         'Get-FirstExistingFile',
@@ -136,6 +139,38 @@ try {
     Assert-True ($boundedPreparationResult.pathsRelativeToOutputDirectory) 'Prepared JSON fallback did not mark its paths as output-root relative.'
     Assert-True ($boundedPreparationResult.launcher -eq 'launchers/bounded-preparation.ps1') 'Prepared JSON fallback returned the wrong launcher path.'
     Assert-True ($boundedPreparationResult.manifest -eq 'bounded-preparation/manifest.json') 'Prepared JSON fallback returned the wrong manifest path.'
+    $atomicManifestPath = Join-Path $temporaryRoot 'atomic-timeout.json'
+    Write-RunManifestAtomically $atomicManifestPath ([ordered]@{ status = 'timeout'; runId = 'atomic' })
+    $atomicManifest = Get-Content -LiteralPath $atomicManifestPath -Raw | ConvertFrom-Json
+    Assert-True ($atomicManifest.status -eq 'timeout') 'Atomic manifest publication did not retain the payload.'
+    Assert-True (@(Get-ChildItem -LiteralPath $temporaryRoot -Filter '*.tmp').Count -eq 0) 'Atomic manifest publication left a temporary file.'
+    $longCaptureRoot = "C:\$([string]::new('y', 24000))"
+    $boundedCompletedJson = Write-CaptureResult @() `
+        "$longCaptureRoot\completed-run\manifest.json" `
+        'completed-run' `
+        'Json' `
+        $false `
+        $longCaptureRoot
+    $boundedCompletedResult = $boundedCompletedJson | ConvertFrom-Json
+    Assert-True ([Text.Encoding]::UTF8.GetByteCount($boundedCompletedJson) -lt 20KB) 'Completed JSON fallback exceeded 20 KiB.'
+    Assert-True ($boundedCompletedResult.pathsRelativeToOutputDirectory) 'Completed JSON fallback did not mark paths relative to OutputDirectory.'
+    Assert-True ($boundedCompletedResult.manifest -eq 'completed-run/manifest.json') 'Completed JSON fallback returned the wrong relative manifest.'
+    $boundedTimeoutJson = Write-CaptureResult @() `
+        $null `
+        'timeout-run' `
+        'Json' `
+        $false `
+        $longCaptureRoot `
+        -Status timeout `
+        -LogPath "$longCaptureRoot\timeout-run\capture.log" `
+        -ResultPath "$longCaptureRoot\timeout-run.timeout.json" `
+        -Owner ([ordered]@{ processId = 42; processName = 'pwsh' }) `
+        -Message ([string]::new('z', 24000))
+    $boundedTimeoutResult = $boundedTimeoutJson | ConvertFrom-Json
+    Assert-True ([Text.Encoding]::UTF8.GetByteCount($boundedTimeoutJson) -lt 20KB) 'Timeout JSON fallback exceeded 20 KiB.'
+    Assert-True ($boundedTimeoutResult.pathsRelativeToOutputDirectory) 'Timeout JSON fallback did not mark paths relative to OutputDirectory.'
+    Assert-True ($boundedTimeoutResult.log -eq 'timeout-run/capture.log') 'Timeout JSON fallback returned the wrong relative log.'
+    Assert-True ($boundedTimeoutResult.result -eq 'timeout-run.timeout.json') 'Timeout JSON fallback returned the wrong relative result.'
     $runtimeLog = Join-Path $temporaryRoot 'runtime-summaries.log'
     [System.IO.File]::WriteAllLines(
         $runtimeLog,
@@ -1504,6 +1539,30 @@ exit $LASTEXITCODE
     Assert-True (Test-StringContains $artifactFailureOutput 'Failure result:') 'Artifact-directory failure did not surface its durable result.'
 
     $failureArgsPath = Join-Path $temporaryRoot 'benchmark-failure-dotnet-args.txt'
+    $nativePreferenceWrapper = Join-Path $temporaryRoot 'Invoke-NativePreferenceFailure.ps1'
+    $nativePreferenceWrapperText = @'
+param(
+    [string]$CaptureScript,
+    [string]$ProjectPath,
+    [string]$DotnetPath,
+    [string]$FiltracePath,
+    [string]$OutputDirectory)
+
+$PSNativeCommandUseErrorActionPreference = $true
+$runId = if ($OutputDirectory) { 'native-preference-failure-run' } else { 'benchmark-failure-run' }
+$captureParameters = @{
+    Project = $ProjectPath
+    Filter = '*Work*'
+    RunId = $runId
+    DotnetPath = $DotnetPath
+    FiltracePath = $FiltracePath
+    Format = 'Json'
+}
+if ($OutputDirectory) { $captureParameters.OutputDirectory = $OutputDirectory }
+. $CaptureScript @captureParameters
+exit $LASTEXITCODE
+'@
+    [System.IO.File]::WriteAllText($nativePreferenceWrapper, $nativePreferenceWrapperText)
     $previousProjectMode = $env:FILTRACE_CAPTURE_PROJECT_MODE
     $env:FILTRACE_CAPTURE_ARGS = $failureArgsPath
     $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
@@ -1513,9 +1572,9 @@ exit $LASTEXITCODE
         $previousErrorActionPreference = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
-            $failureOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
-                -RunId 'benchmark-failure-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
-                -Format Json 2>&1 | Out-String -Width 4096
+            $failureOutput = & $hostExe -NoProfile -File $nativePreferenceWrapper `
+                -CaptureScript $captureScript -ProjectPath $projectPath -DotnetPath $fakeDotnet `
+                -FiltracePath $fakeFiltrace 2>&1 | Out-String -Width 4096
             $failureExitCode = $LASTEXITCODE
         }
         finally {
@@ -1543,6 +1602,38 @@ exit $LASTEXITCODE
     Assert-True ($failureResult.status -eq 'failure') 'Failed run result did not report failure status.'
     Assert-True ($failureResult.exitCode -eq 23) 'Failed run result did not retain the child exit code.'
     Assert-True ($failureResult.log -eq $failureLog) 'Failed run result did not point to capture.log.'
+
+    $nativeFailureDirectory = Join-Path $temporaryRoot 'src/NativeFailure.Perf'
+    New-Item -ItemType Directory -Force -Path $nativeFailureDirectory | Out-Null
+    $nativeFailureProject = Join-Path $nativeFailureDirectory 'NativeFailure.Perf.csproj'
+    [System.IO.File]::WriteAllText(
+        $nativeFailureProject,
+        '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>')
+    [System.IO.File]::WriteAllText(
+        (Join-Path $nativeFailureDirectory 'Program.cs'),
+        'System.Console.WriteLine("native failure sentinel"); return 23;')
+    $nativeFailureRoot = Join-Path $temporaryRoot 'native-preference-output'
+    $nativeDotnet = (Get-Command dotnet -CommandType Application | Select-Object -First 1).Source
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $nativeFailureOutput = & $hostExe -NoProfile -File $nativePreferenceWrapper `
+            -CaptureScript $captureScript -ProjectPath $nativeFailureProject -DotnetPath $nativeDotnet `
+            -FiltracePath $missingFiltrace -OutputDirectory $nativeFailureRoot 2>&1 | Out-String -Width 4096
+        $nativeFailureExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    $nativeFailureRun = Join-Path $nativeFailureRoot 'native-preference-failure-run'
+    $nativeFailureLog = Join-Path $nativeFailureRun 'capture.log'
+    $nativeFailureResultPath = Join-Path $nativeFailureRun 'failure.json'
+    Assert-True ($nativeFailureExitCode -eq 23) "Native failure returned exit $nativeFailureExitCode instead of 23. Output: $($nativeFailureOutput.Trim())"
+    Assert-True (Test-Path -LiteralPath $nativeFailureLog -PathType Leaf) 'Native failure did not retain capture.log.'
+    Assert-True (Test-Path -LiteralPath $nativeFailureResultPath -PathType Leaf) 'Native failure did not retain failure.json.'
+    Assert-True (Test-StringContains (Get-Content -LiteralPath $nativeFailureLog -Raw) 'native failure sentinel') 'Native failure log omitted child output.'
+    $nativeFailureResult = Get-Content -LiteralPath $nativeFailureResultPath -Raw | ConvertFrom-Json
+    Assert-True ($nativeFailureResult.exitCode -eq 23) 'Native failure result did not retain the child exit code.'
 
     $reuseArgsPath = Join-Path $temporaryRoot 'reuse-dotnet-args.txt'
     $env:FILTRACE_CAPTURE_ARGS = $reuseArgsPath
