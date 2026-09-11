@@ -114,6 +114,10 @@
     Internal path identifying the validated launcher that initiated this capture. Do
     not pass it directly; it must match the canonical launcher for RunId.
 
+.PARAMETER ReservationToken
+    Internal token identifying the atomic run reservation shared by the parent,
+    prepared launcher, and elevated child. Do not pass it directly.
+
 .EXAMPLE
     ./Capture-BenchmarkTrace.ps1 -Project src/App.Perf -Filter '*GlobMatchBench*'
 
@@ -142,7 +146,8 @@ param(
     [ValidateSet('Text', 'Json')][string]$Format = 'Text',
     [switch]$Quiet,
     [switch]$ElevatedChild,
-    [string]$PreparedLauncher
+    [string]$PreparedLauncher,
+    [ValidatePattern('^[0-9a-f]{32}$')][string]$ReservationToken
 )
 
 $ErrorActionPreference = 'Stop'
@@ -212,6 +217,49 @@ function Write-FailureResult(
         message = $Message
         log = $LogPath
     })
+}
+
+function New-RunReservation([string]$Path, [string]$CaptureRunId) {
+    $token = [Guid]::NewGuid().ToString('N')
+    $json = [ordered]@{
+        schemaVersion = 1
+        runId = $CaptureRunId
+        state = 'reserved'
+        token = $token
+        processId = $PID
+        createdUtc = [DateTimeOffset]::UtcNow.ToString('O')
+    } | ConvertTo-Json -Compress
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    $stream = [System.IO.File]::Open(
+        $Path,
+        [System.IO.FileMode]::CreateNew,
+        [System.IO.FileAccess]::Write,
+        [System.IO.FileShare]::None)
+    try {
+        $bytes = $encoding.GetBytes($json)
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+    }
+    finally {
+        $stream.Dispose()
+    }
+    return $token
+}
+
+function Test-RunReservation(
+    [string]$Path,
+    [string]$CaptureRunId,
+    [string]$Token) {
+    try {
+        $reservation = Read-BoundedUtf8File $Path 16KB | ConvertFrom-Json
+        return $reservation.schemaVersion -eq 1 -and
+            $reservation.state -eq 'reserved' -and
+            [string]$reservation.runId -ceq $CaptureRunId -and
+            [string]$reservation.token -ceq $Token
+    }
+    catch {
+        return $false
+    }
 }
 
 function ConvertTo-RuntimeSummary([string]$LogLine) {
@@ -1022,6 +1070,11 @@ function Write-CaptureResult(
                 runDirectory = $runDirectoryPath
                 message = $fallbackMessage
             }
+            if ($Status -eq 'timeout') {
+                $result.log = $LogPath
+                $result.result = $ResultPath
+                $result.owner = $Owner
+            }
             $json = $result | ConvertTo-Json -Depth 3 -Compress
             if ($encoding.GetByteCount($json) -ge $maxResultBytes) {
                 $result = [ordered]@{
@@ -1174,18 +1227,28 @@ function Get-FirstExistingFile([string[]]$Paths) {
     return $null
 }
 
-function Test-TimeoutOwnedByCurrentProcess([string]$Path) {
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+function Stop-ReservedRun([string]$Message, [int]$ExitCode = 1) {
+    $failurePath = Join-Path $runsDirectory "$RunId.failure.json"
+    $failureLog = Join-Path $runsDirectory "$RunId.failure.log"
+    $resultWriteError = $null
     try {
-        $timeout = Read-BoundedUtf8File $Path 16MB | ConvertFrom-Json
-        return $timeout.status -eq 'timeout' -and
-            $null -ne $timeout.owner -and
-            -not [string]::IsNullOrWhiteSpace([string]$timeout.owner.processId) -and
-            [string]$timeout.owner.processId -eq [string]$PID
+        if (-not (Test-Path -LiteralPath $failurePath -PathType Leaf)) {
+            Write-FailureResult $failurePath $failureLog $RunId $Message $ExitCode
+        }
     }
     catch {
-        return $false
+        $resultWriteError = $_.Exception.Message
     }
+
+    $diagnostic = $Message
+    if (Test-Path -LiteralPath $failurePath -PathType Leaf) {
+        $diagnostic += " Failure result: $failurePath"
+    }
+    elseif ($resultWriteError) {
+        $diagnostic += " Failure result could not be written: $resultWriteError"
+    }
+    Write-Error $diagnostic -ErrorAction Continue
+    exit $ExitCode
 }
 
 if ($ElevatedChild -and $Profiler -ne 'ETW') {
@@ -1220,6 +1283,16 @@ if (-not [string]::IsNullOrWhiteSpace($PreparedLauncher)) {
     $invokedFromPreparedLauncher = $true
 }
 
+$inheritedReservation = -not [string]::IsNullOrWhiteSpace($ReservationToken)
+if ($inheritedReservation -and -not ($ElevatedChild -or $invokedFromPreparedLauncher)) {
+    Write-Error '-ReservationToken is reserved for an elevated or prepared capture handoff.' -ErrorAction Continue
+    exit 1
+}
+if (($ElevatedChild -or $invokedFromPreparedLauncher) -and -not $inheritedReservation) {
+    Write-Error '-ElevatedChild and -PreparedLauncher require -ReservationToken for the atomic run handoff.' -ErrorAction Continue
+    exit 1
+}
+
 # Validate user-controlled handoff values before the platform check so unsafe
 # arguments are rejected consistently on every host without reaching UAC.
 if ($Profiler -eq 'ETW') {
@@ -1235,6 +1308,7 @@ if ($Profiler -eq 'ETW') {
     }
     if ($hasOperationUnit) { $requestedElevationArguments.OperationUnit = $OperationUnit }
     if ($invokedFromPreparedLauncher) { $requestedElevationArguments.PreparedLauncher = $PreparedLauncher }
+    if ($inheritedReservation) { $requestedElevationArguments.ReservationToken = $ReservationToken }
     foreach ($argument in $requestedElevationArguments.GetEnumerator()) {
         if (-not (Test-SafeElevationArgument ([string]$argument.Value))) {
             Write-Error "ETW elevation argument '$($argument.Key)' cannot contain quotes, newlines, or end in a backslash." -ErrorAction Continue
@@ -1268,20 +1342,43 @@ if (Test-Path -LiteralPath $runDirectory) {
     Write-Error "Capture run ID '$RunId' already exists at '$runDirectory'. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
     exit 1
 }
-if (Test-Path -LiteralPath $runClaimPath) {
-    Write-Error "Capture run ID '$RunId' is already reserved. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
-    exit 1
-}
-$matchingTimeoutOwner = $ElevatedChild -and (Test-TimeoutOwnedByCurrentProcess $timeoutPath)
 if ((Test-Path -LiteralPath $preflightFailurePath) -or
     (Test-Path -LiteralPath $preflightLog) -or
-    ((Test-Path -LiteralPath $timeoutPath) -and -not $matchingTimeoutOwner)) {
+    ((Test-Path -LiteralPath $timeoutPath) -and -not ($inheritedReservation -and $ElevatedChild))) {
     Write-Error "Capture run ID '$RunId' already has a terminal result. Choose a new RunId; terminal results are never reused." -ErrorAction Continue
     exit 1
 }
-if ((Test-Path -LiteralPath $launcherPath) -and -not $invokedFromPreparedLauncher) {
+if ((Test-Path -LiteralPath $launcherPath) -and -not ($invokedFromPreparedLauncher -and $inheritedReservation)) {
     Write-Error "Capture run ID '$RunId' already has a prepared launcher at '$launcherPath'. Run that launcher or choose a new RunId." -ErrorAction Continue
     exit 1
+}
+if ($inheritedReservation) {
+    if (-not (Test-RunReservation $runClaimPath $RunId $ReservationToken)) {
+        Write-Error "Capture run ID '$RunId' does not have a matching atomic reservation." -ErrorAction Continue
+        exit 1
+    }
+}
+else {
+    try {
+        $ReservationToken = New-RunReservation $runClaimPath $RunId
+    }
+    catch [System.IO.IOException] {
+        Write-Error "Capture run ID '$RunId' is already reserved. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
+        exit 1
+    }
+    # Close races with legacy writers that may not participate in the shared claim.
+    if ((Test-Path -LiteralPath $runDirectory) -or
+        (Test-Path -LiteralPath $preflightFailurePath) -or
+        (Test-Path -LiteralPath $preflightLog) -or
+        (Test-Path -LiteralPath $timeoutPath) -or
+        (Test-Path -LiteralPath $launcherPath)) {
+        $reservationMessage = "Capture run ID '$RunId' became occupied after its atomic reservation; existing artifacts were not modified."
+        $reservationFailurePath = Join-Path $runsDirectory "$RunId.failure.json"
+        $reservationFailureLog = Join-Path $runsDirectory "$RunId.failure.log"
+        Write-FailureResult $reservationFailurePath $reservationFailureLog $RunId $reservationMessage 1
+        Write-Error "$reservationMessage Failure result: $reservationFailurePath" -ErrorAction Continue
+        exit 1
+    }
 }
 
 $dotnetCommand = Get-Command $DotnetPath -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -1330,6 +1427,7 @@ if ($Profiler -eq 'ETW') {
     }
     if ($hasOperationUnit) { $elevationArguments.OperationUnit = $OperationUnit }
     if ($invokedFromPreparedLauncher) { $elevationArguments.PreparedLauncher = $PreparedLauncher }
+    $elevationArguments.ReservationToken = $ReservationToken
     foreach ($argument in $elevationArguments.GetEnumerator()) {
         if (-not (Test-SafeElevationArgument ([string]$argument.Value))) {
             $preflightMessage = "ETW elevation argument '$($argument.Key)' cannot contain quotes, newlines, or end in a backslash."
@@ -1341,8 +1439,9 @@ if ($Profiler -eq 'ETW') {
 }
 
 if ($Prepare) {
-    New-Item -ItemType Directory -Force -Path $launcherDirectory | Out-Null
-    $parameterLines = @(
+    try {
+        New-Item -ItemType Directory -Force -Path $launcherDirectory | Out-Null
+        $parameterLines = @(
         "    Project = $(ConvertTo-PowerShellArgument $projFile.FullName)",
         "    Filter = $(ConvertTo-PowerShellArgument $Filter)",
         "    Profiler = 'ETW'",
@@ -1355,47 +1454,47 @@ if ($Prepare) {
         "    DotnetPath = $(ConvertTo-PowerShellArgument $DotnetPath)",
         "    FiltracePath = $(ConvertTo-PowerShellArgument $FiltracePath)",
         "    Format = $(ConvertTo-PowerShellArgument $Format)",
-        '    PreparedLauncher = $PSCommandPath')
-    if ($hasOperationCount) {
-        $parameterLines += "    OperationCount = $($OperationCount.ToString('R', [Globalization.CultureInfo]::InvariantCulture))"
-        $parameterLines += "    OperationUnit = $(ConvertTo-PowerShellArgument $OperationUnit)"
-    }
-    if ($Quiet) { $parameterLines += '    Quiet = $true' }
-    $launcher = (@('$captureParameters = @{') + $parameterLines + @(
+        '    PreparedLauncher = $PSCommandPath',
+        "    ReservationToken = $(ConvertTo-PowerShellArgument $ReservationToken)")
+        if ($hasOperationCount) {
+            $parameterLines += "    OperationCount = $($OperationCount.ToString('R', [Globalization.CultureInfo]::InvariantCulture))"
+            $parameterLines += "    OperationUnit = $(ConvertTo-PowerShellArgument $OperationUnit)"
+        }
+        if ($Quiet) { $parameterLines += '    Quiet = $true' }
+        $launcher = (@('$captureParameters = @{') + $parameterLines + @(
         '}',
         "& $(ConvertTo-PowerShellArgument $PSCommandPath) @captureParameters",
         'exit $LASTEXITCODE')) -join [Environment]::NewLine
-    $tokens = $null
-    $parseErrors = $null
-    [void][System.Management.Automation.Language.Parser]::ParseInput(
+        $tokens = $null
+        $parseErrors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseInput(
         $launcher,
         [ref]$tokens,
         [ref]$parseErrors)
-    if ($parseErrors.Count -ne 0) {
-        Write-Error "Generated launcher failed syntax validation: $($parseErrors[0].Message)" -ErrorAction Continue
-        exit 1
-    }
-    $encoding = New-Object System.Text.UTF8Encoding($false)
-    try {
+        if ($parseErrors.Count -ne 0) {
+            throw "Generated launcher failed syntax validation: $($parseErrors[0].Message)"
+        }
+        $encoding = New-Object System.Text.UTF8Encoding($true)
         $launcherStream = [System.IO.File]::Open(
             $launcherPath,
             [System.IO.FileMode]::CreateNew,
             [System.IO.FileAccess]::Write,
             [System.IO.FileShare]::None)
         try {
+            $preamble = $encoding.GetPreamble()
+            $launcherStream.Write($preamble, 0, $preamble.Length)
             $launcherBytes = $encoding.GetBytes($launcher)
             $launcherStream.Write($launcherBytes, 0, $launcherBytes.Length)
         }
         finally {
             $launcherStream.Dispose()
         }
+        Write-PreparationResult $launcherPath $manifestPath $RunId $Format
+        exit 0
     }
-    catch [System.IO.IOException] {
-        Write-Error "Capture launcher '$launcherPath' already exists; choose a new RunId." -ErrorAction Continue
-        exit 1
+    catch {
+        Stop-ReservedRun "Capture preparation failed: $($_.Exception.Message)" 1
     }
-    Write-PreparationResult $launcherPath $manifestPath $RunId $Format
-    exit 0
 }
 
 # ETW kernel sessions require Administrator. When not elevated, relaunch this script
@@ -1403,7 +1502,9 @@ if ($Prepare) {
 # -WorkingDirectory anchors the child at the repo root so BenchmarkDotNet.Artifacts
 # and capture.log are created there, not in the elevated shell's system32 directory.
 if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
-    if ($showProgress) {
+    $elevationFailureExitCode = 1
+    try {
+        if ($showProgress) {
         Write-Host 'ETW capture needs Administrator; relaunching elevated (a UAC prompt will appear).' -ForegroundColor Yellow
     }
     # Quote path/value args so a project path, filter, or process name containing spaces
@@ -1411,7 +1512,7 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     $argList = @('-NoProfile', '-File', "`"$PSCommandPath`"", '-Project', "`"$($projFile.FullName)`"",
         '-Filter', "`"$Filter`"", '-Profiler', 'ETW', '-Tfm', "`"$Tfm`"", '-Process', "`"$Process`"", '-Top', $Top,
         '-OutputDirectory', "`"$runsDirectory`"", '-RunId', $RunId, '-DotnetPath', "`"$DotnetPath`"", '-FiltracePath', "`"$FiltracePath`"", '-Format', $Format,
-        '-ElevatedChild')
+        '-ReservationToken', $ReservationToken, '-ElevatedChild')
     if ($hasOperationCount) {
         $argList += @(
             '-OperationCount', $OperationCount.ToString('R', [Globalization.CultureInfo]::InvariantCulture),
@@ -1430,20 +1531,19 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     # capture already finished and the .etl is on disk. Take the process object and wait on
     # it directly with a bounded WaitForExit, so a lost or access-denied handle degrades to
     # a timeout result that reports the log path instead of an indefinite hang.
-    $proc = Start-Process -FilePath $hostExe -Verb RunAs -PassThru -WorkingDirectory $repoRoot -ArgumentList $argList
-    if ($null -eq $proc) {
-        Write-Error 'Elevated relaunch returned no process handle; cannot wait for the capture. Check for a blocked UAC prompt.' -ErrorAction Continue
-        exit 1
-    }
+        $proc = Start-Process -FilePath $hostExe -Verb RunAs -PassThru -WorkingDirectory $repoRoot -ArgumentList $argList
+        if ($null -eq $proc) {
+            throw 'Elevated relaunch returned no process handle; cannot wait for the capture. Check for a blocked UAC prompt.'
+        }
     # WaitForExit / HasExited / ExitCode can each throw (e.g. Access Denied reading the
     # elevated, higher-integrity child's handle). Under $ErrorActionPreference='Stop' an
     # uncaught throw would abort the script instead of producing the bounded timeout result,
     # so guard every handle access and treat a throw as a timeout-like miss.
     # Clamp to Int32.MaxValue so a large timeout cannot overflow the millisecond argument.
-    $waitMs = [int][Math]::Min([long]$ElevatedTimeoutSeconds * 1000, [int]::MaxValue)
+        $waitMs = [int][Math]::Min([long]$ElevatedTimeoutSeconds * 1000, [int]::MaxValue)
     $exited = $false
     try { $exited = $proc.WaitForExit($waitMs) } catch { $exited = $false }
-    if (-not $exited) {
+        if (-not $exited) {
         $ownerProcessId = Get-ProcessPropertySafely $proc 'Id'
         $ownerProcessName = Get-ProcessPropertySafely $proc 'ProcessName'
         $owner = [ordered]@{
@@ -1469,13 +1569,14 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
         Write-CaptureResult -CaptureCases @() -ManifestPath $null -CaptureRunId $RunId `
             -OutputFormat $Format -QuietOutput ([bool]$Quiet) -CaptureOutputDirectory $runsDirectory -Status timeout `
             -LogPath $log -Message $timeoutMessage -ResultPath $timeoutPath -Owner $owner
-        exit 0
-    }
+            exit 0
+        }
     # ExitCode is only defined once the child has exited, and reading it on a higher-integrity
     # (elevated) process can throw Access Denied - treat either as 'not observed', non-fatal.
     $childExit = 0
     try { if ($proc.HasExited) { $childExit = $proc.ExitCode } } catch { $childExit = 0 }
-    if ($childExit -ne 0) {
+        if ($childExit -ne 0) {
+            $elevationFailureExitCode = $childExit
         $observedResult = Get-FirstExistingFile @(
             (Join-Path $runDirectory 'failure.json'),
             (Join-Path $runsDirectory "$RunId.failure.json"),
@@ -1487,16 +1588,22 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
         $failureMessage = "Elevated capture failed (exit $childExit)."
         if ($observedLog) { $failureMessage += " See $observedLog." }
         if ($observedResult) { $failureMessage += " Failure result: $observedResult" }
-        Write-Error $failureMessage -ErrorAction Continue
-        exit $childExit
+            if ($observedResult) {
+                Write-Error $failureMessage -ErrorAction Continue
+                exit $childExit
+            }
+            throw $failureMessage
+        }
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+            throw "Elevated capture did not produce $manifestPath. See $log for details."
+        }
+        $childManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        Write-CaptureResult @($childManifest.cases) $manifestPath $RunId $Format ([bool]$Quiet) $runsDirectory
+        exit 0
     }
-    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-        Write-Error "Elevated capture did not produce $manifestPath. See $log for details." -ErrorAction Continue
-        exit 1
+    catch {
+        Stop-ReservedRun "Elevated capture handoff failed: $($_.Exception.Message)" $elevationFailureExitCode
     }
-    $childManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    Write-CaptureResult @($childManifest.cases) $manifestPath $RunId $Format ([bool]$Quiet) $runsDirectory
-    exit 0
 }
 
 $projectLockName = [regex]::Replace(
@@ -1508,36 +1615,22 @@ $tfmLockName = [regex]::Replace($Tfm, '[^A-Za-z0-9._-]', '_')
 if ([string]::IsNullOrEmpty($tfmLockName)) { $tfmLockName = 'default' }
 $lockName = "$projectLockName-$tfmLockName"
 $lockDirectory = Join-Path $projFile.DirectoryName 'obj/filtrace-capture-locks'
-New-Item -ItemType Directory -Force -Path $lockDirectory | Out-Null
-$lockPath = Join-Path $lockDirectory "$lockName.lock"
 try {
+    New-Item -ItemType Directory -Force -Path $lockDirectory | Out-Null
+    $lockPath = Join-Path $lockDirectory "$lockName.lock"
     $captureLock = [System.IO.File]::Open(
         $lockPath,
         [System.IO.FileMode]::OpenOrCreate,
         [System.IO.FileAccess]::ReadWrite,
         [System.IO.FileShare]::None)
 }
-catch [System.IO.IOException] {
-    Write-Error "A capture is already active for project '$($projFile.FullName)' and TFM '$Tfm'. Wait for it to finish before starting another." -ErrorAction Continue
-    exit 1
+catch {
+    Stop-ReservedRun "A capture could not acquire the project lock for '$($projFile.FullName)' and TFM '$Tfm': $($_.Exception.Message)" 1
 }
 
 try {
     if (Test-Path -LiteralPath $runDirectory) {
         Write-Error "Capture run ID '$RunId' already exists at '$runDirectory'. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
-        exit 1
-    }
-
-    try {
-        $runClaim = [System.IO.File]::Open(
-            $runClaimPath,
-            [System.IO.FileMode]::CreateNew,
-            [System.IO.FileAccess]::Write,
-            [System.IO.FileShare]::None)
-        $runClaim.Dispose()
-    }
-    catch [System.IO.IOException] {
-        Write-Error "Capture run ID '$RunId' is already reserved. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
         exit 1
     }
 
