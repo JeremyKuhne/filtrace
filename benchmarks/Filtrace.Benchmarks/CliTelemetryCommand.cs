@@ -120,7 +120,7 @@ internal static partial class CliTelemetryCommand
         }
         else if (!definition.IsManifest)
         {
-            // Validate the only supported single-trace cold scenario before launching.
+            // Validate a single-trace cold scenario before launching.
             _ = CliBenchmarkScenarios.CreateArguments(definition, trace);
         }
 

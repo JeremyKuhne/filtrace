@@ -56,11 +56,16 @@ dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- `
 ```
 
 Telemetry accepts the implemented single-trace and manifest scenario names,
-including `batch-8`, `info-cold`, and `diff-cold-8`. Warm launches reuse one
-prepared input tree; every cold launch records its own exact temporary paths. Cold
-paths are provenance and no longer exist after each launch is validated and cleaned.
-The shared runner caps each captured child stream at 10,485,760 characters; larger
-output fails the run instead of exhausting the benchmark host.
+including `cache-convert-warm`, `cache-convert-cold`, `batch-8`, `info-cold`,
+and `diff-cold-8`. The cache-convert scenarios run only `cache --action convert`:
+the warm case measures a cache hit plus process overhead, while the cold case
+measures conversion from a fresh trace identity without loading an analysis
+provider. Warm launches reuse one prepared input tree; every cold launch records
+its own exact temporary paths and preserves the source trace extension so ETL and
+EventPipe inputs use the correct reader. Cold paths are provenance and no longer
+exist after each launch is validated and cleaned. The shared runner caps each
+captured child stream at 10,485,760 characters; larger output fails the run instead
+of exhausting the benchmark host.
 
 Telemetry schema 2 records `launchToExitMilliseconds` from the monotonic timestamp
 immediately before `Process.Start` through successful root-process exit. It excludes

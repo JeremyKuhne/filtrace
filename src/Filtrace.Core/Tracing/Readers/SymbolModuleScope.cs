@@ -131,9 +131,14 @@ internal sealed class SymbolModuleScope
     {
         if (moduleFile is not null)
         {
-            moduleFileIndexes.Add((int)moduleFile.ModuleFileIndex);
-            AddName(moduleNames, moduleFile.Name);
-            AddName(moduleNames, moduleFile.FilePath);
+            if (moduleFileIndexes.Add((int)moduleFile.ModuleFileIndex))
+            {
+                AddName(moduleNames, moduleFile.Name);
+                AddName(moduleNames, moduleFile.FilePath);
+                AddName(moduleNames, fallbackName);
+            }
+
+            return;
         }
 
         AddName(moduleNames, fallbackName);
