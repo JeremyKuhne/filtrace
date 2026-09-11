@@ -79,10 +79,12 @@ To profile a benchmark with filtrace:
 dotnet build src/Filtrace/Filtrace.csproj -c Release
 $filtraceName = if ($IsWindows) { 'filtrace.exe' } else { 'filtrace' }
 $filtrace = (Resolve-Path (Join-Path 'src/Filtrace/bin/Release/net10.0' $filtraceName)).Path
+$captureRoot = (New-Item -ItemType Directory -Force artifacts/filtrace-captures).FullName
 ./.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1 `
   -Project benchmarks/Filtrace.Benchmarks `
   -Filter '*TimelineProviderBenchmarks.Snapshot*' `
-  -FiltracePath $filtrace
+  -FiltracePath $filtrace `
+  -OutputDirectory $captureRoot
 ```
 
 Use that same `$filtrace` apphost for every deeper `info`, `rank`, `callers`,

@@ -38,6 +38,8 @@ New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 try {
     $help = Get-Help $captureScript -Full | Out-String -Width 4096
     Assert-True (Test-StringContains $help '[-ElevatedChild]') 'ElevatedChild was not discoverable in Get-Help syntax.'
+    Assert-True (Test-StringContains $help '[-Prepare]') 'Prepare was not discoverable in Get-Help syntax.'
+    Assert-True (Test-StringContains $help '[-OutputDirectory] <string>') 'OutputDirectory was not discoverable in Get-Help syntax.'
     $captureSource = Get-Content -LiteralPath $captureScript -Raw
     Assert-True (Test-StringContains $captureSource '.PARAMETER ElevatedChild' ([StringComparison]::Ordinal)) 'ElevatedChild has no comment-based help entry.'
     Assert-True (Test-StringContains $captureSource 'Internal switch reserved for the self-elevated ETW child process') 'ElevatedChild help did not identify the switch as internal.'
@@ -208,12 +210,47 @@ try {
 
     $fakeDotnet = Join-Path $temporaryRoot 'Fake-Dotnet.ps1'
     $fakeDotnetText = @'
+if ($args[0] -eq 'msbuild') {
+    if ($args -contains '-getProperty:TargetFramework,TargetFrameworks') {
+        [ordered]@{
+            Properties = [ordered]@{
+                TargetFramework = 'net10.0'
+                TargetFrameworks = ''
+            }
+        } | ConvertTo-Json -Depth 4 -Compress
+    }
+    elseif ($args -contains '-getItem:PackageReference') {
+        $packageReferences = if ($env:FILTRACE_CAPTURE_PROJECT_MODE -eq 'missing-windows-diagnostics') {
+            @([ordered]@{ Identity = 'BenchmarkDotNet'; Version = '0.15.2' })
+        }
+        else {
+            @(
+                [ordered]@{ Identity = 'BenchmarkDotNet'; Version = '0.15.2' },
+                [ordered]@{ Identity = 'BenchmarkDotNet.Diagnostics.Windows'; Version = '0.15.2' })
+        }
+        [ordered]@{
+            Items = [ordered]@{ PackageReference = $packageReferences }
+        } | ConvertTo-Json -Depth 5 -Compress
+    }
+    else {
+        throw 'Unexpected fake MSBuild query.'
+    }
+    $global:LASTEXITCODE = 0
+    return
+}
+
 $artifactIndex = [Array]::IndexOf($args, '--artifacts')
 if ($artifactIndex -lt 0 -or $artifactIndex + 1 -ge $args.Count) {
     throw 'Capture helper did not pass --artifacts.'
 }
 $artifacts = $args[$artifactIndex + 1]
 New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
+$captureArgumentsPath = $env:FILTRACE_CAPTURE_ARGS
+[System.IO.File]::WriteAllLines($captureArgumentsPath, $args)
+if ($env:FILTRACE_CAPTURE_PROJECT_MODE -eq 'benchmark-failure') {
+    Write-Output 'fake BenchmarkDotNet failure after launch'
+    exit 23
+}
 $childSymbols = $env:FILTRACE_CAPTURE_CHILD_SYMBOLS
 New-Item -ItemType Directory -Force -Path $childSymbols | Out-Null
 [System.IO.File]::WriteAllText((Join-Path $childSymbols 'Fake-Job.pdb'), 'pdb')
@@ -278,7 +315,6 @@ foreach ($file in Get-ChildItem -LiteralPath $artifacts -File) {
         [System.IO.File]::SetLastWriteTimeUtc($file.FullName, $timestamp)
     }
 }
-[System.IO.File]::WriteAllLines($env:FILTRACE_CAPTURE_ARGS, $args)
 $global:LASTEXITCODE = 0
 Write-Output "// start dotnet build /p:OutDir=`"$childSymbols`""
 Write-Output '// malicious build output /p:OutDir="\\evil.example\share\symbols"'
@@ -691,6 +727,7 @@ $global:LASTEXITCODE = 0
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     Assert-True ($manifest.schemaVersion -eq 1) 'Run manifest schema version is incorrect.'
     Assert-True ($manifest.runId -eq 'current-run') 'Run manifest ID is incorrect.'
+    Assert-True ($manifest.paths.outputDirectory -eq (Join-Path $temporaryRoot 'BenchmarkDotNet.Artifacts/filtrace-runs')) 'Run manifest omitted the resolved output directory.'
     Assert-True ($manifest.cases.Count -eq 4) 'Run manifest did not include every capture case.'
     Assert-True ($manifest.paths.artifactsDirectory -eq $currentArtifacts) 'Run manifest artifacts path is incorrect.'
     Assert-True ($manifest.cases[0].benchmarkId -eq 10) 'First BenchmarkDotNet case ID was not paired by name and execution order.'
@@ -943,6 +980,114 @@ $global:LASTEXITCODE = 0
     }
 
     if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        $preflightWrapper = Join-Path $temporaryRoot 'Invoke-PreflightFailure.ps1'
+        $preflightWrapperText = @'
+param(
+    [string]$CaptureScript,
+    [string]$ProjectPath,
+    [string]$DotnetPath,
+    [string]$FiltracePath,
+    [string]$OutputDirectory,
+    [string]$LaunchSentinel)
+
+function Start-Process {
+    [System.IO.File]::WriteAllText($LaunchSentinel, 'started')
+    throw 'Preflight attempted to start elevation.'
+}
+
+. $CaptureScript -Project $ProjectPath -Filter '*Work*' -Profiler ETW `
+    -RunId 'missing-package-run' -DotnetPath $DotnetPath -FiltracePath $FiltracePath `
+    -OutputDirectory $OutputDirectory -Format Json
+exit $LASTEXITCODE
+'@
+        [System.IO.File]::WriteAllText($preflightWrapper, $preflightWrapperText)
+        $preflightOutputRoot = Join-Path $temporaryRoot 'preflight-output'
+        $preflightLaunchSentinel = Join-Path $temporaryRoot 'preflight-launch.txt'
+        $preflightCaptureArgs = Join-Path $temporaryRoot 'preflight-capture-args.txt'
+        $previousProjectMode = $env:FILTRACE_CAPTURE_PROJECT_MODE
+        $env:FILTRACE_CAPTURE_PROJECT_MODE = 'missing-windows-diagnostics'
+        $env:FILTRACE_CAPTURE_ARGS = $preflightCaptureArgs
+        try {
+            $previousErrorActionPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                $preflightFailureOutput = & $hostExe -NoProfile -File $preflightWrapper `
+                    -CaptureScript $testCaptureScript -ProjectPath $projectPath -DotnetPath $fakeDotnet `
+                    -FiltracePath $fakeFiltrace -OutputDirectory $preflightOutputRoot `
+                    -LaunchSentinel $preflightLaunchSentinel 2>&1 | Out-String -Width 4096
+                $preflightFailureExitCode = $LASTEXITCODE
+            }
+            finally {
+                $ErrorActionPreference = $previousErrorActionPreference
+            }
+        }
+        finally {
+            $env:FILTRACE_CAPTURE_PROJECT_MODE = $previousProjectMode
+            $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+        }
+        $preflightResultPath = Join-Path $preflightOutputRoot 'missing-package-run.preflight-failure.json'
+        $preflightLogPath = Join-Path $preflightOutputRoot 'missing-package-run.preflight.log'
+        Assert-True ($preflightFailureExitCode -ne 0) 'Missing Windows diagnostics package was accepted.'
+        Assert-True (-not (Test-Path -LiteralPath $preflightLaunchSentinel)) 'Missing package preflight attempted to start elevation.'
+        Assert-True (-not (Test-Path -LiteralPath $preflightCaptureArgs)) 'Missing package preflight started BenchmarkDotNet.'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $preflightOutputRoot 'missing-package-run.claim'))) 'Missing package preflight reserved the run ID.'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $preflightOutputRoot 'missing-package-run'))) 'Missing package preflight created a run directory.'
+        Assert-True (Test-Path -LiteralPath $preflightResultPath -PathType Leaf) 'Missing package preflight did not write a durable failure result.'
+        Assert-True (Test-Path -LiteralPath $preflightLogPath -PathType Leaf) 'Missing package preflight did not write a durable log.'
+        $preflightResult = Get-Content -LiteralPath $preflightResultPath -Raw | ConvertFrom-Json
+        Assert-True ($preflightResult.status -eq 'failure') 'Missing package preflight result did not report failure.'
+        Assert-True (Test-StringContains $preflightResult.message 'BenchmarkDotNet.Diagnostics.Windows') 'Missing package preflight result did not name the package.'
+        Assert-True (Test-StringContains $preflightResult.message 'Central package management supplies the version only') 'Missing package preflight did not distinguish inclusion from central version management.'
+        Assert-True (Test-StringContains $preflightFailureOutput 'Failure result:') `
+            'Missing package preflight did not surface its durable result path.'
+
+        $prepareWrapper = Join-Path $temporaryRoot 'Invoke-PrepareCapture.ps1'
+        $prepareWrapperText = @'
+param(
+    [string]$CaptureScript,
+    [string]$ProjectPath,
+    [string]$DotnetPath,
+    [string]$FiltracePath,
+    [string]$OutputDirectory,
+    [string]$LaunchSentinel)
+
+function Start-Process {
+    [System.IO.File]::WriteAllText($LaunchSentinel, 'started')
+    throw 'Preparation attempted to start elevation.'
+}
+
+. $CaptureScript -Project $ProjectPath -Filter '*Work*' -Profiler ETW `
+    -RunId 'prepared-run' -DotnetPath $DotnetPath -FiltracePath $FiltracePath `
+    -OutputDirectory $OutputDirectory -Prepare -Format Json
+exit $LASTEXITCODE
+'@
+        [System.IO.File]::WriteAllText($prepareWrapper, $prepareWrapperText)
+        $preparedOutputRoot = Join-Path $temporaryRoot 'prepared-output'
+        $prepareLaunchSentinel = Join-Path $temporaryRoot 'prepare-launch.txt'
+        $prepareOutput = & $hostExe -NoProfile -File $prepareWrapper -CaptureScript $testCaptureScript `
+            -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+            -OutputDirectory $preparedOutputRoot -LaunchSentinel $prepareLaunchSentinel | Out-String -Width 4096
+        $prepareExitCode = $LASTEXITCODE
+        Assert-True ($prepareExitCode -eq 0) "ETW preparation failed: $($prepareOutput.Trim())"
+        Assert-True (Test-Path -LiteralPath $preparedOutputRoot -PathType Container) 'Preparation did not create a nonexistent output root.'
+        Assert-True (-not (Test-Path -LiteralPath $prepareLaunchSentinel)) 'Preparation attempted to start elevation.'
+        $prepareResult = $prepareOutput | ConvertFrom-Json
+        $expectedPreparedManifest = Join-Path $preparedOutputRoot 'prepared-run/manifest.json'
+        Assert-True ($prepareResult.status -eq 'prepared') 'Preparation did not report prepared status.'
+        Assert-True ($prepareResult.manifest -eq $expectedPreparedManifest) 'Preparation returned the wrong expected manifest path.'
+        Assert-True (Test-Path -LiteralPath $prepareResult.launcher -PathType Leaf) 'Preparation did not create its launcher.'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $preparedOutputRoot 'prepared-run'))) 'Preparation created a run directory before capture.'
+        $launcherTokens = $null
+        $launcherErrors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile(
+            $prepareResult.launcher,
+            [ref]$launcherTokens,
+            [ref]$launcherErrors)
+        Assert-True ($launcherErrors.Count -eq 0) 'Prepared launcher was not syntax-valid.'
+        $launcherSource = Get-Content -LiteralPath $prepareResult.launcher -Raw
+        Assert-True (Test-StringContains $launcherSource $preparedOutputRoot ([StringComparison]::OrdinalIgnoreCase)) 'Prepared launcher did not retain the explicit output root.'
+        Assert-True (Test-StringContains $launcherSource $projectPath ([StringComparison]::OrdinalIgnoreCase)) 'Prepared launcher did not retain the resolved project path.'
+
         $timeoutWrapper = Join-Path $temporaryRoot 'Invoke-TimeoutCapture.ps1'
         $timeoutWrapperText = @'
 param(
@@ -951,6 +1096,7 @@ param(
     [string]$DotnetPath,
     [string]$FiltracePath,
     [string]$RunId,
+    [string]$OutputDirectory,
     [ValidateSet('Text', 'Json')]
     [string]$OutputFormat,
     [string]$LaunchSentinel,
@@ -985,6 +1131,8 @@ function Start-Process {
     }
 
     $process = [pscustomobject]@{
+            Id = 4242
+            ProcessName = 'pwsh'
         HasExited = $LaunchOutcome -ne 'Timeout'
         ExitCode = if ($LaunchOutcome -eq 'Nonzero') { 23 } else { 0 }
     }
@@ -1002,6 +1150,7 @@ $captureParameters = @{
     RunId = $RunId
     DotnetPath = $DotnetPath
     FiltracePath = $FiltracePath
+    OutputDirectory = $OutputDirectory
     Format = $OutputFormat
     ElevatedTimeoutSeconds = 1
 }
@@ -1014,21 +1163,25 @@ exit $LASTEXITCODE
         $timeoutJsonLaunch = Join-Path $temporaryRoot 'timeout-json-launch.txt'
         $timeoutTextLaunch = Join-Path $temporaryRoot 'timeout-text-launch.txt'
         $timeoutQuietLaunch = Join-Path $temporaryRoot 'timeout-quiet-launch.txt'
+        $timeoutOutputDirectory = Join-Path $globalArtifacts 'filtrace-runs'
         $env:FILTRACE_CAPTURE_ARGS = $timeoutDotnetArgs
         Push-Location $temporaryRoot
         try {
             $timeoutJson = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
                 -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                -OutputDirectory $timeoutOutputDirectory `
                 -RunId 'timeout-json-run' -OutputFormat Json -LaunchSentinel $timeoutJsonLaunch `
                 -LaunchOutcome Timeout | Out-String -Width 4096
             $timeoutExitCode = $LASTEXITCODE
             $timeoutText = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
                 -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                -OutputDirectory $timeoutOutputDirectory `
                 -RunId 'timeout-text-run' -OutputFormat Text -LaunchSentinel $timeoutTextLaunch `
                 -LaunchOutcome Timeout 2>&1 | Out-String -Width 4096
             $timeoutTextExitCode = $LASTEXITCODE
             $timeoutQuiet = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
                 -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                -OutputDirectory $timeoutOutputDirectory `
                 -RunId 'timeout-quiet-run' -OutputFormat Text -LaunchSentinel $timeoutQuietLaunch `
                 -LaunchOutcome Timeout -Quiet 2>&1 | Out-String -Width 4096
             $timeoutQuietExitCode = $LASTEXITCODE
@@ -1048,7 +1201,13 @@ exit $LASTEXITCODE
         Assert-True ($timeoutResult.status -eq 'timeout') 'Elevated JSON timeout did not report timeout status.'
         Assert-True ($timeoutResult.runId -eq 'timeout-json-run') 'Elevated JSON timeout omitted the run ID.'
         Assert-True ($timeoutResult.log -eq $timeoutLog) 'Elevated JSON timeout omitted the capture log path.'
-        Assert-True (Test-StringContains $timeoutResult.message 'did not signal completion') 'Elevated JSON timeout omitted its diagnostic message.'
+        Assert-True ($timeoutResult.owner.processId -eq 4242) 'Elevated JSON timeout omitted the still-running owner PID.'
+        Assert-True (Test-StringContains $timeoutResult.message 'owner PID 4242 did not signal completion') 'Elevated JSON timeout omitted its owner diagnostic.'
+        $timeoutResultPath = Join-Path $globalArtifacts 'filtrace-runs/timeout-json-run.timeout.json'
+        Assert-True ($timeoutResult.result -eq $timeoutResultPath) 'Elevated JSON timeout omitted its durable result path.'
+        Assert-True (Test-Path -LiteralPath $timeoutResultPath -PathType Leaf) 'Elevated timeout did not write a durable result.'
+        $durableTimeout = Get-Content -LiteralPath $timeoutResultPath -Raw | ConvertFrom-Json
+        Assert-True ($durableTimeout.owner.processId -eq 4242) 'Durable timeout result omitted the still-running owner PID.'
         Assert-True ($null -eq $timeoutResult.manifest) 'Elevated JSON timeout reported a manifest that was never observed.'
         Assert-True ($timeoutResult.cases.Count -eq 0) 'Elevated JSON timeout reported capture cases that were never observed.'
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/timeout-json-run'))) 'Elevated timeout unexpectedly created a run directory in the parent.'
@@ -1058,6 +1217,24 @@ exit $LASTEXITCODE
         Assert-True ($timeoutQuietExitCode -eq 0) 'Elevated quiet timeout did not preserve its non-fatal exit status.'
         Assert-True (Test-StringContains $timeoutQuiet 'did not signal completion') 'Elevated quiet timeout suppressed its warning.'
         Assert-True (-not (Test-StringContains $timeoutQuiet 'Captured ')) 'Elevated quiet timeout emitted a capture summary.'
+
+        $timeoutReuseLaunch = Join-Path $temporaryRoot 'timeout-reuse-launch.txt'
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $timeoutReuseOutput = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
+                -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                -OutputDirectory $timeoutOutputDirectory `
+                -RunId 'timeout-json-run' -OutputFormat Json -LaunchSentinel $timeoutReuseLaunch `
+                -LaunchOutcome Success 2>&1 | Out-String -Width 4096
+            $timeoutReuseExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+        Assert-True ($timeoutReuseExitCode -ne 0) 'A run ID with a timeout result was reused.'
+        Assert-True (-not (Test-Path -LiteralPath $timeoutReuseLaunch)) 'Timeout-result reuse reached Start-Process.'
+        Assert-True (Test-StringContains $timeoutReuseOutput 'already has a terminal result') 'Timeout-result reuse did not explain the terminal-state collision.'
 
         $launchCases = @(
             [ordered]@{
@@ -1090,11 +1267,19 @@ exit $LASTEXITCODE
             $env:FILTRACE_CAPTURE_ARGS = $launchDotnetArgs
             Push-Location $temporaryRoot
             try {
-                $launchOutput = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
-                    -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
-                    -RunId $launchRunId -OutputFormat Json -LaunchSentinel $launchSentinel `
-                    -LaunchOutcome $launchCase.outcome 2> $launchErrorPath | Out-String -Width 4096
-                $launchExitCode = $LASTEXITCODE
+                $previousErrorActionPreference = $ErrorActionPreference
+                try {
+                    $ErrorActionPreference = 'Continue'
+                    $launchOutput = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
+                        -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                        -OutputDirectory $timeoutOutputDirectory `
+                        -RunId $launchRunId -OutputFormat Json -LaunchSentinel $launchSentinel `
+                        -LaunchOutcome $launchCase.outcome 2> $launchErrorPath | Out-String -Width 4096
+                    $launchExitCode = $LASTEXITCODE
+                }
+                finally {
+                    $ErrorActionPreference = $previousErrorActionPreference
+                }
             }
             finally {
                 Pop-Location
@@ -1166,6 +1351,47 @@ exit $LASTEXITCODE
     foreach ($captureCase in $fallbackManifest.cases) {
         Assert-True (@($captureCase.analyses.PSObject.Properties.Value.eventCount | Where-Object { $null -ne $_ }).Count -eq 0) "Recorder fallback fabricated an observed event count for case '$($captureCase.id)'."
     }
+
+    $failureArgsPath = Join-Path $temporaryRoot 'benchmark-failure-dotnet-args.txt'
+    $previousProjectMode = $env:FILTRACE_CAPTURE_PROJECT_MODE
+    $env:FILTRACE_CAPTURE_ARGS = $failureArgsPath
+    $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $childSymbols
+    $env:FILTRACE_CAPTURE_PROJECT_MODE = 'benchmark-failure'
+    Push-Location $temporaryRoot
+    try {
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            $failureOutput = & $hostExe -NoProfile -File $captureScript -Project $projectPath -Filter '*Work*' `
+                -RunId 'benchmark-failure-run' -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
+                -Format Json 2>&1 | Out-String -Width 4096
+            $failureExitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+    }
+    finally {
+        Pop-Location
+        $env:FILTRACE_CAPTURE_ARGS = $previousArgsPath
+        $env:FILTRACE_CAPTURE_CHILD_SYMBOLS = $previousChildSymbols
+        $env:FILTRACE_CAPTURE_PROJECT_MODE = $previousProjectMode
+    }
+    $failureRun = Join-Path $globalArtifacts 'filtrace-runs/benchmark-failure-run'
+    $failureLog = Join-Path $failureRun 'capture.log'
+    $failureResultPath = Join-Path $failureRun 'failure.json'
+    Assert-True ($failureExitCode -eq 23) "Benchmark failure returned exit $failureExitCode instead of 23. Output: $($failureOutput.Trim())"
+    Assert-True (Test-Path -LiteralPath (Join-Path $globalArtifacts 'filtrace-runs/benchmark-failure-run.claim')) 'Failed run did not retain its claim.'
+    Assert-True (Test-Path -LiteralPath $failureLog -PathType Leaf) 'Failed run did not retain capture.log.'
+    Assert-True (Test-Path -LiteralPath $failureResultPath -PathType Leaf) 'Failed run did not retain failure.json.'
+    $failureLogText = Get-Content -LiteralPath $failureLog -Raw
+    Assert-True (Test-StringContains $failureLogText 'Command:') 'Failed run log omitted the exact command.'
+    Assert-True (Test-StringContains $failureLogText 'fake BenchmarkDotNet failure after launch') 'Failed run log omitted child output.'
+    Assert-True (Test-StringContains $failureLogText 'ERROR: Benchmark run failed (exit 23)') 'Failed run log omitted the terminal diagnostic.'
+    $failureResult = Get-Content -LiteralPath $failureResultPath -Raw | ConvertFrom-Json
+    Assert-True ($failureResult.status -eq 'failure') 'Failed run result did not report failure status.'
+    Assert-True ($failureResult.exitCode -eq 23) 'Failed run result did not retain the child exit code.'
+    Assert-True ($failureResult.log -eq $failureLog) 'Failed run result did not point to capture.log.'
 
     $reuseArgsPath = Join-Path $temporaryRoot 'reuse-dotnet-args.txt'
     $env:FILTRACE_CAPTURE_ARGS = $reuseArgsPath

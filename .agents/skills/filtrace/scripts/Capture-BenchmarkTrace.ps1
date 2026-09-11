@@ -27,11 +27,12 @@
     emits warnings only.
 
     Every invocation writes BenchmarkDotNet output and capture.log under a unique
-    BenchmarkDotNet.Artifacts/filtrace-runs/<RunId> directory, then emits manifest.json
-    with every parameterized capture case. A same-project/same-TFM handle lock rejects
-    overlap before any build starts. Logged child OutDir paths are verified with
-    filtrace info; source commands are printed only when an exact PDB maps sampled
-    frames. No globally newest artifact is selected.
+    <OutputDirectory>/<RunId> directory, then emits manifest.json with every
+    parameterized capture case. OutputDirectory defaults to
+    BenchmarkDotNet.Artifacts/filtrace-runs under the current directory. A
+    same-project/same-TFM handle lock rejects overlap before any build starts. Logged
+    child OutDir paths are verified with filtrace info; source commands are printed
+    only when an exact PDB maps sampled frames. No globally newest artifact is selected.
 
     filtrace: https://github.com/JeremyKuhne/filtrace - install once with
     `dotnet tool install -g KlutzyNinja.Filtrace`, or drive the MCP trace_* tools.
@@ -70,10 +71,22 @@
     the ETW self-elevation path uses it - it is the backstop that keeps a never-signaled
     elevated child from hanging the parent indefinitely.
 
+.PARAMETER OutputDirectory
+    Parent directory for run-specific artifacts, logs, launchers, traces, and
+    manifests. Relative paths are resolved against the current directory. The
+    directory is created during preflight. Defaults to
+    BenchmarkDotNet.Artifacts/filtrace-runs under the current directory.
+
+.PARAMETER Prepare
+    Perform non-elevated ETW preflight and write a syntax-validated launcher beneath
+    OutputDirectory without starting elevation. The result includes the launcher path
+    and expected manifest path. Run the launcher as one explicit user action in a host
+    that permits UAC.
+
 .PARAMETER RunId
     Optional stable identifier for this capture run. Defaults to a UTC timestamp plus
     a random suffix. The run's BenchmarkDotNet artifacts and capture log are written
-    under BenchmarkDotNet.Artifacts/filtrace-runs/<RunId>.
+    under <OutputDirectory>/<RunId>.
 
 .PARAMETER DotnetPath
     Path or command name for the dotnet host. Defaults to dotnet from PATH.
@@ -102,10 +115,13 @@
 
 .EXAMPLE
     ./Capture-BenchmarkTrace.ps1 -Project src/App.Perf -Filter '*GlobMatchBench*' -Profiler ETW
+
+.EXAMPLE
+    ./Capture-BenchmarkTrace.ps1 -Project src/App.Perf -Filter '*GlobMatchBench*' -Profiler ETW -OutputDirectory artifacts/filtrace -Prepare
 #>
 param(
     [Parameter(Mandatory)][string]$Project,
-    [Parameter(Mandatory)][string]$Filter,
+    [Parameter(Mandatory)][ValidateScript({ -not [string]::IsNullOrWhiteSpace($_) })][string]$Filter,
     [ValidateSet('EP', 'ETW')][string]$Profiler = 'EP',
     [string]$Tfm = 'net10.0',
     [string]$Process,
@@ -114,6 +130,8 @@ param(
     [double]$OperationCount,
     [ValidateLength(1, 64)][string]$OperationUnit,
     [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1200,
+    [string]$OutputDirectory,
+    [switch]$Prepare,
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$')][string]$RunId,
     [string]$DotnetPath = 'dotnet',
     [string]$FiltracePath = 'filtrace',
@@ -154,6 +172,28 @@ function Write-RunManifest([string]$Path, [System.Collections.IDictionary]$Manif
     }
 
     [System.IO.File]::WriteAllText($Path, $json, $encoding)
+}
+
+function Write-FailureResult(
+    [string]$Path,
+    [string]$LogPath,
+    [string]$CaptureRunId,
+    [string]$Message,
+    [int]$ExitCode) {
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::AppendAllText(
+        $LogPath,
+        "ERROR: $Message$([Environment]::NewLine)",
+        $encoding)
+    Write-RunManifest $Path ([ordered]@{
+        schemaVersion = 1
+        status = 'failure'
+        runId = $CaptureRunId
+        completedUtc = [DateTimeOffset]::UtcNow.ToString('O')
+        exitCode = $ExitCode
+        message = $Message
+        log = $LogPath
+    })
 }
 
 function ConvertTo-RuntimeSummary([string]$LogLine) {
@@ -668,6 +708,63 @@ function Assert-FiltraceCompatibility([string]$FiltraceCommand) {
     }
 }
 
+function Invoke-MsbuildQuery(
+    [string]$ProjectPath,
+    [string]$DotnetCommand,
+    [string[]]$Arguments) {
+    $global:LASTEXITCODE = 0
+    $output = & $DotnetCommand msbuild $ProjectPath -nologo @Arguments 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        $detail = $output.Trim()
+        if ($detail.Length -gt 2048) { $detail = $detail.Substring(0, 2048) }
+        throw "Project evaluation failed for '$ProjectPath' (exit $LASTEXITCODE): $detail"
+    }
+
+    try {
+        return $output | ConvertFrom-Json
+    }
+    catch {
+        throw "Project evaluation for '$ProjectPath' did not return valid JSON: $($_.Exception.Message)"
+    }
+}
+
+function Assert-ProjectPreflight(
+    [string]$ProjectPath,
+    [string]$TargetFramework,
+    [string]$CaptureProfiler,
+    [string]$DotnetCommand) {
+    $properties = Invoke-MsbuildQuery $ProjectPath $DotnetCommand @(
+        '-getProperty:TargetFramework,TargetFrameworks')
+    $declaredFrameworks = if (-not [string]::IsNullOrWhiteSpace([string]$properties.Properties.TargetFrameworks)) {
+        @([string]$properties.Properties.TargetFrameworks -split ';' | Where-Object { $_ })
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace([string]$properties.Properties.TargetFramework)) {
+        @([string]$properties.Properties.TargetFramework)
+    }
+    else {
+        @()
+    }
+    if ($declaredFrameworks.Count -eq 0) {
+        throw "Project '$ProjectPath' does not declare TargetFramework or TargetFrameworks."
+    }
+    if ($TargetFramework -notin $declaredFrameworks) {
+        throw "Project '$ProjectPath' does not target '$TargetFramework'. Declared target frameworks: $($declaredFrameworks -join ', ')."
+    }
+
+    if ($CaptureProfiler -ne 'ETW') { return }
+
+    $items = Invoke-MsbuildQuery $ProjectPath $DotnetCommand @(
+        "-property:TargetFramework=$TargetFramework",
+        '-getItem:PackageReference')
+    $windowsDiagnosticsPackage = @(
+        $items.Items.PackageReference |
+            Where-Object { $_.Identity -eq 'BenchmarkDotNet.Diagnostics.Windows' }
+    )
+    if ($windowsDiagnosticsPackage.Count -eq 0) {
+        throw "Project '$ProjectPath' does not include the evaluated PackageReference 'BenchmarkDotNet.Diagnostics.Windows' for target framework '$TargetFramework'. Add <PackageReference Include=`"BenchmarkDotNet.Diagnostics.Windows`" /> to the project or an imported props file. Central package management supplies the version only; it does not include the package."
+    }
+}
+
 function Find-ExactSymbolDirectory([string]$TracePath, [string[]]$Candidates, [string]$FiltraceCommand) {
     $bestDirectory = $null
     $bestMappedFrames = 0
@@ -687,6 +784,26 @@ function Find-ExactSymbolDirectory([string]$TracePath, [string[]]$Candidates, [s
 
 function ConvertTo-PowerShellArgument([string]$Value) {
     return "'$($Value.Replace("'", "''"))'"
+}
+
+function Write-PreparationResult(
+    [string]$LauncherPath,
+    [string]$ManifestPath,
+    [string]$CaptureRunId,
+    [string]$OutputFormat) {
+    if ($OutputFormat -eq 'Json') {
+        [ordered]@{
+            schemaVersion = 1
+            status = 'prepared'
+            runId = $CaptureRunId
+            launcher = $LauncherPath
+            manifest = $ManifestPath
+        } | ConvertTo-Json -Compress
+        return
+    }
+
+    Write-Output "Launcher: $LauncherPath"
+    Write-Output "Expected manifest: $ManifestPath"
 }
 
 function Test-AnalysisEnabled([System.Collections.IDictionary]$Analyses, [string]$Name) {
@@ -795,7 +912,9 @@ function Write-CaptureResult(
     [ValidateSet('completed', 'timeout')]
     [string]$Status = 'completed',
     [string]$LogPath = $null,
-    [string]$Message = $null) {
+    [string]$Message = $null,
+    [string]$ResultPath = $null,
+    $Owner = $null) {
     if ($OutputFormat -eq 'Json') {
         if ($Status -eq 'timeout') {
             $result = [ordered]@{
@@ -804,6 +923,8 @@ function Write-CaptureResult(
                 runId = $CaptureRunId
                 manifest = $null
                 log = $LogPath
+                result = $ResultPath
+                owner = $Owner
                 message = $Message
                 warnings = @()
                 cases = @()
@@ -925,9 +1046,23 @@ $repoRoot = (Get-Location).Path
 if (-not $RunId) {
     $RunId = "$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
 }
-$runDirectory = Join-Path $repoRoot "BenchmarkDotNet.Artifacts/filtrace-runs/$RunId"
+$runsDirectory = try {
+    if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+        [System.IO.Path]::GetFullPath((Join-Path $repoRoot 'BenchmarkDotNet.Artifacts/filtrace-runs'))
+    }
+    else {
+        [System.IO.Path]::GetFullPath($OutputDirectory)
+    }
+}
+catch {
+    Write-Error "OutputDirectory '$OutputDirectory' is invalid: $($_.Exception.Message)" -ErrorAction Continue
+    exit 1
+}
+$runDirectory = Join-Path $runsDirectory $RunId
 $artifacts = Join-Path $runDirectory 'artifacts'
 $log = Join-Path $runDirectory 'capture.log'
+$manifestPath = Join-Path $runDirectory 'manifest.json'
+$runClaimPath = Join-Path $runsDirectory "$RunId.claim"
 
 function Test-Elevated {
     $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
@@ -946,23 +1081,9 @@ if ($ElevatedChild -and $Profiler -ne 'ETW') {
     exit 1
 }
 
-if ($Profiler -eq 'ETW') {
-    $elevationArguments = [ordered]@{
-        Script = $PSCommandPath
-        Project = $projFile.FullName
-        Filter = $Filter
-        Tfm = $Tfm
-        Process = $Process
-        DotnetPath = $DotnetPath
-        FiltracePath = $FiltracePath
-    }
-    if ($hasOperationUnit) { $elevationArguments.OperationUnit = $OperationUnit }
-    foreach ($argument in $elevationArguments.GetEnumerator()) {
-        if (-not (Test-SafeElevationArgument ([string]$argument.Value))) {
-            Write-Error "ETW elevation argument '$($argument.Key)' cannot contain quotes, newlines, or end in a backslash." -ErrorAction Continue
-            exit 1
-        }
-    }
+if ($Prepare -and ($Profiler -ne 'ETW' -or $ElevatedChild)) {
+    Write-Error '-Prepare is valid only for a non-child ETW capture.' -ErrorAction Continue
+    exit 1
 }
 
 # Recording an .etl is Windows-only, and Test-Elevated below calls a Windows-only API, so
@@ -979,9 +1100,143 @@ if ($ElevatedChild -and -not (Test-Elevated)) {
     exit 1
 }
 
-$filtraceAvailable = $null -ne (Get-Command $FiltracePath -ErrorAction SilentlyContinue)
+try {
+    New-Item -ItemType Directory -Force -Path $runsDirectory | Out-Null
+}
+catch {
+    Write-Error "OutputDirectory '$runsDirectory' could not be created: $($_.Exception.Message)" -ErrorAction Continue
+    exit 1
+}
+if (Test-Path -LiteralPath $runDirectory) {
+    Write-Error "Capture run ID '$RunId' already exists at '$runDirectory'. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
+    exit 1
+}
+if (Test-Path -LiteralPath $runClaimPath) {
+    Write-Error "Capture run ID '$RunId' is already reserved. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
+    exit 1
+}
+$preflightFailurePath = Join-Path $runsDirectory "$RunId.preflight-failure.json"
+$preflightLog = Join-Path $runsDirectory "$RunId.preflight.log"
+$timeoutPath = Join-Path $runsDirectory "$RunId.timeout.json"
+if ((Test-Path -LiteralPath $preflightFailurePath) -or
+    (Test-Path -LiteralPath $preflightLog) -or
+    (Test-Path -LiteralPath $timeoutPath)) {
+    Write-Error "Capture run ID '$RunId' already has a terminal result. Choose a new RunId; terminal results are never reused." -ErrorAction Continue
+    exit 1
+}
+
+$dotnetCommand = Get-Command $DotnetPath -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($null -eq $dotnetCommand) {
+    $preflightMessage = "dotnet host '$DotnetPath' could not be resolved."
+    Write-FailureResult $preflightFailurePath $preflightLog $RunId $preflightMessage 1
+    Write-Error "$preflightMessage Failure result: $preflightFailurePath" -ErrorAction Continue
+    exit 1
+}
+$DotnetPath = if ($dotnetCommand.Path) { $dotnetCommand.Path } else { $dotnetCommand.Source }
+try {
+    Assert-ProjectPreflight $projFile.FullName $Tfm $Profiler $DotnetPath
+}
+catch {
+    $preflightMessage = $_.Exception.Message
+    Write-FailureResult $preflightFailurePath $preflightLog $RunId $preflightMessage 1
+    Write-Error "$preflightMessage Failure result: $preflightFailurePath" -ErrorAction Continue
+    exit 1
+}
+
+$filtraceCommand = Get-Command $FiltracePath -ErrorAction SilentlyContinue | Select-Object -First 1
+$filtraceAvailable = $null -ne $filtraceCommand
 if ($filtraceAvailable) {
-    Assert-FiltraceCompatibility $FiltracePath
+    $FiltracePath = if ($filtraceCommand.Path) { $filtraceCommand.Path } else { $filtraceCommand.Source }
+    try {
+        Assert-FiltraceCompatibility $FiltracePath
+    }
+    catch {
+        $preflightMessage = $_.Exception.Message
+        Write-FailureResult $preflightFailurePath $preflightLog $RunId $preflightMessage 1
+        Write-Error "$preflightMessage Failure result: $preflightFailurePath" -ErrorAction Continue
+        exit 1
+    }
+}
+
+if ($Profiler -eq 'ETW') {
+    $elevationArguments = [ordered]@{
+        Script = $PSCommandPath
+        Project = $projFile.FullName
+        Filter = $Filter
+        Tfm = $Tfm
+        Process = $Process
+        OutputDirectory = $runsDirectory
+        DotnetPath = $DotnetPath
+        FiltracePath = $FiltracePath
+    }
+    if ($hasOperationUnit) { $elevationArguments.OperationUnit = $OperationUnit }
+    foreach ($argument in $elevationArguments.GetEnumerator()) {
+        if (-not (Test-SafeElevationArgument ([string]$argument.Value))) {
+            $preflightMessage = "ETW elevation argument '$($argument.Key)' cannot contain quotes, newlines, or end in a backslash."
+            Write-FailureResult $preflightFailurePath $preflightLog $RunId $preflightMessage 1
+            Write-Error "$preflightMessage Failure result: $preflightFailurePath" -ErrorAction Continue
+            exit 1
+        }
+    }
+}
+
+if ($Prepare) {
+    $launcherDirectory = Join-Path $runsDirectory 'launchers'
+    $launcherPath = Join-Path $launcherDirectory "$RunId.ps1"
+    New-Item -ItemType Directory -Force -Path $launcherDirectory | Out-Null
+    $parameterLines = @(
+        "    Project = $(ConvertTo-PowerShellArgument $projFile.FullName)",
+        "    Filter = $(ConvertTo-PowerShellArgument $Filter)",
+        "    Profiler = 'ETW'",
+        "    Tfm = $(ConvertTo-PowerShellArgument $Tfm)",
+        "    Process = $(ConvertTo-PowerShellArgument $Process)",
+        "    Top = $Top",
+        "    ElevatedTimeoutSeconds = $ElevatedTimeoutSeconds",
+        "    OutputDirectory = $(ConvertTo-PowerShellArgument $runsDirectory)",
+        "    RunId = $(ConvertTo-PowerShellArgument $RunId)",
+        "    DotnetPath = $(ConvertTo-PowerShellArgument $DotnetPath)",
+        "    FiltracePath = $(ConvertTo-PowerShellArgument $FiltracePath)",
+        "    Format = $(ConvertTo-PowerShellArgument $Format)")
+    if ($hasOperationCount) {
+        $parameterLines += "    OperationCount = $($OperationCount.ToString('R', [Globalization.CultureInfo]::InvariantCulture))"
+        $parameterLines += "    OperationUnit = $(ConvertTo-PowerShellArgument $OperationUnit)"
+    }
+    if ($Quiet) { $parameterLines += '    Quiet = $true' }
+    $launcher = (@('$captureParameters = @{') + $parameterLines + @(
+        '}',
+        "& $(ConvertTo-PowerShellArgument $PSCommandPath) @captureParameters",
+        'exit $LASTEXITCODE')) -join [Environment]::NewLine
+    $tokens = $null
+    $parseErrors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseInput(
+        $launcher,
+        [ref]$tokens,
+        [ref]$parseErrors)
+    if ($parseErrors.Count -ne 0) {
+        Write-Error "Generated launcher failed syntax validation: $($parseErrors[0].Message)" -ErrorAction Continue
+        exit 1
+    }
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    try {
+        $launcherStream = [System.IO.File]::Open(
+            $launcherPath,
+            [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None)
+        try {
+            $launcherBytes = $encoding.GetBytes($launcher)
+            $launcherStream.Write($launcherBytes, 0, $launcherBytes.Length)
+        }
+        finally {
+            $launcherStream.Dispose()
+        }
+    }
+    catch [System.IO.IOException] {
+        Write-Error "Capture launcher '$launcherPath' already exists; choose a new RunId." -ErrorAction Continue
+        exit 1
+    }
+    Write-PreparationResult $launcherPath $manifestPath $RunId $Format
+    exit 0
 }
 
 # ETW kernel sessions require Administrator. When not elevated, relaunch this script
@@ -996,7 +1251,7 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     # survives Start-Process joining the array into a single command line.
     $argList = @('-NoProfile', '-File', "`"$PSCommandPath`"", '-Project', "`"$($projFile.FullName)`"",
         '-Filter', "`"$Filter`"", '-Profiler', 'ETW', '-Tfm', "`"$Tfm`"", '-Process', "`"$Process`"", '-Top', $Top,
-        '-RunId', $RunId, '-DotnetPath', "`"$DotnetPath`"", '-FiltracePath', "`"$FiltracePath`"", '-Format', $Format,
+        '-OutputDirectory', "`"$runsDirectory`"", '-RunId', $RunId, '-DotnetPath', "`"$DotnetPath`"", '-FiltracePath', "`"$FiltracePath`"", '-Format', $Format,
         '-ElevatedChild')
     if ($hasOperationCount) {
         $argList += @(
@@ -1027,18 +1282,40 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
     $exited = $false
     try { $exited = $proc.WaitForExit($waitMs) } catch { $exited = $false }
     if (-not $exited) {
-        $timeoutMessage = "Elevated capture did not signal completion within $ElevatedTimeoutSeconds s; not blocking further. See $log for progress."
+        $owner = [ordered]@{
+            processId = if ($null -ne $proc.PSObject.Properties['Id']) { $proc.Id } else { $null }
+            processName = if ($null -ne $proc.PSObject.Properties['ProcessName']) { $proc.ProcessName } else { $null }
+        }
+        $ownerDescription = if ($null -ne $owner.processId) {
+            "PID $($owner.processId)"
+        }
+        else {
+            'the elevated child process'
+        }
+        $timeoutMessage = "Elevated capture owner $ownerDescription did not signal completion within $ElevatedTimeoutSeconds s; not blocking further. See $log for progress."
+        Write-RunManifest $timeoutPath ([ordered]@{
+            schemaVersion = 1
+            status = 'timeout'
+            runId = $RunId
+            observedUtc = [DateTimeOffset]::UtcNow.ToString('O')
+            owner = $owner
+            log = $log
+            message = $timeoutMessage
+        })
         Write-CaptureResult -CaptureCases @() -ManifestPath $null -CaptureRunId $RunId `
             -OutputFormat $Format -QuietOutput ([bool]$Quiet) -Status timeout `
-            -LogPath $log -Message $timeoutMessage
+            -LogPath $log -Message $timeoutMessage -ResultPath $timeoutPath -Owner $owner
         exit 0
     }
     # ExitCode is only defined once the child has exited, and reading it on a higher-integrity
     # (elevated) process can throw Access Denied - treat either as 'not observed', non-fatal.
     $childExit = 0
     try { if ($proc.HasExited) { $childExit = $proc.ExitCode } } catch { $childExit = 0 }
-    if ($childExit -ne 0) { Write-Error "Elevated capture failed (exit $childExit). See $log." -ErrorAction Continue ; exit $childExit }
-    $manifestPath = Join-Path $runDirectory 'manifest.json'
+    if ($childExit -ne 0) {
+        $failurePath = Join-Path $runDirectory 'failure.json'
+        Write-Error "Elevated capture failed (exit $childExit). See $log. Failure result: $failurePath" -ErrorAction Continue
+        exit $childExit
+    }
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
         Write-Error "Elevated capture did not produce $manifestPath. See $log for details." -ErrorAction Continue
         exit 1
@@ -1072,14 +1349,11 @@ catch [System.IO.IOException] {
 }
 
 try {
-    $runsDirectory = Split-Path -Parent $runDirectory
-    New-Item -ItemType Directory -Force -Path $runsDirectory | Out-Null
     if (Test-Path -LiteralPath $runDirectory) {
         Write-Error "Capture run ID '$RunId' already exists at '$runDirectory'. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
         exit 1
     }
 
-    $runClaimPath = Join-Path $runsDirectory "$RunId.claim"
     try {
         $runClaim = [System.IO.File]::Open(
             $runClaimPath,
@@ -1096,18 +1370,18 @@ try {
     # A pre-existing directory from an older helper may not have a claim file. Recheck
     # after the atomic claim to close the check/create race before writing any output.
     if (Test-Path -LiteralPath $runDirectory) {
-        Write-Error "Capture run ID '$RunId' already exists at '$runDirectory'. Choose a new RunId; existing run artifacts are never reused." -ErrorAction Continue
+        $failureMessage = "Capture run ID '$RunId' became occupied at '$runDirectory' after it was reserved; existing run artifacts were not modified."
+        $claimFailureLog = Join-Path $runsDirectory "$RunId.failure.log"
+        $claimFailurePath = Join-Path $runsDirectory "$RunId.failure.json"
+        Write-FailureResult $claimFailurePath $claimFailureLog $RunId $failureMessage 1
+        Write-Error "$failureMessage Failure result: $claimFailurePath" -ErrorAction Continue
         exit 1
     }
 
     New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
-
-# Without BenchmarkDotNet.Diagnostics.Windows the `-p ETW` profiler silently resolves
-# to UnresolvedDiagnoser and no .etl is written - fail fast with guidance.
-if ($Profiler -eq 'ETW' -and -not (Select-String -Path $projFile.FullName -Pattern 'BenchmarkDotNet.Diagnostics.Windows' -Quiet)) {
-    Write-Error "$($projFile.Name) does not reference BenchmarkDotNet.Diagnostics.Windows; -p ETW will no-op. Add the package first." -ErrorAction Continue
-    exit 1
-}
+    $failurePath = Join-Path $runDirectory 'failure.json'
+    $captureExitCode = 1
+    try {
 
 # Preserve the BenchmarkDotNet build output for source-symbol resolution under both
 # profilers. Both branches are multi-element arrays, so they stay arrays (a
@@ -1116,20 +1390,40 @@ $profArg = @('-p', $Profiler, '--keepFiles')
 $benchmarkArguments = @('run', '-c', 'Release', '-f', $Tfm, '--project', $projFile.FullName, '--', '--filter', $Filter) +
     $profArg + @('--artifacts', $artifacts)
 $startedUtc = [DateTimeOffset]::UtcNow
+$commandLine = @(
+    ConvertTo-PowerShellArgument $DotnetPath
+    foreach ($argument in $benchmarkArguments) {
+        ConvertTo-PowerShellArgument ([string]$argument)
+    }
+) -join ' '
+$encoding = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText(
+    $log,
+    "Command: $commandLine$([Environment]::NewLine)",
+    $encoding)
 
 if ($showProgress) {
     Write-Host "Capturing $Profiler trace: $Filter ($Tfm)..." -ForegroundColor Cyan
 }
 # Keep full BenchmarkDotNet output in the run log; stdout remains a compact filtrace
 # handoff rather than a duplicate benchmark transcript.
-& $DotnetPath @benchmarkArguments 2>&1 |
-    Tee-Object -FilePath $log | Out-Null
-if ($LASTEXITCODE -ne 0) { Write-Error "Benchmark run failed (exit $LASTEXITCODE). See $log." -ErrorAction Continue ; exit $LASTEXITCODE }
+$logWriter = New-Object System.IO.StreamWriter($log, $true, $encoding)
+try {
+    & $DotnetPath @benchmarkArguments 2>&1 |
+        ForEach-Object { $logWriter.WriteLine($_.ToString()) }
+    $benchmarkExitCode = $LASTEXITCODE
+}
+finally {
+    $logWriter.Dispose()
+}
+if ($benchmarkExitCode -ne 0) {
+    $captureExitCode = $benchmarkExitCode
+    throw "Benchmark run failed (exit $captureExitCode). See $log."
+}
 
 $captureCases = @(Get-CaptureCases $artifacts $Profiler)
 if ($captureCases.Count -eq 0) {
-    Write-Error "No capture files found in $artifacts. Did the capture run?" -ErrorAction Continue
-    exit 1
+    throw "No capture files found in $artifacts. Did the capture run?"
 }
 Set-BenchmarkIdentities $captureCases $log $FiltracePath $filtraceAvailable
 if ($hasOperationCount) {
@@ -1176,7 +1470,6 @@ foreach ($captureCase in $captureCases) {
     )
 }
 
-$manifestPath = Join-Path $runDirectory 'manifest.json'
 $manifest = [ordered]@{
     schemaVersion = 1
     runId = $RunId
@@ -1194,6 +1487,7 @@ $manifest = [ordered]@{
     source = Get-SourceIdentity $projFile.DirectoryName
     runtimes = @(Get-RuntimeSummaries $log)
     paths = [ordered]@{
+        outputDirectory = $runsDirectory
         runDirectory = $runDirectory
         artifactsDirectory = $artifacts
         log = $log
@@ -1205,6 +1499,18 @@ Write-RunManifest $manifestPath $manifest
 if (-not $ElevatedChild) {
     Write-CaptureResult $captureCases $manifestPath $RunId $Format ([bool]$Quiet)
 }
+    }
+    catch {
+        $failureMessage = $_.Exception.Message
+        try {
+            Write-FailureResult $failurePath $log $RunId $failureMessage $captureExitCode
+        }
+        catch {
+            Write-Error "Capture failed and its failure result could not be written: $($_.Exception.Message)" -ErrorAction Continue
+        }
+        Write-Error "$failureMessage Failure result: $failurePath" -ErrorAction Continue
+        exit $captureExitCode
+    }
 }
 finally {
     $captureLock.Dispose()
