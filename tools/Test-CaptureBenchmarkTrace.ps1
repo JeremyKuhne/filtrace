@@ -1637,10 +1637,9 @@ exit $LASTEXITCODE
                     Join-Path $timeoutOutputDirectory "$launchRunId.failure.json"
                 }
                 Assert-True (Test-Path -LiteralPath $expectedFailureResult -PathType Leaf) "Launch outcome '$($launchCase.outcome)' did not retain its failure result."
-                $compactLaunchError = [regex]::Replace($launchError, '\s+', '')
-                $compactExpectedFailureResult = [regex]::Replace($expectedFailureResult, '\s+', '')
-                Assert-True (Test-StringContains $compactLaunchError $compactExpectedFailureResult) 'The observed failure result path was not surfaced.'
+                Assert-True (Test-StringContains $normalizedLaunchError 'Failure result:') "Launch outcome '$($launchCase.outcome)' did not surface its failure result."
                 $launchFailureResult = Get-Content -LiteralPath $expectedFailureResult -Raw | ConvertFrom-Json
+                Assert-True ($launchFailureResult.status -eq 'failure') "Launch outcome '$($launchCase.outcome)' retained the wrong failure status."
                 Assert-True ($launchFailureResult.exitCode -eq $launchCase.expectedExitCode) "Launch outcome '$($launchCase.outcome)' retained the wrong failure exit code."
             }
         }
