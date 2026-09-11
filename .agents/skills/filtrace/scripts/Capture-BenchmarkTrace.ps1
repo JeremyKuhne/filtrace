@@ -26,13 +26,15 @@
     unknown analyses are explained instead of receiving commands. Quiet Text mode
     emits warnings only.
 
-    Every invocation writes BenchmarkDotNet output and capture.log under a unique
+    A completed capture writes BenchmarkDotNet output and capture.log under a unique
     <OutputDirectory>/<RunId> directory, then emits manifest.json with every
-    parameterized capture case. OutputDirectory defaults to
-    BenchmarkDotNet.Artifacts/filtrace-runs under the current directory. A
-    same-project/same-TFM handle lock rejects overlap before any build starts. Logged
-    child OutDir paths are verified with filtrace info; source commands are printed
-    only when an exact PDB maps sampled frames. No globally newest artifact is selected.
+    parameterized capture case. Preparation instead reserves RunId and writes only a
+    launcher beneath OutputDirectory; the run directory and manifest do not exist until
+    capture. OutputDirectory defaults to BenchmarkDotNet.Artifacts/filtrace-runs under
+    the current directory. A same-project/same-TFM handle lock rejects overlap before
+    any build starts. Logged child OutDir paths are verified with filtrace info; source
+    commands are printed only when an exact PDB maps sampled frames. No globally newest
+    artifact is selected.
 
     filtrace: https://github.com/JeremyKuhne/filtrace - install once with
     `dotnet tool install -g KlutzyNinja.Filtrace`, or drive the MCP trace_* tools.
@@ -249,16 +251,73 @@ function New-RunReservation([string]$Path, [string]$CaptureRunId) {
 function Test-RunReservation(
     [string]$Path,
     [string]$CaptureRunId,
-    [string]$Token) {
+    [string]$Token,
+    [string]$State = 'reserved') {
     try {
         $reservation = Read-BoundedUtf8File $Path 16KB | ConvertFrom-Json
         return $reservation.schemaVersion -eq 1 -and
-            $reservation.state -eq 'reserved' -and
+            [string]$reservation.state -ceq $State -and
             [string]$reservation.runId -ceq $CaptureRunId -and
             [string]$reservation.token -ceq $Token
     }
     catch {
         return $false
+    }
+}
+
+function Start-RunReservation(
+    [string]$Path,
+    [string]$CaptureRunId,
+    [string]$Token) {
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None)
+        if ($stream.Length -ge 16KB) { return $false }
+
+        $bytes = [byte[]]::new([int]$stream.Length)
+        $offset = 0
+        while ($offset -lt $bytes.Length) {
+            $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+            if ($read -eq 0) { return $false }
+            $offset += $read
+        }
+        $reservation = [System.Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
+        if ($reservation.schemaVersion -ne 1 -or
+            [string]$reservation.state -cne 'reserved' -or
+            [string]$reservation.runId -cne $CaptureRunId -or
+            [string]$reservation.token -cne $Token) {
+            return $false
+        }
+
+        $started = [ordered]@{
+            schemaVersion = 1
+            runId = $CaptureRunId
+            state = 'launching'
+            token = $Token
+            processId = $reservation.processId
+            createdUtc = $reservation.createdUtc
+            launchProcessId = $PID
+            launchStartedUtc = [DateTimeOffset]::UtcNow.ToString('O')
+        } | ConvertTo-Json -Compress
+        $encoding = New-Object System.Text.UTF8Encoding($false)
+        $startedBytes = $encoding.GetBytes($started)
+        if ($startedBytes.Length -ge 16KB) { return $false }
+
+        $stream.Position = 0
+        $stream.SetLength(0)
+        $stream.Write($startedBytes, 0, $startedBytes.Length)
+        $stream.Flush()
+        return $true
+    }
+    catch {
+        return $false
+    }
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
     }
 }
 
@@ -803,10 +862,12 @@ function Assert-ProjectPreflight(
         '-property:Configuration=Release',
         '-getProperty:TargetFramework,TargetFrameworks')
     $declaredFrameworks = if (-not [string]::IsNullOrWhiteSpace([string]$properties.Properties.TargetFrameworks)) {
-        @([string]$properties.Properties.TargetFrameworks -split ';' | Where-Object { $_ })
+        @([string]$properties.Properties.TargetFrameworks -split ';' |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ })
     }
     elseif (-not [string]::IsNullOrWhiteSpace([string]$properties.Properties.TargetFramework)) {
-        @([string]$properties.Properties.TargetFramework)
+        @(([string]$properties.Properties.TargetFramework).Trim())
     }
     else {
         @()
@@ -1227,6 +1288,36 @@ function Get-FirstExistingFile([string[]]$Paths) {
     return $null
 }
 
+function Get-ObservedFailureResult(
+    [string[]]$Paths,
+    [string]$CaptureRunId) {
+    foreach ($path in $Paths) {
+        if ([string]::IsNullOrWhiteSpace($path) -or
+            -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            continue
+        }
+        try {
+            $result = Read-BoundedUtf8File $path 16KB | ConvertFrom-Json
+            $exitCode = 0
+            if ($result.schemaVersion -eq 1 -and
+                [string]$result.status -ceq 'failure' -and
+                [string]$result.runId -ceq $CaptureRunId -and
+                [int]::TryParse([string]$result.exitCode, [ref]$exitCode) -and
+                $exitCode -ne 0) {
+                return [ordered]@{
+                    path = $path
+                    exitCode = $exitCode
+                    log = [string]$result.log
+                }
+            }
+        }
+        catch {
+            continue
+        }
+    }
+    return $null
+}
+
 function Stop-ReservedRun([string]$Message, [int]$ExitCode = 1) {
     $failurePath = Join-Path $runsDirectory "$RunId.failure.json"
     $failureLog = Join-Path $runsDirectory "$RunId.failure.log"
@@ -1353,8 +1444,21 @@ if ((Test-Path -LiteralPath $launcherPath) -and -not ($invokedFromPreparedLaunch
     exit 1
 }
 if ($inheritedReservation) {
-    if (-not (Test-RunReservation $runClaimPath $RunId $ReservationToken)) {
-        Write-Error "Capture run ID '$RunId' does not have a matching atomic reservation." -ErrorAction Continue
+    $reservationAccepted = if ($invokedFromPreparedLauncher -and -not $ElevatedChild) {
+        Start-RunReservation $runClaimPath $RunId $ReservationToken
+    }
+    else {
+        $expectedReservationState = if ($invokedFromPreparedLauncher) { 'launching' } else { 'reserved' }
+        Test-RunReservation $runClaimPath $RunId $ReservationToken $expectedReservationState
+    }
+    if (-not $reservationAccepted) {
+        $reservationMessage = if ($invokedFromPreparedLauncher -and -not $ElevatedChild) {
+            "Capture run ID '$RunId' prepared launch is already active or its reservation is invalid."
+        }
+        else {
+            "Capture run ID '$RunId' does not have a matching atomic reservation."
+        }
+        Write-Error $reservationMessage -ErrorAction Continue
         exit 1
     }
 }
@@ -1571,16 +1675,29 @@ if ($Profiler -eq 'ETW' -and -not (Test-Elevated)) {
             -LogPath $log -Message $timeoutMessage -ResultPath $timeoutPath -Owner $owner
             exit 0
         }
+    $failureCandidates = @(
+        (Join-Path $runDirectory 'failure.json'),
+        (Join-Path $runsDirectory "$RunId.failure.json"),
+        $preflightFailurePath)
+    $observedFailure = Get-ObservedFailureResult $failureCandidates $RunId
+
     # ExitCode is only defined once the child has exited, and reading it on a higher-integrity
-    # (elevated) process can throw Access Denied - treat either as 'not observed', non-fatal.
+    # (elevated) process can throw Access Denied. A validated durable failure remains
+    # authoritative when the process properties are inaccessible.
     $childExit = 0
     try { if ($proc.HasExited) { $childExit = $proc.ExitCode } } catch { $childExit = 0 }
+        if ($null -ne $observedFailure) {
+            $failureMessage = "Elevated capture failed (exit $($observedFailure.exitCode))."
+            if (-not [string]::IsNullOrWhiteSpace($observedFailure.log)) {
+                $failureMessage += " See $($observedFailure.log)."
+            }
+            $failureMessage += " Failure result: $($observedFailure.path)"
+            Write-Error $failureMessage -ErrorAction Continue
+            exit $observedFailure.exitCode
+        }
         if ($childExit -ne 0) {
             $elevationFailureExitCode = $childExit
-        $observedResult = Get-FirstExistingFile @(
-            (Join-Path $runDirectory 'failure.json'),
-            (Join-Path $runsDirectory "$RunId.failure.json"),
-            $preflightFailurePath)
+        $observedResult = Get-FirstExistingFile $failureCandidates
         $observedLog = Get-FirstExistingFile @(
             $log,
             (Join-Path $runsDirectory "$RunId.failure.log"),

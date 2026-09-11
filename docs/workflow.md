@@ -162,7 +162,9 @@ syntax-validated launcher plus the expected manifest path. On a non-fatal elevat
 wait timeout, text modes emit a warning;
 `-Format Json` returns `status: "timeout"`, `runId`, `log`, and `message` instead of
 empty stdout, while the durable timeout result names the elevated process owner. A
-claimed failure retains `failure.json` and a command-prefixed `capture.log`. JSON
+claimed failure retains a durable result naming its diagnostic log: preflight and
+pre-run failures use sibling paths, while post-launch failures retain `failure.json`
+and a command-prefixed `capture.log` in the run directory. JSON
 stdout stays under 20 KiB; when full case detail would exceed that
 budget, a minimal completed result points to `manifest.json`; if even that path cannot
 fit, `runDirectory` uses the canonical run-relative path derived from `runId`.

@@ -80,9 +80,12 @@ try {
         'Write-RunManifestAtomically',
         'New-RunReservation',
         'Test-RunReservation',
+        'Start-RunReservation',
         'ConvertTo-RuntimeSummary',
         'ConvertTo-PowerShellArgument',
         'Get-RuntimeSummaries',
+        'Invoke-MsbuildQuery',
+        'Assert-ProjectPreflight',
         'Test-AnalysisEnabled',
         'Get-CaseCommands',
         'ConvertFrom-BenchmarkNameArgumentFull',
@@ -98,7 +101,8 @@ try {
         'Write-CaptureResult',
         'Read-BoundedUtf8File',
         'Get-ProcessPropertySafely',
-        'Get-FirstExistingFile')
+        'Get-FirstExistingFile',
+        'Get-ObservedFailureResult')
     $commandFunctionDefinitions = @(
         $captureAst.FindAll(
             { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $commandFunctionNames },
@@ -113,6 +117,32 @@ try {
     Assert-True (Test-RunReservation $reservationPath 'reservation-run' $reservationToken) 'A matching run reservation was not recognized.'
     Assert-True (-not (Test-RunReservation $reservationPath 'other-run' $reservationToken)) 'A reservation for another run ID was accepted.'
     Assert-True (-not (Test-RunReservation $reservationPath 'reservation-run' ([Guid]::NewGuid().ToString('N')))) 'A foreign reservation token was accepted.'
+    Assert-True (Start-RunReservation $reservationPath 'reservation-run' $reservationToken) 'A matching prepared reservation could not start.'
+    Assert-True (Test-RunReservation $reservationPath 'reservation-run' $reservationToken 'launching') 'A started reservation did not retain launch ownership.'
+    Assert-True (-not (Start-RunReservation $reservationPath 'reservation-run' $reservationToken)) 'A prepared reservation started more than once.'
+    $unstartedReservationPath = Join-Path $temporaryRoot 'unstarted-reservation.claim'
+    $unstartedToken = New-RunReservation $unstartedReservationPath 'unstarted-run'
+    Assert-True (-not (Start-RunReservation $unstartedReservationPath 'unstarted-run' ([Guid]::NewGuid().ToString('N')))) 'A foreign token started a prepared reservation.'
+    Assert-True (Test-RunReservation $unstartedReservationPath 'unstarted-run' $unstartedToken) 'A rejected token changed the prepared reservation.'
+    $mismatchedFailurePath = Join-Path $temporaryRoot 'mismatched-failure.json'
+    $malformedFailurePath = Join-Path $temporaryRoot 'malformed-failure.json'
+    $validFailurePath = Join-Path $temporaryRoot 'valid-failure.json'
+    [System.IO.File]::WriteAllText(
+        $mismatchedFailurePath,
+        ([ordered]@{ schemaVersion = 1; status = 'failure'; runId = 'other-run'; exitCode = 23 } | ConvertTo-Json -Compress))
+    [System.IO.File]::WriteAllText($malformedFailurePath, '{not json')
+    [System.IO.File]::WriteAllText(
+        $validFailurePath,
+        ([ordered]@{ schemaVersion = 1; status = 'failure'; runId = 'observed-run'; exitCode = 23; log = 'capture.log' } | ConvertTo-Json -Compress))
+    Assert-True ($null -eq (Get-ObservedFailureResult @($mismatchedFailurePath, $malformedFailurePath) 'observed-run')) 'An unauthenticated durable failure was accepted.'
+    $observedFailure = Get-ObservedFailureResult @($mismatchedFailurePath, $malformedFailurePath, $validFailurePath) 'observed-run'
+    Assert-True ($observedFailure.path -eq $validFailurePath) 'The valid durable failure was not selected.'
+    Assert-True ($observedFailure.exitCode -eq 23) 'The valid durable failure lost its exit code.'
+    $signedFailurePath = Join-Path $temporaryRoot 'signed-failure.json'
+    [System.IO.File]::WriteAllText(
+        $signedFailurePath,
+        ([ordered]@{ schemaVersion = 1; status = 'failure'; runId = 'signed-run'; exitCode = -1 } | ConvertTo-Json -Compress))
+    Assert-True ((Get-ObservedFailureResult @($signedFailurePath) 'signed-run').exitCode -eq -1) 'A signed nonzero failure exit code was rejected.'
     $oversizedSidecar = Join-Path $temporaryRoot 'oversized-sidecar.json'
     [System.IO.File]::WriteAllText($oversizedSidecar, [string]::new('x', 64))
     $boundedReadRejected = $false
@@ -309,8 +339,8 @@ if ($args[0] -eq 'msbuild') {
     if ($args -contains '-getProperty:TargetFramework,TargetFrameworks') {
         [ordered]@{
             Properties = [ordered]@{
-                TargetFramework = 'net10.0'
-                TargetFrameworks = ''
+                TargetFramework = if ($env:FILTRACE_CAPTURE_PROJECT_MODE -eq 'spaced-target-frameworks') { '' } else { 'net10.0' }
+                TargetFrameworks = if ($env:FILTRACE_CAPTURE_PROJECT_MODE -eq 'spaced-target-frameworks') { 'net9.0; net10.0 ' } else { '' }
             }
         } | ConvertTo-Json -Depth 4 -Compress
     }
@@ -446,6 +476,15 @@ else {
 Write-Output 'fake BenchmarkDotNet capture completed'
 '@
     [System.IO.File]::WriteAllText($fakeDotnet, $fakeDotnetText)
+
+    $previousProjectMode = $env:FILTRACE_CAPTURE_PROJECT_MODE
+    try {
+        $env:FILTRACE_CAPTURE_PROJECT_MODE = 'spaced-target-frameworks'
+        Assert-ProjectPreflight $projectPath 'net10.0' 'EP' $fakeDotnet
+    }
+    finally {
+        $env:FILTRACE_CAPTURE_PROJECT_MODE = $previousProjectMode
+    }
 
     $fakeFiltrace = Join-Path $temporaryRoot 'Fake-Filtrace.ps1'
     $fakeFiltraceText = @'
@@ -1258,7 +1297,7 @@ exit $LASTEXITCODE
             $raceJobs | Remove-Job -Force
         }
         Assert-True ($raceResults.Count -eq 2) 'Prepare/capture race did not return both contenders.'
-        $reservationLosers = @($raceResults | Where-Object { Test-StringContains $_.Output 'already reserved' })
+        $reservationLosers = @($raceResults | Where-Object { $_.ExitCode -ne 0 })
         Assert-True ($reservationLosers.Count -eq 1) "Prepare/capture race did not reject exactly one contender: $($raceResults | ConvertTo-Json -Compress)"
         Assert-True (Test-Path -LiteralPath (Join-Path $reservationRaceRoot 'reservation-race-run.claim') -PathType Leaf) 'Prepare/capture race did not retain one shared claim.'
         $raceLauncherExists = Test-Path -LiteralPath (Join-Path $reservationRaceRoot 'launchers/reservation-race-run.ps1') -PathType Leaf
@@ -1356,8 +1395,9 @@ param(
     [ValidateSet('Text', 'Json')]
     [string]$OutputFormat,
     [string]$LaunchSentinel,
-    [ValidateSet('Absent', 'Success', 'Nonzero', 'FailureResult', 'Malformed', 'Timeout')]
+    [ValidateSet('Absent', 'Success', 'Nonzero', 'FailureResult', 'InaccessibleFailureResult', 'Malformed', 'Timeout')]
     [string]$LaunchOutcome,
+    [string]$PeerLaunchSentinel,
     [switch]$Quiet)
 
 function Start-Process {
@@ -1371,6 +1411,13 @@ function Start-Process {
 
     # Exercise the parent handoff without launching a process or showing a UAC prompt.
     [System.IO.File]::WriteAllText($LaunchSentinel, $LaunchOutcome)
+    if ($PeerLaunchSentinel) {
+        $peerDeadline = [DateTime]::UtcNow.AddSeconds(2)
+        while (-not (Test-Path -LiteralPath $PeerLaunchSentinel) -and
+            [DateTime]::UtcNow -lt $peerDeadline) {
+            [Threading.Thread]::Yield() | Out-Null
+        }
+    }
     if ($LaunchOutcome -eq 'Absent') { return $null }
     if ($PreparedLauncher -and $ArgumentList -notcontains '-PreparedLauncher') {
         throw 'Prepared launcher identity was not passed to the elevated child.'
@@ -1379,14 +1426,20 @@ function Start-Process {
         throw 'Reservation token was not passed to the elevated child.'
     }
 
-    if ($LaunchOutcome -in @('Success', 'FailureResult', 'Malformed')) {
+    if ($LaunchOutcome -in @('Success', 'FailureResult', 'InaccessibleFailureResult', 'Malformed')) {
         $runDirectory = Join-Path $OutputDirectory $RunId
         New-Item -ItemType Directory -Force -Path $runDirectory | Out-Null
-        if ($LaunchOutcome -eq 'FailureResult') {
+        if ($LaunchOutcome -in @('FailureResult', 'InaccessibleFailureResult')) {
             [System.IO.File]::WriteAllText((Join-Path $runDirectory 'capture.log'), 'failed child log')
             [System.IO.File]::WriteAllText(
                 (Join-Path $runDirectory 'failure.json'),
-                ([ordered]@{ status = 'failure'; exitCode = 23 } | ConvertTo-Json -Compress))
+                ([ordered]@{
+                    schemaVersion = 1
+                    status = 'failure'
+                    runId = $RunId
+                    exitCode = 23
+                    log = (Join-Path $runDirectory 'capture.log')
+                } | ConvertTo-Json -Compress))
         }
         else {
             $manifestPath = Join-Path $runDirectory 'manifest.json'
@@ -1401,14 +1454,22 @@ function Start-Process {
     }
 
     $process = [pscustomobject]@{
-            Id = 4242
-            ProcessName = 'pwsh'
-        HasExited = $LaunchOutcome -ne 'Timeout'
-        ExitCode = if ($LaunchOutcome -in @('Nonzero', 'FailureResult')) { 23 } else { 0 }
+        Id = 4242
+        ProcessName = 'pwsh'
+        WaitResult = $LaunchOutcome -ne 'Timeout'
+    }
+    if ($LaunchOutcome -eq 'InaccessibleFailureResult') {
+        $process | Add-Member -MemberType ScriptProperty -Name HasExited -Value { throw 'access denied' }
+        $process | Add-Member -MemberType ScriptProperty -Name ExitCode -Value { throw 'access denied' }
+    }
+    else {
+        $process | Add-Member -MemberType NoteProperty -Name HasExited -Value ($LaunchOutcome -ne 'Timeout')
+        $process | Add-Member -MemberType NoteProperty -Name ExitCode -Value $(
+            if ($LaunchOutcome -in @('Nonzero', 'FailureResult')) { 23 } else { 0 })
     }
     $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {
         param([int]$Milliseconds)
-        return $this.HasExited
+        return $this.WaitResult
     }
     return $process
 }
@@ -1526,6 +1587,63 @@ exit $LASTEXITCODE
         Assert-True ($missingTokenExitCode -ne 0) 'Prepared launcher handoff without a reservation token was accepted.'
         Assert-True (-not (Test-Path -LiteralPath $missingTokenSentinel)) 'Missing-token handoff reached Start-Process.'
         Assert-True (Test-StringContains $missingTokenOutput 'require -ReservationToken') 'Missing-token handoff did not explain the reservation requirement.'
+
+        $doubleLaunchRoot = Join-Path $temporaryRoot 'double-prepared-output'
+        $doubleLaunchRunId = 'double-prepared-run'
+        $doubleLauncherDirectory = Join-Path $doubleLaunchRoot 'launchers'
+        New-Item -ItemType Directory -Force -Path $doubleLauncherDirectory | Out-Null
+        $doubleLauncher = Join-Path $doubleLauncherDirectory "$doubleLaunchRunId.ps1"
+        [System.IO.File]::WriteAllText($doubleLauncher, '# prepared launcher')
+        $doubleClaimPath = Join-Path $doubleLaunchRoot "$doubleLaunchRunId.claim"
+        $doubleToken = New-RunReservation $doubleClaimPath $doubleLaunchRunId
+        $firstLaunchSentinel = Join-Path $temporaryRoot 'double-prepared-first-start.txt'
+        $secondLaunchSentinel = Join-Path $temporaryRoot 'double-prepared-second-start.txt'
+        $firstReady = Join-Path $temporaryRoot 'double-prepared-first-ready.txt'
+        $secondReady = Join-Path $temporaryRoot 'double-prepared-second-ready.txt'
+        $doubleLaunchJobs = @(
+            Start-Job -ScriptBlock {
+                param($HostPath, $WrapperPath, $CapturePath, $ProjectFile, $Dotnet, $Filtrace, $OutputRoot, $RunId, $Launcher, $Token, $Sentinel, $PeerSentinel, $Ready, $PeerReady)
+                [System.IO.File]::WriteAllText($Ready, 'ready')
+                $readyDeadline = [DateTime]::UtcNow.AddSeconds(5)
+                while (-not (Test-Path -LiteralPath $PeerReady) -and [DateTime]::UtcNow -lt $readyDeadline) {
+                    [Threading.Thread]::Yield() | Out-Null
+                }
+                $output = & $HostPath -NoProfile -File $WrapperPath -CaptureScript $CapturePath `
+                    -ProjectPath $ProjectFile -DotnetPath $Dotnet -FiltracePath $Filtrace `
+                    -OutputDirectory $OutputRoot -RunId $RunId -OutputFormat Json `
+                    -PreparedLauncher $Launcher -ReservationToken $Token `
+                    -LaunchSentinel $Sentinel -PeerLaunchSentinel $PeerSentinel `
+                    -LaunchOutcome Success 2>&1 | Out-String -Width 4096
+                [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+            } -ArgumentList $hostExe, $timeoutWrapper, $testCaptureScript, $projectPath, $fakeDotnet, $fakeFiltrace, $doubleLaunchRoot, $doubleLaunchRunId, $doubleLauncher, $doubleToken, $firstLaunchSentinel, $secondLaunchSentinel, $firstReady, $secondReady
+            Start-Job -ScriptBlock {
+                param($HostPath, $WrapperPath, $CapturePath, $ProjectFile, $Dotnet, $Filtrace, $OutputRoot, $RunId, $Launcher, $Token, $Sentinel, $PeerSentinel, $Ready, $PeerReady)
+                [System.IO.File]::WriteAllText($Ready, 'ready')
+                $readyDeadline = [DateTime]::UtcNow.AddSeconds(5)
+                while (-not (Test-Path -LiteralPath $PeerReady) -and [DateTime]::UtcNow -lt $readyDeadline) {
+                    [Threading.Thread]::Yield() | Out-Null
+                }
+                $output = & $HostPath -NoProfile -File $WrapperPath -CaptureScript $CapturePath `
+                    -ProjectPath $ProjectFile -DotnetPath $Dotnet -FiltracePath $Filtrace `
+                    -OutputDirectory $OutputRoot -RunId $RunId -OutputFormat Json `
+                    -PreparedLauncher $Launcher -ReservationToken $Token `
+                    -LaunchSentinel $Sentinel -PeerLaunchSentinel $PeerSentinel `
+                    -LaunchOutcome Success 2>&1 | Out-String -Width 4096
+                [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+            } -ArgumentList $hostExe, $timeoutWrapper, $testCaptureScript, $projectPath, $fakeDotnet, $fakeFiltrace, $doubleLaunchRoot, $doubleLaunchRunId, $doubleLauncher, $doubleToken, $secondLaunchSentinel, $firstLaunchSentinel, $secondReady, $firstReady)
+        try {
+            $doubleLaunchResults = @($doubleLaunchJobs | Wait-Job | Receive-Job)
+        }
+        finally {
+            $doubleLaunchJobs | Remove-Job -Force
+        }
+        Assert-True ($doubleLaunchResults.Count -eq 2) 'Concurrent prepared launch did not return both contenders.'
+        Assert-True (@($doubleLaunchResults | Where-Object { $_.ExitCode -eq 0 }).Count -eq 1) "Concurrent prepared launch did not produce exactly one winner: $($doubleLaunchResults | ConvertTo-Json -Compress)"
+        $doubleLaunchSentinels = @($firstLaunchSentinel, $secondLaunchSentinel)
+        Assert-True (@($doubleLaunchSentinels | Where-Object { Test-Path -LiteralPath $_ }).Count -eq 1) 'Concurrent prepared launch reached elevation more than once.'
+        Assert-True (Test-RunReservation $doubleClaimPath $doubleLaunchRunId $doubleToken 'launching') 'Concurrent prepared launch did not retain its single launch owner.'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $doubleLaunchRoot "$doubleLaunchRunId.failure.json"))) 'Rejected prepared launch wrote a competing terminal failure.'
+
         $preparedLauncherOutput = & $hostExe -NoProfile -File $timeoutWrapper -CaptureScript $testCaptureScript `
             -ProjectPath $projectPath -DotnetPath $fakeDotnet -FiltracePath $fakeFiltrace `
             -OutputDirectory $preparedOutputRoot -RunId 'prepared-run' -OutputFormat Json `
@@ -1573,6 +1691,11 @@ exit $LASTEXITCODE
             },
             [ordered]@{
                 outcome = 'FailureResult'
+                expectedExitCode = 23
+                expectedError = 'Failure result:'
+            },
+            [ordered]@{
+                outcome = 'InaccessibleFailureResult'
                 expectedExitCode = 23
                 expectedError = 'Failure result:'
             },
@@ -1630,7 +1753,7 @@ exit $LASTEXITCODE
             else {
                 Assert-True ([string]::IsNullOrWhiteSpace($launchOutput)) "Failed launch outcome '$($launchCase.outcome)' polluted JSON stdout."
                 Assert-True (Test-StringContains $normalizedLaunchError $launchCase.expectedError) "Launch outcome '$($launchCase.outcome)' omitted its diagnostic error. Actual: $normalizedLaunchError"
-                $expectedFailureResult = if ($launchCase.outcome -eq 'FailureResult') {
+                $expectedFailureResult = if ($launchCase.outcome -in @('FailureResult', 'InaccessibleFailureResult')) {
                     Join-Path $timeoutOutputDirectory "$launchRunId/failure.json"
                 }
                 else {
@@ -1641,6 +1764,9 @@ exit $LASTEXITCODE
                 $launchFailureResult = Get-Content -LiteralPath $expectedFailureResult -Raw | ConvertFrom-Json
                 Assert-True ($launchFailureResult.status -eq 'failure') "Launch outcome '$($launchCase.outcome)' retained the wrong failure status."
                 Assert-True ($launchFailureResult.exitCode -eq $launchCase.expectedExitCode) "Launch outcome '$($launchCase.outcome)' retained the wrong failure exit code."
+                if ($launchCase.outcome -eq 'InaccessibleFailureResult') {
+                    Assert-True (-not (Test-Path -LiteralPath (Join-Path $timeoutOutputDirectory "$launchRunId.failure.json"))) 'Inaccessible exit properties produced a competing sibling failure result.'
+                }
             }
         }
     }
