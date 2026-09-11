@@ -145,17 +145,27 @@ it isolates the `[Benchmark]` code from bootstrap and overhead scaffolding, not 
 from measurement. The bundled
 [scripts/Capture-BenchmarkTrace.ps1](../.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1)
 wraps the whole loop: it runs the benchmark under the chosen profiler
-(self-elevating for ETW) in a run-specific artifacts/log
-directory, emits `manifest.json` with every parameterized case and trace pair, and
+(self-elevating for ETW) in a run-specific directory beneath the explicit
+`-OutputDirectory` or compatibility default, emits `manifest.json` with every
+parameterized case and trace pair, and
 prints only commands whose `captureStatus` is known-enabled. Each command uses the
 benchmark, process, method, or other scope supported by its verb; structured reports
 and orientation commands keep their own syntax. Disabled and unknown analyses become
 explicit warnings.
 Full BenchmarkDotNet output stays in `capture.log`. Use `-Format Json` for a compact
 machine-readable handoff or `-Quiet` to suppress text progress/commands while retaining
-warnings. On a non-fatal elevated wait timeout, text modes emit a warning;
+warnings. ETW preflight evaluates the requested target and
+`BenchmarkDotNet.Diagnostics.Windows` package inclusion before UAC. Central package
+management can provide its version but does not include it. Use `-Prepare` when the
+current host cannot initiate UAC; it performs non-elevated preflight and returns a
+syntax-validated launcher plus the expected manifest path. On a non-fatal elevated
+wait timeout, text modes emit a warning;
 `-Format Json` returns `status: "timeout"`, `runId`, `log`, and `message` instead of
-empty stdout. JSON stdout stays under 20 KiB; when full case detail would exceed that
+empty stdout, while the durable timeout result names the elevated process owner. A
+claimed failure retains a durable result naming its diagnostic log: preflight and
+pre-run failures use sibling paths, while post-launch failures retain `failure.json`
+and a command-prefixed `capture.log` in the run directory. JSON
+stdout stays under 20 KiB; when full case detail would exceed that
 budget, a minimal completed result points to `manifest.json`; if even that path cannot
 fit, `runDirectory` uses the canonical run-relative path derived from `runId`.
 Recorder-established command
