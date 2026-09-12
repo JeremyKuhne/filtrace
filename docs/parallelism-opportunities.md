@@ -1,20 +1,22 @@
 # Track D performance investigation plan
 
-**Status:** Comparison-first execution. Frame-label reuse shipped in PR #124 and
-indexed traversal shipped in PR #126. The
+**Status:** Subordinate PP02/PP08 measurement plan. Frame-label reuse shipped in
+PR #124 and indexed traversal shipped in PR #126. The
 [indexed traversal experiment](stack-traversal-experiment.md) records the second
-measured consumer change. The broader parallelism hypotheses remain unproven.
+measured consumer change. Phase 0 final reconstruction and the broader LP
+dispositions remain open, but they are not the immediate implementation queue.
 
-**Execution update, 2026-09-06:** the user-approved
-[primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md)
-now prioritizes comparison-first iterations. Obtain coarse current-version
-Filtrace/TraceEvent versus Filtrace/FastTrace results on one Windows x64 JIT
-scenario before completing the harness or broad measurement matrix. Reuse merged
-telemetry for cold conversion and warm CPU ranking; report raw measurements,
-output agreement, and unavailable metrics. Profile a consequential difference,
-then confirm and expand. Further hardening goes into the
-[shared backlog](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/harness-hardening-backlog.md).
-The prepared agent evaluator is not a prerequisite for this comparison.
+**Execution update, 2026-09-08:** [roadmap.md](roadmap.md) records the approved
+2026-09-07 coordination update: prioritize a breadth-first sweep of the existing
+FastTrace APIs consumed by Filtrace. Use this harness where it supplies a workload or
+removes a demonstrated evidence blocker; complete remaining PP02 measurements only
+as comparison iterations need them. LP-1 through LP-5 remain PP08 hypotheses that
+require measured kept, rejected, or explicitly blocked dispositions, not mandated
+parallel implementations. An individual experiment may be inconclusive, but that is
+not a terminal Track D state. General harness hardening remains deferred unless a
+selected scenario demonstrates that it blocks valid evidence. The prepared agent
+evaluator and full Track D Phase 0 closeout are not prerequisites for the active API
+sweep.
 
 This plan turns the performance and parallelism hypotheses in
 [roadmap.md](roadmap.md#track-d---performance-and-parallelism) into repeatable
@@ -32,18 +34,20 @@ Neither substitutes for the other. A microbenchmark win that does not reduce a C
 scenario is not a product win; a faster CLI run whose targeted frame is unchanged is
 noise or an unrelated effect.
 
-The outcomes below are the final LP acceptance criteria. During comparison-first
-execution, a change can be provisionally retained after three equivalent end-to-end
-pairs preserve semantic output and a profile attributes the observed difference.
-That does not close its BenchmarkDotNet, small/common-case, or broader no-regression
-criteria; those remain open until final LP acceptance.
+The outcomes below define the evidence needed for an LP disposition. Their original
+numeric targets are retained as historical screening hypotheses, not current
+completion floors. The primary plan imposes no universal minimum improvement:
+equivalent work, semantic parity, absolute measurements, uncertainty, memory/GC
+effects, and attribution decide whether an experiment is kept, rejected, or
+inconclusive. An inconclusive experiment records evidence and a next action but does
+not close its LP item.
 
 ## Outcomes
 
-Track D is complete when LP-1 through LP-4 have each produced a retained or rejected
-experiment with reconstructable evidence, and LP-5 has either obtained the upstream
-thread-safety contract it needs or remains explicitly blocked. Each retained change
-must satisfy all of these:
+Track D is complete when LP-1 through LP-5 each have a measured kept, rejected, or
+explicitly blocked disposition with reconstructable evidence. LP-5 remains blocked
+until its thread-safety prerequisite is met; after that, a neutral production
+experiment may close it as rejected. Each retained change must satisfy all of these:
 
 - deterministic output and numeric parity are unchanged;
 - the target BenchmarkDotNet row improves outside normal run-to-run noise;
@@ -333,17 +337,19 @@ reviewed archive outside Git and record its durable location, hash, privacy revi
 and exact restore command. Never archive credentials, private symbol caches, or
 unrelated machine data.
 
-## Common acceptance gates
+## Common experiment requirements
 
-These gates are fixed before testing a candidate:
+These requirements are fixed before testing a candidate:
 
 1. **Correctness:** all unit, parity, CLI/MCP/docs/eval, capture, and agent-skill
    gates pass. Parallel results preserve deterministic ordering and produce the same
    JSON after normalizing only explicitly nondeterministic path/cache diagnostics.
-2. **Small-case guardrail:** no primary small/common microbenchmark or CLI scenario
-   regresses by more than 5%; a delta inside combined error bars is neutral.
-3. **Target win:** the LP-specific large scenario improves by its stated threshold
-   in at least two of three independent runs and in the median result.
+2. **Small-case guardrail:** report primary small/common microbenchmark and CLI
+  results. Existing checked-in gates remain blocking; an observed delta inside the
+  comparison's uncertainty is inconclusive rather than a win or regression.
+3. **Target outcome:** show a consistent, attributable improvement in the
+  LP-specific scenario. No historical percentage below is a universal acceptance
+  floor; retain neutral or noisy results as rejected or inconclusive evidence.
 4. **Allocation:** no managed allocation regression on unaffected Core paths. A
    parallel path may allocate thread-local state only within its LP-specific budget.
 5. **Memory:** record peak child working set for CLI scenarios. Concurrency is bounded
@@ -359,7 +365,8 @@ These gates are fixed before testing a candidate:
 
 ## Phase 0 - build the measurement harness
 
-Complete this before any production parallelism edit.
+Complete this before any production parallelism edit if PP08 schedules one. It does
+not block the active FastTrace existing-API sweep.
 
 **Phase 0 implementation through 2026-08-04:**
 
@@ -396,10 +403,12 @@ Complete this before any production parallelism edit.
 - `Test-TrackDInvestigation.ps1` fake-driven contracts for neutral comparison,
   injected adapter failure with retained commands/status, and test-adapter gating.
 
-Remaining Phase 0 work is copying/restoring the reviewed corpus archive in approved
-durable storage and a post-merge exact-worktree no-op run using the default job and
-25-launch telemetry. The local ignored archive and dirty-checkout dry smoke are not
-durable acceptance evidence.
+The 2026-09-06 comparison campaign copied the reviewed corpus into the approved
+primary-plan evidence root and consumed restored bytes in retained comparisons.
+Phase 0 still needs a fresh availability/hash check and a post-merge exact-worktree
+baseline-versus-baseline run using the default job and 25-launch telemetry before
+PP08 treats the harness itself as closed. A dirty-checkout dry smoke is not durable
+acceptance evidence.
 
 ### Benchmark additions
 
@@ -504,8 +513,8 @@ runs with `status: failed`.
 Test the script with fake baseline/candidate executables before relying on an
 expensive ETW run. The script must distinguish absent, nonzero, malformed, and valid
 empty tool output; keep its output deterministic and UTF-8 without BOM. Exercise
-absolute paths containing spaces and quotes, since SC11 still tracks the broader
-command-capture provenance contract.
+absolute paths containing spaces and quotes. The broader command-capture provenance
+contract completed separately in PRs #121 and #128.
 
 **Phase 0 exit:** one no-op baseline-versus-baseline run reconstructs successfully,
 produces equivalent outputs, and reports neutral deltas at both measurement layers.
@@ -563,7 +572,10 @@ as a medium guardrail and on generated 100k/1m traces as target cases. Self-prof
 `FoldingAggregator.SelfTime` / `InclusiveTime`, `FrameNames.IsFolded`, regex
 matching, and dictionary merge frames.
 
-### Keep/reject gate
+### Historical screening targets
+
+These were the original thresholds for selecting a candidate. Apply the current
+primary-plan measurement contract instead of treating them as completion floors:
 
 - 100/1k cases: no more than 3% slower;
 - 5k/10k cases: no more than 5% slower;
@@ -634,7 +646,10 @@ latency remains descriptive because TraceEvent conversion dominates. If the sele
 degree breaches the memory gate, lower the degree or keep no-ETLX cases sequential;
 do not accept a warm-only win that makes first use unsafe.
 
-### Keep/reject gate
+### Historical screening targets
+
+These were the original thresholds for selecting a candidate. Apply the current
+primary-plan measurement contract instead of treating them as completion floors:
 
 - 1/2 cases: no more than 5% slower;
 - 8 warm cases: at least 15% faster;
@@ -685,7 +700,10 @@ zero candidate invocations with a test-only processing-pass counter or an identi
 instrumentation patch applied to both measurement arms, not by requiring samples in
 a method that no longer executes.
 
-### Keep/reject gate
+### Historical screening targets
+
+These were the original thresholds for selecting a candidate. Apply the current
+primary-plan measurement contract instead of treating them as completion floors:
 
 - exact matching/unmatched/nested activity results and applied context;
 - unscoped load no more than 3% slower and no allocation regression;
@@ -736,7 +754,10 @@ Measure `symbols-1` and `symbols-32`, then profile `info --symbols` and `lines
 file creation, source resolution, and cleanup. Check `%TEMP%` before/after repeated
 failure runs for leaked `filtrace-pdb-*` directories.
 
-### Keep/reject gate
+### Historical screening targets
+
+These were the original thresholds for selecting a candidate. Apply the current
+primary-plan measurement contract instead of treating them as completion floors:
 
 - 1/8 DLL cases: no more than 5% slower;
 - 32/64 DLL, 100%-hit cases: at least 15% faster and at least 5 ms absolute saved;
@@ -745,8 +766,10 @@ failure runs for leaked `filtrace-pdb-*` directories.
 - identical matching/mismatch/missing-module diagnostics and source-line output;
 - no temp-directory/file leaks after success, corrupt DLLs, or failed extraction.
 
-Reject LP-4 when the absolute or end-to-end gate is not met, even if the isolated
-ratio looks large.
+The original screen rejected LP-4 when its absolute or end-to-end target was not
+met, even if the isolated ratio looked large. The current disposition must retain
+equivalent absolute evidence but follows the primary plan's no-universal-minimum
+policy.
 
 ## LP-5 - parallel native-symbol module lookups
 
@@ -774,7 +797,7 @@ Network-first-download results are not an acceptance metric. They vary with serv
 DNS, and geography. Warm-cache lookup isolates local symbol processing and is the
 only stable candidate benchmark.
 
-### Unblock gate
+### Unblock requirements
 
 Before a production candidate:
 
@@ -782,15 +805,19 @@ Before a production candidate:
 2. A disposable prototype uses one `SymbolReader` per worker and stress-runs at least
    100 repetitions under 1/2/4/8 relevant modules without access violations, corrupt
    names, or partial resolution.
-3. Warm-cache 4+ module scenarios improve at least 20%, with no regression at one
-   module and identical resolution.
+3. Warm-cache 4+ module scenarios show a consistent attributable improvement, with
+  no regression at one module and identical resolution. The historical 20% target
+  is a screening hypothesis, not a current completion floor.
 4. Peak memory, open handles, and symbol-cache writes remain bounded.
 
-If those conditions are not met, retain sequential lookup and keep LP-5 blocked.
+If the thread-safety and correctness conditions are not met, retain sequential
+lookup and keep LP-5 blocked. A neutral performance result is rejected or
+inconclusive under the primary-plan measurement contract.
 
-## Execution order and PR boundaries
+## Deferred execution order and PR boundaries
 
-Measurement order differs slightly from roadmap numbering:
+When PP08 schedules Track D, measurement order differs slightly from roadmap
+numbering:
 
 1. **Phase 0:** build and prove the harness with baseline-versus-baseline.
 2. **LP-2 calibration:** exercise the existing benchmark and self-profile loop.
@@ -826,9 +853,11 @@ its own measurement-only PR.
 Track D exits when:
 
 - the Phase 0 no-op experiment proves reconstruction and neutral comparison;
-- LP-1 through LP-4 each have a benchmark-backed kept/rejected decision;
-- LP-5 is shipped after TE-P3 or remains explicitly blocked with current baseline
-  evidence;
+- LP-1 through LP-5 each have a benchmark-backed kept/rejected/blocked decision;
+  a blocked disposition names the unmet dependency or evidence prerequisite and its
+  next action;
+- LP-5 records the TE-P3 disposition and current sequential baseline whether its
+  eventual production experiment is kept or rejected;
 - retained changes pass all normal filtrace gates on Windows and Linux ARM64;
 - the roadmap links each decision to its benchmark class, CLI scenario, and durable
   experiment summary.

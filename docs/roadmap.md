@@ -1,18 +1,20 @@
 # filtrace roadmap
 
-**Planning authority:** The
-[canonical primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md)
-controls cross-repository ordering and completion. The feature backlog below is
-conditional: work on it only when that plan schedules or permits it.
+**Planning authority:** This page is the public source of truth for Filtrace
+schedule and completion status. Cross-repository coordination may reorder work, but
+the change must be reflected here before it makes a Filtrace item active. Private
+coordination records are supplemental evidence, not required to interpret this plan.
 
-**Status:** Living plan. This page prioritizes unshipped work; explicitly deferred
-work may retain its detail in a linked GitHub issue.
+**Status:** Current public plan and conditional backlog. The priorities and
+remaining-outcomes tables below state what is active, next, conditional, complete,
+or outside the current finish line.
 
-**Last verified:** 2026-08-24 after VN4 merged.
+**Last verified:** 2026-09-08 against `main` at `a7ebd5e` and the coordinated
+cross-repository priorities updated 2026-09-07.
 
-Shipped work is not tracked here. Git history and the release tags record what
-landed; the durable lessons from finished initiatives live in
-[design.md](design.md), and the cross-tool observations that motivate several items
+Completed sections remain only where their measured decisions constrain future
+work. Git history and release tags record what landed; durable lessons live in
+[design.md](design.md), and cross-tool observations that motivate conditional work
 live in [competitive-analysis.md](competitive-analysis.md).
 
 Every item is judged against the goals, principles, and measures in
@@ -26,21 +28,21 @@ true.
 
 - **The surface is 16 canonical CLI commands, 12 hidden preview aliases, and 18
   `trace_*` MCP tools.** Top-level CLI help is 27 lines / 2,171 characters, down
-  from 37 / 3,170. The MCP tool list is ~6,701 estimated tokens against a
+  from 37 / 3,170. The MCP tool list is ~6,710 estimated tokens against a
   7,000-token CI gate.
 - **The permanent schema is dominated by input schemas, not output schemas.**
   Advertising the envelope alone instead of every expanded result type reclaimed
   roughly 3,000 tokens. Measured across the current 18 tools: input schemas 4,061
-  (61%), output schemas 1,116 (17%), descriptions 886 (13%), names and JSON
+  (61%), output schemas 1,116 (17%), descriptions 895 (13%), names and JSON
   structure the rest. Input schemas are the largest lever; prose is the smallest.
   Regenerate the breakdown with `tools/Test-McpServer.ps1`, which writes
   `artifacts/mcp-schema-tokens.json`.
 - **Ordinary responses are already small.** Ranking, caller, process, and tree
   answers land around 105-199 tokens; GC, timeline, thread-time, source-quality,
-  batch, and diff around 292-886. The JIT report (~2,251) and a raw allocation-event
-  page (~5,538) are the outliers. The 25,000-token ceiling is not the problem;
+  batch, and diff around 292-886. The JIT report (~2,273) and a raw allocation-event
+  page (~5,599) are the outliers. The 25,000-token ceiling is not the problem;
   returning detail nobody asked for is - and the same two questions answered with a
-  narrower request cost 172 and 79 tokens.
+  narrower request cost 194 and 34 tokens.
 - **The remaining measured duplication is per call, not per list.** A live MCP call
   carries the same payload in both `content[0].text` and `structuredContent`, inside
   a wrapper roughly 4-5x the payload: one measured `trace_query_events` response was
@@ -52,15 +54,36 @@ true.
 ## Priorities
 
 | When | Items | Why now |
-|---|---|---|
-| Done | VN0-VN4, VC2, SC8, SC13 | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, and decisive-query replay are implemented. |
-| Now | VC3, LT1 | Add temporal shape to CPU rankings, and replace the overgrown local checkout activation draft with a narrow repository-only design. |
-| Later | VC4-VC8, SC9-SC12, LP-1..LP-5, VN5 | Complete broadly applicable, demand-, dependency-, or stabilization-gated work before the specialized backlog. |
-| Upstream | TE-P1..TE-P5 | Not actionable in this repository alone. |
+| --- | --- | --- |
+| Done | VN0-VN4, VC2, SC8, SC11, SC13, LT1 | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, command provenance, decisive-query replay, and repository-local activation are implemented. |
+| Active coordinated work | FastTrace existing-API sweep | Filtrace supplies workloads and self-hosted evidence. Further Filtrace implementation is active only when it exposes or removes a demonstrated blocker to valid comparison evidence. |
+| Next when scheduled | PP02 evidence gaps, SC10, PP08 dispositions | Complete comparison-needed measurement evidence, make lifecycle manifest-addressable, and reach measured keep/reject/blocked decisions for relevant LP hypotheses. |
+| Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the named public scenario and gate recorded here; these are not the current default implementation queue. |
+| Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the row above; production implementation follows only for a kept candidate. |
+| Dependency opportunities | TE-P1..TE-P5 | Measure through PP07 against the selected dependency. They are not Filtrace-only changes and do not justify speculative upstream work. |
 | Backlog | VC1 ([issue #92](https://github.com/JeremyKuhne/filtrace/issues/92)) | DATAS applies only to modern server-GC workloads; retain the design without scheduling it ahead of broader capabilities. |
 
 VN3 retained the current MCP surface. New capabilities extend a compatible existing
 operation unless a measured task demonstrates that a standalone tool is better.
+
+### What remains before primary-plan closeout
+
+This is the public outcome list, not a second execution order. The priorities table
+above decides which row is active; any cross-repository scheduling change must update
+it. [design.md](design.md#measures-of-success) owns Filtrace's standing product
+gates.
+
+| Area | Remaining outcome | Kind |
+| --- | --- | --- |
+| Active cross-repository work | Complete the breadth-first FastTrace existing-API sweep using Filtrace workloads and equivalent consumer behavior. Change Filtrace only to expose or remove a demonstrated evidence blocker. | Primarily FastTrace implementation and measured comparison |
+| PP02 / Track D evidence | Recheck the durable corpus and complete an exact baseline-versus-baseline default-job reconstruction. Add provider-rich, negative-control, repeated-query, disposal/eviction, and bounded-concurrency evidence only as a selected comparison needs it. Reach a kept, rejected, or explicitly blocked disposition for each scheduled LP item; inconclusive experiments do not close one. | Harness and evidence |
+| PP09 workflow | Evaluate SC10 manifest-addressed lifecycle first. Implement ambiguity, routing, or hint improvements only from a reproduced agent failure; VC3 remains optional. | Conditional Filtrace implementation |
+| PP10 adoption | Decide whether and how FastTrace becomes a product dependency; complete required native host evidence or explicitly narrow the claim, and resolve default DIA/native-symbol distribution. | Validation and product decision |
+| PP11 efficacy | Run a fully accounted skill-mediated development loop, including one interruption/resume, and obtain controlled comparative agent evidence without reviving the parked broad evaluator campaign. | End-to-end evidence |
+| PP12 closeout | Finish the replacement assessment, Filtrace executive overview, scenario disposition, and closeout record from retained evidence. | Documentation and decision |
+
+VC4-VC8, VC1, general harness hardening, and speculative parallel implementations
+are outside the current finish line unless a required scenario promotes them.
 
 ---
 
@@ -268,8 +291,8 @@ wired up, not by building variants.
 
 ### VN2 - output contract evolution
 
-**Priority:** Now. **Gate:** each shape change is graded by the tuning loop before it
-ships, not argued.
+**Status:** Complete through schema 17. Any later shape change is conditional PP09
+work and must still be graded by the tuning loop before it ships, not argued.
 
 VN1 raised this item's value rather than lowering it. Transport turned out not to be
 a lever - the client re-materializes structured content and already spills an
@@ -606,7 +629,7 @@ tool count is not worth extra orientation, repair calls, or weaker scope selecti
 ### VN4 - CLI surface
 
 **Status:** Complete. **Decision:** retain 16 canonical commands and 12 hidden
-preview aliases for one release.
+preview aliases during an explicit migration window.
 
 The selected surface is `info`, `rank`, `callers`, `tree`, `source`, `processes`,
 `classify`, `report`, `lifecycle`, `timeline`, `diff`, `batch`, `events`, `export`,
@@ -636,16 +659,20 @@ per command instead.
 The help contract now requires canonical commands to be listed and documented,
 hidden aliases to remain callable but absent from the list, and top-level help not
 to exceed the pre-VN4 line or character baseline. Aliases are migration-only text,
-not runnable examples in README or the packaged skill.
+not runnable examples in README or the packaged skill. Their removal requires the
+explicit migration policy tracked by VN5; it is not triggered automatically by the
+passage of one preview release.
 
 **Exit:** one canonical path per intent in top-level help; no alias leaks into agent
 guidance.
 
 ### VN5 - stabilization
 
-Remove preview aliases, run every contract and eval gate in Debug and Release,
-publish a migration table from every old verb and tool to the new surface, and
-freeze the selected names and schema.
+**Status:** Conditional and unscheduled. Alias removal depends on an explicit
+migration policy, not merely the passage of one preview release, and must not trigger
+a package release by itself. When scheduled, remove preview aliases, run every
+contract and eval gate in Debug and Release, publish a migration table from every
+old verb and tool to the new surface, and freeze the selected names and schema.
 
 ### Agent-comprehension work (folds into VN2-VN4)
 
@@ -767,11 +794,11 @@ tool.
 
 ## Track C - correctness and capture follow-ups
 
-The remaining gaps from the short-command capture initiative
+The follow-ups from the short-command capture initiative
 ([issue #62](https://github.com/JeremyKuhne/filtrace/issues/62)). Its seven original
-items shipped; SC8 completed the immediate exact-scope follow-up, while SC9-SC13
-track the residual portability, composition, reproducibility, and observer-effect
-work without holding the original initiative open.
+items shipped; SC8, SC11, and SC13 are complete. SC9, SC10, and SC12 retain
+conditional portability, composition, and observer-effect work without holding the
+original initiative open.
 
 ### SC8 - per-case exact scope in batch and diff - complete
 
@@ -792,7 +819,9 @@ name fallback would have silently analyzed the matching process instead.
 
 ### SC9 - cross-machine native symbol fixtures
 
-**Priority:** Later. **Gate:** requires a merge/symbol-injection capture step.
+**Priority:** Conditional. Promote only when reproducible cross-machine native
+symbol evidence is required. **Gate:** requires a merge/symbol-injection capture
+step.
 
 A filtrace capture records no PDB identity of its own, so `TraceEvent` resolves a
 native module by reading the binary back from the absolute path in the trace. A
@@ -804,8 +833,9 @@ committable fixture possible.
 
 ### SC10 - manifest-addressed lifecycle and agent reliability
 
-**Priority:** Later. **Gate:** one exact-scope manifest call must beat manual PID or
-name selection without a success, call-count, or response-budget regression.
+**Priority:** First Filtrace workflow candidate when PP09 is scheduled. **Gate:**
+one exact-scope manifest call must beat manual PID or name selection without a
+success, call-count, or response-budget regression.
 
 A command manifest records every invocation root, and batch, diff, and rank replay
 those ids exactly. `lifecycle` still accepts only a trace path plus a process name or
@@ -827,12 +857,10 @@ though the deterministic provider result is exact.
 Extend the existing lifecycle verb and MCP tool. VN3 showed that hiding lifecycle
 inside a report union weakens selector use, so this does not reopen consolidation.
 
-### SC11 - command-capture reproducibility and contract
+### SC11 - command-capture reproducibility and contract - complete
 
-**Priority:** Later. **Gate:** a side-effect-free contract test must exercise the
-matrix, elevation handoff, partial-manifest, and multi-executable paths.
-
-**PP01 bounded status:** the fake-only contract now verifies structured and legacy
+**Status:** Complete through PRs #121 and #128. The fake-only contract verifies
+structured and legacy
 arguments, mixed executable identities and exact invocation roots, path-safe bounded
 scenario identities, malformed collect-result rejection, partial and all-failed diagnostic
 manifests, tool/working-directory/allowlisted-environment provenance, stale-run rejection,
@@ -842,29 +870,19 @@ argv boundaries, including empty, single, and multiple arguments. A real elevate
 Windows smoke captured two invocations each of `dotnet --version` and `git --version`,
 then replayed their exact roots with a fixed local analyzer without leaving a Filtrace
 ETW session. Interactive UAC handoff and manifest-addressed lifecycle reconstruction
-remain unverified; the latter is tracked by SC10.
+remain outside this result; the latter is tracked by SC10. Broader malformed-input,
+concurrency, and interactive-elevation expansion belongs to the deferred harness
+hardening backlog rather than reopening SC11.
 
-`Capture-CommandTrace.ps1` made the successful investigation repeatable, but its
-orchestration contract is not tested as deeply as `Capture-BenchmarkTrace.ps1`, and
-its manifest is intentionally smaller than the issue's full provenance wish list.
-
-- Add a dedicated command-capture contract script using a fake filtrace executable,
-  including one failed scenario, quoted arguments, bounded elevated wait/log
-  propagation, and exact invocation records.
-- Remove the stale multi-executable warning that says per-case invocation ids are not
-  consumed; SC8 now consumes them for batch and diff. Pin a mixed-executable manifest
-  to exact per-case ids.
-- Record structured executable and arguments, working-directory identity, filtrace
-  version, and an explicit allowlisted environment fingerprint. Never serialize the
-  full environment, which can contain credentials.
-- Keep descendants authoritative in the ETW process graph rather than duplicating a
-  child-id snapshot in the manifest; document that boundary and test its lifecycle
-  reconstruction.
+The manifest intentionally records an allowlisted environment rather than the full
+environment, which can contain credentials. Descendants remain authoritative in the
+ETW process graph rather than being duplicated as a child-id snapshot.
 
 ### SC12 - kernel-only profile and observer-effect measurement
 
-**Priority:** Later. **Gate:** add a profile only if repeated measurement shows a
-material lifetime reduction over `startup` for a supported short-command scenario.
+**Priority:** Conditional. Promote only when a short-command scenario needs lower
+capture perturbation. **Gate:** add a profile only if repeated measurement shows a
+material lifetime reduction over `startup` for that supported scenario.
 
 The shipped `startup` profile removes unused machine-wide kernel traffic and most CLR
 events, but deliberately retains CLR method-naming keywords. It is low perturbation,
@@ -1101,20 +1119,22 @@ confirmation is procedurally invalid for agent-efficiency claims, not a passing
 comparison. The byte reduction and passing package/drift checks are the verified
 outcome; actual host tokens, end-to-end latency, and broader task efficacy remain
 open. Local evidence is `worker-comparison-b7410e497d384f89b6d7ef8b40a062d0` in the
-primary-plan evidence root. The earlier three-way comparison is recorded in the
-[primary-plan results](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/filtrace-comparison-2026-09-06.md#coarse-agent-comparison).
+coordination evidence root. The figures above retain the public conclusion from the
+earlier three-way comparison; that private coordination record is supplemental.
 
 ---
 
 ## Track D - performance and parallelism
 
-**Status:** Phase 0 and the broader LP-1 through LP-5 gates remain open. Two measured
-consumer optimizations shipped in PRs #124 and #126; neither establishes a general
-parallelism or replacement claim. Aggregation, activity-read, embedded-PDB, and
-warm/cold single/manifest CLI benchmarks are implemented, together with sequential
-degree seams, a CPU/activity workload, corpus archiver, and per-launch child-process
-telemetry. **Date of analysis:** 2026-09-06. The remaining durable corpus restore,
-exact no-op reconstruction, Layer C wiring, sequencing, and keep/reject plan is in
+**Status:** Phase 0 final reconstruction and the broader LP-1 through LP-5
+dispositions remain open. Two measured consumer optimizations shipped in PRs #124
+and #126; neither establishes a general parallelism or replacement claim.
+Aggregation, activity-read, embedded-PDB, and warm/cold single/manifest CLI
+benchmarks are implemented, together with sequential degree seams, a CPU/activity
+workload, a retained corpus, per-launch child telemetry, and fixed-analyzer
+CPU/allocation/GC profiles. **Date of analysis:** 2026-09-08. The remaining fresh
+corpus availability/hash check, exact baseline-versus-baseline reconstruction, and
+LP keep/reject/inconclusive/blocked plan is in
 [parallelism-opportunities.md](parallelism-opportunities.md).
 
 Where the CPU goes on every `.nettrace` or `.etl` analysis:
@@ -1139,11 +1159,13 @@ order of 200,000-400,000 times.
 **Value:** high. **Effort:** low.
 
 `CaptureManifestBatchAnalyzer.Analyze` and `CaptureManifestDiffAnalyzer.Analyze`
-iterate their case lists sequentially. Their public load delegates may capture state,
-and the CLI strict-symbol gate currently does, so existing overloads must remain
-sequential. Add an explicitly concurrent overload with bounded degree, make each head
-callback thread-safe, and write results by case/pair index into preallocated slots so
-manifest order stays deterministic.
+iterate their case lists sequentially. Degree-aware overloads already validate the
+future concurrency contract but deliberately delegate to that sequential path for
+every degree. Their public load delegates may capture state, and the CLI strict-symbol
+gate currently does, so existing overloads must remain sequential. Implement bounded
+concurrency only in the degree-aware overloads, make each head callback thread-safe,
+and write results by case/pair index into preallocated slots so manifest order stays
+deterministic.
 
 Notes: the per-iteration warning list is already allocated per case; `TraceStore.Get`
 may run its factory twice when two cases share a trace path (the documented LruCache
@@ -1197,10 +1219,15 @@ task and a confirmed thread-safety contract for concurrent calls against the sam
 
 ---
 
-## Track E - upstream TraceEvent asks
+## Track E - dependency opportunities
 
-These require changes in `Microsoft.Diagnostics.Tracing.TraceEvent`; the current
-package pin is maintained in [Directory.Packages.props](../Directory.Packages.props).
+These cannot be implemented in Filtrace alone. Against the published default they
+would require changes in `Microsoft.Diagnostics.Tracing.TraceEvent`, whose current
+package pin is maintained in
+[Directory.Packages.props](../Directory.Packages.props). During FastTrace evaluation,
+PP07 treats the same outcomes as measured candidate APIs or implementation changes.
+Do not open speculative work in either dependency: first demonstrate a Filtrace
+scenario, cost, and compatible ownership/lifetime contract.
 
 | ID | Ask | Why filtrace wants it |
 |---|---|---|
@@ -1214,11 +1241,14 @@ package pin is maintained in [Directory.Packages.props](../Directory.Packages.pr
 
 ## Track F - platform and release
 
-- **Native AOT stays blocked by TraceEvent** and is not a compatibility claim. See
-  [design.md](design.md#known-constraints).
-- **Stable release and registry work follows the v.next selection.** Freeze names,
-  publish migration guidance, and add registry and badge collateral only after the
-  transport, output contract, and surface are selected.
+- **The default TraceEvent-backed product stays blocked from Native AOT.** Explicit
+  FastTrace source builds have separate Windows and Linux x64 native evidence; see
+  [source-build.md](source-build.md). That does not change the published default or
+  complete the required native-platform matrix.
+- **Stable release and registry work is a separate decision.** VN1-VN4 selected the
+  transport, output contract, and surface. Alias removal, migration policy, registry
+  collateral, and package publication remain separately authorized work; this plan
+  does not trigger them.
 - **Re-audit the TraceEvent public surface whenever the pin moves**, and enter new
   findings here only after checking them against agent value, capture feasibility,
   dependency cost, and response bounds.
@@ -1229,63 +1259,64 @@ package pin is maintained in [Directory.Packages.props](../Directory.Packages.pr
 
 ### LT1 - repository-scoped local checkout activation redesign
 
-**Status:** Phase 1 merged in PR #98, Phase 2 baseline capture and bounded overlay
-input merged in PR #99, the fixed per-worktree lock merged in PR #100, and
-prepared CLI package validation and fresh private installation merged in PR #101.
-Structured MCP publication and baseline restoration merged in PR #102.
-Reversible skill publication merged in PR #105. Fresh Install, Resume Install,
-and Refresh coordinator wiring is implemented locally on
-`local-testing-coordinator`. The implementation plan and current validation
-status are in
+**Status:** Complete through PR #120. PRs #98-#107 established the fixed resource
+plan, schema-1 state, per-worktree lock, baseline capture, CLI/MCP/skill mutators,
+and Install/Refresh coordination. PR #116 added ordered Restore and Cleanup Retry;
+PRs #117-#119 added bounded, retained source preparation; and PR #120 added the
+thin PowerShell wrapper, executable helper, documentation, and Windows contract.
+The implementation and remaining validation boundaries are recorded in
 [local-testing-redesign.md](local-testing-redesign.md).
 
-Replace PR #94's review-era implementation with one fixed-path, one-schema
-workflow rooted in the consumer repository's Git directory. Keep the useful
-failure corpus, but remove arbitrary managed paths, global CLI mutation, implicit
-schema migration, and the machine-wide ownership registry from V1.
+The accepted redesign replaced PR #94's review-era implementation with one
+fixed-path, one-schema workflow rooted in the consumer repository's Git directory.
+It kept the useful failure corpus while removing arbitrary managed paths, global
+CLI mutation, implicit schema migration, and the machine-wide ownership registry
+from V1.
 
-**Gate:** review and merge the coordinator increment, then implement ordered
-Restore and Cleanup Retry transitions. Dedicated non-Windows validation is
-backlog work for this contributor testing feature.
+Wider Unix coverage, interactive elevation acceptance, and additional interrupted
+preparation automation are deferred harness hardening, not unfinished LT1 product
+behavior. The canonical plan may promote one only when a concrete scenario is
+blocked.
 
 ---
 
-## Acceptance gates for a v.next candidate
+## Stabilization gates for the selected v.next contract
 
 The enforced gates and efficacy measures live in
-[design.md](design.md#measures-of-success). A v.next candidate additionally
-requires:
+[design.md](design.md#measures-of-success). Stabilization additionally requires:
 
 - deterministic tests and parity remain exact;
 - summary-mode JIT and raw-event count tasks fall below 500 response tokens - already
-  met through existing options at 172 and 79, so the current schema must preserve it rather than
+  met through existing options at 194 and 34, so the current schema must preserve it rather than
   reach it, and the two tasks now carry a `maxResponseTokens` of 500 so a live run
   enforces it;
-- duplicate payload copies are eliminated wherever the chosen clients permit it;
-- tool-list target: at most 7,500 tokens if typed output schemas are retained, at
-  most 5,000 if JSON-text-only wins;
+- typed structured output and the text fallback selected by VN1 remain compatible;
+  reconsider transport duplication only with evidence from another chosen client;
+- the tool list remains within the enforced 7,000-token budget (currently about
+  6,710); the rejected JSON-text-only branch is not an alternate acceptance target;
 - the 20% total-token reduction applies to a token-motivated breaking
   consolidation - not to every semantic output-contract improvement. VN0 records the repeatable
   baseline before that threshold is locked.
 
-## Risks
+## Retained risk register
+
+Several risks below were resolved by VN1-VN4. They remain as rationale for the
+selected contracts; active changes must not silently reopen them.
 
 | Risk | Mitigation |
 |---|---|
 | Removing output schemas harms composition | transport A/B/C multi-model eval; retain typed output when inconclusive |
 | Consolidated tools become bags of optional parameters | require discriminated schemas; keep separate tools when the SDK cannot express them |
-| Summary defaults hide evidence | include counts and truncation diagnostics; provide explicit `rows`/`full` escalation |
+| Summary defaults hide evidence | preserve aggregate counts and truncation diagnostics; use the implemented `top: 0` / `take: 0` cardinality endpoints instead of a second detail vocabulary |
 | Query context inflates every response | omit inapplicable and null fields; measure total investigation cost after transport selection |
 | Structured diagnostics become rigid | keep a human message and an extensible `data` object; version codes through schema revisions |
 | CLI grouping hurts shell discoverability | compare top-level help and completion; retain intent-bearing commands |
-| Compatibility aliases erase token gains | never advertise old and new MCP tools together; bound CLI aliases to one preview |
+| Compatibility aliases erase token gains | never advertise old and new MCP tools together; keep CLI aliases hidden and remove them only through an explicit migration policy |
 | Eval overfits one model | run multiple model families, repeat each task, reject any per-model success drop |
 | Reclaimed schema headroom is spent on tool sprawl | hold the 7,000-token gate and require a measured task before adding a standalone tool |
 | Parallelism regresses small traces | gate LP-2 on a sample-count threshold and measure the fast path |
 
-## Open decisions
-
-Resolve these with VN0 and VN1 evidence rather than opinion:
+## Decision record and deferred question
 
 1. ~~Does JSON-text-only preserve agent composition well enough to remove advertised
    output schemas?~~ **Moot.** VN1 showed the client re-materializes structured
@@ -1295,20 +1326,33 @@ Resolve these with VN0 and VN1 evidence rather than opinion:
   schemas without a large optional-parameter bag?~~ **Resolved.** It generates an
   honest union only under a nested request object; the report A/B rejected that
   grammar, and a flat union requires custom binding.
-3. Should CLI report defaults stay detailed while MCP defaults to summary?
-4. Does a manifest case reference improve follow-up reliability enough to justify a
-   new addressing form?
-5. Can global CLI format and detail options be implemented without making per-command
-   help less clear?
-6. ~~Is one preview release of hidden aliases useful, or is a clean pre-1.0 break
-  less confusing?~~ **Resolved.** ConsoleAppFramework hides aliases without breaking
-  direct routing or help; retain them for one preview and remove them in VN5.
+3. ~~Should CLI report defaults stay detailed while MCP defaults to summary?~~
+  **Resolved.** Both heads use the same cardinality controls. `top: 0` and
+  `take: 0` provide compact aggregate/count results where applicable without a
+  second detail vocabulary.
+4. ~~Does a manifest case reference improve follow-up reliability enough to justify
+  a new addressing form?~~ **Resolved.** Schema v14 added case references, and the
+  retained live check completed 20/20 two-call batch-to-rank investigations.
+5. **Deferred:** global CLI format/detail options are not required by the selected
+  surface. Revisit only if a measured consistency or help task justifies changing
+  every command's parsing and help contract.
+6. ~~Are hidden aliases useful during migration?~~ **Resolved.**
+  ConsoleAppFramework hides aliases without breaking direct routing or help, so
+  retain them during the current migration window. VN5 owns an explicit removal
+  policy; elapsed preview releases alone do not remove them.
 7. ~~Where does `lifecycle` belong in a consolidated surface?~~ **Resolved.** Keep
   `trace_lifecycle` separate; hiding its root selectors caused wrong-scope calls.
 
-## Immediate next step
+## Current routing
 
-VC3, per-frame temporal buckets. Prototype CPU periodic samples behind an explicit
-option, cap both rows and bucket count, and retain it only if the bounded histogram
-saves a follow-up `timeline` plus `rank --time` call without slowing or inflating an
-ordinary ranking.
+Follow the priorities and remaining-outcomes tables on this page. As of the
+2026-09-07 coordination update, the immediate work is the breadth-first FastTrace
+existing-API sweep consumed by Filtrace. Filtrace changes enter that path only when
+they expose or remove a demonstrated evidence blocker and are applied fairly to
+comparison arms. Older external setup checklists that still name completed
+PP00/PP01 work do not override the completed status recorded here.
+
+When Filtrace workflow work is scheduled, PP09 prioritizes SC10
+manifest-addressed lifecycle. VC3 temporal buckets remain a bounded experiment,
+not the default next feature: retain them only if a measured task avoids a follow-up
+without penalizing ordinary ranking or output size.

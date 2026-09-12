@@ -2,10 +2,11 @@
 
 **Status:** Retained consumer change, merged in PR #126. **Measured:** 2026-09-06/07.
 
-This comparison-first iteration follows the
-[primary-plan results](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/filtrace-comparison-2026-09-06.md).
+This comparison-first iteration follows the retained 2026-09-06 library comparison.
 It changes the same Filtrace reader loop in both TraceEvent 3.2.6 and the local
-FastTrace source integration. No new API or library-specific branch is needed.
+FastTrace source integration. No new API or library-specific branch is needed. The
+measurements and evidence identities needed to assess this change are retained below;
+the private cross-repository comparison record is supplemental.
 
 ## Evidence And Change
 

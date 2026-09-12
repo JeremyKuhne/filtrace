@@ -1,25 +1,27 @@
 # filtrace docs
 
-The cross-repository plan controls sequencing. Five local pages carry the thinking,
-two carry the operational text, and two are technical decision records.
+The public Filtrace roadmap controls this repository's sequencing and completion
+status. Other pages preserve product principles, executable measurement detail,
+operational guidance, and completed decision records; they are not independent work
+queues.
 
 | Page | What it is |
 | --- | --- |
-| [Primary plan](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/primary-plan.md) | Canonical ordering and completion plan; filtrace's feature backlog is conditional on it. |
 | [design.md](design.md) | Principles, goals, non-goals, and the measures of success every change is judged against. |
-| [roadmap.md](roadmap.md) | The only page holding unshipped work: priorities, gates, and open decisions. |
+| [roadmap.md](roadmap.md) | Public source of truth for Filtrace priorities, completion status, and conditional backlog. |
 | [competitive-analysis.md](competitive-analysis.md) | How filtrace differs from other .NET performance tools, and what to learn from each. |
-| [parallelism-opportunities.md](parallelism-opportunities.md) | Executable BenchmarkDotNet and CLI self-profiling plan for Track D. |
+| [parallelism-opportunities.md](parallelism-opportunities.md) | Executable BenchmarkDotNet and CLI self-profiling detail for PP02/PP08 Track D experiments. |
 | [source-build.md](source-build.md) | Explicit build-only FastTrace source integration and Native AOT commands. |
-| [local-testing-redesign.md](local-testing-redesign.md) | Replacement plan for a smaller repository-scoped local checkout activation workflow. |
+| [local-testing-redesign.md](local-testing-redesign.md) | Completed design and recovery record for repository-scoped local checkout activation. |
+| [stack-traversal-experiment.md](stack-traversal-experiment.md) | Measurement record for the indexed stack traversal retained in PR #126. |
 | [workflow.md](workflow.md) | How to drive filtrace: capture, orient, rank, drill, compare, plus the command and tool catalogs. |
 | [traps.md](traps.md) | The reasoning errors a trace invites, and how to avoid them. |
 | [traceevent-surface-assessment.md](traceevent-surface-assessment.md) | What the pinned TraceEvent 3.2.6 package does and does not provide, and which roadmap items that gates. |
 | [filtrace-etl-trimming.md](filtrace-etl-trimming.md) | Why the ETW process-tree relog is a fixture tool rather than a shipped verb. |
 
-Shipped work is not documented here. Git history and the release tags record what
-landed; the lessons that outlived an initiative are principles in
-[design.md](design.md).
+Git history and release tags remain authoritative for what landed. Completed work
+stays here only when its design rationale, measured tradeoffs, or recovery contract
+continues to constrain future changes.
 
 ## Single-sourced blocks
 
