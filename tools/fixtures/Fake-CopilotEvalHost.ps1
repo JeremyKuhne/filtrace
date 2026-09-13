@@ -188,8 +188,6 @@ if ($mode -eq 'orphan-descendant') {
     [System.Diagnostics.ProcessStartInfo] $descendantStart = [System.Diagnostics.ProcessStartInfo]::new()
     $descendantStart.FileName = (Get-Process -Id $PID).Path
     $descendantStart.UseShellExecute = $false
-    $descendantStart.RedirectStandardOutput = $true
-    $descendantStart.RedirectStandardError = $true
     foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
             '[Threading.Thread]::Sleep(10000)')) {
         [void]$descendantStart.ArgumentList.Add($argument)
@@ -473,6 +471,9 @@ if ($mode -notin @('answer-before-analysis', 'answer-before-skill-context')) {
 }
 if ($mode -eq 'unknown-event') {
     $events.Add([ordered]@{ type = 'future.event'; data = [ordered]@{} })
+}
+if ($mode -eq 'case-variant-event') {
+    $events.Add([ordered]@{ type = 'RESULT'; data = [ordered]@{} })
 }
 $resultEvent = [ordered]@{
     type = 'result'

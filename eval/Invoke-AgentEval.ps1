@@ -464,7 +464,9 @@ function Measure-McpResultTokens {
 
 function ConvertFrom-AgentEvalJsonLines([string[]] $Lines) {
     [System.Collections.Generic.List[object]] $events = [System.Collections.Generic.List[object]]::new()
-    [string[]] $knownTypes = @(
+    [System.Collections.Generic.HashSet[string]] $knownTypes =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($knownType in @(
         'session.start', 'session.info', 'session.managed_settings_resolved',
         'session.mcp_servers_loaded', 'session.skills_loaded',
         'session.tools_updated', 'session.background_tasks_changed', 'session.usage_checkpoint',
@@ -475,14 +477,18 @@ function ConvertFrom-AgentEvalJsonLines([string[]] $Lines) {
         'assistant.turn_start', 'assistant.message_start', 'assistant.tool_call_delta',
         'assistant.message_delta', 'assistant.message', 'assistant.reasoning',
         'assistant.idle', 'assistant.turn_end',
-        'tool.execution_start', 'tool.execution_partial_result', 'tool.execution_complete', 'result')
+        'tool.execution_start', 'tool.execution_partial_result', 'tool.execution_complete', 'result')) {
+        [void]$knownTypes.Add($knownType)
+    }
     foreach ($line in $Lines) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try { $record = $line | ConvertFrom-Json }
         catch { throw "Copilot host emitted malformed JSONL: $($_.Exception.Message)" }
         [string[]] $members = @($record.PSObject.Properties.Name)
-        if ($members -notcontains 'type' -or $record.type -isnot [string] -or
-            $knownTypes -notcontains [string]$record.type) {
+        if (@($members | Where-Object {
+                    [string]::Equals($_, 'type', [StringComparison]::Ordinal)
+                }).Count -ne 1 -or $record.type -isnot [string] -or
+            -not $knownTypes.Contains([string]$record.type)) {
             throw "Copilot host emitted an unknown event type '$($record.type)'."
         }
         $events.Add($record)
@@ -665,6 +671,66 @@ function Get-AgentEvalTaskExpectedOperations($Task) {
         [void]$operations.Add((Get-OperationName -Name $operationSource))
     }
     return [string[]]@($operations)
+}
+
+function Get-AgentEvalStrictRunProjection {
+    param(
+        [Parameter(Mandatory)][object[]] $Tasks,
+        [Parameter(Mandatory)][int] $Iterations,
+        [Parameter(Mandatory)][string] $Arm,
+        [Parameter(Mandatory)][string] $Configuration,
+        [Parameter(Mandatory)][long] $MaxArtifactBytes
+    )
+
+    [string] $appHostName = if ([System.OperatingSystem]::IsWindows()) { 'filtrace.exe' } else { 'filtrace' }
+    [string] $cliSourceDirectory = Join-Path $root "src/Filtrace/bin/$Configuration/net10.0"
+    if (-not (Test-Path -LiteralPath (Join-Path $cliSourceDirectory $appHostName) -PathType Leaf)) {
+        throw "Current-checkout filtrace apphost was not built beneath '$cliSourceDirectory'."
+    }
+    $runtimeInventory = Get-AgentEvalFileInventory `
+        -SourceDirectory $cliSourceDirectory `
+        -DestinationPrefix '' `
+        -ExcludedExtensions @('.pdb', '.xml') `
+        -MaxFiles 256 `
+        -MaxEntries 512 `
+        -MaxBytes 512MB
+    [string] $architectureDirectoryName = switch ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) {
+        ([System.Runtime.InteropServices.Architecture]::X64) { 'amd64' }
+        ([System.Runtime.InteropServices.Architecture]::Arm64) { 'arm64' }
+        default { throw "Unsupported eval process architecture '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)'." }
+    }
+    $architectureInventory = Get-AgentEvalFileInventory `
+        -SourceDirectory (Join-Path $cliSourceDirectory $architectureDirectoryName) `
+        -DestinationPrefix $architectureDirectoryName `
+        -Recurse `
+        -MaxFiles 256 `
+        -MaxEntries 512 `
+        -MaxBytes 512MB
+    [long] $immutableBytes = [long]$runtimeInventory.bytes + [long]$architectureInventory.bytes
+    if ($Arm -eq 'cli-skill') {
+        $skillInventory = Get-AgentEvalFileInventory `
+            -SourceDirectory (Join-Path $root '.agents/skills/filtrace') `
+            -DestinationPrefix '' `
+            -Recurse `
+            -MaxFiles 64 `
+            -MaxEntries 128 `
+            -MaxBytes 16MB
+        $immutableBytes += [long]$skillInventory.bytes
+    }
+
+    [long] $projectedBytes = 0
+    foreach ($task in $Tasks) {
+        [string] $fixturePath = Assert-AgentEvalTrackedFixture `
+            -Root $root `
+            -FixturePath (Join-Path $root $task.fixture)
+        [long] $iterationBytes = $immutableBytes + (Get-Item -LiteralPath $fixturePath).Length +
+            [long]$MaxArtifactBytes + 256MB + 1MB
+        $projectedBytes += $iterationBytes * [long]$Iterations
+    }
+    return [pscustomobject]@{
+        projectedBytes = $projectedBytes
+        maxBytes = 2GB
+    }
 }
 
 function Test-AgentEvalStringMultiset([string[]] $Left, [string[]] $Right) {
@@ -1429,7 +1495,12 @@ if ($AgentHost -eq 'copilot') {
     if ($arm -eq 'mcp') { $script:mcpConfigPath = New-FiltraceMcpConfig }
 }
 
+$strictRunProjection = $null
 if ($AgentHost -eq 'copilot' -and $arm -in @('cli', 'cli-skill')) {
+    [long] $strictIterationCount = [long]$selected.Count * [long]$N
+    if ($strictIterationCount -gt 64) {
+        throw "The Copilot '$arm' arm is limited to 64 total task iterations per invocation; requested $strictIterationCount."
+    }
     [System.Collections.Generic.List[string]] $unsupportedTasks = [System.Collections.Generic.List[string]]::new()
     foreach ($task in $selected) {
         try { [void](Get-AgentEvalTaskCommandFamilies -Task $task -AllowedVerbs $verbs) }
@@ -1438,6 +1509,15 @@ if ($AgentHost -eq 'copilot' -and $arm -in @('cli', 'cli-skill')) {
     if ($unsupportedTasks.Count -gt 0) {
         throw "The Copilot '$arm' arm cannot run the selected task set. Select supported tasks explicitly. " +
             ($unsupportedTasks -join '; ')
+    }
+    $strictRunProjection = Get-AgentEvalStrictRunProjection `
+        -Tasks $selected.ToArray() `
+        -Iterations $N `
+        -Arm $arm `
+        -Configuration $Configuration `
+        -MaxArtifactBytes $MaxHostArtifactBytes
+    if ([long]$strictRunProjection.projectedBytes -gt [long]$strictRunProjection.maxBytes) {
+        throw "The Copilot '$arm' arm projects $($strictRunProjection.projectedBytes) retained bytes, exceeding the run-wide $($strictRunProjection.maxBytes)-byte limit."
     }
 }
 
@@ -1656,7 +1736,8 @@ function Invoke-EvalRun {
         }
 
         $rows.Add([pscustomobject]@{
-                Task = $task.id; 'Success%' = [int]([math]::Round(100.0 * $successes / $N))
+            Task = $task.id; SuccessCount = $successes
+            'Success%' = [int]([math]::Round(100.0 * $successes / $N))
                 MedCalls = (Get-Median $callsList); MedHelpCalls = (Get-Median $helpCallsList)
                 MedTokens = (Get-Median $tokensList); MedMs = (Get-Median $msList)
             })
@@ -1710,6 +1791,7 @@ function Invoke-EvalRun {
         label         = $RunLabel
         n             = $N
         maxSteps      = $MaxSteps
+        strictRunBudget = $strictRunProjection
         mcpDll        = $McpDll
         tokenAccounting = 'offline observed tool-result estimate; hostUsage is the result event; hostUsageFile is bounded host-reported token accounting'
         warnings      = @($iterRecords | ForEach-Object { $_.note } | Where-Object { $_ } | Sort-Object -Unique)

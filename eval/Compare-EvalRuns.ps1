@@ -226,6 +226,16 @@ function Assert-ResultPayload($Payload, [string] $Path) {
       throw "Schema-v3 result '$Path' does not contain every iteration for task '$($row.Task)'."
     }
     [int] $successCount = @($taskIterations | Where-Object { $_.success }).Count
+    [string[]] $rowMembers = @($row.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($rowMembers -contains 'SuccessCount') {
+      if (($row.SuccessCount -isnot [int] -and $row.SuccessCount -isnot [long]) -or
+        [long]$row.SuccessCount -ne $successCount) {
+        throw "Schema-v3 result '$Path' summary 'SuccessCount' does not match task '$($row.Task)' iterations."
+      }
+    }
+    else {
+      $row | Add-Member -NotePropertyName SuccessCount -NotePropertyValue $successCount
+    }
     $expectedSummary = [ordered]@{
       'Success%' = [int][math]::Round(100.0 * $successCount / [int]$Payload.n)
       MedCalls = Get-ResultMedian -Values @($taskIterations | ForEach-Object { $_.calls })
@@ -266,6 +276,8 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
     key       = ('{0}/{1}/{2}' -f $payload.host, $payload.arm, $model)
     label     = [string]$payload.label
     timestamp = $payload.timestamp
+    schemaVersion = [int]$payload.schemaVersion
+    n         = if ([int]$payload.schemaVersion -eq 3) { [int]$payload.n } else { $null }
     summary   = $payload.summary
   }
 }
@@ -311,6 +323,12 @@ foreach ($run in $runs) {
   $c = $cand | Where-Object { $_.key -ceq $run } | Select-Object -First 1
     if (-not $b) { $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no baseline' }); $unpaired++; continue }
     if (-not $c) { $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no candidate' }); $unpaired++; continue }
+    if ($b.schemaVersion -ne $c.schemaVersion -or
+      ($b.schemaVersion -eq 3 -and $b.n -ne $c.n)) {
+      $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'incompatible run bounds' })
+      $unpaired++
+      continue
+    }
 
     $bm = Get-TaskMap $b
     $cm = Get-TaskMap $c
@@ -321,7 +339,12 @@ foreach ($run in $runs) {
             $unpaired++
             continue
         }
-        $ds = [int]$cr.'Success%' - [int]$br.'Success%'
+        $ds = if ($b.schemaVersion -eq 3) {
+          [int]$cr.SuccessCount - [int]$br.SuccessCount
+        }
+        else {
+          [int]$cr.'Success%' - [int]$br.'Success%'
+        }
         $dc = [int]$cr.MedCalls - [int]$br.MedCalls
         $bt = [double]$br.MedTokens; $ct = [double]$cr.MedTokens
         $dtFrac = if ($bt -gt 0) { ($ct - $bt) / $bt } else { 0 }
@@ -332,10 +355,16 @@ foreach ($run in $runs) {
         elseif ($ds -gt 0 -or $dtFrac -lt -0.05 -or $dc -lt 0) { $verdict = 'improved'; $improvements++ }
 
         $sign = if ($dtFrac -ge 0) { '+' } else { '' }
+        [string] $successDisplay = if ($b.schemaVersion -eq 3) {
+          '{0}/{1}->{2}/{3}' -f $br.SuccessCount, $b.n, $cr.SuccessCount, $c.n
+        }
+        else {
+          '{0}->{1}' -f $br.'Success%', $cr.'Success%'
+        }
         $rows.Add([pscustomobject]@{
                 Run     = $run
                 Task    = $t
-                Success = ('{0}->{1}' -f $br.'Success%', $cr.'Success%')
+            Success = $successDisplay
                 Calls   = ('{0}->{1}' -f $br.MedCalls, $cr.MedCalls)
                 Tokens  = ('{0}->{1} ({2}{3}%)' -f $br.MedTokens, $cr.MedTokens, $sign, [int][math]::Round($dtFrac * 100))
                 Verdict = $verdict

@@ -1537,6 +1537,10 @@ catch {
         [long] $nextArtifactCheck = 0
 
         while (-not ($stdoutClosed -and $stderrClosed)) {
+            if ($containProcessTree -and $jobHandle -ne [IntPtr]::Zero -and $process.HasExited) {
+                [Filtrace.AgentEval.WindowsJobObject]::Close($jobHandle)
+                $jobHandle = [IntPtr]::Zero
+            }
             if ($stopwatch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
                 Stop-AgentEvalProcess $process $started
                 throw "Copilot host did not finish within $TimeoutSeconds seconds."

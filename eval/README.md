@@ -112,8 +112,8 @@ contract and the no-LLM gate.
   verb. The parser admits only explicitly recorded event type names with a basic
   JSON object shape. Decoy text, extra commands, writes, unknown tools, unknown
   event types, malformed events, and failed completions do not pass.
-- **`copilot` -> cli-skill arm** uses the same host, explicit model, and available
-  tools and task prompt as the Copilot cli arm, but copies the exact shipped
+- **`copilot` -> cli-skill arm** uses the same host, explicit model, task prompt,
+  and PowerShell access as the Copilot cli arm, but adds the native `skill` tool and copies the exact shipped
   `.agents/skills/filtrace` tree into the owned workspace and enables normal
   project-skill discovery. It requires one enabled `source: project` Filtrace
   entry at the copied path, one exact `skill {"skill":"filtrace"}` invocation,
@@ -137,6 +137,10 @@ access. Their available tools are only `powershell`, plus `skill` for cli-skill;
 the other observed host built-ins are explicitly excluded. On Windows, a handshake
 launcher joins a kill-on-close Job Object before it may start Copilot, so children
 remain owned and are terminated when the bounded run ends even if the host exits first.
+One invocation is capped at 64 total strict task iterations so copied immutable
+bundles and retained run evidence cannot grow without a run-wide bound. Before
+launch, actual fixture/CLI/skill input sizes plus the maximum per-run artifact and
+runtime budgets must also fit a 2 GiB projected retained-byte cap.
 There is no shell allow rule. Normal permissions deny all shell, write, and URL
 requests. They also pass `read` to `--deny-tool`; Copilot CLI 1.0.82 accepts that
 argument. Retained real-host probes established that a matching `preToolUse` allow
@@ -262,7 +266,9 @@ causal `start < completion < context/answer` order, and strict CLI grading requi
 every operation derived from the task's canonical steps in addition to explicit
 task expectations.
 Results land under `eval/results/` (git-ignored) as schema-v3 JSON with a median
-summary. `hostUsage` retains the result event. `hostUsageFile` separately records
+summary. Schema-v3 rows retain exact `SuccessCount` for comparison while
+`Success%` remains a rounded display value; older schema-v3 rows derive the count
+from their validated iterations. `hostUsage` retains the result event. `hostUsageFile` separately records
 the bounded `--usage-output-file`, its hash, and detailed input/output/cache counts;
 a missing file remains explicitly unavailable rather than becoming zero. An
 available file must contain nonnegative premium-request/user counts, a nonempty

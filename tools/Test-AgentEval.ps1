@@ -303,6 +303,10 @@ try {
     try { [void](ConvertFrom-AgentEvalJsonLines @('{"type":"future.event","data":{}}')) }
     catch { $unknownRecordedEventRejected = $_.Exception.Message.Contains('unknown event type', [StringComparison]::Ordinal) }
     Assert-True $unknownRecordedEventRejected 'The isolated JSONL parser accepted an unrecorded event type.'
+    [bool] $caseVariantEventRejected = $false
+    try { [void](ConvertFrom-AgentEvalJsonLines @('{"type":"RESULT","exitCode":0}')) }
+    catch { $caseVariantEventRejected = $_.Exception.Message.Contains('unknown event type', [StringComparison]::Ordinal) }
+    Assert-True $caseVariantEventRejected 'The isolated JSONL parser accepted a case-variant event type.'
 
     $serializedLedger = (ConvertTo-AgentEvalResultJson ([ordered]@{
                 request = [ordered]@{ arguments = [ordered]@{ view_range = @(251, 500) } }
@@ -893,6 +897,11 @@ try {
         -Mode unknown-event `
         -ExpectedMessage 'unknown event type' `
         -ExpectedRawText '"type":"future.event"'
+    Assert-FakeParserFailureArtifacts `
+        -Name 'case variant event' `
+        -Mode case-variant-event `
+        -ExpectedMessage 'unknown event type' `
+        -ExpectedRawText '"type":"RESULT"'
     Assert-FakeRunThrows -Name 'mutated bundle' -Mode mutated-bundle -ExpectedMessage 'input attestation failed'
     $immutableGrowthStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     Assert-FakeRunThrows `
@@ -984,7 +993,11 @@ try {
     Assert-FakeRunThrows -Name 'output bound' -Mode oversized-output -ExpectedMessage 'output exceeded 1024 bytes' -MaxOutputBytes 1024
     Assert-FakeRunThrows -Name 'artifact bound' -Mode oversized-artifact -ExpectedMessage 'artifacts exceeded 16777216 bytes'
 
+    $descendantStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $descendantRun = Invoke-FakeRun -Name 'orphan descendant' -Mode orphan-descendant
+    $descendantStopwatch.Stop()
+    Assert-True ($descendantStopwatch.Elapsed.TotalSeconds -lt 4) `
+        'Inherited descendant output handles delayed contained host completion.'
     [string] $descendantPidPath = Join-Path $descendantRun.iterations[0].execution.workspace 'descendant.pid'
     Assert-True (Test-Path -LiteralPath $descendantPidPath -PathType Leaf) `
         'Fake host did not record its descendant process id.'
@@ -1286,6 +1299,44 @@ try {
     Assert-True $unsupportedDefaultTasksRejected `
         'Strict CLI arm did not reject unsupported default tasks before host launch.'
 
+    [bool] $strictRunCapRejected = $false
+    try {
+        & $runner `
+            -AgentHost copilot `
+            -Arm cli `
+            -Model expected-model `
+            -ExpectedModel expected-model `
+            -Tasks gc-report `
+            -N 65 `
+            -OutDir (Join-Path $temporaryRoot 'strict run cap') `
+            -CopilotPath $pwshPath `
+            -CopilotAdapterPath $fakeHost
+    }
+    catch {
+        $strictRunCapRejected = $_.Exception.Message.Contains(
+            'limited to 64 total task iterations', [StringComparison]::Ordinal)
+    }
+    Assert-True $strictRunCapRejected 'Strict CLI arm accepted more than 64 total task iterations.'
+
+    [bool] $strictRunBytesRejected = $false
+    try {
+        & $runner `
+            -AgentHost copilot `
+            -Arm cli `
+            -Model expected-model `
+            -ExpectedModel expected-model `
+            -Tasks gc-report `
+            -N 8 `
+            -OutDir (Join-Path $temporaryRoot 'strict run bytes') `
+            -CopilotPath $pwshPath `
+            -CopilotAdapterPath $fakeHost
+    }
+    catch {
+        $strictRunBytesRejected = $_.Exception.Message.Contains(
+            'exceeding the run-wide 2147483648-byte limit', [StringComparison]::Ordinal)
+    }
+    Assert-True $strictRunBytesRejected 'Strict CLI arm accepted an over-budget retained-byte projection.'
+
     $comparisonDirectory = Join-Path $temporaryRoot 'comparison'
     [void](Invoke-FakeRun -Name 'comparison baseline' -Mode success -Label baseline -OutDir $comparisonDirectory)
     [void](Invoke-FakeRun -Name 'comparison candidate' -Mode success -Label candidate -OutDir $comparisonDirectory)
@@ -1307,6 +1358,19 @@ try {
     }
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $defaultMcpDirectory
     Assert-True ($LASTEXITCODE -eq 0) 'Verified default-model Copilot MCP records did not compare neutral.'
+
+    $legacyV3Directory = Join-Path $temporaryRoot 'legacy schema-v3 comparison'
+    [System.IO.Directory]::CreateDirectory($legacyV3Directory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $legacyV3 = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        $legacyV3.summary[0].PSObject.Properties.Remove('SuccessCount')
+        [System.IO.File]::WriteAllText(
+            (Join-Path $legacyV3Directory $resultPath.Name),
+            (($legacyV3 | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $legacyV3Directory
+    Assert-True ($LASTEXITCODE -eq 0) 'Older schema-v3 records without persisted SuccessCount did not compare neutral.'
 
     $caseDistinctDirectory = Join-Path $temporaryRoot 'case-distinct model comparison'
     [System.IO.Directory]::CreateDirectory($caseDistinctDirectory) | Out-Null
@@ -1330,6 +1394,35 @@ try {
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $caseDistinctDirectory
     Assert-True ($LASTEXITCODE -eq 1) 'Case-distinct model identities were paired as one run.'
 
+    $roundedSuccessDirectory = Join-Path $temporaryRoot 'rounded success comparison'
+    [System.IO.Directory]::CreateDirectory($roundedSuccessDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $roundedSuccess = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        $seed = $roundedSuccess.iterations[0]
+        $roundedSuccess.n = 1000
+        $roundedSuccess.iterations = @(for ($iteration = 1; $iteration -le 1000; $iteration++) {
+                [pscustomobject]@{
+                    task = $seed.task
+                    iteration = $iteration
+                    success = -not ($roundedSuccess.label -ceq 'candidate' -and $iteration -eq 1000)
+                    calls = $seed.calls
+                    helpCalls = $seed.helpCalls
+                    tokens = $seed.tokens
+                    wallMs = $seed.wallMs
+                    observedModel = $seed.observedModel
+                    observedModels = $seed.observedModels
+                }
+            })
+        $roundedSuccess.summary[0].SuccessCount = if ($roundedSuccess.label -ceq 'candidate') { 999 } else { 1000 }
+        $roundedSuccess.summary[0].'Success%' = 100
+        [System.IO.File]::WriteAllText(
+            (Join-Path $roundedSuccessDirectory $resultPath.Name),
+            (($roundedSuccess | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $roundedSuccessDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'A one-in-1000 exact success regression was hidden by rounded percentages.'
+
     $legacyDirectory = Join-Path $temporaryRoot 'legacy comparison'
     [System.IO.Directory]::CreateDirectory($legacyDirectory) | Out-Null
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
@@ -1350,7 +1443,7 @@ try {
         foreach ($case in @(
             'malformed', 'empty-summary', 'duplicate-task', 'wrong-field-type',
             'summary-success-mismatch', 'summary-median-mismatch', 'missing-strict-expected-model',
-            'oversized-n', 'oversized-max-steps')) {
+            'wrong-success-count', 'oversized-n', 'oversized-max-steps')) {
         $caseDirectory = Join-Path $temporaryRoot "comparison $case"
         [System.IO.Directory]::CreateDirectory($caseDirectory) | Out-Null
         foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
@@ -1369,6 +1462,7 @@ try {
                 'summary-success-mismatch' { $invalid.summary[0].'Success%' = 0 }
                 'summary-median-mismatch' { $invalid.summary[0].MedCalls = [int]$invalid.summary[0].MedCalls + 1 }
                 'missing-strict-expected-model' { $invalid.model.expected = $null }
+                'wrong-success-count' { $invalid.summary[0].SuccessCount = 0 }
                 'oversized-n' { $invalid.n = 1001 }
                 'oversized-max-steps' { $invalid.maxSteps = 65 }
             }
