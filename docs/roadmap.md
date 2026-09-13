@@ -65,8 +65,8 @@ true.
 | When | Items | Why now |
 | --- | --- | --- |
 | Done | VN0-VN4, VC2, SC8, SC11, SC13, LT1 | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, command provenance, decisive-query replay, and repository-local activation are implemented. |
-| Active coordinated work | EP1 CLI-plus-skill efficacy preflight | Add a fail-closed, genuine-discovery skill arm beside CLI-only, then retain one matched smoke per arm. Keep the same host, model, CLI, task, and command policy. |
-| Next when scheduled | EP1 measured runs, PP02 evidence gaps, PP10 adoption | After preflight, run three alternating ready-capture pairs. Run one full-loop pair only after that comparison is accepted. Complete other evidence or adoption work when the result selects it. |
+| Active coordinated work | EP1 ready-capture comparison | Run three alternating CLI-plus-skill / CLI-only pairs with the frozen preflight contract and transcript-level grading. Do not infer efficacy from the completed one-pair smoke. |
+| Next when scheduled | EP1 full-loop pair, PP02 evidence gaps, PP10 adoption | Run one matched development-loop pair after accepting the ready-capture result. Complete other evidence or adoption work when that result selects it. |
 | Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the named public scenario and gate recorded here; these are not the current default implementation queue. |
 | Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the remaining-outcomes table below; production implementation follows only for a kept candidate. |
 | Dependency opportunities | TE-P1..TE-P5 | First demonstrate a Filtrace scenario, material cost, and compatible ownership/lifetime contract against the selected dependency. They are not Filtrace-only changes and do not justify speculative upstream work. |
@@ -84,7 +84,7 @@ gates.
 
 | Area | Remaining outcome | Kind |
 | --- | --- | --- |
-| Active cross-repository work | Implement EP1 preflight, then compare CLI plus genuinely discovered skill against CLI-only on one ready-capture task. Keep model, host, CLI, fixture, prompt, and tool policy fixed. | Agent workflow evidence |
+| Active cross-repository work | Compare CLI plus genuinely discovered skill against CLI-only on one ready-capture task. Keep model, host, CLI, fixture, prompt, and tool policy fixed. | Agent workflow evidence |
 | PP02 / Track D evidence | Recheck the durable corpus and complete an exact baseline-versus-baseline default-job reconstruction. Add provider-rich, negative-control, repeated-query, disposal/eviction, and bounded-concurrency evidence only as a selected comparison needs it. Reach a kept, rejected, or explicitly blocked disposition for each scheduled LP item; inconclusive experiments do not close one. | Harness and evidence |
 | PP09 workflow | Evaluate SC10 manifest-addressed lifecycle first. Implement ambiguity, routing, or hint improvements only from a reproduced agent failure; VC3 remains optional. | Conditional Filtrace implementation |
 | PP10 adoption | Decide whether and how FastTrace becomes a product dependency; complete required native host evidence or explicitly narrow the claim, and resolve default DIA/native-symbol distribution. | Validation and product decision |
@@ -93,6 +93,21 @@ gates.
 
 VC4-VC8, VC1, general harness hardening, and speculative parallel implementations
 are outside the current finish line unless a required scenario promotes them.
+
+### EP1 preflight - complete
+
+The deterministic fake-host contract fails closed for wrong or missing model,
+skill, tool, result, and usage evidence. Copilot CLI 1.0.82 discovered the owned
+project skill and reported exact model ID `gpt-5.6-sol-fast`. One smoke per arm
+used identical CLI and fixture hashes and returned the same correct CPU/caller
+answer. CLI-only used two analysis calls, one help call, 932 observed result tokens,
+and 23.850 seconds. CLI plus skill used two analysis calls, one help call, two
+safely denied repair attempts, 955 observed result tokens, and 43.512 seconds.
+Both reported one premium request and complete host usage files.
+
+This N=1 pair establishes protocol and accounting readiness, not a skill advantage.
+The retained identities and full token counts are in
+[eval/README.md](../eval/README.md#ep1-preflight-checkpoint).
 
 ---
 
@@ -1355,8 +1370,7 @@ selected contracts; active changes must not silently reopen them.
 ## Current routing
 
 Follow the priorities and remaining-outcomes tables on this page. As of the
-2026-09-12 coordination update, the immediate work is EP1: prove the fail-closed
-CLI-plus-skill and CLI-only arms, then run their bounded ready-capture comparison.
-Do not start another broad FastTrace sweep, general harness campaign, SC10, or VC3
-experiment in parallel. Promote one only when the accepted EP1 evidence identifies
-it as the next owner.
+2026-09-13 preflight checkpoint, the immediate work is three alternating EP1
+ready-capture pairs with transcript-level grading. Do not start another broad
+FastTrace sweep, general harness campaign, SC10, or VC3 experiment in parallel.
+Promote one only when the accepted EP1 evidence identifies it as the next owner.

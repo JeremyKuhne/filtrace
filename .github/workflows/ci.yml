@@ -162,6 +162,10 @@ jobs:
         shell: pwsh
         run: ./eval/Invoke-Eval.ps1 -Configuration Release
 
+      - name: Agent eval fake-host contract
+        shell: pwsh
+        run: ./tools/Test-AgentEval.ps1
+
   # The main ruleset requires this stable check name. `if: always()` and the
   # explicit result checks turn upstream failures or cancellations into a red
   # required check rather than a skipped one.

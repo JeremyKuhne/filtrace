@@ -21,16 +21,16 @@
     ./eval/Compare-EvalRuns.ps1 -Baseline baseline -Candidate candidate
 
   Runs are paired by full identity (host/arm/model), so the report shows whether a
-  change that helps one model regresses another - the overfitting signal a second
+  change that helps one model regresses another - a paired descriptive signal a second
   host would otherwise provide - and runs from different hosts/arms (whose token
   and call counts are not comparable) never pair silently. The verdict is the
-  design's regression budget, which also serves as the noise threshold:
+  configured regression policy:
 
     - a success drop on any task/run            -> REGRESSION
     - token growth over the tolerance (15%)      -> REGRESSION
     - a run present on only one side             -> REJECT (cannot verify)
     - otherwise: higher success, fewer calls, or
-      a token drop beyond noise (> 5%)           -> improved; smaller deltas neutral
+      a token drop over 5%                        -> improved; smaller deltas neutral
 
   Exit code is 1 if any regression or unpaired run is found (so it can gate a
   tuning round), else 0.
@@ -60,19 +60,160 @@ $ErrorActionPreference = 'Stop'
 if (-not $ResultsDir) { $ResultsDir = Join-Path $PSScriptRoot 'results' }
 if (-not (Test-Path $ResultsDir)) { throw "No results directory at '$ResultsDir'. Run Invoke-AgentEval.ps1 -Label first." }
 
-# Load every labeled result payload (host/arm/model, label, timestamp, summary).
-$all = Get-ChildItem -Path $ResultsDir -Filter '*.json' | ForEach-Object {
-    $f = $_.FullName
-    try { $p = Get-Content $f -Raw | ConvertFrom-Json }
-    catch { Write-Warning "Skipping unreadable result '$f': $($_.Exception.Message)"; return }
-    if ($p.label) {
-        [pscustomobject]@{
-            key       = ('{0}/{1}/{2}' -f $p.host, $p.arm, $p.model)
-            label     = [string]$p.label
-            timestamp = $p.timestamp
-            summary   = $p.summary
-        }
+function Test-FiniteNumber($Value) {
+  if ($Value -isnot [byte] -and $Value -isnot [sbyte] -and
+    $Value -isnot [short] -and $Value -isnot [ushort] -and
+    $Value -isnot [int] -and $Value -isnot [uint] -and
+    $Value -isnot [long] -and $Value -isnot [ulong] -and
+    $Value -isnot [float] -and $Value -isnot [double] -and
+    $Value -isnot [decimal]) {
+    return $false
     }
+
+  [double] $number = [double]$Value
+  return -not [double]::IsNaN($number) -and -not [double]::IsInfinity($number)
+}
+
+function Assert-ResultPayload($Payload, [string] $Path) {
+  [string[]] $requiredRoot = @('schemaVersion', 'host', 'arm', 'label', 'timestamp', 'summary')
+  [string[]] $rootMembers = @($Payload.PSObject.Properties.Name)
+  foreach ($member in $requiredRoot) {
+    if ($rootMembers -notcontains $member) { throw "Result '$Path' is missing '$member'." }
+  }
+
+  if ($Payload.schemaVersion -isnot [long] -and $Payload.schemaVersion -isnot [int]) {
+    throw "Result '$Path' has a non-integer schemaVersion."
+  }
+  [int] $schemaVersion = [int]$Payload.schemaVersion
+  if ($schemaVersion -notin @(2, 3)) { throw "Result '$Path' has unsupported schemaVersion $schemaVersion." }
+  foreach ($member in @('host', 'arm', 'label')) {
+    if ($Payload.$member -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.$member)) {
+      throw "Result '$Path' has an invalid '$member'."
+    }
+  }
+  [datetime] $parsedTimestamp = [datetime]::MinValue
+  if ($Payload.timestamp -is [datetime]) {
+    $parsedTimestamp = [datetime]$Payload.timestamp
+  }
+  elseif ($Payload.timestamp -isnot [string] -or
+    -not [datetime]::TryParse([string]$Payload.timestamp, [ref]$parsedTimestamp)) {
+    throw "Result '$Path' has an invalid timestamp."
+  }
+
+  [object[]] $summary = @($Payload.summary)
+  if ($summary.Count -eq 0) { throw "Result '$Path' has an empty summary." }
+  [System.Collections.Generic.HashSet[string]] $tasks = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach ($row in $summary) {
+    [string[]] $rowMembers = @($row.PSObject.Properties.Name)
+    foreach ($member in @('Task', 'Success%', 'MedCalls', 'MedTokens', 'MedMs')) {
+      if ($rowMembers -notcontains $member) { throw "Result '$Path' summary row is missing '$member'." }
+    }
+    if ($row.Task -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$row.Task)) {
+      throw "Result '$Path' has an invalid summary task."
+    }
+    if (-not $tasks.Add([string]$row.Task)) { throw "Result '$Path' repeats summary task '$($row.Task)'." }
+    foreach ($member in @('Success%', 'MedCalls', 'MedTokens', 'MedMs')) {
+      if (-not (Test-FiniteNumber $row.$member)) { throw "Result '$Path' has an invalid '$member' value." }
+    }
+    [double] $success = [double]$row.'Success%'
+    if ($success -lt 0 -or $success -gt 100 -or $success -ne [math]::Truncate($success)) {
+      throw "Result '$Path' has an out-of-range Success% value."
+    }
+    foreach ($member in @('MedCalls', 'MedTokens', 'MedMs')) {
+      if ([double]$row.$member -lt 0 -or [double]$row.$member -gt [int]::MaxValue -or
+        [double]$row.$member -ne [math]::Truncate([double]$row.$member)) {
+        throw "Result '$Path' has an out-of-range '$member' value."
+      }
+    }
+  }
+
+  if ($schemaVersion -eq 2) {
+    if ($rootMembers -notcontains 'model' -or $Payload.model -isnot [string] -or
+      [string]::IsNullOrWhiteSpace([string]$Payload.model)) {
+      throw "Legacy result '$Path' has an invalid model."
+    }
+    return
+  }
+
+  foreach ($member in @('model', 'n', 'maxSteps', 'iterations')) {
+    if ($rootMembers -notcontains $member) { throw "Schema-v3 result '$Path' is missing '$member'." }
+  }
+  [string[]] $modelMembers = @($Payload.model.PSObject.Properties.Name)
+  foreach ($member in @('requested', 'observed', 'verified')) {
+    if ($modelMembers -notcontains $member) { throw "Schema-v3 result '$Path' model is missing '$member'." }
+  }
+  if ($Payload.model.requested -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.model.requested) -or
+    $Payload.model.observed -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.model.observed) -or
+    $Payload.model.verified -isnot [bool] -or -not $Payload.model.verified -or
+    -not [string]::Equals([string]$Payload.model.requested, [string]$Payload.model.observed, [StringComparison]::Ordinal)) {
+    throw "Schema-v3 result '$Path' does not contain verified exact model identity."
+  }
+  if ($Payload.n -isnot [long] -and $Payload.n -isnot [int] -or [long]$Payload.n -lt 1 -or [long]$Payload.n -gt 1000 -or
+    $Payload.maxSteps -isnot [long] -and $Payload.maxSteps -isnot [int] -or [long]$Payload.maxSteps -lt 1 -or [long]$Payload.maxSteps -gt 1000) {
+    throw "Schema-v3 result '$Path' has invalid iteration bounds."
+  }
+
+  [object[]] $iterations = @($Payload.iterations)
+  if ($iterations.Count -ne ($tasks.Count * [int]$Payload.n)) {
+    throw "Schema-v3 result '$Path' has an invalid iteration count."
+  }
+  [System.Collections.Generic.HashSet[string]] $iterationKeys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach ($iteration in $iterations) {
+    [string[]] $iterationMembers = @($iteration.PSObject.Properties.Name)
+    foreach ($member in @('task', 'iteration', 'success', 'calls', 'tokens', 'wallMs', 'observedModel', 'observedModels')) {
+      if ($iterationMembers -notcontains $member) { throw "Schema-v3 result '$Path' iteration is missing '$member'." }
+    }
+    if ($iteration.task -isnot [string] -or -not $tasks.Contains([string]$iteration.task) -or
+      $iteration.iteration -isnot [long] -and $iteration.iteration -isnot [int] -or
+      [long]$iteration.iteration -lt 1 -or [long]$iteration.iteration -gt [long]$Payload.n -or
+      $iteration.success -isnot [bool]) {
+      throw "Schema-v3 result '$Path' has an invalid iteration identity."
+    }
+    [string] $iterationKey = "$($iteration.task)/$($iteration.iteration)"
+    if (-not $iterationKeys.Add($iterationKey)) { throw "Schema-v3 result '$Path' repeats iteration '$iterationKey'." }
+    foreach ($member in @('calls', 'tokens', 'wallMs')) {
+      if (-not (Test-FiniteNumber $iteration.$member) -or [double]$iteration.$member -lt 0 -or
+        [double]$iteration.$member -gt [int]::MaxValue -or
+        [double]$iteration.$member -ne [math]::Truncate([double]$iteration.$member)) {
+        throw "Schema-v3 result '$Path' has an invalid iteration '$member'."
+      }
+    }
+    [object[]] $observedModels = @($iteration.observedModels)
+    if ($iteration.observedModel -isnot [string] -or
+      -not [string]::Equals([string]$iteration.observedModel, [string]$Payload.model.observed, [StringComparison]::Ordinal) -or
+      $observedModels.Count -ne 1 -or $observedModels[0] -isnot [string] -or
+      -not [string]::Equals([string]$observedModels[0], [string]$Payload.model.observed, [StringComparison]::Ordinal)) {
+      throw "Schema-v3 result '$Path' iteration model identity does not match the report."
+    }
+  }
+}
+
+function Get-LabelFilePattern([string] $Label) {
+  [string] $safeLabel = $Label -replace '[^\w.-]', '_'
+  return "-$([regex]::Escape($safeLabel))-\d{8}-\d{6}-\d{3}\.json$"
+}
+
+# Load only generated top-level result files for the requested labels. Any matching
+# file that cannot be parsed or validated makes the comparison unverifiable.
+[string[]] $labelPatterns = @((Get-LabelFilePattern $Baseline), (Get-LabelFilePattern $Candidate))
+$all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Object {
+  [string] $name = $_.Name
+  @($labelPatterns | Where-Object { $name -match $_ }).Count -gt 0
+} | ForEach-Object {
+  [string] $path = $_.FullName
+  try { $payload = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json }
+  catch { throw "Unreadable matching result '$path': $($_.Exception.Message)" }
+  Assert-ResultPayload -Payload $payload -Path $path
+  if ($payload.label -notin @($Baseline, $Candidate)) {
+    throw "Result '$path' filename label does not match payload label '$($payload.label)'."
+  }
+  [string] $model = if ([int]$payload.schemaVersion -eq 2) { [string]$payload.model } else { [string]$payload.model.observed }
+  [pscustomobject]@{
+    key       = ('{0}/{1}/{2}' -f $payload.host, $payload.arm, $model)
+    label     = [string]$payload.label
+    timestamp = $payload.timestamp
+    summary   = $payload.summary
+  }
 }
 
 # The latest payload per (label, run) where run = host/arm/model.
