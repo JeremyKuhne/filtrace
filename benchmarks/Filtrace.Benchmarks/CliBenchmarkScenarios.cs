@@ -12,6 +12,7 @@ internal static class CliBenchmarkScenarios
 {
     private static readonly CliScenarioDefinition[] Definitions =
     [
+        new("cache-convert-warm", CliScenarioOperation.CacheConvert),
         new("info-warm", CliScenarioOperation.Info),
         new("rank-self-warm", CliScenarioOperation.RankSelf),
         new("rank-inclusive-warm", CliScenarioOperation.RankInclusive),
@@ -22,6 +23,7 @@ internal static class CliBenchmarkScenarios
         new("diff-24", CliScenarioOperation.Diff, CaseCount: 24),
         new("symbols-1", CliScenarioOperation.Symbols, SymbolDllCount: 1),
         new("symbols-32", CliScenarioOperation.Symbols, SymbolDllCount: 32),
+        new("cache-convert-cold", CliScenarioOperation.CacheConvert, Cold: true),
         new("info-cold", CliScenarioOperation.Info, Cold: true),
         new("batch-cold-8", CliScenarioOperation.Batch, Cold: true, CaseCount: 8),
         new("batch-cold-24", CliScenarioOperation.Batch, Cold: true, CaseCount: 24),
@@ -73,6 +75,7 @@ internal static class CliBenchmarkScenarios
         string? symbolsDirectory = null) =>
             definition.Operation switch
             {
+                CliScenarioOperation.CacheConvert => ["cache", trace, "--action", "convert"],
                 CliScenarioOperation.Info => ["info", trace, "--format", "json"],
                 CliScenarioOperation.RankSelf =>
                     ["rank", trace, "--metric", "cpu", "--format", "json"],

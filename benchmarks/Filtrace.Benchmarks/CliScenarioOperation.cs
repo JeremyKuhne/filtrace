@@ -10,6 +10,11 @@ namespace Filtrace.Benchmarks;
 internal enum CliScenarioOperation
 {
     /// <summary>
+    ///  Builds or reuses the ETLX conversion cache without loading an analysis provider.
+    /// </summary>
+    CacheConvert,
+
+    /// <summary>
     ///  Loads trace metadata and provider availability without running a ranking.
     /// </summary>
     Info,

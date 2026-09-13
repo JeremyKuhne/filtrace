@@ -274,6 +274,21 @@ public sealed class SourceResolutionTrackerTests
     }
 
     [TestMethod]
+    public void Read_NoSymbolsDirectory_SkipsSourceLineLookup()
+    {
+        string path = Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");
+        NetTraceReader reader = new();
+
+        TraceReadResult result = reader.Read(path);
+
+        result.Samples.All(static sample => sample.FrameLocations is null).Should().BeTrue();
+        SourceResolutionInfo source = result.SourceResolution!;
+        source.SearchedDirectories.Should().BeEmpty();
+        source.MappedManagedFrameCount.Should().Be(0);
+        source.SourceMappedManagedMethodCount.Should().Be(0);
+    }
+
+    [TestMethod]
     public void Read_SameNamedWrongIdentityPdb_ReportsMismatch()
     {
         string path = Path.Join(AppContext.BaseDirectory, "Fixtures", "activity.nettrace");

@@ -47,7 +47,7 @@ internal sealed class CliColdTraceCorpus : DisposableBase
             Path.GetTempPath(),
             $"filtrace-cli-cold-{Guid.NewGuid():N}");
 
-        string trace = Path.Join(root, "activity.nettrace");
+        string trace = Path.Join(root, $"trace{Path.GetExtension(sourceTrace)}");
         CliColdTraceCorpus corpus = new(root, trace);
         try
         {

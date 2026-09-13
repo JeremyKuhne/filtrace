@@ -38,9 +38,11 @@ same core rules even when they are not shipped in the filtrace skill.
 
 ## Local invariants
 
-- Benchmark runs belong under
-  `BenchmarkDotNet.Artifacts/filtrace-runs/<RunId>/`. Reject a reused nonempty run
-  directory so stale captures cannot enter the current manifest.
+- Benchmark runs belong under `<OutputDirectory>/<RunId>/`, with
+  `BenchmarkDotNet.Artifacts/filtrace-runs` as the compatibility default. Reject a
+  reused run directory, claim, launcher, or terminal result so stale captures cannot
+  enter the current manifest. Once atomically claimed, a run must end with a manifest,
+  a timeout result naming the active owner, or a failure result and diagnostic log.
 - The capture lock key is `(project, target framework)`, with lock files under the
   project `obj/filtrace-capture-locks/` directory. Hold the file handle for the
   protected lifetime; sibling projects in one directory must remain independent.

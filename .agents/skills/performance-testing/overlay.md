@@ -47,6 +47,7 @@ core-pin: v0.14.0
   dotnet build src/Filtrace/Filtrace.csproj -c Release
   $filtraceName = if ($IsWindows) { 'filtrace.exe' } else { 'filtrace' }
   $filtrace = (Resolve-Path (Join-Path 'src/Filtrace/bin/Release/net10.0' $filtraceName)).Path
+  $captureRoot = (New-Item -ItemType Directory -Force artifacts/filtrace-captures).FullName
   ```
 - Profile one product benchmark with
   [Capture-BenchmarkTrace.ps1](../filtrace/scripts/Capture-BenchmarkTrace.ps1):
@@ -55,8 +56,13 @@ core-pin: v0.14.0
   ./.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1 `
     -Project benchmarks/Filtrace.Benchmarks `
     -Filter '*TimelineProviderBenchmarks.Snapshot*' `
-    -FiltracePath $filtrace
+    -FiltracePath $filtrace `
+    -OutputDirectory $captureRoot
   ```
+- For ETW, include `BenchmarkDotNet.Diagnostics.Windows` in the evaluated benchmark
+  project; central version management alone is insufficient. When the current host
+  cannot initiate UAC, add `-Profiler ETW -Prepare`, then run the returned launcher
+  as one explicit user action.
 - The helper's printed `filtrace` commands are argument templates. Execute those
   arguments through `& $filtrace`, preserving the same locally built analyzer. For
   an A/B investigation, build one baseline checkout and use that fixed local CLI to

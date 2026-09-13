@@ -9,8 +9,8 @@ coordination records are supplemental evidence, not required to interpret this p
 remaining-outcomes tables below state what is active, next, conditional, complete,
 or outside the current finish line.
 
-**Last verified:** 2026-09-08 against `main` at `a7ebd5e` and the coordinated
-cross-repository priorities updated 2026-09-07.
+**Last verified:** 2026-09-13 against `main` at `d46f39c` and the coordinated
+cross-repository priorities updated 2026-09-12.
 
 Completed sections remain only where their measured decisions constrain future
 work. Git history and release tags record what landed; durable lessons live in
@@ -50,14 +50,23 @@ true.
   model context is client-dependent and still has to be measured per host.
 - **The deterministic eval suite answers all 27 fixture-backed tasks**, most in one
   call. The surface works; the open question is efficiency, not correctness.
+- **Two FastTrace existing-API sweeps are complete.** FastTrace PR #298 retained
+  GC reconstruction and classic replay improvements while preserving rejected and
+  weakly attributed experiments. Broad API optimization is no longer the active
+  coordination item.
+- **Ordinary symbol and capture blockers were reduced after the first sweep.** PR
+  #130 avoids source lookup when no local symbol directory is requested and
+  deduplicates native module work. PR #131 makes BenchmarkDotNet ETW preparation,
+  ownership, timeout, and result handling fail closed. Real UAC remains a manual
+  Windows boundary.
 
 ## Priorities
 
 | When | Items | Why now |
 | --- | --- | --- |
 | Done | VN0-VN4, VC2, SC8, SC11, SC13, LT1 | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, command provenance, decisive-query replay, and repository-local activation are implemented. |
-| Active coordinated work | FastTrace existing-API sweep | Filtrace supplies workloads and self-hosted evidence. Further Filtrace implementation is active only when it exposes or removes a demonstrated blocker to valid comparison evidence. |
-| Next when scheduled | PP02 evidence gaps, SC10, PP08 dispositions | Complete comparison-needed measurement evidence, make lifecycle manifest-addressable, and reach measured keep/reject/blocked decisions for relevant LP hypotheses. |
+| Active coordinated work | EP1 CLI-plus-skill efficacy preflight | Add a fail-closed, genuine-discovery skill arm beside CLI-only, then retain one matched smoke per arm. Keep the same host, model, CLI, task, and command policy. |
+| Next when scheduled | EP1 measured runs, PP02 evidence gaps, PP10 adoption | Run three alternating ready-capture pairs and one full-loop pair only after preflight passes. Complete other evidence or adoption work when that result selects it. |
 | Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the named public scenario and gate recorded here; these are not the current default implementation queue. |
 | Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the row above; production implementation follows only for a kept candidate. |
 | Dependency opportunities | TE-P1..TE-P5 | Measure through PP07 against the selected dependency. They are not Filtrace-only changes and do not justify speculative upstream work. |
@@ -75,11 +84,11 @@ gates.
 
 | Area | Remaining outcome | Kind |
 | --- | --- | --- |
-| Active cross-repository work | Complete the breadth-first FastTrace existing-API sweep using Filtrace workloads and equivalent consumer behavior. Change Filtrace only to expose or remove a demonstrated evidence blocker. | Primarily FastTrace implementation and measured comparison |
+| Active cross-repository work | Implement EP1 preflight, then compare CLI plus genuinely discovered skill against CLI-only on one ready-capture task. Keep model, host, CLI, fixture, prompt, and tool policy fixed. | Agent workflow evidence |
 | PP02 / Track D evidence | Recheck the durable corpus and complete an exact baseline-versus-baseline default-job reconstruction. Add provider-rich, negative-control, repeated-query, disposal/eviction, and bounded-concurrency evidence only as a selected comparison needs it. Reach a kept, rejected, or explicitly blocked disposition for each scheduled LP item; inconclusive experiments do not close one. | Harness and evidence |
 | PP09 workflow | Evaluate SC10 manifest-addressed lifecycle first. Implement ambiguity, routing, or hint improvements only from a reproduced agent failure; VC3 remains optional. | Conditional Filtrace implementation |
 | PP10 adoption | Decide whether and how FastTrace becomes a product dependency; complete required native host evidence or explicitly narrow the claim, and resolve default DIA/native-symbol distribution. | Validation and product decision |
-| PP11 efficacy | Run a fully accounted skill-mediated development loop, including one interruption/resume, and obtain controlled comparative agent evidence without reviving the parked broad evaluator campaign. | End-to-end evidence |
+| PP11 efficacy | After the ready-capture comparison is accepted, run one matched full development-loop pair with a frozen task and grader. Do not revive the five-arm evaluator matrix first. | End-to-end evidence |
 | PP12 closeout | Finish the replacement assessment, Filtrace executive overview, scenario disposition, and closeout record from retained evidence. | Documentation and decision |
 
 VC4-VC8, VC1, general harness hardening, and speculative parallel implementations
@@ -236,12 +245,11 @@ directions, and a smaller effect would have been indistinguishable from noise.
 
 #### Comprehension tasks
 
-Six of the ten shipped. Four cannot be expressed against today's surface and are
-recorded in [eval/README.md](../eval/README.md#coverage-boundary) rather than
-faked - the `root` plus `benchmark` conflict is an error path the deterministic gate
-cannot hold, frame ambiguity has no diagnostic to assert, `classify` has no fixture
-whose CPU frames resolve, and a batch case reference is a VN2 feature. Three of the
-four become expressible as VN2 and SC9 land, which is the honest sequencing.
+Seven of the ten shipped. Three cannot be expressed against today's surface and
+are recorded in [eval/README.md](../eval/README.md#coverage-boundary) rather than
+faked: the `root` plus `benchmark` conflict is an error path the deterministic gate
+cannot hold, frame ambiguity has no diagnostic to assert, and `classify` has no
+fixture whose CPU frames resolve. Manifest case references shipped with schema v14.
 
 ### VN1 - transport selection - closed, variant A retained
 
@@ -1346,13 +1354,8 @@ selected contracts; active changes must not silently reopen them.
 ## Current routing
 
 Follow the priorities and remaining-outcomes tables on this page. As of the
-2026-09-07 coordination update, the immediate work is the breadth-first FastTrace
-existing-API sweep consumed by Filtrace. Filtrace changes enter that path only when
-they expose or remove a demonstrated evidence blocker and are applied fairly to
-comparison arms. Older external setup checklists that still name completed
-PP00/PP01 work do not override the completed status recorded here.
-
-When Filtrace workflow work is scheduled, PP09 prioritizes SC10
-manifest-addressed lifecycle. VC3 temporal buckets remain a bounded experiment,
-not the default next feature: retain them only if a measured task avoids a follow-up
-without penalizing ordinary ranking or output size.
+2026-09-12 coordination update, the immediate work is EP1: prove the fail-closed
+CLI-plus-skill and CLI-only arms, then run their bounded ready-capture comparison.
+Do not start another broad FastTrace sweep, general harness campaign, SC10, or VC3
+experiment in parallel. Promote one only when the accepted EP1 evidence identifies
+it as the next owner.
