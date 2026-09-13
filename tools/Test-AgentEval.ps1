@@ -868,6 +868,7 @@ try {
     foreach ($mode in @(
             'answer-only', 'answer-before-analysis', 'completion-before-start', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
             'decoy-command', 'missing-call-id', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
+            'denied-unknown-tool',
             'string-success', 'mismatched-operation', 'unknown-cli-schema', 'malformed-shell-wrapper',
             'nonzero-shell-wrapper', 'mismatched-shell-content', 'missing-command-argument',
             'missing-description-argument', 'invalid-command-type', 'invalid-mode-type', 'async-mode',
@@ -961,7 +962,8 @@ try {
     foreach ($mode in @(
             'missing-skill-read', 'missing-skill-discovery', 'wrong-skill-hash',
             'failed-skill-load', 'missing-skill-context', 'skill-extra-context',
-            'skill-ledger-mismatch', 'answer-before-skill-context', 'skill-context-before-completion')) {
+            'skill-ledger-mismatch', 'skill-tool-case', 'skill-argument-name-case',
+            'skill-argument-value-case', 'answer-before-skill-context', 'skill-context-before-completion')) {
         $negative = Invoke-FakeRun -Name "skill $mode" -Mode $mode -Arm cli-skill
         Assert-True ($negative.iterations[0].success -eq $false) "Fake skill mode '$mode' unexpectedly passed."
         if ($mode -eq 'missing-skill-read') {

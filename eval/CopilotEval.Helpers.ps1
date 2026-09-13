@@ -455,13 +455,16 @@ function Complete-AgentEvalDiscoveredSkillEvidence {
         }
 
         $starts = @($Events | Where-Object {
-                $_.type -eq 'tool.execution_start' -and $_.data.toolName -eq 'skill'
+            $_.type -eq 'tool.execution_start' -and
+            [string]::Equals([string]$_.data.toolName, 'skill', [StringComparison]::Ordinal)
             })
         if ($starts.Count -ne 1) { throw 'Host did not invoke the skill tool exactly once.' }
         $arguments = $starts[0].data.arguments
         [string[]] $argumentMembers = @($arguments.PSObject.Properties.Name)
-        if ($argumentMembers.Count -ne 1 -or $argumentMembers[0] -ne 'skill' -or
-            $arguments.skill -isnot [string] -or $arguments.skill -ne 'filtrace') {
+        if ($argumentMembers.Count -ne 1 -or
+            -not [string]::Equals($argumentMembers[0], 'skill', [StringComparison]::Ordinal) -or
+            $arguments.skill -isnot [string] -or
+            -not [string]::Equals([string]$arguments.skill, 'filtrace', [StringComparison]::Ordinal)) {
             throw 'Skill invocation did not select filtrace exactly.'
         }
         $toolCallId = [string]$starts[0].data.toolCallId

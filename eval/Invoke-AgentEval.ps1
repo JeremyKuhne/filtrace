@@ -1171,13 +1171,16 @@ function Invoke-CopilotIteration {
                     $evidenceValid = $false
                 }
             }
-            elseif ($arm -eq 'cli-skill' -and $toolName -eq 'skill') {
+            elseif ($arm -eq 'cli-skill' -and
+                [string]::Equals($toolName, 'skill', [StringComparison]::Ordinal)) {
                 $evidenceKind = 'skill'
                 $commandName = 'skill'
                 $operationName = 'skill'
                 if (-not $completionSucceeded) { $evidenceValid = $false }
             }
-            elseif ($completionDeniedByPolicy) {
+            elseif ($completionDeniedByPolicy -and
+                ([string]::Equals($toolName, 'powershell', [StringComparison]::Ordinal) -or
+                    [string]::Equals($toolName, 'view', [StringComparison]::Ordinal))) {
                 $evidenceKind = 'denied'
                 $commandName = if ($toolName) { $toolName } else { 'unknown' }
                 $operationName = Get-OperationName -Name $commandName

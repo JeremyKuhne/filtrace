@@ -278,6 +278,16 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
     }
     else { '' }
     [string] $reportedSkillName = if ($mode -eq 'skill-ledger-mismatch') { 'other-skill' } else { 'filtrace' }
+    [string] $reportedSkillToolName = if ($mode -eq 'skill-tool-case') { 'Skill' } else { 'skill' }
+    $reportedSkillArguments = if ($mode -eq 'skill-argument-name-case') {
+        [ordered]@{ Skill = 'filtrace' }
+    }
+    elseif ($mode -eq 'skill-argument-value-case') {
+        [ordered]@{ skill = 'FILTRACE' }
+    }
+    else {
+        [ordered]@{ skill = $reportedSkillName }
+    }
     [string] $contextBody = if ($mode -in @(
             'wrong-skill-hash', 'skill-missing-page', 'skill-hole', 'skill-reorder',
             'skill-overlap-conflict', 'skill-malformed-line-hint', 'skill-malformed-suffix',
@@ -290,8 +300,8 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
             type = 'tool.execution_start'
             data = [ordered]@{
                 toolCallId = 'skill-load'
-                toolName = 'skill'
-                arguments = [ordered]@{ skill = $reportedSkillName }
+                toolName = $reportedSkillToolName
+                arguments = $reportedSkillArguments
             }
         })
     $events.Add([ordered]@{
@@ -391,7 +401,7 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
             })
     }
     [string] $callId = if ($mode -eq 'missing-call-id') { '' } else { 'call-1' }
-    [string] $toolName = if ($mode -eq 'unexpected-tool') { 'write' } else { 'powershell' }
+    [string] $toolName = if ($mode -in @('unexpected-tool', 'denied-unknown-tool')) { 'write' } else { 'powershell' }
     $toolArguments = [ordered]@{
         command = $command
         description = 'Analyze the owned trace with filtrace'
@@ -416,7 +426,7 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
         'missing-command-argument', 'missing-description-argument', 'invalid-command-type',
         'invalid-mode-type', 'async-mode', 'repl-mode', 'invalid-initial-wait-type',
         'zero-initial-wait', 'unbounded-initial-wait', 'shell-sandbox-flag')
-    if ($mode -notin @('decoy-command', 'wrong-cli-path', 'unexpected-tool')) {
+    if ($mode -notin @('decoy-command', 'wrong-cli-path', 'unexpected-tool', 'denied-unknown-tool')) {
         $preToolDecision = Invoke-FakePolicyHook `
             -Hook $preToolHook[0] `
             -ToolName $toolName `
@@ -439,7 +449,20 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
             }
         })
     if ($mode -eq 'duplicate-call-id') { $events.Add($events[$events.Count - 1]) }
-    if ($mode -ne 'missing-completion') {
+    if ($mode -eq 'denied-unknown-tool') {
+        $events.Add([ordered]@{
+                type = 'tool.execution_complete'
+                data = [ordered]@{
+                    toolCallId = $callId
+                    success = $false
+                    error = [ordered]@{
+                        code = 'denied'
+                        message = 'Denied by preToolUse hook: Denied by the bounded filtrace evaluation policy.'
+                    }
+                }
+            })
+    }
+    elseif ($mode -ne 'missing-completion') {
     $events.Add([ordered]@{
             type = 'tool.execution_complete'
             data = [ordered]@{
