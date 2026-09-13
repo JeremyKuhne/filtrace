@@ -57,6 +57,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ([string]::Equals($Baseline, $Candidate, [StringComparison]::Ordinal)) {
+  throw 'Baseline and candidate labels must differ.'
+}
 if (-not $ResultsDir) { $ResultsDir = Join-Path $PSScriptRoot 'results' }
 if (-not (Test-Path $ResultsDir)) { throw "No results directory at '$ResultsDir'. Run Invoke-AgentEval.ps1 -Label first." }
 

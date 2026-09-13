@@ -420,6 +420,12 @@ try {
         $success.iterations[0].hostUsageFile.value.tokenDetails.cache_write.tokenCount -eq 15 -and
         $success.iterations[0].hostUsageFile.value.tokenDetails.output.tokenCount -eq 10) `
         'Detailed host token accounting was not retained from the usage output file.'
+    $fractionalPremiumUsage = Invoke-FakeRun `
+        -Name 'fractional premium usage' `
+        -Mode fractional-premium-usage
+    Assert-True ($fractionalPremiumUsage.iterations[0].success -eq $true -and
+        $fractionalPremiumUsage.iterations[0].hostUsage.premiumRequests -eq 0.33) `
+        'Finite nonnegative fractional premium usage was rejected.'
 
     $missingUsage = Invoke-FakeRun -Name 'cli missing usage output' -Mode missing-usage-output
     Assert-True ($missingUsage.iterations[0].success -eq $true -and
@@ -1408,6 +1414,8 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $comparisonDirectory 'unrelated.json'), '{')
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $comparisonDirectory
     Assert-True ($LASTEXITCODE -eq 0) 'Identical fake records did not compare neutral.'
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate baseline -ResultsDir $comparisonDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'A comparison using the same label for both sides was accepted.'
 
     $defaultMcpDirectory = Join-Path $temporaryRoot 'default mcp comparison'
     [System.IO.Directory]::CreateDirectory($defaultMcpDirectory) | Out-Null

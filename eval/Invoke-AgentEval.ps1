@@ -653,6 +653,25 @@ function Test-AgentEvalHostUsage($Usage) {
     if ($null -eq $Usage -or $Usage -is [string] -or $Usage -is [ValueType]) { return $false }
     [string[]] $members = @($Usage.PSObject.Properties | ForEach-Object { $_.Name })
     foreach ($member in @('premiumRequests', 'totalApiDurationMs', 'sessionDurationMs')) {
+        if ($members -notcontains $member) { return $false }
+    }
+    [bool] $premiumRequestsTypeValid = $Usage.premiumRequests -is [byte] -or
+        $Usage.premiumRequests -is [sbyte] -or
+        $Usage.premiumRequests -is [short] -or
+        $Usage.premiumRequests -is [ushort] -or
+        $Usage.premiumRequests -is [int] -or
+        $Usage.premiumRequests -is [uint] -or
+        $Usage.premiumRequests -is [long] -or
+        $Usage.premiumRequests -is [ulong] -or
+        $Usage.premiumRequests -is [float] -or
+        $Usage.premiumRequests -is [double] -or
+        $Usage.premiumRequests -is [decimal]
+    [double] $premiumRequests = if ($premiumRequestsTypeValid) { [double]$Usage.premiumRequests } else { -1 }
+    if (-not $premiumRequestsTypeValid -or $premiumRequests -lt 0 -or
+        [double]::IsNaN($premiumRequests) -or [double]::IsInfinity($premiumRequests)) {
+        return $false
+    }
+    foreach ($member in @('totalApiDurationMs', 'sessionDurationMs')) {
         if ($members -notcontains $member -or
             ($Usage.$member -isnot [int] -and $Usage.$member -isnot [long]) -or
             [long]$Usage.$member -lt 0) {

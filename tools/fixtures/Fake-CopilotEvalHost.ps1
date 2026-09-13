@@ -535,7 +535,7 @@ $resultEvent = [ordered]@{
 }
 if ($mode -ne 'missing-all-usage') {
     $resultEvent.usage = [ordered]@{
-        premiumRequests = 1
+        premiumRequests = if ($mode -eq 'fractional-premium-usage') { 0.33 } else { 1 }
         totalApiDurationMs = 20
         sessionDurationMs = 25
     }
