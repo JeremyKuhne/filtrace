@@ -222,6 +222,25 @@ function Split-ArgString {
     return $tokens.ToArray()
 }
 
+function Get-AgentEvalMediatedOperation([string] $ArgString) {
+    [string] $clean = $ArgString.Trim().Trim('`').Trim()
+    [string[]] $tokens = @(Split-ArgString -Text $clean)
+    while ($tokens.Count -gt 0 -and $tokens[0] -match '^(?i)(filtrace(\.dll|\.exe)?|dotnet|\./filtrace)$') {
+        $tokens = @($tokens | Select-Object -Skip 1)
+    }
+    if ($tokens.Count -eq 0) { return '' }
+    [string] $operationSource = $tokens[0]
+    if ([string]::Equals($operationSource, 'report', [StringComparison]::Ordinal)) {
+        [int[]] $kindIndexes = @(for ($index = 0; $index -lt $tokens.Count; $index++) {
+                if ([string]::Equals($tokens[$index], '--kind', [StringComparison]::Ordinal)) { $index }
+            })
+        if ($kindIndexes.Count -eq 1 -and $kindIndexes[0] -lt ($tokens.Count - 1)) {
+            $operationSource = $tokens[$kindIndexes[0] + 1]
+        }
+    }
+    return Get-OperationName -Name $operationSource
+}
+
 # Run one filtrace command on the agent's behalf. Returns (ok, output) where ok
 # is $false for a rejected verb or a non-zero exit. The trace placeholder
 # <TRACE> is substituted with the real fixture path; --format json is forced; and
@@ -346,6 +365,8 @@ function Invoke-OllamaIteration {
             $callTokens = [int](Get-TokenEstimate -Text $clip)
             $tokens += $callTokens
             $transcript.Add([pscustomobject]@{
+                    kind = 'filtrace'
+                    operation = Get-AgentEvalMediatedOperation -ArgString ([string]$action[1])
                     cmd = [string]$action[1]; ok = [bool]$res[0]; textTokens = $callTokens
                     info = if (-not $res[0]) { $output.Substring(0, [math]::Min(160, $output.Length)) } else { '' }
                 })

@@ -257,7 +257,8 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
   try { $payload = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json }
   catch { throw "Unreadable matching result '$path': $($_.Exception.Message)" }
   Assert-ResultPayload -Payload $payload -Path $path
-  if ($payload.label -notin @($Baseline, $Candidate)) {
+  if (-not [string]::Equals([string]$payload.label, $Baseline, [StringComparison]::Ordinal) -and
+    -not [string]::Equals([string]$payload.label, $Candidate, [StringComparison]::Ordinal)) {
     throw "Result '$path' filename label does not match payload label '$($payload.label)'."
   }
   [string] $model = if ([int]$payload.schemaVersion -eq 2) { [string]$payload.model } else { [string]$payload.model.observed }
@@ -271,9 +272,17 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
 
 # The latest payload per (label, run) where run = host/arm/model.
 function Get-LatestRun([string]$Label) {
-    @($all | Where-Object { $_.label -eq $Label }) | Group-Object key | ForEach-Object {
-        $_.Group | Sort-Object { [datetime]$_.timestamp } | Select-Object -Last 1
+  [System.Collections.Generic.Dictionary[string, object]] $latest =
+    [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+  foreach ($run in @($all)) {
+    if (-not [string]::Equals([string]$run.label, $Label, [StringComparison]::Ordinal)) { continue }
+    $existing = $null
+    if (-not $latest.TryGetValue([string]$run.key, [ref]$existing) -or
+      [datetime]$run.timestamp -gt [datetime]$existing.timestamp) {
+      $latest[[string]$run.key] = $run
     }
+    }
+  return @($latest.Values)
 }
 
 $base = @(Get-LatestRun $Baseline)
@@ -283,7 +292,8 @@ if ($cand.Count -eq 0) { throw "No runs labeled '$Candidate' in $ResultsDir." }
 
 # Index a payload's summary rows by task id.
 function Get-TaskMap($Payload) {
-    $m = @{}
+  [System.Collections.Generic.Dictionary[string, object]] $m =
+    [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
     foreach ($row in $Payload.summary) { $m[[string]$row.Task] = $row }
     return $m
 }
@@ -295,16 +305,16 @@ $unpaired = 0
 
 # Pair on the full run identity (host/arm/model) so runs from different hosts or
 # arms - whose token/call counts are not comparable - never pair silently.
-$runs = @(@($base.key) + @($cand.key) | Sort-Object -Unique)
+$runs = @(@($base.key) + @($cand.key) | Sort-Object -CaseSensitive -Unique)
 foreach ($run in $runs) {
-    $b = $base | Where-Object { $_.key -eq $run } | Select-Object -First 1
-    $c = $cand | Where-Object { $_.key -eq $run } | Select-Object -First 1
+  $b = $base | Where-Object { $_.key -ceq $run } | Select-Object -First 1
+  $c = $cand | Where-Object { $_.key -ceq $run } | Select-Object -First 1
     if (-not $b) { $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no baseline' }); $unpaired++; continue }
     if (-not $c) { $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no candidate' }); $unpaired++; continue }
 
     $bm = Get-TaskMap $b
     $cm = Get-TaskMap $c
-    foreach ($t in @(@($bm.Keys) + @($cm.Keys) | Sort-Object -Unique)) {
+    foreach ($t in @(@($bm.Keys) + @($cm.Keys) | Sort-Object -CaseSensitive -Unique)) {
         $br = $bm[$t]; $cr = $cm[$t]
         if (-not $br -or -not $cr) {
             $rows.Add([pscustomobject]@{ Run = $run; Task = $t; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'missing task' })

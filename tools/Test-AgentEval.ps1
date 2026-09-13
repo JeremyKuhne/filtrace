@@ -255,7 +255,8 @@ try {
     Assert-True ($runnerErrors.Count -eq 0) 'Invoke-AgentEval.ps1 did not parse for isolated function tests.'
     foreach ($functionName in @(
             'ConvertFrom-AgentEvalJsonLines', 'Write-AgentEvalNewFile', 'Save-AgentEvalHostOutput',
-            'ConvertTo-AgentEvalResultJson', 'Get-AgentEvalTaskExpectedOperations')) {
+            'ConvertTo-AgentEvalResultJson', 'Get-AgentEvalTaskExpectedOperations',
+            'Split-ArgString', 'Get-AgentEvalMediatedOperation')) {
         $functionAst = $runnerAst.Find({
                 param($node)
                 $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -269,6 +270,9 @@ try {
     Assert-True ($cpuOperations.Count -eq 2 -and $cpuOperations -contains 'rank' -and
         $cpuOperations -contains 'callers') `
         'Strict task operation derivation did not require both CPU analysis steps.'
+    Assert-True ((Get-AgentEvalMediatedOperation 'filtrace report <TRACE> --kind jit') -ceq 'jit' -and
+        (Get-AgentEvalMediatedOperation 'rank <TRACE> --metric cpu') -ceq 'rank') `
+        'Mediated CLI commands did not retain their actual operation intent.'
 
     [string[]] $recordedEventTypes = @(
         'assistant.idle', 'assistant.message', 'assistant.message_delta', 'assistant.message_start',
@@ -1303,6 +1307,28 @@ try {
     }
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $defaultMcpDirectory
     Assert-True ($LASTEXITCODE -eq 0) 'Verified default-model Copilot MCP records did not compare neutral.'
+
+    $caseDistinctDirectory = Join-Path $temporaryRoot 'case-distinct model comparison'
+    [System.IO.Directory]::CreateDirectory($caseDistinctDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $caseDistinct = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        if ($caseDistinct.label -ceq 'candidate') {
+            $caseDistinct.model.requested = 'Expected-Model'
+            $caseDistinct.model.expected = 'Expected-Model'
+            $caseDistinct.model.observed = 'Expected-Model'
+            $caseDistinct.model.observedDistinct = @('Expected-Model')
+            foreach ($iteration in @($caseDistinct.iterations)) {
+                $iteration.observedModel = 'Expected-Model'
+                $iteration.observedModels = @('Expected-Model')
+            }
+        }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $caseDistinctDirectory $resultPath.Name),
+            (($caseDistinct | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $caseDistinctDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'Case-distinct model identities were paired as one run.'
 
     $legacyDirectory = Join-Path $temporaryRoot 'legacy comparison'
     [System.IO.Directory]::CreateDirectory($legacyDirectory) | Out-Null

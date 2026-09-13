@@ -98,7 +98,7 @@ contract and the no-LLM gate.
   the MCP contract from `AGENTS.md` and the filtrace skill. By default it uses
   Copilot's own model (the result records the actual model, e.g.
   `claude-opus-4.6`); pass `-Model` to pin one.
-- **`copilot` -> cli arm** is an experimental Windows-only PP03 evidence arm. It
+- **`copilot` -> cli arm** is an experimental Windows-only EP1 evidence arm. It
   invokes a byte-verified owned copy of the current checkout's native apphost
   bundle, not a global `filtrace`. Before execution, an isolated per-run hook
   requires one literal PowerShell invocation of that apphost, the exact owned
@@ -368,8 +368,8 @@ Live success still uses expected substrings rather than a general semantic grade
 The MCP arm requires its expected MCP tools; strict CLI arms require matched local
 apphost evidence; cli-skill also requires verified project discovery, invocation,
 and injected context. These checks reject unsupported provenance but do not establish
-that the skill caused a better answer. The matched ready-capture smoke and semantic
-grader remain EP1 work.
+that the skill caused a better answer. The three alternating ready-capture
+comparison pairs and semantic-grader follow-up remain EP1 work.
 
 ### Example local run
 
