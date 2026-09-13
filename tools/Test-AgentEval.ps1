@@ -24,7 +24,11 @@ function Assert-True([bool] $Condition, [string] $Message) {
     if (-not $Condition) { throw $Message }
 }
 
-function New-TestExecutionPolicy([string] $Name, [int] $MaxCalls, [switch] $WithSkill) {
+function New-TestExecutionPolicy(
+    [string] $Name,
+    [int] $MaxCalls,
+    [int] $TaskMaxCalls = 0,
+    [switch] $WithSkill) {
     [string] $runDirectory = Join-Path $temporaryRoot $Name
     [string] $workspace = Join-Path $runDirectory 'workspace'
     [string] $isolatedHomePath = Join-Path $runDirectory 'home'
@@ -61,7 +65,8 @@ function New-TestExecutionPolicy([string] $Name, [int] $MaxCalls, [switch] $With
         immutableFiles = [System.Collections.Generic.List[object]]::new()
     }
     $task = Get-Content -LiteralPath (Join-Path $root 'eval/tasks/04-gc-report.json') -Raw | ConvertFrom-Json
-    $task | Add-Member -NotePropertyName maxCalls -NotePropertyValue $null
+    $task | Add-Member -NotePropertyName maxCalls -NotePropertyValue $(
+        if ($TaskMaxCalls -gt 0) { $TaskMaxCalls } else { $null })
     $executionPolicy = Initialize-CopilotEvalExecutionPolicy `
         -Context $context `
         -Task $task `
@@ -181,6 +186,7 @@ function Assert-FakeRunThrows {
     )
 
     [bool] $threw = $false
+    [string] $actualMessage = '<no exception>'
     try {
         [void](Invoke-FakeRun `
                 -Name $Name `
@@ -190,9 +196,10 @@ function Assert-FakeRunThrows {
                 -MaxArtifactBytes $MaxArtifactBytes)
     }
     catch {
-        $threw = $_.Exception.Message.Contains($ExpectedMessage, [StringComparison]::Ordinal)
+        $actualMessage = $_.Exception.ToString()
+        $threw = $actualMessage.Contains($ExpectedMessage, [StringComparison]::Ordinal)
     }
-    Assert-True $threw "Fake case '$Name' did not fail with '$ExpectedMessage'."
+    Assert-True $threw "Fake case '$Name' did not fail with '$ExpectedMessage'. Actual: $actualMessage"
 }
 
 function Assert-FakeParserFailureArtifacts {
@@ -372,6 +379,8 @@ try {
         'Live execution policy did not retain its allowed command count.'
     Assert-True (@($success.iterations[0].execution.isolation.executionPolicyCommandHashes).Count -eq 1) `
         'Live execution policy did not retain its allowed command hash.'
+    Assert-True ($success.iterations[0].execution.isolation.executionPolicyHelpCallCount -eq 0) `
+        'Analysis-only run unexpectedly consumed a help allowance.'
     Assert-True ($success.iterations[0].execution.hostOutput.retained -eq $true) `
         'Successful fake run did not retain exact host output.'
     Assert-True (Test-Path -LiteralPath $success.iterations[0].execution.hostOutput.stdoutPath -PathType Leaf) `
@@ -403,6 +412,14 @@ try {
         -Name 'malformed usage output' `
         -Mode malformed-usage-output `
         -ExpectedMessage 'Copilot usage output was malformed.'
+    foreach ($mode in @(
+            'empty-usage-output', 'usage-missing-token-details', 'usage-missing-token-count',
+            'usage-missing-premium', 'usage-wrong-type', 'usage-negative-token')) {
+        Assert-FakeRunThrows `
+            -Name "invalid usage $mode" `
+            -Mode $mode `
+            -ExpectedMessage 'Copilot usage output schema was malformed.'
+    }
 
     $legacyToolArguments = Invoke-FakeRun -Name 'cli legacy tool arguments' -Mode legacy-tool-arguments
     Assert-True ($legacyToolArguments.iterations[0].success -eq $true) `
@@ -410,7 +427,9 @@ try {
     $helpSuccess = Invoke-FakeRun -Name 'cli help success' -Mode help-success
     Assert-True ($helpSuccess.iterations[0].success -eq $true -and
         $helpSuccess.iterations[0].calls -eq 1 -and
-        $helpSuccess.iterations[0].helpCalls -eq 1) `
+        $helpSuccess.iterations[0].helpCalls -eq 1 -and
+        $helpSuccess.iterations[0].execution.isolation.executionPolicyCallCount -eq 1 -and
+        $helpSuccess.iterations[0].execution.isolation.executionPolicyHelpCallCount -eq 1) `
         'Bounded top-level help did not remain separate from one successful analysis call.'
     $recordedPolicyDenial = Invoke-FakeRun -Name 'cli recorded policy denial' -Mode recorded-policy-denial
     Assert-True ($recordedPolicyDenial.iterations[0].success -eq $true) `
@@ -545,6 +564,34 @@ try {
     $boundedState = Get-CopilotEvalExecutionPolicyState $policyProbe.executionPolicy
     Assert-True ($boundedState.callCount -eq 3 -and @($boundedState.commandHashes).Count -eq 3) `
         'Bounded policy state did not retain exactly three allowed commands.'
+
+    $singleCallProbe = New-TestExecutionPolicy `
+        -Name 'single analysis call with help policy hook contract' `
+        -MaxCalls 6 `
+        -TaskMaxCalls 1
+    $singleHelpDecision = Invoke-TestPolicyHook `
+        -Hook $singleCallProbe.preToolHook `
+        -SessionId $singleCallProbe.context.runId `
+        -WorkingDirectory $singleCallProbe.context.workspace `
+        -ToolName powershell `
+        -ToolArguments ([ordered]@{
+            command = "& '$($singleCallProbe.context.cliPath)' '--help'"
+            description = 'Show bounded help'
+        })
+    $singleAnalysisDecision = Invoke-TestPolicyHook `
+        -Hook $singleCallProbe.preToolHook `
+        -SessionId $singleCallProbe.context.runId `
+        -WorkingDirectory $singleCallProbe.context.workspace `
+        -ToolName powershell `
+        -ToolArguments ([ordered]@{
+            command = $singleCallProbe.command
+            description = 'Analyze the owned trace with filtrace'
+        })
+    $singleCallState = Get-CopilotEvalExecutionPolicyState $singleCallProbe.executionPolicy
+    Assert-True ($singleHelpDecision.permissionDecision -eq 'allow' -and
+        $singleAnalysisDecision.permissionDecision -eq 'allow' -and
+        $singleCallState.helpCallCount -eq 1 -and $singleCallState.callCount -eq 1) `
+        'One bounded help call exhausted a task maxCalls=1 analysis budget.'
 
     $specialFileProbe = New-TestExecutionPolicy -Name 'special file policy hook contract' -MaxCalls 1
     Remove-Item -LiteralPath $specialFileProbe.context.cliPath -Force
@@ -824,6 +871,14 @@ try {
         -ExpectedMessage 'unknown event type' `
         -ExpectedRawText '"type":"future.event"'
     Assert-FakeRunThrows -Name 'mutated bundle' -Mode mutated-bundle -ExpectedMessage 'input attestation failed'
+    $immutableGrowthStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    Assert-FakeRunThrows `
+        -Name 'oversized immutable' `
+        -Mode oversized-immutable `
+        -ExpectedMessage 'input attestation failed'
+    $immutableGrowthStopwatch.Stop()
+    Assert-True ($immutableGrowthStopwatch.Elapsed.TotalSeconds -lt 4) `
+        'Oversized immutable growth remained excluded until host exit.'
     $wrongModel = Invoke-FakeRun -Name 'cli wrong-model' -Mode wrong-model
     Assert-True ($wrongModel.iterations[0].success -eq $false) 'Wrong observed model unexpectedly passed.'
     Assert-True ($wrongModel.model.requested -eq 'expected-model') 'Requested model was not retained.'

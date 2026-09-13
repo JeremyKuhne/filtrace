@@ -155,8 +155,11 @@ numeric values remain typed and bounded rather than fixed to the expected answer
 Unknown tool argument members and command options, including environment, input,
 timeout, sandbox, output, symbol/network, and native-symbol options, are rejected.
 
-Before returning `permissionDecision: allow`, the hook atomically appends the
-command hash to a ledger capped at `min(MaxSteps, task.maxCalls)`. The retained
+Before returning `permissionDecision: allow`, the hook atomically appends an
+analysis-command hash to a ledger capped at `min(MaxSteps, task.maxCalls)` or a
+help-command hash to a separate ledger capped at the top-level plus each
+task-derived command family. A help lookup therefore cannot consume a one-call
+analysis budget. The retained
 Copilot CLI 1.0.82 nonce probe established that `preToolUse` runs first and that an
 explicit allow bypasses both `permissionRequest` and the normal shell deny. Missing,
 malformed, crashed, or timed-out hooks receive no explicit allow and therefore
@@ -180,8 +183,10 @@ Before launch, the runner accepts only a tracked, HEAD-clean file beneath
 512 MiB. It inventories and hashes at most 256 CLI files / 512 entries / 512 MiB
 and 64 skill files / 128 entries / 16 MiB, hashes source bytes before and after the
 streaming copy, hashes each destination, and rechecks immutable inputs after the
-host exits. Dynamic host artifacts are independently capped at 16 MiB and 512
-total files/directories. On Windows, host distribution assets unpacked beneath the
+host exits. Before each periodic artifact scan excludes those inputs, it also
+requires their attested lengths and ordinary non-reparse paths; growth is rejected
+while the host is still running. Dynamic host artifacts are independently capped
+at 16 MiB and 512 total files/directories. On Windows, host distribution assets unpacked beneath the
 fixed isolated `home/AppData/Local/copilot/pkg` cache are measured separately at
 256 MiB total, 1,024 files/directories, and 128 MiB per file. No other home path is
 excluded. This classification is path-based accounting and does not infer which
@@ -249,7 +254,10 @@ host usage, model evidence, execution paths/hashes, skill evidence, and warnings
 Results land under `eval/results/` (git-ignored) as schema-v3 JSON with a median
 summary. `hostUsage` retains the result event. `hostUsageFile` separately records
 the bounded `--usage-output-file`, its hash, and detailed input/output/cache counts;
-a missing file remains explicitly unavailable rather than becoming zero.
+a missing file remains explicitly unavailable rather than becoming zero. An
+available file must contain nonnegative premium-request/user counts, a nonempty
+current model, and integer input/cache-read/cache-write/output token counts;
+malformed or incomplete accounting fails before a result is published.
 
 ### EP1 preflight checkpoint
 
@@ -260,7 +268,7 @@ probe confirmed the display name `GPT-5.6 Sol Fast (Internal only)`, project-ski
 discovery, native `skill` invocation, and complete injected context.
 
 One `cpu-hotspot` smoke per arm then used the same CLI hash
-`5c3b150ec7ed6b149670f40fd4ea24273ad5c1e77b9d0ab334b09fa1253d14b5`
+`b0528f858d11a2f864c42334354fb22e74dcea710ed3b6a4ad3f9c737e89ef4f`
 and fixture hash
 `2891c917c511763561ec18ad8982eba82a81dda72a47e0774de76790272145d1`.
 Both returned `MyApp.Inner` at 16 ms / 64% self weight and `MyApp.Work` as its
@@ -268,8 +276,8 @@ Both returned `MyApp.Inner` at 16 ms / 64% self weight and `MyApp.Work` as its
 
 | Arm | Analysis / help / denied calls | Observed result tokens | Host elapsed | Host input / cache-read / cache-write / output tokens |
 |---|---:|---:|---:|---:|
-| CLI only | 2 / 1 / 0 | 932 | 23.850 s | 12 / 19,313 / 7,464 / 690 |
-| CLI plus discovered skill | 2 / 1 / 2 | 955 | 43.512 s | 21 / 56,761 / 11,398 / 1,324 |
+| CLI only | 2 / 1 / 1 | 932 | 29.957 s | 15 / 26,442 / 7,699 / 870 |
+| CLI plus discovered skill | 2 / 1 / 1 | 955 | 32.704 s | 18 / 46,173 / 11,050 / 1,001 |
 
 Each arm reported one premium request. The skill arm's discovery, invocation, and
 context hashes verified. This single pair proves protocol and accounting readiness;

@@ -1063,7 +1063,9 @@ function Invoke-CopilotIteration {
     }
     if ($executionPolicyState) {
         if (-not (Test-AgentEvalStringMultiset `
-                -Left ([string[]]$executionPolicyState.commandHashes) `
+                -Left ([string[]]@(
+                    $executionPolicyState.commandHashes
+                    $executionPolicyState.helpCommandHashes)) `
                 -Right $transcriptCommandHashes.ToArray())) {
             $evidenceValid = $false
         }
@@ -1170,6 +1172,9 @@ function Invoke-CopilotIteration {
                 executionPolicyMaxCalls = if ($executionPolicy) { $executionPolicy.maxCalls } else { $null }
                 executionPolicyCallCount = if ($executionPolicyState) { $executionPolicyState.callCount } else { $null }
                 executionPolicyCommandHashes = if ($executionPolicyState) { $executionPolicyState.commandHashes } else { @() }
+                executionPolicyMaxHelpCalls = if ($executionPolicy) { $executionPolicy.maxHelpCalls } else { $null }
+                executionPolicyHelpCallCount = if ($executionPolicyState) { $executionPolicyState.helpCallCount } else { $null }
+                executionPolicyHelpCommandHashes = if ($executionPolicyState) { $executionPolicyState.helpCommandHashes } else { @() }
                 executionPolicyMaxViewCalls = if ($executionPolicy) { $executionPolicy.maxViewCalls } else { $null }
                 executionPolicyMaxViewBytes = if ($executionPolicy) { $executionPolicy.maxViewBytes } else { $null }
                 executionPolicyViewRequests = if ($executionPolicyState) { $executionPolicyState.viewRequests } else { @() }

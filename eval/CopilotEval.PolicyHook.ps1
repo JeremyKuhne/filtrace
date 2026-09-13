@@ -277,13 +277,15 @@ function Assert-LiteralCommand($Arguments, $Policy) {
     Assert-OrdinaryFile -Path ([string]$Policy.cliPath) -Boundary ([string]$Policy.workspace)
 
     if ($values.Count -eq 2 -and $values[1] -eq '--help') {
-        return [string]$Arguments.command
+        return [pscustomobject]@{ command = [string]$Arguments.command; isHelp = $true }
     }
     if ($values.Count -eq 3 -and $values[2] -eq '--help') {
         $helpFamily = @($Policy.commandFamilies | Where-Object {
                 [string]::Equals([string]$_.verb, $values[1], [StringComparison]::Ordinal)
             })
-        if ($helpFamily.Count -eq 1) { return [string]$Arguments.command }
+        if ($helpFamily.Count -eq 1) {
+            return [pscustomobject]@{ command = [string]$Arguments.command; isHelp = $true }
+        }
         throw "Help verb '$($values[1])' was outside policy."
     }
 
@@ -324,20 +326,22 @@ function Assert-LiteralCommand($Arguments, $Policy) {
         if ($positionals -gt [int]$family[0].maxPositionals) { throw 'Too many positional arguments.' }
         Assert-TextValue -Value $value
     }
-    return [string]$Arguments.command
+    return [pscustomobject]@{ command = [string]$Arguments.command; isHelp = $false }
 }
 
 function Read-PolicyState([string] $StatePath) {
     if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) {
-        return [pscustomobject]@{ commandHashes = @(); viewRequests = @() }
+        return [pscustomobject]@{ commandHashes = @(); helpCommandHashes = @(); viewRequests = @() }
     }
     [System.IO.FileInfo] $stateFile = Get-Item -LiteralPath $StatePath
     if ($stateFile.Length -gt 65536) { throw 'Policy state exceeded its byte limit.' }
     try { $state = [System.IO.File]::ReadAllText($StatePath) | ConvertFrom-Json }
     catch { throw 'Policy state was malformed.' }
     [string[]] $stateMembers = @(Get-ObjectMemberNames $state)
-    if ($stateMembers.Count -ne 2 -or
-        $stateMembers -notcontains 'commandHashes' -or $stateMembers -notcontains 'viewRequests') {
+    if ($stateMembers.Count -ne 3 -or
+        $stateMembers -notcontains 'commandHashes' -or
+        $stateMembers -notcontains 'helpCommandHashes' -or
+        $stateMembers -notcontains 'viewRequests') {
         throw 'Policy state shape was malformed.'
     }
     return $state
@@ -360,11 +364,16 @@ function Open-PolicyLock([string] $LockPath) {
     }
 }
 
-function Write-PolicyState([string] $StatePath, [string[]] $CommandHashes, [object[]] $ViewRequests) {
+function Write-PolicyState(
+    [string] $StatePath,
+    [string[]] $CommandHashes,
+    [string[]] $HelpCommandHashes,
+    [object[]] $ViewRequests) {
     [string] $temporaryPath = "$StatePath.$([Guid]::NewGuid().ToString('N')).tmp"
     try {
         [string] $json = [string]([ordered]@{
             commandHashes = @($CommandHashes)
+            helpCommandHashes = @($HelpCommandHashes)
             viewRequests = @($ViewRequests)
             } | ConvertTo-Json -Depth 6 -Compress)
         [System.IO.File]::WriteAllText($temporaryPath, $json, [System.Text.UTF8Encoding]::new($false))
@@ -379,7 +388,8 @@ try {
     [System.IO.FileInfo] $policyFile = Get-Item -LiteralPath $PolicyPath
     if ($policyFile.Length -gt 65536) { throw 'Policy exceeded its byte limit.' }
     $policy = [System.IO.File]::ReadAllText($policyFile.FullName) | ConvertFrom-Json
-    if ($policy.schemaVersion -notin @(3, 3L) -or $policy.maxCalls -lt 1 -or $policy.maxCalls -gt 64 -or
+    if ($policy.schemaVersion -notin @(4, 4L) -or $policy.maxCalls -lt 1 -or $policy.maxCalls -gt 64 -or
+        $policy.maxHelpCalls -lt 1 -or $policy.maxHelpCalls -gt 64 -or
         $policy.maxViewCalls -notin @(4, 4L) -or $policy.maxViewBytes -notin @(64MB, [long]64MB) -or
         $policy.viewLineCount -lt 0) {
         throw 'Policy header was malformed.'
@@ -428,6 +438,17 @@ try {
             $commandHashes.Add([string]$commandHash)
         }
         if ($commandHashes.Count -gt [int]$policy.maxCalls) { throw 'Policy command count exceeded its limit.' }
+        [System.Collections.Generic.List[string]] $helpCommandHashes =
+            [System.Collections.Generic.List[string]]::new()
+        foreach ($commandHash in @($state.helpCommandHashes)) {
+            if ($commandHash -isnot [string] -or $commandHash -notmatch '^[0-9a-f]{64}$') {
+                throw 'Policy help command hash was malformed.'
+            }
+            $helpCommandHashes.Add([string]$commandHash)
+        }
+        if ($helpCommandHashes.Count -gt [int]$policy.maxHelpCalls) {
+            throw 'Policy help command count exceeded its limit.'
+        }
         $skillSource = if ($policy.viewPath -is [string] -and -not [string]::IsNullOrWhiteSpace([string]$policy.viewPath)) {
             Assert-OrdinaryFile -Path ([string]$policy.viewPath) -Boundary ([string]$policy.workspace)
             Get-SkillSource ([string]$policy.viewPath)
@@ -480,13 +501,20 @@ try {
                 })
         }
         elseif ($toolName -eq 'powershell') {
-            [string] $literalCommand = Assert-LiteralCommand -Arguments $toolArguments -Policy $policy
-            if ($commandHashes.Count -ge [int]$policy.maxCalls) {
-                throw "Filtrace call limit $($policy.maxCalls) was reached."
+            $literalCommand = Assert-LiteralCommand -Arguments $toolArguments -Policy $policy
+            if ($literalCommand.isHelp) {
+                if ($helpCommandHashes.Count -ge [int]$policy.maxHelpCalls) {
+                    throw "Filtrace help call limit $($policy.maxHelpCalls) was reached."
+                }
             }
-            [byte[]] $commandBytes = [System.Text.Encoding]::UTF8.GetBytes($literalCommand)
-            $commandHashes.Add(
-                [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($commandBytes)).ToLowerInvariant())
+            elseif ($commandHashes.Count -ge [int]$policy.maxCalls) {
+                throw "Filtrace analysis call limit $($policy.maxCalls) was reached."
+            }
+            [byte[]] $commandBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$literalCommand.command)
+            [string] $commandHash =
+                [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($commandBytes)).ToLowerInvariant()
+            if ($literalCommand.isHelp) { $helpCommandHashes.Add($commandHash) }
+            else { $commandHashes.Add($commandHash) }
         }
         else {
             throw "Tool '$toolName' was outside policy."
@@ -494,6 +522,7 @@ try {
         Write-PolicyState `
             -StatePath ([string]$policy.statePath) `
             -CommandHashes $commandHashes.ToArray() `
+            -HelpCommandHashes $helpCommandHashes.ToArray() `
             -ViewRequests $viewRequests.ToArray()
     }
     finally {

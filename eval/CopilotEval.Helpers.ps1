@@ -890,6 +890,7 @@ function Initialize-CopilotEvalExecutionPolicy {
         $effectiveMaxCalls = [Math]::Min($effectiveMaxCalls, $taskMaxCalls)
     }
     [object[]] $commandFamilies = @(Get-AgentEvalTaskCommandFamilies -Task $Task -AllowedVerbs $AllowedVerbs)
+    [int] $maxHelpCalls = $commandFamilies.Count + 1
 
     [string] $policyDirectory = Join-Path $Context.runDirectory 'policy'
     [string] $hooksDirectory = Join-Path $Context.home 'copilot/hooks'
@@ -918,12 +919,13 @@ function Initialize-CopilotEvalExecutionPolicy {
     [string] $statePath = Join-Path $policyDirectory 'execution-state.json'
     [string] $lockPath = Join-Path $policyDirectory 'execution-state.lock'
     $policy = [ordered]@{
-        schemaVersion = 3
+        schemaVersion = 4
         sessionId = $Context.runId
         workspace = $Context.workspace
         cliPath = $Context.cliPath
         fixturePath = $Context.fixturePath
         maxCalls = $effectiveMaxCalls
+        maxHelpCalls = $maxHelpCalls
         statePath = $statePath
         lockPath = $lockPath
         viewPath = $viewPath
@@ -968,6 +970,7 @@ function Initialize-CopilotEvalExecutionPolicy {
 
     return [pscustomobject]@{
         maxCalls = $effectiveMaxCalls
+        maxHelpCalls = $maxHelpCalls
         policyPath = $policyPath
         statePath = $statePath
         hookConfigurationPath = $hookConfigurationPath
@@ -982,7 +985,13 @@ function Initialize-CopilotEvalExecutionPolicy {
 
 function Get-CopilotEvalExecutionPolicyState([object] $ExecutionPolicy) {
     if (-not (Test-Path -LiteralPath $ExecutionPolicy.statePath -PathType Leaf)) {
-        return [pscustomobject]@{ callCount = 0; commandHashes = @(); viewRequests = @() }
+        return [pscustomobject]@{
+            callCount = 0
+            commandHashes = @()
+            helpCallCount = 0
+            helpCommandHashes = @()
+            viewRequests = @()
+        }
     }
     [System.IO.FileInfo] $stateFile = Get-Item -LiteralPath $ExecutionPolicy.statePath
     if (($stateFile.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or
@@ -992,14 +1001,21 @@ function Get-CopilotEvalExecutionPolicyState([object] $ExecutionPolicy) {
     try { $state = [System.IO.File]::ReadAllText($stateFile.FullName) | ConvertFrom-Json }
     catch { throw 'Copilot pre-execution policy state was malformed.' }
     [string[]] $stateMembers = @($state.PSObject.Properties.Name)
-    if ($stateMembers.Count -ne 2 -or
-        $stateMembers -notcontains 'commandHashes' -or $stateMembers -notcontains 'viewRequests') {
+    if ($stateMembers.Count -ne 3 -or
+        $stateMembers -notcontains 'commandHashes' -or
+        $stateMembers -notcontains 'helpCommandHashes' -or
+        $stateMembers -notcontains 'viewRequests') {
         throw 'Copilot pre-execution policy state shape was malformed.'
     }
     [object[]] $commandHashes = @($state.commandHashes)
     if ($commandHashes.Count -gt [int]$ExecutionPolicy.maxCalls -or
         @($commandHashes | Where-Object { $_ -isnot [string] -or $_ -notmatch '^[0-9a-f]{64}$' }).Count -ne 0) {
         throw 'Copilot pre-execution policy command hashes were malformed.'
+    }
+    [object[]] $helpCommandHashes = @($state.helpCommandHashes)
+    if ($helpCommandHashes.Count -gt [int]$ExecutionPolicy.maxHelpCalls -or
+        @($helpCommandHashes | Where-Object { $_ -isnot [string] -or $_ -notmatch '^[0-9a-f]{64}$' }).Count -ne 0) {
+        throw 'Copilot pre-execution policy help command hashes were malformed.'
     }
     [object[]] $viewRequests = @($state.viewRequests)
     if ($viewRequests.Count -gt [int]$ExecutionPolicy.maxViewCalls) {
@@ -1029,6 +1045,8 @@ function Get-CopilotEvalExecutionPolicyState([object] $ExecutionPolicy) {
     return [pscustomobject]@{
         callCount = $commandHashes.Count
         commandHashes = [string[]]$commandHashes
+        helpCallCount = $helpCommandHashes.Count
+        helpCommandHashes = [string[]]$helpCommandHashes
         viewRequests = $viewRequests
     }
 }
@@ -1162,10 +1180,23 @@ function Get-AgentEvalCopilotUsage {
             -MaxFileBytes 128MB `
             -Scope 'Copilot host runtime cache'
     }
-    [string[]] $excludedPaths = @($Context.immutableFiles | ForEach-Object { $_.path })
+    [System.Collections.Generic.List[string]] $excludedPaths = [System.Collections.Generic.List[string]]::new()
+    foreach ($immutableFile in @($Context.immutableFiles)) {
+        if (-not (Test-AgentEvalPathContained -Path $immutableFile.path -Root $Context.runDirectory) -or
+            -not (Test-Path -LiteralPath $immutableFile.path -PathType Leaf)) {
+            throw "Eval input attestation failed for '$($immutableFile.relativePath)'."
+        }
+        [System.IO.FileInfo] $file = Get-Item -LiteralPath $immutableFile.path -Force
+        if (($file.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            $file.Length -ne [long]$immutableFile.bytes) {
+            throw "Eval input attestation failed for '$($immutableFile.relativePath)'."
+        }
+        Assert-AgentEvalNoReparsePoint -Path $file.FullName -Boundary $Context.runDirectory
+        $excludedPaths.Add($file.FullName)
+    }
     $artifactUsage = Get-AgentEvalDirectoryUsage `
         -Path $Context.runDirectory `
-        -ExcludedPaths $excludedPaths `
+        -ExcludedPaths $excludedPaths.ToArray() `
         -ExcludedDirectories @($runtimePath) `
         -MaxEntries 512 `
         -MaxBytes $MaxArtifactBytes `
@@ -1213,6 +1244,46 @@ function Get-AgentEvalHostUsageFile($Context) {
     catch { throw 'Copilot usage output was malformed.' }
     if ($null -eq $value -or $value -is [string] -or $value -is [ValueType]) {
         throw 'Copilot usage output was not an object.'
+    }
+    [string[]] $usageMembers = @($value.PSObject.Properties | ForEach-Object { $_.Name })
+    foreach ($member in @('totalPremiumRequestCost', 'totalUserRequests', 'tokenDetails', 'currentModel')) {
+        if ($usageMembers -notcontains $member) { throw 'Copilot usage output schema was malformed.' }
+    }
+    [bool] $premiumCostValid = $value.totalPremiumRequestCost -is [byte] -or
+        $value.totalPremiumRequestCost -is [sbyte] -or
+        $value.totalPremiumRequestCost -is [short] -or
+        $value.totalPremiumRequestCost -is [ushort] -or
+        $value.totalPremiumRequestCost -is [int] -or
+        $value.totalPremiumRequestCost -is [uint] -or
+        $value.totalPremiumRequestCost -is [long] -or
+        $value.totalPremiumRequestCost -is [ulong] -or
+        $value.totalPremiumRequestCost -is [float] -or
+        $value.totalPremiumRequestCost -is [double] -or
+        $value.totalPremiumRequestCost -is [decimal]
+    [double] $premiumCost = if ($premiumCostValid) { [double]$value.totalPremiumRequestCost } else { -1 }
+    if (-not $premiumCostValid -or $premiumCost -lt 0 -or
+        [double]::IsNaN($premiumCost) -or [double]::IsInfinity($premiumCost) -or
+        ($value.totalUserRequests -isnot [int] -and $value.totalUserRequests -isnot [long]) -or
+        [long]$value.totalUserRequests -lt 0 -or
+        $value.currentModel -isnot [string] -or
+        [string]::IsNullOrWhiteSpace([string]$value.currentModel) -or
+        $null -eq $value.tokenDetails -or $value.tokenDetails -is [string] -or
+        $value.tokenDetails -is [ValueType]) {
+        throw 'Copilot usage output schema was malformed.'
+    }
+    [string[]] $tokenDetailMembers = @($value.tokenDetails.PSObject.Properties | ForEach-Object { $_.Name })
+    foreach ($tokenKind in @('input', 'cache_read', 'cache_write', 'output')) {
+        if ($tokenDetailMembers -notcontains $tokenKind) { throw 'Copilot usage output schema was malformed.' }
+        $tokenDetail = $value.tokenDetails.$tokenKind
+        if ($null -eq $tokenDetail -or $tokenDetail -is [string] -or $tokenDetail -is [ValueType]) {
+            throw 'Copilot usage output schema was malformed.'
+        }
+        [string[]] $tokenMembers = @($tokenDetail.PSObject.Properties | ForEach-Object { $_.Name })
+        if ($tokenMembers -notcontains 'tokenCount' -or
+            ($tokenDetail.tokenCount -isnot [int] -and $tokenDetail.tokenCount -isnot [long]) -or
+            [long]$tokenDetail.tokenCount -lt 0) {
+            throw 'Copilot usage output schema was malformed.'
+        }
     }
 
     return [pscustomobject]@{

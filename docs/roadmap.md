@@ -101,8 +101,9 @@ skill, tool, result, and usage evidence. Copilot CLI 1.0.82 discovered the owned
 project skill and reported exact model ID `gpt-5.6-sol-fast`. One smoke per arm
 used identical CLI and fixture hashes and returned the same correct CPU/caller
 answer. CLI-only used two analysis calls, one help call, 932 observed result tokens,
-and 23.850 seconds. CLI plus skill used two analysis calls, one help call, two
-safely denied repair attempts, 955 observed result tokens, and 43.512 seconds.
+one safely denied repair attempt, and 29.957 seconds. CLI plus skill used two
+analysis calls, one help call, one safely denied repair attempt, 955 observed
+result tokens, and 32.704 seconds.
 Both reported one premium request and complete host usage files.
 
 This N=1 pair establishes protocol and accounting readiness, not a skill advantage.

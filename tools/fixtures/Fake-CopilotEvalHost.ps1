@@ -173,6 +173,12 @@ if ($mode -eq 'host-runtime-outside-cache') {
 if ($mode -eq 'mutated-bundle') {
     [System.IO.File]::AppendAllText((Join-Path (Split-Path -Parent $filtracePath) 'Filtrace.Core.dll'), 'changed')
 }
+if ($mode -eq 'oversized-immutable') {
+    [string] $immutablePath = Join-Path (Split-Path -Parent $filtracePath) 'Filtrace.Core.dll'
+    [System.IO.FileStream] $immutableStream = [System.IO.File]::OpenWrite($immutablePath)
+    try { $immutableStream.SetLength($immutableStream.Length + 20MB) } finally { $immutableStream.Dispose() }
+    [System.Threading.Thread]::Sleep(5000)
+}
 $reportedModel = if ($mode -eq 'wrong-model') {
     'other-model'
 }
@@ -449,8 +455,11 @@ $events.Add([ordered]@{
         [string] $usageJson = if ($mode -eq 'malformed-usage-output') {
             '{'
         }
+        elseif ($mode -eq 'empty-usage-output') {
+            '{}'
+        }
         else {
-            [string]([ordered]@{
+            $usageValue = [ordered]@{
                     totalPremiumRequestCost = 1
                     totalUserRequests = 1
                     tokenDetails = [ordered]@{
@@ -460,7 +469,15 @@ $events.Add([ordered]@{
                         output = [ordered]@{ tokenCount = 10 }
                     }
                     currentModel = $reportedModel
-                } | ConvertTo-Json -Depth 6)
+                }
+            switch ($mode) {
+                'usage-missing-token-details' { [void]$usageValue.Remove('tokenDetails') }
+                'usage-missing-token-count' { [void]$usageValue.tokenDetails.output.Remove('tokenCount') }
+                'usage-missing-premium' { [void]$usageValue.Remove('totalPremiumRequestCost') }
+                'usage-wrong-type' { $usageValue.tokenDetails.input.tokenCount = '20' }
+                'usage-negative-token' { $usageValue.tokenDetails.cache_read.tokenCount = -1 }
+            }
+            [string]($usageValue | ConvertTo-Json -Depth 6)
         }
         [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($UsageOutputFile)) | Out-Null
         [System.IO.File]::WriteAllText($UsageOutputFile, $usageJson, [System.Text.UTF8Encoding]::new($false))
