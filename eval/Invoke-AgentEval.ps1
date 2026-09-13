@@ -1115,7 +1115,7 @@ function Invoke-CopilotIteration {
     $iterationObservedModels = @($modelEvents | Where-Object {
         $_.data.PSObject.Properties.Name -contains 'model' -and
         $_.data.model -is [string] -and -not [string]::IsNullOrWhiteSpace([string]$_.data.model)
-    } | ForEach-Object { [string]$_.data.model } | Sort-Object -Unique)
+    } | ForEach-Object { [string]$_.data.model } | Sort-Object -CaseSensitive -Unique)
     $m = if ($iterationObservedModels.Count -eq 1) { $iterationObservedModels[0] } else { $null }
     if ($m) { $script:CopilotActualModel = $m }
     $usage = if ($resultMembers -contains 'usage') { $result.usage } else { $null }
@@ -1517,7 +1517,7 @@ function Invoke-EvalRun {
     $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
     # Report the model Copilot actually used (from its JSONL) when none was pinned.
     $observedModels = if ($AgentHost -eq 'copilot') {
-        @($iterRecords | ForEach-Object { $_.observedModels } | Where-Object { $_ } | Sort-Object -Unique)
+        @($iterRecords | ForEach-Object { $_.observedModels } | Where-Object { $_ } | Sort-Object -CaseSensitive -Unique)
     }
     else {
         @($RunModel)

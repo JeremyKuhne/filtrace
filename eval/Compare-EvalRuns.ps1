@@ -74,6 +74,14 @@ function Test-FiniteNumber($Value) {
   return -not [double]::IsNaN($number) -and -not [double]::IsInfinity($number)
 }
 
+function Get-ResultMedian([object[]] $Values) {
+  [long[]] $sorted = @($Values | ForEach-Object { [long]$_ } | Sort-Object)
+  [int] $count = $sorted.Count
+  if ($count -eq 0) { return 0 }
+  if ($count % 2) { return [int]$sorted[[int][math]::Floor($count / 2)] }
+  return [int][math]::Round(([double]$sorted[$count / 2 - 1] + [double]$sorted[$count / 2]) / 2.0)
+}
+
 function Assert-ResultPayload($Payload, [string] $Path) {
   [string[]] $requiredRoot = @('schemaVersion', 'host', 'arm', 'label', 'timestamp', 'summary')
   [string[]] $rootMembers = @($Payload.PSObject.Properties.Name)
@@ -139,13 +147,25 @@ function Assert-ResultPayload($Payload, [string] $Path) {
     if ($rootMembers -notcontains $member) { throw "Schema-v3 result '$Path' is missing '$member'." }
   }
   [string[]] $modelMembers = @($Payload.model.PSObject.Properties.Name)
-  foreach ($member in @('requested', 'observed', 'verified')) {
+  foreach ($member in @('requested', 'expected', 'observed', 'observedDistinct', 'verified')) {
     if ($modelMembers -notcontains $member) { throw "Schema-v3 result '$Path' model is missing '$member'." }
   }
-  if ($Payload.model.requested -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.model.requested) -or
-    $Payload.model.observed -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.model.observed) -or
+  [bool] $defaultCopilotMcpModel = $null -eq $Payload.model.requested -and
+    [string]::Equals([string]$Payload.host, 'copilot', [StringComparison]::Ordinal) -and
+    [string]::Equals([string]$Payload.arm, 'mcp', [StringComparison]::Ordinal)
+  [bool] $requestedModelMatches = $Payload.model.requested -is [string] -and
+    -not [string]::IsNullOrWhiteSpace([string]$Payload.model.requested) -and
+    [string]::Equals([string]$Payload.model.requested, [string]$Payload.model.observed, [StringComparison]::Ordinal)
+  [bool] $expectedModelMatches = $null -eq $Payload.model.expected -or
+    ($Payload.model.expected -is [string] -and
+      -not [string]::IsNullOrWhiteSpace([string]$Payload.model.expected) -and
+      [string]::Equals([string]$Payload.model.expected, [string]$Payload.model.observed, [StringComparison]::Ordinal))
+  [object[]] $observedDistinct = @($Payload.model.observedDistinct)
+  if ($Payload.model.observed -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.model.observed) -or
     $Payload.model.verified -isnot [bool] -or -not $Payload.model.verified -or
-    -not [string]::Equals([string]$Payload.model.requested, [string]$Payload.model.observed, [StringComparison]::Ordinal)) {
+    (-not $defaultCopilotMcpModel -and -not $requestedModelMatches) -or -not $expectedModelMatches -or
+    $observedDistinct.Count -ne 1 -or $observedDistinct[0] -isnot [string] -or
+    -not [string]::Equals([string]$observedDistinct[0], [string]$Payload.model.observed, [StringComparison]::Ordinal)) {
     throw "Schema-v3 result '$Path' does not contain verified exact model identity."
   }
   if ($Payload.n -isnot [long] -and $Payload.n -isnot [int] -or [long]$Payload.n -lt 1 -or [long]$Payload.n -gt 1000 -or
@@ -157,10 +177,18 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   if ($iterations.Count -ne ($tasks.Count * [int]$Payload.n)) {
     throw "Schema-v3 result '$Path' has an invalid iteration count."
   }
+  foreach ($row in $summary) {
+    [string[]] $rowMembers = @($row.PSObject.Properties.Name)
+    if ($rowMembers -notcontains 'MedHelpCalls' -or -not (Test-FiniteNumber $row.MedHelpCalls) -or
+      [double]$row.MedHelpCalls -lt 0 -or [double]$row.MedHelpCalls -gt [int]::MaxValue -or
+      [double]$row.MedHelpCalls -ne [math]::Truncate([double]$row.MedHelpCalls)) {
+      throw "Schema-v3 result '$Path' has an invalid 'MedHelpCalls' value."
+    }
+  }
   [System.Collections.Generic.HashSet[string]] $iterationKeys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
   foreach ($iteration in $iterations) {
     [string[]] $iterationMembers = @($iteration.PSObject.Properties.Name)
-    foreach ($member in @('task', 'iteration', 'success', 'calls', 'tokens', 'wallMs', 'observedModel', 'observedModels')) {
+    foreach ($member in @('task', 'iteration', 'success', 'calls', 'helpCalls', 'tokens', 'wallMs', 'observedModel', 'observedModels')) {
       if ($iterationMembers -notcontains $member) { throw "Schema-v3 result '$Path' iteration is missing '$member'." }
     }
     if ($iteration.task -isnot [string] -or -not $tasks.Contains([string]$iteration.task) -or
@@ -171,7 +199,7 @@ function Assert-ResultPayload($Payload, [string] $Path) {
     }
     [string] $iterationKey = "$($iteration.task)/$($iteration.iteration)"
     if (-not $iterationKeys.Add($iterationKey)) { throw "Schema-v3 result '$Path' repeats iteration '$iterationKey'." }
-    foreach ($member in @('calls', 'tokens', 'wallMs')) {
+    foreach ($member in @('calls', 'helpCalls', 'tokens', 'wallMs')) {
       if (-not (Test-FiniteNumber $iteration.$member) -or [double]$iteration.$member -lt 0 -or
         [double]$iteration.$member -gt [int]::MaxValue -or
         [double]$iteration.$member -ne [math]::Truncate([double]$iteration.$member)) {
@@ -184,6 +212,28 @@ function Assert-ResultPayload($Payload, [string] $Path) {
       $observedModels.Count -ne 1 -or $observedModels[0] -isnot [string] -or
       -not [string]::Equals([string]$observedModels[0], [string]$Payload.model.observed, [StringComparison]::Ordinal)) {
       throw "Schema-v3 result '$Path' iteration model identity does not match the report."
+    }
+  }
+
+  foreach ($row in $summary) {
+    [object[]] $taskIterations = @($iterations | Where-Object {
+        [string]::Equals([string]$_.task, [string]$row.Task, [StringComparison]::Ordinal)
+      })
+    if ($taskIterations.Count -ne [int]$Payload.n) {
+      throw "Schema-v3 result '$Path' does not contain every iteration for task '$($row.Task)'."
+    }
+    [int] $successCount = @($taskIterations | Where-Object { $_.success }).Count
+    $expectedSummary = [ordered]@{
+      'Success%' = [int][math]::Round(100.0 * $successCount / [int]$Payload.n)
+      MedCalls = Get-ResultMedian -Values @($taskIterations | ForEach-Object { $_.calls })
+      MedHelpCalls = Get-ResultMedian -Values @($taskIterations | ForEach-Object { $_.helpCalls })
+      MedTokens = Get-ResultMedian -Values @($taskIterations | ForEach-Object { $_.tokens })
+      MedMs = Get-ResultMedian -Values @($taskIterations | ForEach-Object { $_.wallMs })
+    }
+    foreach ($member in $expectedSummary.Keys) {
+      if ([long]$row.$member -ne [long]$expectedSummary[$member]) {
+        throw "Schema-v3 result '$Path' summary '$member' does not match task '$($row.Task)' iterations."
+      }
     }
   }
 }

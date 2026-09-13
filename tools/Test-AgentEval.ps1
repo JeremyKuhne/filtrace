@@ -226,6 +226,20 @@ function Assert-FakeParserFailureArtifacts {
 }
 
 try {
+    Assert-True (Test-AgentEvalPathContained -Path $root -Root $root) `
+        'Repository-root equality was not treated as path containment.'
+    [string] $instructionAncestor = Join-Path $temporaryRoot 'instruction ancestor'
+    [string] $instructionWorkspace = Join-Path $instructionAncestor 'child/workspace'
+    [System.IO.Directory]::CreateDirectory($instructionWorkspace) | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $instructionAncestor 'AGENTS.md'), 'test instructions')
+    [bool] $ancestorInstructionsRejected = $false
+    try { Assert-AgentEvalNoAncestorInstructions -Workspace $instructionWorkspace }
+    catch {
+        $ancestorInstructionsRejected = $_.Exception.Message.Contains(
+            'has ancestor instructions', [StringComparison]::Ordinal)
+    }
+    Assert-True $ancestorInstructionsRejected 'Strict workspace accepted an ancestor AGENTS.md.'
+
     [System.Management.Automation.Language.Token[]] $runnerTokens = $null
     [System.Management.Automation.Language.ParseError[]] $runnerErrors = $null
     $runnerAst = [System.Management.Automation.Language.Parser]::ParseFile(
@@ -825,6 +839,10 @@ try {
     $modelVariant = Invoke-FakeRun -Name 'cli model-variant' -Mode model-variant
     Assert-True ($modelVariant.iterations[0].success -eq $false) 'Multiple host model variants unexpectedly passed.'
     Assert-True ($modelVariant.model.verified -eq $false) 'Multiple host model variants were marked verified.'
+    $modelCaseVariant = Invoke-FakeRun -Name 'cli model-case-variant' -Mode model-case-variant
+    Assert-True ($modelCaseVariant.iterations[0].success -eq $false) 'Case-distinct host model variants unexpectedly passed.'
+    Assert-True ($modelCaseVariant.model.observedDistinct.Count -eq 2) `
+        'Case-distinct host model variants were collapsed.'
 
     $skillSuccess = Invoke-FakeRun -Name 'skill success' -Mode success -Arm cli-skill
     Assert-True ($skillSuccess.iterations[0].success -eq $true) "Verified skill run failed: $($skillSuccess.iterations[0].note)"
@@ -867,6 +885,15 @@ try {
     }
 
     Assert-FakeRunThrows -Name 'timeout' -Mode timeout -ExpectedMessage 'did not finish within 1 seconds' -TimeoutSeconds 1
+    $closedStreamStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    Assert-FakeRunThrows `
+        -Name 'closed stream timeout' `
+        -Mode closed-stream-timeout `
+        -ExpectedMessage 'did not finish within 3 seconds' `
+        -TimeoutSeconds 3
+    $closedStreamStopwatch.Stop()
+    Assert-True ($closedStreamStopwatch.Elapsed.TotalSeconds -lt 5) `
+        'Closed host streams bypassed the configured process deadline.'
     Assert-FakeRunThrows -Name 'output bound' -Mode oversized-output -ExpectedMessage 'output exceeded 1024 bytes' -MaxOutputBytes 1024
     Assert-FakeRunThrows -Name 'artifact bound' -Mode oversized-artifact -ExpectedMessage 'artifacts exceeded 16777216 bytes'
 
@@ -1167,6 +1194,21 @@ try {
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $comparisonDirectory
     Assert-True ($LASTEXITCODE -eq 0) 'Identical fake records did not compare neutral.'
 
+    $defaultMcpDirectory = Join-Path $temporaryRoot 'default mcp comparison'
+    [System.IO.Directory]::CreateDirectory($defaultMcpDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $defaultMcp = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        $defaultMcp.arm = 'mcp'
+        $defaultMcp.model.requested = $null
+        $defaultMcp.model.expected = $null
+        [System.IO.File]::WriteAllText(
+            (Join-Path $defaultMcpDirectory $resultPath.Name),
+            (($defaultMcp | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $defaultMcpDirectory
+    Assert-True ($LASTEXITCODE -eq 0) 'Verified default-model Copilot MCP records did not compare neutral.'
+
     $legacyDirectory = Join-Path $temporaryRoot 'legacy comparison'
     [System.IO.Directory]::CreateDirectory($legacyDirectory) | Out-Null
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
@@ -1184,7 +1226,9 @@ try {
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $legacyDirectory
     Assert-True ($LASTEXITCODE -eq 0) 'Validated schema-v2 records did not compare neutral.'
 
-    foreach ($case in @('malformed', 'empty-summary', 'duplicate-task', 'wrong-field-type')) {
+        foreach ($case in @(
+            'malformed', 'empty-summary', 'duplicate-task', 'wrong-field-type',
+            'summary-success-mismatch', 'summary-median-mismatch')) {
         $caseDirectory = Join-Path $temporaryRoot "comparison $case"
         [System.IO.Directory]::CreateDirectory($caseDirectory) | Out-Null
         foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
@@ -1200,6 +1244,8 @@ try {
                 'empty-summary' { $invalid.summary = @() }
                 'duplicate-task' { $invalid.summary = @($invalid.summary[0], $invalid.summary[0]) }
                 'wrong-field-type' { $invalid.summary[0].MedCalls = 'one' }
+                'summary-success-mismatch' { $invalid.summary[0].'Success%' = 0 }
+                'summary-median-mismatch' { $invalid.summary[0].MedCalls = [int]$invalid.summary[0].MedCalls + 1 }
             }
             [System.IO.File]::WriteAllText(
                 $casePath.FullName,

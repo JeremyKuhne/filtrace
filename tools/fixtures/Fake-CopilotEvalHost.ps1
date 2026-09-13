@@ -138,6 +138,18 @@ for ($directory = Get-Item -LiteralPath $WorkingDirectory; $null -ne $directory;
 if ($mode -eq 'timeout') {
     [System.Threading.Thread]::Sleep(5000)
 }
+if ($mode -eq 'closed-stream-timeout') {
+    Add-Type -Namespace AgentEval -Name NativeMethods -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+public static extern System.IntPtr GetStdHandle(int handle);
+[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+public static extern bool CloseHandle(System.IntPtr handle);
+'@
+    [void][AgentEval.NativeMethods]::CloseHandle([AgentEval.NativeMethods]::GetStdHandle(-11))
+    [void][AgentEval.NativeMethods]::CloseHandle([AgentEval.NativeMethods]::GetStdHandle(-12))
+    [System.Threading.Thread]::Sleep(10000)
+    exit 0
+}
 if ($mode -eq 'oversized-output') {
     [Console]::Out.WriteLine(('x' * 4096))
 }
@@ -202,10 +214,11 @@ if ($mode -ne 'missing-model') {
             type = 'session.tools_updated'
             data = [ordered]@{ model = $reportedModel }
         })
-    if ($mode -eq 'model-variant') {
+    if ($mode -in @('model-variant', 'model-case-variant')) {
+        [string] $variantModel = if ($mode -eq 'model-case-variant') { 'Expected-Model' } else { 'expected-model-variant' }
         $events.Add([ordered]@{
                 type = 'session.tools_updated'
-                data = [ordered]@{ model = 'expected-model-variant' }
+                data = [ordered]@{ model = $variantModel }
             })
     }
 }

@@ -441,14 +441,28 @@ function Test-AgentEvalPathContained([string] $Path, [string] $Root) {
     [string] $canonicalPath = [System.IO.Path]::GetFullPath($Path)
     [string] $canonicalRoot = [System.IO.Path]::GetFullPath($Root).TrimEnd(
         [System.IO.Path]::DirectorySeparatorChar,
-        [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+        [System.IO.Path]::AltDirectorySeparatorChar)
     [StringComparison] $comparison = if ([System.OperatingSystem]::IsWindows()) {
         [StringComparison]::OrdinalIgnoreCase
     }
     else {
         [StringComparison]::Ordinal
     }
-    return $canonicalPath.StartsWith($canonicalRoot, $comparison)
+    return [string]::Equals($canonicalPath.TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar), $canonicalRoot, $comparison) -or
+        $canonicalPath.StartsWith($canonicalRoot + [System.IO.Path]::DirectorySeparatorChar, $comparison)
+}
+
+function Assert-AgentEvalNoAncestorInstructions([string] $Workspace) {
+    [System.IO.DirectoryInfo] $directory = Get-Item -LiteralPath $Workspace
+    while ($null -ne $directory) {
+        [string] $instructionsPath = Join-Path $directory.FullName 'AGENTS.md'
+        if (Test-Path -LiteralPath $instructionsPath -PathType Leaf) {
+            throw "Strict Copilot workspace '$Workspace' has ancestor instructions at '$instructionsPath'."
+        }
+        $directory = $directory.Parent
+    }
 }
 
 function Assert-AgentEvalNoReparsePoint([string] $Path, [string] $Boundary) {
@@ -621,6 +635,12 @@ function New-CopilotEvalContext {
     [string] $logDirectory = Join-Path $runDirectory 'logs'
     foreach ($directory in @($runDirectory, $workspace, $isolatedHome, $logDirectory) | Where-Object { $_ }) {
         [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+    }
+    if ($StrictCliArm) {
+        if (Test-AgentEvalPathContained -Path $workspace -Root $Root) {
+            throw "Strict Copilot workspace '$workspace' must be outside the repository."
+        }
+        Assert-AgentEvalNoAncestorInstructions -Workspace $workspace
     }
 
     [System.Collections.Generic.List[object]] $immutableFiles = [System.Collections.Generic.List[object]]::new()
@@ -1333,9 +1353,11 @@ function Invoke-BoundedCopilotProcess {
             }
         }
 
-        if (-not $process.WaitForExit(5000)) {
+        [double] $remainingMilliseconds = ($TimeoutSeconds * 1000.0) - $stopwatch.Elapsed.TotalMilliseconds
+        if ($remainingMilliseconds -le 0 -or
+            -not $process.WaitForExit([int][Math]::Ceiling($remainingMilliseconds))) {
             Stop-AgentEvalProcess $process $started
-            throw 'Copilot host streams closed but the process did not exit within 5 seconds.'
+            throw "Copilot host did not finish within $TimeoutSeconds seconds."
         }
         $finalUsage = Get-AgentEvalCopilotUsage `
             -Context $Context `

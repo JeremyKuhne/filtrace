@@ -118,12 +118,14 @@ contract and the no-LLM gate.
   project-skill discovery. It requires one enabled `source: project` Filtrace
   entry at the copied path, one exact `skill {"skill":"filtrace"}` invocation,
   a successful completion, and one injected `<skill-context name="filtrace">`
-  whose body exactly matches `SKILL.md` after frontmatter removal and CRLF-to-LF
-  normalization. Startup metadata alone is not use evidence.
+  whose body exactly matches `SKILL.md` after frontmatter and its leading blank
+  separator are removed and CRLF is normalized to LF. Startup metadata alone is
+  not use evidence.
 
 The strict Copilot CLI arms create a GUID-owned workspace outside the repository
-when `-OutDir` is inside this checkout, so ancestor `AGENTS.md` discovery cannot
-reach the source tree. The child environment starts empty, copies only required
+when `-OutDir` equals or is beneath this checkout. They reject any selected
+workspace with an ancestor `AGENTS.md`, so discovery cannot reach unattested
+instructions. The child environment starts empty, copies only required
 OS/process/path/locale/.NET variables, and redirects `HOME`, `USERPROFILE`,
 `XDG_CONFIG_HOME`, `APPDATA`, `LOCALAPPDATA`, and `COPILOT_HOME` to owned empty
 directories. Token, provider, custom-instruction, MCP, and telemetry environment
@@ -168,9 +170,10 @@ The native `skill` tool is not shell execution and does not use the PowerShell
 hook. Its display result can be shorter than the source, so `detailedContent` is
 not treated as complete evidence. The evaluator verifies the model-visible
 `<skill-context>` message instead. Copilot removes YAML frontmatter and normalizes
-CRLF to LF before injection; the complete normalized body must match. Results keep
-the raw file SHA-256, decoded source hash, expected context hash, observed context
-hash, discovery metadata, and correlated skill call ID as separate evidence.
+CRLF to LF before injection, and its wrapper consumes the blank separator before
+the Markdown body; the complete normalized wrapper and body must match. Results
+keep the raw file SHA-256, decoded source hash, expected context hash, observed
+context hash, discovery metadata, and correlated skill call ID as separate evidence.
 
 Before launch, the runner accepts only a tracked, HEAD-clean file beneath
 `tests/Filtrace.Core.Tests/Fixtures`, rejects UNC/reparse paths, and caps it at
@@ -191,11 +194,13 @@ artifact budget. If the remaining byte budget cannot hold both, a bounded
 does not publish an eval result, but the retained raw files remain available and a
 diagnostic-write failure does not replace the parser error. These controls, measured
 artifact/runtime bytes, and the input manifests are retained in each successful
-iteration record.
+iteration record. The wall-time deadline continues after redirected streams close;
+a host process that remains alive is stopped at the configured deadline.
 
 The strict arms remain Windows-only and require both `-Model` and `-ExpectedModel`; requested and observed
 identities must be nonempty and exactly equal using ordinal comparison. Missing,
-different-case, or mismatched identity fails. Identity comes from the host's
+different-case, case-distinct multiple identities, or mismatched identity fails.
+Identity comes from the host's
 `session.tools_updated` current model; a provider's lower-level chunk model label is
 not substituted for it. The deterministic fake validates generated hook placement,
 literal-command decisions, recorded input shape/order, malformed/unknown inputs,
@@ -418,7 +423,9 @@ dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c Release
   task, or a run present on only one side is a **REGRESSION/REJECT** (exit 1);
   higher success, fewer calls, or a **token drop over 5%** is an improvement, and
   smaller token deltas stay neutral. Schema-v3 inputs must carry verified exact
-  model identity, valid unique task summaries, and matching iteration identities;
+  model identity, unique task summaries derived exactly from their iterations, and
+  matching iteration identities. A Copilot MCP run may use the host default with a
+  null requested model only when it retains one verified observed identity;
   malformed or unverified matching results reject the comparison.
 - Drafting the revision (the design's "agent-drafted" step) is manual or a separate
   agent prompt; the machinery above is the deterministic score-and-compare it feeds.
