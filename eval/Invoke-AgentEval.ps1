@@ -358,6 +358,8 @@ function Invoke-OllamaIteration {
     $sw.Stop()
     return [pscustomobject]@{
         answer = $answer; calls = $calls; tokens = $tokens
+        observedModel = [string]$script:CurrentModel
+        observedModels = @([string]$script:CurrentModel)
         wallMs = [int]$sw.ElapsedMilliseconds; note = $note; transcript = $transcript
     }
 }
@@ -1234,7 +1236,8 @@ if ($AgentHost -eq 'copilot' -and $arm -in @('cli', 'cli-skill') -and
 $script:mcpConfigPath = $null
 if ($AgentHost -eq 'copilot') {
     if (-not $CopilotPath) {
-        $CopilotPath = @(Get-Command copilot.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        [string] $copilotCommand = if ([System.OperatingSystem]::IsWindows()) { 'copilot.exe' } else { 'copilot' }
+        $CopilotPath = @(Get-Command $copilotCommand -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
     }
     if (-not $CopilotPath -or -not (Test-Path -LiteralPath $CopilotPath)) {
         throw "The 'copilot' CLI was not found on PATH. Install GitHub Copilot CLI and run 'copilot login'."
@@ -1266,6 +1269,18 @@ if ($AgentHost -eq 'copilot') {
         throw "CopilotPath must name the native copilot.exe, not a batch or PowerShell proxy."
     }
     if ($arm -eq 'mcp') { $script:mcpConfigPath = New-FiltraceMcpConfig }
+}
+
+if ($AgentHost -eq 'copilot' -and $arm -in @('cli', 'cli-skill')) {
+    [System.Collections.Generic.List[string]] $unsupportedTasks = [System.Collections.Generic.List[string]]::new()
+    foreach ($task in $selected) {
+        try { [void](Get-AgentEvalTaskCommandFamilies -Task $task -AllowedVerbs $verbs) }
+        catch { $unsupportedTasks.Add("$($task.id): $($_.Exception.Message)") }
+    }
+    if ($unsupportedTasks.Count -gt 0) {
+        throw "The Copilot '$arm' arm cannot run the selected task set. Select supported tasks explicitly. " +
+            ($unsupportedTasks -join '; ')
+    }
 }
 
 # The model list. -Models runs the matrix across several models in one invocation

@@ -6,17 +6,14 @@ PR #124 and indexed traversal shipped in PR #126. The
 measured consumer change. Phase 0 final reconstruction and the broader LP
 dispositions remain open, but they are not the immediate implementation queue.
 
-**Execution update, 2026-09-08:** [roadmap.md](roadmap.md) records the approved
-2026-09-07 coordination update: prioritize a breadth-first sweep of the existing
-FastTrace APIs consumed by Filtrace. Use this harness where it supplies a workload or
-removes a demonstrated evidence blocker; complete remaining PP02 measurements only
-as comparison iterations need them. LP-1 through LP-5 remain PP08 hypotheses that
-require measured kept, rejected, or explicitly blocked dispositions, not mandated
-parallel implementations. An individual experiment may be inconclusive, but that is
-not a terminal Track D state. General harness hardening remains deferred unless a
-selected scenario demonstrates that it blocks valid evidence. The prepared agent
-evaluator and full Track D Phase 0 closeout are not prerequisites for the active API
-sweep.
+**Execution update, 2026-09-13:** [roadmap.md](roadmap.md) records the coordinated
+EP1 priority: first prove the CLI-plus-skill and CLI-only evaluation contract, then
+run the bounded ready-capture comparison. Use this harness only when EP1 or a later
+accepted scenario selects a measurement need. LP-1 through LP-5 remain PP08
+hypotheses that require measured kept, rejected, or explicitly blocked dispositions,
+not mandated parallel implementations. An individual experiment may be inconclusive,
+but that is not a terminal Track D state. General harness hardening and full Track D
+Phase 0 closeout are not prerequisites for EP1.
 
 This plan turns the performance and parallelism hypotheses in
 [roadmap.md](roadmap.md#track-d---performance-and-parallelism) into repeatable
@@ -366,7 +363,7 @@ These requirements are fixed before testing a candidate:
 ## Phase 0 - build the measurement harness
 
 Complete this before any production parallelism edit if PP08 schedules one. It does
-not block the active FastTrace existing-API sweep.
+not block the active EP1 comparison.
 
 **Phase 0 implementation through 2026-08-04:**
 

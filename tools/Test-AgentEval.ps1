@@ -855,7 +855,8 @@ try {
         'Installed skill inventory did not contain every shipped file.'
     foreach ($mode in @(
             'missing-skill-read', 'missing-skill-discovery', 'wrong-skill-hash',
-            'failed-skill-load', 'missing-skill-context', 'skill-ledger-mismatch')) {
+            'failed-skill-load', 'missing-skill-context', 'skill-extra-context',
+            'skill-ledger-mismatch')) {
         $negative = Invoke-FakeRun -Name "skill $mode" -Mode $mode -Arm cli-skill
         Assert-True ($negative.iterations[0].success -eq $false) "Fake skill mode '$mode' unexpectedly passed."
         if ($mode -eq 'missing-skill-read') {
@@ -1139,6 +1140,25 @@ try {
         $missingExpectedModelRejected = $_.Exception.Message.Contains('-ExpectedModel is required', [StringComparison]::Ordinal)
     }
     Assert-True $missingExpectedModelRejected 'Strict CLI arm accepted a run without -ExpectedModel.'
+
+    [bool] $unsupportedDefaultTasksRejected = $false
+    try {
+        & $runner `
+            -AgentHost copilot `
+            -Arm cli `
+            -Model expected-model `
+            -ExpectedModel expected-model `
+            -N 1 `
+            -OutDir (Join-Path $temporaryRoot 'unsupported default tasks') `
+            -CopilotPath $pwshPath `
+            -CopilotAdapterPath $fakeHost
+    }
+    catch {
+        $unsupportedDefaultTasksRejected = $_.Exception.Message.Contains(
+            'cannot run the selected task set', [StringComparison]::Ordinal)
+    }
+    Assert-True $unsupportedDefaultTasksRejected `
+        'Strict CLI arm did not reject unsupported default tasks before host launch.'
 
     $comparisonDirectory = Join-Path $temporaryRoot 'comparison'
     [void](Invoke-FakeRun -Name 'comparison baseline' -Mode success -Label baseline -OutDir $comparisonDirectory)

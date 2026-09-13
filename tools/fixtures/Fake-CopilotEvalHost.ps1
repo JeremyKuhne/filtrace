@@ -109,6 +109,7 @@ $requiredSwitches = @(
     $DisableBuiltinMcps, $NoRemoteExport, $NoRemote,
     $NoAutoUpdate, $NoBashEnvironment, $NoAskUser, $DisallowTempDirectory)
 if ($requiredSwitches -contains $false -or [bool]$NoCustomInstructions -eq [bool]$skillPath -or
+    $Model -ne 'expected-model' -or $OutputFormat -ne 'json' -or
     -not $SessionId -or -not $UsageOutputFile -or -not $LogDirectory) {
     throw 'Fake Copilot host did not receive the required isolation switches.'
 }
@@ -214,6 +215,16 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
     [int] $frontmatterEnd = $skillText.IndexOf("`n---`n", 4, [StringComparison]::Ordinal)
     if ($frontmatterEnd -lt 0) { throw 'Fake skill frontmatter was malformed.' }
     [string] $skillBody = $skillText.Substring($frontmatterEnd + 5)
+    [string] $skillDirectory = [System.IO.Path]::GetDirectoryName($skillPath)
+    [string[]] $relatedPaths = @(Get-ChildItem -LiteralPath $skillDirectory -File -Recurse |
+        Where-Object { -not [string]::Equals($_.FullName, $skillPath, [StringComparison]::Ordinal) } |
+        Sort-Object { [System.IO.Path]::GetRelativePath($skillDirectory, $_.FullName) } |
+        ForEach-Object { $_.FullName })
+    [string] $relatedSection = if ($relatedPaths.Count -gt 0) {
+        "`n`nRelated files (use view tool to read):`n" +
+            (($relatedPaths | ForEach-Object { "  - $_" }) -join "`n")
+    }
+    else { '' }
     [string] $reportedSkillName = if ($mode -eq 'skill-ledger-mismatch') { 'other-skill' } else { 'filtrace' }
     [string] $contextBody = if ($mode -in @(
             'wrong-skill-hash', 'skill-missing-page', 'skill-hole', 'skill-reorder',
@@ -222,6 +233,7 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
         '!' + $skillBody.Substring(1)
     }
     else { $skillBody }
+    [string] $extraContext = if ($mode -eq 'skill-extra-context') { "`nInjected text outside the skill source." } else { '' }
     $events.Add([ordered]@{
             type = 'tool.execution_start'
             data = [ordered]@{
@@ -247,7 +259,7 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
                 data = [ordered]@{
                     message = [ordered]@{
                         role = 'user'
-                        content = "<skill-context name=`"filtrace`">`nBase directory for this skill: $([System.IO.Path]::GetDirectoryName($skillPath))`n`n$contextBody`n</skill-context>"
+                        content = "<skill-context name=`"filtrace`">`nBase directory for this skill: $skillDirectory$relatedSection$extraContext`n`n$contextBody`n</skill-context>"
                     }
                 }
             })

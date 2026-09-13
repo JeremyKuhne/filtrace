@@ -369,8 +369,21 @@ function Complete-AgentEvalDiscoveredSkillEvidence {
         [int] $frontmatterEnd = $normalizedSource.IndexOf("`n---`n", 4, [StringComparison]::Ordinal)
         if ($frontmatterEnd -lt 0) { throw 'Filtrace skill frontmatter was not terminated.' }
         $expectedBody = $normalizedSource.Substring($frontmatterEnd + 5)
-        if (-not $context.EndsWith("$expectedBody`n</skill-context>", [StringComparison]::Ordinal)) {
-            throw 'Injected filtrace skill context did not match the source body.'
+        [string] $skillDirectory = [System.IO.Path]::GetDirectoryName($SourcePath)
+        [string[]] $relatedPaths = @(Get-ChildItem -LiteralPath $skillDirectory -File -Recurse |
+            Where-Object { -not [string]::Equals($_.FullName, $SourcePath, [StringComparison]::Ordinal) } |
+            Sort-Object { [System.IO.Path]::GetRelativePath($skillDirectory, $_.FullName) } |
+            ForEach-Object { $_.FullName })
+        [string] $relatedSection = if ($relatedPaths.Count -gt 0) {
+            "`n`nRelated files (use view tool to read):`n" +
+                (($relatedPaths | ForEach-Object { "  - $_" }) -join "`n")
+        }
+        else { '' }
+        [string] $expectedContext = "<skill-context name=`"filtrace`">`n" +
+            "Base directory for this skill: $skillDirectory$relatedSection`n`n" +
+            "$expectedBody`n</skill-context>"
+        if (-not [string]::Equals($context, $expectedContext, [StringComparison]::Ordinal)) {
+            throw 'Injected filtrace skill context did not exactly match the expected wrapper and source body.'
         }
         $observedText = $expectedBody
     }
