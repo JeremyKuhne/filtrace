@@ -66,10 +66,10 @@ true.
 | --- | --- | --- |
 | Done | VN0-VN4, VC2, SC8, SC11, SC13, LT1 | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, command provenance, decisive-query replay, and repository-local activation are implemented. |
 | Active coordinated work | EP1 CLI-plus-skill efficacy preflight | Add a fail-closed, genuine-discovery skill arm beside CLI-only, then retain one matched smoke per arm. Keep the same host, model, CLI, task, and command policy. |
-| Next when scheduled | EP1 measured runs, PP02 evidence gaps, PP10 adoption | Run three alternating ready-capture pairs and one full-loop pair only after preflight passes. Complete other evidence or adoption work when that result selects it. |
+| Next when scheduled | EP1 measured runs, PP02 evidence gaps, PP10 adoption | After preflight, run three alternating ready-capture pairs. Run one full-loop pair only after that comparison is accepted. Complete other evidence or adoption work when the result selects it. |
 | Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the named public scenario and gate recorded here; these are not the current default implementation queue. |
 | Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the remaining-outcomes table below; production implementation follows only for a kept candidate. |
-| Dependency opportunities | TE-P1..TE-P5 | Measure through PP07 against the selected dependency. They are not Filtrace-only changes and do not justify speculative upstream work. |
+| Dependency opportunities | TE-P1..TE-P5 | First demonstrate a Filtrace scenario, material cost, and compatible ownership/lifetime contract against the selected dependency. They are not Filtrace-only changes and do not justify speculative upstream work. |
 | Backlog | VC1 ([issue #92](https://github.com/JeremyKuhne/filtrace/issues/92)) | DATAS applies only to modern server-GC workloads; retain the design without scheduling it ahead of broader capabilities. |
 
 VN3 retained the current MCP surface. New capabilities extend a compatible existing
@@ -1233,9 +1233,9 @@ These cannot be implemented in Filtrace alone. Against the published default the
 would require changes in `Microsoft.Diagnostics.Tracing.TraceEvent`, whose current
 package pin is maintained in
 [Directory.Packages.props](../Directory.Packages.props). During FastTrace evaluation,
-PP07 treats the same outcomes as measured candidate APIs or implementation changes.
-Do not open speculative work in either dependency: first demonstrate a Filtrace
-scenario, cost, and compatible ownership/lifetime contract.
+treat the same outcomes as measured candidate APIs or implementation changes. Do
+not open speculative work in either dependency: first demonstrate a Filtrace
+scenario, material cost, and compatible ownership/lifetime contract.
 
 | ID | Ask | Why filtrace wants it |
 |---|---|---|
