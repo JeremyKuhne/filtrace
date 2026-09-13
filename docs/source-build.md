@@ -13,9 +13,11 @@ to `src/fasttrace/fasttrace.csproj`; the published Touki dependency is unchanged
 Use separate checkouts or `-p:ArtifactsPath="<owned build directory>"` when retaining
 both engines' outputs. Changing engine selection requires a restore; do not reuse
 `--no-restore` assets from the other selection.
-Use FastTrace `73b32fe690491bc3d3ba05080ae2d5eb59ba01cb`, or a coordinated later
-documentation commit with the same production tree. This namespace-adjusted source
-integration is not a binary assembly-identity drop-in.
+Use FastTrace `73b32fe690491bc3d3ba05080ae2d5eb59ba01cb` only to reproduce the
+provisional replacement-assessment baseline. New primary-plan experiments must pin
+the coordinated FastTrace revision recorded by that experiment rather than silently
+reusing this historical hash. This namespace-adjusted source integration is not a
+binary assembly-identity drop-in.
 
 To publish an owned native CLI output on a native x64 host, first install the
 [Native AOT prerequisites](https://learn.microsoft.com/dotnet/core/deploying/native-aot/#prerequisites)
@@ -42,8 +44,8 @@ or redistribute DIA in the output. Managed portable PDB support does not require
 This path is build-only evaluation guidance. It does not change Filtrace's default
 engine, publish packages or version tags, or authorize distributing source-built
 CLI or MCP packages. The measured boundaries are recorded in the
-[indexed traversal report](stack-traversal-experiment.md) and the coordinated
-[provisional replacement assessment](https://github.com/JeremyKuhne/fasttrace/blob/main/docs/filtrace-replacement-assessment.md).
+[indexed traversal report](stack-traversal-experiment.md) and the local validation
+record below. Private coordination records are supplemental.
 
 ## Local Validation And Blocked CI
 
@@ -60,6 +62,17 @@ The check builds the complete framework-dependent and Native AOT CLIs, then requ
 exact JSON agreement for six committed-fixture queries. Use an isolated checkout for
 the restore/build outputs described above. A local x64 pass does not validate ARM64
 or another operating system.
+
+The retained coordination assessment records the separate Linux x64 execution
+evidence: six JIT/Native AOT command pairs
+matched under WSL Ubuntu 26.04 with .NET 10.0.9, and unsupported ETW collection
+returned an explicit EventPipe handoff. That assessment identifies dependency commit
+`73b32fe690491bc3d3ba05080ae2d5eb59ba01cb`, Filtrace PR #126 at
+`1a5645045a7614c4ba2b3aa11188e354cd06e930`, and retained evidence directories
+`linux-adoption-9710705d818740f39482fb22b8a95940` and
+`indexed-native-adoption-af8bd8ed299d44d8813419a4f8ad384d` beneath its documented
+local evidence root. This is bounded Linux x64 evidence, not Linux ARM64, macOS, or
+the blocked hosted matrix.
 
 The `source adoption` CI matrix remains **blocked** while FastTrace is private.
 Run `34087396758` stopped at repository checkout on Linux ARM64, Windows ARM64,

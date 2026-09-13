@@ -3,12 +3,13 @@
 **Status:** Current. This page states the principles, goals, and measures of success
 that govern further development.
 
-**Last verified:** 2026-08-01 against `main`.
+**Last verified:** 2026-09-08 against `main` at `a7ebd5e`.
 
-Anything that is a *plan* belongs in [roadmap.md](roadmap.md). Anything that is a
-*comparison with other tools* belongs in
+Filtrace ordering, conditional work, and completed surface decisions belong in the
+public [roadmap.md](roadmap.md). Cross-repository coordination becomes actionable in
+this repository only when reflected there. Comparisons with other tools belong in
 [competitive-analysis.md](competitive-analysis.md). This page is the standing
-contract that both of those are judged against.
+contract that all of them are judged against.
 
 ## What filtrace is
 
@@ -190,7 +191,7 @@ These are checked by CI; a change that breaks one is not shippable.
 
 | Measure | Gate | Current | Enforced by |
 |---|---|---|---|
-| MCP `tools/list` size | <= 7,000 estimated tokens | ~6,701 tokens / 26,515 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
+| MCP `tools/list` size | <= 7,000 estimated tokens | ~6,710 tokens / 26,538 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | MCP stdout purity | pure JSON-RPC, real `tools/call` round trip | envelope `schemaVersion` 17 | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | Single analysis response | <= 25,000 tokens (`OutputBudget.DefaultCeilingTokens`) | every producer bounds its rows against `OutputBudget.DefaultRowBudgetTokens` | Core budget plus worst-case tests |
 | Per-command `--help` | <= 60 lines | 16 canonical commands; 12 hidden preview aliases remain help-addressable | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
@@ -273,12 +274,13 @@ which hosted Windows runners permit because they run elevated.
 
 ## Known constraints
 
-- **Native AOT is blocked by `TraceEvent`.** It relies on reflection, dynamically
-  built event parsers, and ETW native interop, and is not annotated as trim- or
-  AOT-safe. Do not set `IsAotCompatible` or `PublishAot` on filtrace projects until
-  a real native publish of the whole analysis graph succeeds. Source-generated JSON
-  and trim-safe filtrace-owned code remove avoidable blockers but do not make the
-  dependency AOT-safe.
+- **The default TraceEvent-backed product is blocked from Native AOT.** TraceEvent
+  relies on reflection, dynamically built event parsers, and ETW native interop and
+  is not annotated as trim- or AOT-safe. Explicit FastTrace source builds have
+  produced working Windows and Linux x64 native CLIs, but the published default
+  engine has not changed; see [source-build.md](source-build.md). Do not mark the
+  default projects AOT-compatible until the dependency decision and required native
+  platform matrix are complete.
 - **ETW is Windows plus Administrator.** Everything that depends on it - thread
   time, disk I/O, lifecycle phases, native frames, machine-wide multi-process
   scope, `collect` - inherits that. Extending the default EventPipe loop is worth
