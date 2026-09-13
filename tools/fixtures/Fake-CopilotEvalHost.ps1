@@ -401,7 +401,15 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
             })
     }
     [string] $callId = if ($mode -eq 'missing-call-id') { '' } else { 'call-1' }
-    [string] $toolName = if ($mode -in @('unexpected-tool', 'denied-unknown-tool')) { 'write' } else { 'powershell' }
+    [string] $toolName = if ($mode -in @('unexpected-tool', 'denied-unknown-tool')) {
+        'write'
+    }
+    elseif ($mode -eq 'powershell-tool-case') {
+        'PowerShell'
+    }
+    else {
+        'powershell'
+    }
     $toolArguments = [ordered]@{
         command = $command
         description = 'Analyze the owned trace with filtrace'
@@ -426,7 +434,9 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
         'missing-command-argument', 'missing-description-argument', 'invalid-command-type',
         'invalid-mode-type', 'async-mode', 'repl-mode', 'invalid-initial-wait-type',
         'zero-initial-wait', 'unbounded-initial-wait', 'shell-sandbox-flag')
-    if ($mode -notin @('decoy-command', 'wrong-cli-path', 'unexpected-tool', 'denied-unknown-tool')) {
+        if ($mode -notin @(
+            'decoy-command', 'wrong-cli-path', 'unexpected-tool', 'denied-unknown-tool',
+            'powershell-tool-case')) {
         $preToolDecision = Invoke-FakePolicyHook `
             -Hook $preToolHook[0] `
             -ToolName $toolName `

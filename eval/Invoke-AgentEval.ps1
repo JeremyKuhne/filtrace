@@ -1116,7 +1116,8 @@ function Invoke-CopilotIteration {
         if ($arm -ne 'mcp') {
             $arguments = if ($startMembers -contains 'arguments') { $s.data.arguments } else { $null }
             [string] $toolName = if ($startMembers -contains 'toolName') { [string]$s.data.toolName } else { '' }
-            $literalCommand = if ($toolName -eq 'powershell') {
+                $literalCommand = if ([string]::Equals(
+                    $toolName, 'powershell', [StringComparison]::Ordinal)) {
                 Get-AgentEvalLiteralCommand `
                     -Arguments $arguments `
                     -Context $context `
@@ -1153,7 +1154,9 @@ function Invoke-CopilotIteration {
                     }
                 }
             }
-            elseif ($arm -eq 'cli-skill' -and $toolName -eq 'view' -and $context.skillPath) {
+            elseif ($arm -eq 'cli-skill' -and
+                [string]::Equals($toolName, 'view', [StringComparison]::Ordinal) -and
+                $context.skillPath) {
                 try {
                     $viewRequest = Get-AgentEvalSkillViewRequest -Arguments $arguments -Source $skillSource
                     $evidenceKind = 'skill-read'

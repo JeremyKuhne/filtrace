@@ -868,7 +868,7 @@ try {
     foreach ($mode in @(
             'answer-only', 'answer-before-analysis', 'completion-before-start', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
             'decoy-command', 'missing-call-id', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
-            'denied-unknown-tool',
+            'denied-unknown-tool', 'powershell-tool-case',
             'string-success', 'mismatched-operation', 'unknown-cli-schema', 'malformed-shell-wrapper',
             'nonzero-shell-wrapper', 'mismatched-shell-content', 'missing-command-argument',
             'missing-description-argument', 'invalid-command-type', 'invalid-mode-type', 'async-mode',
