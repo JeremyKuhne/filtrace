@@ -1349,7 +1349,8 @@ try {
 
         foreach ($case in @(
             'malformed', 'empty-summary', 'duplicate-task', 'wrong-field-type',
-            'summary-success-mismatch', 'summary-median-mismatch', 'missing-strict-expected-model')) {
+            'summary-success-mismatch', 'summary-median-mismatch', 'missing-strict-expected-model',
+            'oversized-n', 'oversized-max-steps')) {
         $caseDirectory = Join-Path $temporaryRoot "comparison $case"
         [System.IO.Directory]::CreateDirectory($caseDirectory) | Out-Null
         foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
@@ -1368,6 +1369,8 @@ try {
                 'summary-success-mismatch' { $invalid.summary[0].'Success%' = 0 }
                 'summary-median-mismatch' { $invalid.summary[0].MedCalls = [int]$invalid.summary[0].MedCalls + 1 }
                 'missing-strict-expected-model' { $invalid.model.expected = $null }
+                'oversized-n' { $invalid.n = 1001 }
+                'oversized-max-steps' { $invalid.maxSteps = 65 }
             }
             [System.IO.File]::WriteAllText(
                 $casePath.FullName,

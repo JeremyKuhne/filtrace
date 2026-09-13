@@ -172,7 +172,7 @@ function Assert-ResultPayload($Payload, [string] $Path) {
     throw "Schema-v3 result '$Path' does not contain verified exact model identity."
   }
   if ($Payload.n -isnot [long] -and $Payload.n -isnot [int] -or [long]$Payload.n -lt 1 -or [long]$Payload.n -gt 1000 -or
-    $Payload.maxSteps -isnot [long] -and $Payload.maxSteps -isnot [int] -or [long]$Payload.maxSteps -lt 1 -or [long]$Payload.maxSteps -gt 1000) {
+    $Payload.maxSteps -isnot [long] -and $Payload.maxSteps -isnot [int] -or [long]$Payload.maxSteps -lt 1 -or [long]$Payload.maxSteps -gt 64) {
     throw "Schema-v3 result '$Path' has invalid iteration bounds."
   }
 

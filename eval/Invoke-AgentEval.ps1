@@ -92,8 +92,8 @@
   the smoke subset, e.g. -Tasks cpu-hotspot,gc-report.
 
 .PARAMETER N
-    Iterations per task (the design's N). Defaults to 1. Summaries are descriptive;
-    the runner does not claim statistical confidence.
+    Iterations per task (the design's N), from 1 through 1,000. Defaults to 1.
+    Summaries are descriptive; the runner does not claim statistical confidence.
 
 .PARAMETER MaxSteps
     Per-attempt filtrace call budget (the design's G1). Defaults to 6. The Copilot
@@ -143,7 +143,7 @@ param(
     [string]$ExpectedModel,
     [string[]]$Models,
     [string[]]$Tasks,
-    [ValidateRange(1, [int]::MaxValue)]
+    [ValidateRange(1, 1000)]
     [int]$N = 1,
     [ValidateRange(1, 64)]
     [int]$MaxSteps = 6,
