@@ -5,9 +5,9 @@ has two arms, both shipped here: a deterministic, no-LLM gate that runs in CI, a
 a live agent arm that scores a real model locally.
 
 The deterministic gate remains active. The public
-[Filtrace roadmap](../docs/roadmap.md) parks broader CLI-plus-skill discovery and
-comparative-agent harness work under PP03; this page documents the available harness
-rather than creating a parallel implementation queue.
+[Filtrace roadmap](../docs/roadmap.md) makes the bounded EP1 CLI-plus-skill
+preflight active while deferring broader comparative-agent harness work. This page
+documents the available harness rather than creating a parallel implementation queue.
 
 ## Deterministic gate (shipped, runs in CI)
 

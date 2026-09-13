@@ -68,7 +68,7 @@ true.
 | Active coordinated work | EP1 CLI-plus-skill efficacy preflight | Add a fail-closed, genuine-discovery skill arm beside CLI-only, then retain one matched smoke per arm. Keep the same host, model, CLI, task, and command policy. |
 | Next when scheduled | EP1 measured runs, PP02 evidence gaps, PP10 adoption | Run three alternating ready-capture pairs and one full-loop pair only after preflight passes. Complete other evidence or adoption work when that result selects it. |
 | Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the named public scenario and gate recorded here; these are not the current default implementation queue. |
-| Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the row above; production implementation follows only for a kept candidate. |
+| Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the remaining-outcomes table below; production implementation follows only for a kept candidate. |
 | Dependency opportunities | TE-P1..TE-P5 | Measure through PP07 against the selected dependency. They are not Filtrace-only changes and do not justify speculative upstream work. |
 | Backlog | VC1 ([issue #92](https://github.com/JeremyKuhne/filtrace/issues/92)) | DATAS applies only to modern server-GC workloads; retain the design without scheduling it ahead of broader capabilities. |
 
@@ -1281,10 +1281,11 @@ It kept the useful failure corpus while removing arbitrary managed paths, global
 CLI mutation, implicit schema migration, and the machine-wide ownership registry
 from V1.
 
-Wider Unix coverage, interactive elevation acceptance, and additional interrupted
-preparation automation are deferred harness hardening, not unfinished LT1 product
-behavior. The canonical plan may promote one only when a concrete scenario is
-blocked.
+Real Windows PowerShell 5.1 and Unix installation, process interruption, and
+timeout-quarantine operator recovery remain unexecuted end-to-end boundaries.
+They are deferred harness hardening, not unfinished LT1 product behavior. Command
+capture owns its separate interactive-elevation boundary. The canonical plan may
+promote one only when a concrete scenario is blocked.
 
 ---
 
