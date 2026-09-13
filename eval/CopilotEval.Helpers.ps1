@@ -1606,6 +1606,10 @@ catch {
             }
             [void]$process.WaitForExit([Math]::Min(100, [int][Math]::Ceiling($remainingMilliseconds)))
         }
+        if ($jobHandle -ne [IntPtr]::Zero) {
+            [Filtrace.AgentEval.WindowsJobObject]::Close($jobHandle)
+            $jobHandle = [IntPtr]::Zero
+        }
         $finalUsage = Get-AgentEvalCopilotUsage `
             -Context $Context `
             -MaxArtifactBytes $MaxArtifactBytes `
