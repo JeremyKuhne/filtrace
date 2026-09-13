@@ -156,7 +156,10 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   [bool] $requestedModelMatches = $Payload.model.requested -is [string] -and
     -not [string]::IsNullOrWhiteSpace([string]$Payload.model.requested) -and
     [string]::Equals([string]$Payload.model.requested, [string]$Payload.model.observed, [StringComparison]::Ordinal)
-  [bool] $expectedModelMatches = $null -eq $Payload.model.expected -or
+  [bool] $strictCopilotCliArm = [string]::Equals([string]$Payload.host, 'copilot', [StringComparison]::Ordinal) -and
+    ([string]::Equals([string]$Payload.arm, 'cli', [StringComparison]::Ordinal) -or
+      [string]::Equals([string]$Payload.arm, 'cli-skill', [StringComparison]::Ordinal))
+  [bool] $expectedModelMatches = ($null -eq $Payload.model.expected -and -not $strictCopilotCliArm) -or
     ($Payload.model.expected -is [string] -and
       -not [string]::IsNullOrWhiteSpace([string]$Payload.model.expected) -and
       [string]::Equals([string]$Payload.model.expected, [string]$Payload.model.observed, [StringComparison]::Ordinal))

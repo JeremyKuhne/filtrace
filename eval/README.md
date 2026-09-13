@@ -199,8 +199,9 @@ artifact budget. If the remaining byte budget cannot hold both, a bounded
 does not publish an eval result, but the retained raw files remain available and a
 diagnostic-write failure does not replace the parser error. These controls, measured
 artifact/runtime bytes, and the input manifests are retained in each successful
-iteration record. The wall-time deadline continues after redirected streams close;
-a host process that remains alive is stopped at the configured deadline.
+iteration record. The wall-time deadline and periodic artifact/runtime scans
+continue after redirected streams close; a host process that remains alive is
+stopped at the configured deadline.
 
 The strict arms remain Windows-only and require both `-Model` and `-ExpectedModel`; requested and observed
 identities must be nonempty and exactly equal using ordinal comparison. Missing,
@@ -251,13 +252,19 @@ substring and required evidence passes; transcript review remains necessary),
 **calls** (filtrace invocations), **tokens** (the offline estimate of observed tool
 result payloads - not inferred model context), and **wall-time**, plus transcript,
 host usage, model evidence, execution paths/hashes, skill evidence, and warnings.
+The graded answer event must follow every counted successful analysis completion
+and, for `cli-skill`, the verified injected skill context. Strict CLI transcript
+entries retain the parser's derived operation, including `report --kind` intent,
+rather than inferring it later from the surface verb.
 Results land under `eval/results/` (git-ignored) as schema-v3 JSON with a median
 summary. `hostUsage` retains the result event. `hostUsageFile` separately records
 the bounded `--usage-output-file`, its hash, and detailed input/output/cache counts;
 a missing file remains explicitly unavailable rather than becoming zero. An
 available file must contain nonnegative premium-request/user counts, a nonempty
 current model, and integer input/cache-read/cache-write/output token counts;
-malformed or incomplete accounting fails before a result is published.
+malformed or incomplete accounting fails before a result is published. A successful
+iteration requires at least one validated source: result-event usage or the detailed
+usage file.
 
 ### EP1 preflight checkpoint
 

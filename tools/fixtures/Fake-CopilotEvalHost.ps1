@@ -138,7 +138,7 @@ for ($directory = Get-Item -LiteralPath $WorkingDirectory; $null -ne $directory;
 if ($mode -eq 'timeout') {
     [System.Threading.Thread]::Sleep(5000)
 }
-if ($mode -eq 'closed-stream-timeout') {
+if ($mode -in @('closed-stream-timeout', 'closed-stream-artifact')) {
     Add-Type -Namespace AgentEval -Name NativeMethods -MemberDefinition @'
 [System.Runtime.InteropServices.DllImport("kernel32.dll")]
 public static extern System.IntPtr GetStdHandle(int handle);
@@ -147,6 +147,11 @@ public static extern bool CloseHandle(System.IntPtr handle);
 '@
     [void][AgentEval.NativeMethods]::CloseHandle([AgentEval.NativeMethods]::GetStdHandle(-11))
     [void][AgentEval.NativeMethods]::CloseHandle([AgentEval.NativeMethods]::GetStdHandle(-12))
+    if ($mode -eq 'closed-stream-artifact') {
+        [System.IO.FileStream] $closedStreamArtifact =
+            [System.IO.File]::Create((Join-Path $WorkingDirectory 'closed-stream-oversized.bin'))
+        try { $closedStreamArtifact.SetLength(20MB) } finally { $closedStreamArtifact.Dispose() }
+    }
     [System.Threading.Thread]::Sleep(10000)
     exit 0
 }
@@ -227,6 +232,13 @@ if ($mode -ne 'missing-model') {
                 data = [ordered]@{ model = $variantModel }
             })
     }
+}
+
+if ($mode -in @('answer-before-analysis', 'answer-before-skill-context')) {
+    $events.Add([ordered]@{
+            type = 'assistant.message'
+            data = [ordered]@{ content = $answer }
+        })
 }
 
 if ($skillPath -and $mode -ne 'missing-skill-read') {
@@ -434,24 +446,29 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
     }
 }
 
-$events.Add([ordered]@{
-        type = 'assistant.message'
-        data = [ordered]@{ content = $answer }
-    })
+if ($mode -notin @('answer-before-analysis', 'answer-before-skill-context')) {
+    $events.Add([ordered]@{
+            type = 'assistant.message'
+            data = [ordered]@{ content = $answer }
+        })
+}
 if ($mode -eq 'unknown-event') {
     $events.Add([ordered]@{ type = 'future.event'; data = [ordered]@{} })
 }
-$events.Add([ordered]@{
-        type = 'result'
+$resultEvent = [ordered]@{
+    type = 'result'
     exitCode = if ($mode -eq 'host-failure') { 1 } else { 0 }
-        usage = [ordered]@{
-            inputTokens = 20
-            outputTokens = 10
-            sessionDurationMs = 25
-        }
-    })
+}
+if ($mode -ne 'missing-all-usage') {
+    $resultEvent.usage = [ordered]@{
+        premiumRequests = 1
+        totalApiDurationMs = 20
+        sessionDurationMs = 25
+    }
+}
+$events.Add($resultEvent)
 
-    if ($mode -ne 'missing-usage-output') {
+    if ($mode -notin @('missing-usage-output', 'missing-all-usage')) {
         [string] $usageJson = if ($mode -eq 'malformed-usage-output') {
             '{'
         }

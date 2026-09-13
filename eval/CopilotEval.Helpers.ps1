@@ -1424,11 +1424,20 @@ function Invoke-BoundedCopilotProcess {
             }
         }
 
-        [double] $remainingMilliseconds = ($TimeoutSeconds * 1000.0) - $stopwatch.Elapsed.TotalMilliseconds
-        if ($remainingMilliseconds -le 0 -or
-            -not $process.WaitForExit([int][Math]::Ceiling($remainingMilliseconds))) {
-            Stop-AgentEvalProcess $process $started
-            throw "Copilot host did not finish within $TimeoutSeconds seconds."
+        while (-not $process.HasExited) {
+            [double] $remainingMilliseconds = ($TimeoutSeconds * 1000.0) - $stopwatch.Elapsed.TotalMilliseconds
+            if ($remainingMilliseconds -le 0) {
+                Stop-AgentEvalProcess $process $started
+                throw "Copilot host did not finish within $TimeoutSeconds seconds."
+            }
+            if ($stopwatch.ElapsedMilliseconds -ge $nextArtifactCheck) {
+                $nextArtifactCheck = $stopwatch.ElapsedMilliseconds + 250
+                [void](Get-AgentEvalCopilotUsage `
+                        -Context $Context `
+                        -MaxArtifactBytes $MaxArtifactBytes `
+                        -MaxHostRuntimeBytes $MaxHostRuntimeBytes)
+            }
+            [void]$process.WaitForExit([Math]::Min(100, [int][Math]::Ceiling($remainingMilliseconds)))
         }
         $finalUsage = Get-AgentEvalCopilotUsage `
             -Context $Context `

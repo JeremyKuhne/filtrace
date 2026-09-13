@@ -408,6 +408,11 @@ try {
         $missingUsage.iterations[0].hostUsageFile.available -eq $false -and
         -not [string]::IsNullOrWhiteSpace([string]$missingUsage.iterations[0].hostUsageFile.reason)) `
         'Missing host usage output was not retained explicitly as unavailable.'
+    $missingAllUsage = Invoke-FakeRun -Name 'cli missing all usage' -Mode missing-all-usage
+    Assert-True ($missingAllUsage.iterations[0].success -eq $false -and
+        $null -eq $missingAllUsage.iterations[0].hostUsage -and
+        $missingAllUsage.iterations[0].hostUsageFile.available -eq $false) `
+        'An iteration without either valid usage source unexpectedly passed.'
     Assert-FakeRunThrows `
         -Name 'malformed usage output' `
         -Mode malformed-usage-output `
@@ -839,7 +844,7 @@ try {
     }
 
     foreach ($mode in @(
-            'answer-only', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
+            'answer-only', 'answer-before-analysis', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
             'decoy-command', 'missing-call-id', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
             'string-success', 'mismatched-operation', 'unknown-cli-schema', 'malformed-shell-wrapper',
             'nonzero-shell-wrapper', 'mismatched-shell-content', 'missing-command-argument',
@@ -929,7 +934,7 @@ try {
     foreach ($mode in @(
             'missing-skill-read', 'missing-skill-discovery', 'wrong-skill-hash',
             'failed-skill-load', 'missing-skill-context', 'skill-extra-context',
-            'skill-ledger-mismatch')) {
+            'skill-ledger-mismatch', 'answer-before-skill-context')) {
         $negative = Invoke-FakeRun -Name "skill $mode" -Mode $mode -Arm cli-skill
         Assert-True ($negative.iterations[0].success -eq $false) "Fake skill mode '$mode' unexpectedly passed."
         if ($mode -eq 'missing-skill-read') {
@@ -949,6 +954,15 @@ try {
     $closedStreamStopwatch.Stop()
     Assert-True ($closedStreamStopwatch.Elapsed.TotalSeconds -lt 5) `
         'Closed host streams bypassed the configured process deadline.'
+    $closedStreamArtifactStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    Assert-FakeRunThrows `
+        -Name 'closed stream artifact' `
+        -Mode closed-stream-artifact `
+        -ExpectedMessage 'artifacts exceeded 16777216 bytes' `
+        -TimeoutSeconds 10
+    $closedStreamArtifactStopwatch.Stop()
+    Assert-True ($closedStreamArtifactStopwatch.Elapsed.TotalSeconds -lt 4) `
+        'Closed host streams suspended periodic artifact enforcement.'
     Assert-FakeRunThrows -Name 'output bound' -Mode oversized-output -ExpectedMessage 'output exceeded 1024 bytes' -MaxOutputBytes 1024
     Assert-FakeRunThrows -Name 'artifact bound' -Mode oversized-artifact -ExpectedMessage 'artifacts exceeded 16777216 bytes'
 
@@ -1283,7 +1297,7 @@ try {
 
         foreach ($case in @(
             'malformed', 'empty-summary', 'duplicate-task', 'wrong-field-type',
-            'summary-success-mismatch', 'summary-median-mismatch')) {
+            'summary-success-mismatch', 'summary-median-mismatch', 'missing-strict-expected-model')) {
         $caseDirectory = Join-Path $temporaryRoot "comparison $case"
         [System.IO.Directory]::CreateDirectory($caseDirectory) | Out-Null
         foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
@@ -1301,6 +1315,7 @@ try {
                 'wrong-field-type' { $invalid.summary[0].MedCalls = 'one' }
                 'summary-success-mismatch' { $invalid.summary[0].'Success%' = 0 }
                 'summary-median-mismatch' { $invalid.summary[0].MedCalls = [int]$invalid.summary[0].MedCalls + 1 }
+                'missing-strict-expected-model' { $invalid.model.expected = $null }
             }
             [System.IO.File]::WriteAllText(
                 $casePath.FullName,
