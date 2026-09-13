@@ -222,8 +222,8 @@ bounded description metadata, unsafe option rejection, exact concurrent cap
 consumption, no-hook fallback, strict shell-result extraction, launch arguments,
 and transcript/state agreement. A retained native Copilot CLI 1.0.82 protocol probe
 on 2026-09-13 discovered Filtrace from the owned project path, invoked it through
-the native skill tool, and reported exact model ID `gpt-5.6-sol-fast` with display
-name `GPT-5.6 Sol Fast (Internal only)`. It completed in 3.355 seconds, reported
+the native skill tool, and matched the configured evaluation-model identity. It
+completed in 3.355 seconds, reported
 one premium request, and emitted complete host token accounting. This verifies
 host, model, and skill protocol availability; it is not the ready-capture efficacy
 smoke. If an isolated home cannot use platform-keyring authentication, the run must
@@ -282,10 +282,10 @@ the one model identity observed in the JSONL stream.
 
 ### EP1 preflight checkpoint
 
-The 2026-09-13 preflight used Copilot CLI 1.0.82 and exact model ID
-`gpt-5.6-sol-fast`. The fail-closed fake-host contract passed, including wrong or
+The 2026-09-13 preflight used Copilot CLI 1.0.82 and a fixed model identity retained
+in private evidence. The fail-closed fake-host contract passed, including wrong or
 missing model, skill, tool, result, and usage evidence. A restricted live protocol
-probe confirmed the display name `GPT-5.6 Sol Fast (Internal only)`, project-skill
+probe confirmed the configured identity, project-skill
 discovery, native `skill` invocation, and complete injected context.
 
 One `cpu-hotspot` smoke per arm then used the same CLI hash

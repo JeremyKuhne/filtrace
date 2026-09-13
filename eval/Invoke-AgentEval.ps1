@@ -1109,7 +1109,6 @@ function Invoke-CopilotIteration {
         [System.Collections.Generic.List[string]]::new()
     [System.Collections.Generic.List[string]] $transcriptViewRequestHashes =
         [System.Collections.Generic.List[string]]::new()
-    [System.Collections.Generic.List[object]] $skillReads = [System.Collections.Generic.List[object]]::new()
     [System.Collections.Generic.List[int]] $successfulAnalysisCompletionIndexes =
         [System.Collections.Generic.List[int]]::new()
     $skillSource = if ($context.skillPath) { Get-AgentEvalSkillSource $context.skillPath } else { $null }
@@ -1188,16 +1187,15 @@ function Invoke-CopilotIteration {
                 $context.skillPath) {
                 try {
                     $viewRequest = Get-AgentEvalSkillViewRequest -Arguments $arguments -Source $skillSource
+                    if (-not $completionSucceeded) { throw 'Skill view completion was not successful.' }
+                    [void](Get-AgentEvalSkillViewPayload `
+                            -Result $completionResult `
+                            -Request $viewRequest `
+                            -Source $skillSource)
                     $evidenceKind = 'skill-read'
                     $commandName = 'view'
                     $operationName = 'view'
                     $transcriptViewRequestHashes.Add($viewRequest.hash)
-                    $skillReads.Add([pscustomobject]@{
-                            callId = $callId
-                            arguments = $arguments
-                            succeeded = [bool]$completionSucceeded
-                            result = $completionResult
-                        })
                 }
                 catch {
                     $evidenceValid = $false

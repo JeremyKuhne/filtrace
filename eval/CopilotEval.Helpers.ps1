@@ -608,6 +608,7 @@ function Assert-AgentEvalNoReparsePoint([string] $Path, [string] $Boundary) {
 }
 
 function Assert-AgentEvalTrackedFixture([string] $Root, [string] $FixturePath) {
+    $PSNativeCommandUseErrorActionPreference = $false
     if ($FixturePath.StartsWith('\\', [StringComparison]::Ordinal)) {
         throw "Eval fixture '$FixturePath' must not be a UNC path."
     }
@@ -694,16 +695,19 @@ function Get-AgentEvalFileInventory {
 function Copy-AgentEvalAttestedFile($File, [string] $DestinationRoot) {
     [string] $destination = Join-Path $DestinationRoot $File.relativePath
     [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($destination)) | Out-Null
-    [System.IO.FileStream] $sourceStream = [System.IO.FileStream]::new(
-        $File.sourcePath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
-    [System.IO.FileStream] $destinationStream = [System.IO.FileStream]::new(
-        $destination, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-    [System.Security.Cryptography.IncrementalHash] $actualHash =
-        [System.Security.Cryptography.IncrementalHash]::CreateHash([System.Security.Cryptography.HashAlgorithmName]::SHA256)
-    [byte[]] $buffer = [byte[]]::new(1MB)
+    [System.IO.FileStream] $sourceStream = $null
+    [System.IO.FileStream] $destinationStream = $null
+    [System.Security.Cryptography.IncrementalHash] $actualHash = $null
     [long] $copied = 0
     [string] $actualReadSha256 = $null
     try {
+        $sourceStream = [System.IO.FileStream]::new(
+            $File.sourcePath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+        $destinationStream = [System.IO.FileStream]::new(
+            $destination, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        $actualHash = [System.Security.Cryptography.IncrementalHash]::CreateHash(
+            [System.Security.Cryptography.HashAlgorithmName]::SHA256)
+        [byte[]] $buffer = [byte[]]::new(1MB)
         while (($read = $sourceStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
             if ($read -gt ([long]$File.bytes - $copied)) { throw "Eval input '$($File.sourcePath)' grew while it was copied." }
             $copied += $read
@@ -713,9 +717,9 @@ function Copy-AgentEvalAttestedFile($File, [string] $DestinationRoot) {
         $actualReadSha256 = [Convert]::ToHexString($actualHash.GetHashAndReset()).ToLowerInvariant()
     }
     finally {
-        $actualHash.Dispose()
-        $destinationStream.Dispose()
-        $sourceStream.Dispose()
+        if ($null -ne $actualHash) { $actualHash.Dispose() }
+        if ($null -ne $destinationStream) { $destinationStream.Dispose() }
+        if ($null -ne $sourceStream) { $sourceStream.Dispose() }
     }
     if ($copied -ne [long]$File.bytes) { throw "Eval input '$($File.sourcePath)' changed length while it was copied." }
     [string] $actualSha256 = Get-AgentEvalFileHash $destination

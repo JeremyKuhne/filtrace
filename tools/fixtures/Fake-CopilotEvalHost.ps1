@@ -235,7 +235,7 @@ $events.Add([ordered]@{
     })
 $events.Add([ordered]@{
         type = 'model.model_call_started'
-        data = [ordered]@{ model = 'gpt-5.6-sol'; provider = 'copilot' }
+    data = [ordered]@{ model = 'provider-model'; provider = 'copilot' }
     })
 if ($mode -ne 'missing-model') {
     $events.Add([ordered]@{
@@ -322,6 +322,37 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
                     message = [ordered]@{
                         role = 'user'
                         content = "<skill-context name=`"filtrace`">`nBase directory for this skill: $skillDirectory$relatedSection$extraContext`n`n$contextBody`n</skill-context>"
+                    }
+                }
+            })
+    }
+    if ($mode -in @('skill-view-success', 'skill-view-altered')) {
+        $viewArguments = [ordered]@{ path = $skillPath }
+        $viewDecision = Invoke-FakePolicyHook `
+            -Hook $preToolHook[0] `
+            -ToolName view `
+            -ToolArguments $viewArguments
+        if ($viewDecision.permissionDecision -ne 'allow') {
+            throw 'Fake Copilot host policy denied the bounded SKILL.md view.'
+        }
+        $events.Add([ordered]@{
+                type = 'tool.execution_start'
+                data = [ordered]@{
+                    toolCallId = 'skill-view'
+                    toolName = 'view'
+                    arguments = $viewArguments
+                }
+            })
+        [string] $viewContent = [System.IO.File]::ReadAllText($skillPath)
+        if ($mode -eq 'skill-view-altered') { $viewContent = '!' + $viewContent.Substring(1) }
+        $events.Add([ordered]@{
+                type = 'tool.execution_complete'
+                data = [ordered]@{
+                    toolCallId = 'skill-view'
+                    success = $true
+                    result = [ordered]@{
+                        content = $viewContent
+                        detailedContent = $viewContent
                     }
                 }
             })

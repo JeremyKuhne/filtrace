@@ -98,7 +98,7 @@ are outside the current finish line unless a required scenario promotes them.
 
 The deterministic fake-host contract fails closed for wrong or missing model,
 skill, tool, result, and usage evidence. Copilot CLI 1.0.82 discovered the owned
-project skill and reported exact model ID `gpt-5.6-sol-fast`. One smoke per arm
+project skill and matched the configured evaluation-model identity. One smoke per arm
 used identical CLI and fixture hashes and returned the same correct CPU/caller
 answer. CLI-only used two analysis calls, one help call, 932 observed result tokens,
 one safely denied repair attempt, and 29.957 seconds. CLI plus skill used two
@@ -150,14 +150,14 @@ been run.
 **The baseline, run 2026-08-02:**
 
 Two models, 23 tasks, three iterations each - 138 sessions, 28 minutes, 22.8 premium
-requests. Both models answered **86%** of iterations correctly (`gpt-5.6-sol` 59/69
-at zero premium cost, `claude-haiku-4.5` 59/69 at 22.8).
+requests. Both model arms answered **86%** of iterations correctly (59/69 each;
+the zero-multiplier arm cost zero premium requests and the low-cost comparison arm cost 22.8).
 
 Choose models by *tier*, not by name: the available set changes, and ids are the
 picker label lowercased and hyphenated. Cost per session varies enormously by model
 and is roughly constant across task shapes, so calibrate before a long run. Measured
-the same day, premium requests per session: `claude-opus-5` 15, `gemini-3.6-flash`
-14, `claude-haiku-4.5` 0.33, `gpt-5.6-sol` 0. At 69 sessions per model a frontier
+the same day, premium requests per session ranged from 0 for the zero-multiplier
+model and 0.33 for the low-cost model to 14 and 15 for the two frontier models. At 69 sessions per model a frontier
 pairing costs roughly 1,000 premium requests against roughly 20 for a cheap one, so
 prefer one zero-multiplier and one cheap model for routine runs - that cheaper models
 still succeed is the contract's own thesis - and spend a frontier model on a reduced
@@ -166,7 +166,7 @@ subset when the question is specifically about frontier behavior.
 ```pwsh
 # Calibrate the current ids and their cost, then re-run the baseline.
 ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models <candidates> -Tasks event-count-only,cpu-hotspot -N 1
-./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models gpt-5.6-sol,claude-haiku-4.5 -N 3 -Label baseline
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models <zero-multiplier-model-id>,<low-cost-model-id> -N 3 -Label baseline
 ```
 
 **What the baseline showed:**
@@ -246,8 +246,8 @@ candidate says the tool can only ever return nothing on that format and points a
 
 | Model | Baseline | Candidate | Median calls | Median tokens |
 |---|---:|---:|---|---|
-| `gpt-5.6-sol` | 10% | 90% | 2 -> 1 | 165 -> 127 |
-| `claude-haiku-4.5` | 10% | 80% | 3 -> 1 | 209 -> 127 |
+| Zero-multiplier model | 10% | 90% | 2 -> 1 | 165 -> 127 |
+| Low-cost comparison model | 10% | 80% | 3 -> 1 | 209 -> 127 |
 
 N=10 per model; 2 of 20 passing became 17 of 20. It costs 65 permanent schema tokens
 (descriptions 799 -> 858), paid on every request, and is worth it here because the
@@ -255,7 +255,7 @@ failure was not a token overrun but a wrong conclusion: an empty result on a for
 that carries no source data reads as "no line is hot".
 
 **Run it at N=10, not N=3.** The same comparison at N=3 reported 33% -> 67% and
-0% -> 33% and put the `gpt-5.6-sol` baseline at 33% where ten iterations put it at
+0% -> 33% and put the zero-multiplier baseline at 33% where ten iterations put it at
 10%. The direction happened to be right, but the effect size was wrong in both
 directions, and a smaller effect would have been indistinguishable from noise.
 
@@ -284,7 +284,7 @@ predicted.
 recorded `content` was `"See structuredContent.\n\n{...full envelope...}"` - 132
 tokens against 127 for variant A. The model sees the same payload plus the pointer,
 so variant B is about five tokens per call *worse*. An A/B over all 23 tasks at N=5 on
-`gpt-5.6-sol` agreed: 87% -> 88% overall, flat, with every `trace_info`-using task up
+the zero-multiplier model agreed: 87% -> 88% overall, flat, with every `trace_info`-using task up
 about five tokens.
 
 **And model-visible cost is already bounded by the client.** A `trace_query_events`
@@ -477,8 +477,8 @@ its current bounded evidence because the default-summary candidate regressed age
 behavior.
 
 Grade each default with `baseline -> candidate -> Compare-EvalRuns` at **N=10 per
-model**, the way the speedscope wording change was graded. `gpt-5.6-sol` costs no
-premium requests, so a full-suite arm is wall time only; add `claude-haiku-4.5` as
+model**, the way the speedscope wording change was graded. The zero-multiplier model costs no
+premium requests, so a full-suite arm is wall time only; add the low-cost model as
 the overfitting detector when a candidate looks worth keeping. N=3 is not enough to
 size an effect - it put one baseline at 33% where ten iterations put it at 10%.
 
@@ -504,10 +504,10 @@ the source tracker already bounds retained evidence (5 methods, 8 modules, 16 ma
 PDB modules), so it has no distinct implementable meaning. The candidate cost 44
 permanent schema tokens (6,503 -> 6,547).
 
-Measured on all four info tasks at N=10 for `gpt-5.6-sol` and
-`claude-haiku-4.5`. Evidence selection worked: source-quality stayed 100%/one call on
-sol and rose 60% -> 90% on haiku; capture-status stayed correct while its median
-response fell 809 -> 529/598 tokens. But haiku's speedscope compatibility task fell
+Measured on all four info tasks at N=10 for the zero-multiplier and low-cost
+comparison models. Evidence selection worked: source-quality stayed 100%/one call on
+the zero-multiplier model and rose 60% -> 90% on the low-cost model; capture-status stayed correct while its median
+response fell 809 -> 529/598 tokens. But the low-cost model's speedscope compatibility task fell
 90% -> 40%, median calls rose 1 -> 2, and median tokens rose 119 -> 176. The
 repository comparator rejected the candidate.
 
@@ -520,7 +520,7 @@ operation. The candidate is reverted. `trace_info` retains one bounded view.
 
 Simply shrinking the defaults, without adding a vocabulary, was measured and
 rejected. Candidate: `trace_jit` `top` 25 -> 5 and `trace_query_events` `take`
-100 -> 10, one variable per tool, graded on `gpt-5.6-sol` at N=10.
+100 -> 10, one variable per tool, graded on the zero-multiplier model at N=10.
 
 | Task | Baseline | Candidate | |
 |---|---:|---:|---|
@@ -549,7 +549,7 @@ tasks.
 
 ##### Probed 2026-08-03: `top: 0` means aggregate only - kept
 
-Measured against the same baseline, same five tasks, `gpt-5.6-sol` at N=10.
+Measured against the same baseline, same five tasks, and zero-multiplier model at N=10.
 
 | | `trace_jit` calls | using `top: 0` | rejected |
 |---|---:|---:|---:|
@@ -609,8 +609,8 @@ action uses the stable case address. Existing manifests require no migration. Th
 structured arguments and the resulting hottest frame. Existing `manifest-batch`
 stays under its 15% response-growth budget at 358 tokens; the two-call drill is 463.
 
-The live MCP workflow also passes at N=10 on both `gpt-5.6-sol` and
-`claude-haiku-4.5`: 20/20 successful investigations, exactly two calls each, with a
+The live MCP workflow also passes at N=10 on both the zero-multiplier and low-cost
+comparison models: 20/20 successful investigations, exactly two calls each, with a
 487-token median. This closes the reliability question in the acceptance criteria;
 agents consume the batch reference and use it for the follow-up without parsing the
 resolved path or losing case scope.
@@ -637,10 +637,10 @@ surface from 18 tools / 26,118 characters / ~6,590 tokens to 14 / 24,077 / ~6,06
 525 tokens, or 8%, below the 20% threshold for a token-motivated breaking change.
 All 27 deterministic tasks passed before the live arm.
 
-The N=10 live A/B on `gpt-5.6-sol` and `claude-haiku-4.5` was rejected with five
-regressions. On haiku, disk-I/O success fell 100% -> 90%, with median calls 1 -> 2
+The N=10 live A/B on the zero-multiplier and low-cost comparison models was rejected with five
+regressions. On the low-cost model, disk-I/O success fell 100% -> 90%, with median calls 1 -> 2
 and response tokens 433 -> 1,069; lifecycle fell 70% -> 30%, calls 2 -> 6, and
-tokens 660 -> 2,168. GPT lifecycle remained at its noisy 20% baseline and four
+tokens 660 -> 2,168. The zero-multiplier model's lifecycle result remained at its noisy 20% baseline and four
 calls. Transcripts showed the nested grammar itself failing: one haiku run encoded
 the `request` object as a JSON string and then used four raw-event queries to
 recover. Lifecycle runs frequently omitted its root selector and measured the

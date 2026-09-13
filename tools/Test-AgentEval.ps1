@@ -412,7 +412,7 @@ try {
         'Successful fake run did not retain the modern skills event.'
     Assert-True ($successRawStdout.Contains('"initial_wait":30', [StringComparison]::Ordinal)) `
         'Successful fake run did not retain the modern PowerShell metadata.'
-    Assert-True (@($success.model.observedDistinct) -notcontains 'gpt-5.6-sol') `
+    Assert-True (@($success.model.observedDistinct) -notcontains 'provider-model') `
         'Provider-level model metadata was used as strict host identity.'
     Assert-True ($success.iterations[0].hostUsageFile.available -eq $true -and
         $success.iterations[0].hostUsageFile.value.tokenDetails.input.tokenCount -eq 20 -and
@@ -1005,6 +1005,10 @@ try {
         'Skill arm unexpectedly disabled project customizations.'
     Assert-True (@($skillSuccess.iterations[0].execution.isolation.availableTools) -contains 'skill') `
         'Skill arm did not expose the native skill tool.'
+    $skillViewSuccess = Invoke-FakeRun -Name 'skill view success' -Mode skill-view-success -Arm cli-skill
+    Assert-True ($skillViewSuccess.iterations[0].success -eq $true -and
+        @($skillViewSuccess.iterations[0].transcript | Where-Object { $_.kind -eq 'skill-read' }).Count -eq 1) `
+        'An exact allowed SKILL.md view did not remain verified.'
     $sourceSkillFiles = @(Get-ChildItem -LiteralPath (Join-Path $root '.agents/skills/filtrace') -File -Recurse)
     Assert-True `
         (@($skillSuccess.iterations[0].skill.inventory).Count -eq $sourceSkillFiles.Count) `
@@ -1013,7 +1017,8 @@ try {
             'missing-skill-read', 'missing-skill-discovery', 'wrong-skill-hash',
             'failed-skill-load', 'missing-skill-context', 'skill-extra-context',
             'skill-ledger-mismatch', 'skill-tool-case', 'skill-argument-name-case',
-            'skill-argument-value-case', 'answer-before-skill-context', 'skill-context-before-completion')) {
+            'skill-argument-value-case', 'skill-view-altered',
+            'answer-before-skill-context', 'skill-context-before-completion')) {
         $negative = Invoke-FakeRun -Name "skill $mode" -Mode $mode -Arm cli-skill
         Assert-True ($negative.iterations[0].success -eq $false) "Fake skill mode '$mode' unexpectedly passed."
         if ($mode -eq 'missing-skill-read') {
@@ -1236,6 +1241,69 @@ try {
         -MaxBytes 1024 `
         -MaxFileBytes 1024
     Assert-True ($nullExcludedUsage.bytes -eq 32) 'Null excluded path skipped ordinary usage measurement.'
+
+    $fixtureRepository = Join-Path $temporaryRoot 'fixture repository'
+    $fixtureDirectory = Join-Path $fixtureRepository 'tests/Filtrace.Core.Tests/Fixtures'
+    [System.IO.Directory]::CreateDirectory($fixtureDirectory) | Out-Null
+    [string] $untrackedFixture = Join-Path $fixtureDirectory 'untracked.nettrace'
+    [System.IO.File]::WriteAllText($untrackedFixture, 'untracked')
+    [string] $gitPath = @(Get-Command git -CommandType Application -ErrorAction Stop)[0].Source
+    & $gitPath -C $fixtureRepository init --quiet
+    Assert-True ($LASTEXITCODE -eq 0) 'Temporary fixture repository was not initialized.'
+    $nativeErrorPreference = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+    [bool] $nativeErrorPreferenceWasDefined = $null -ne $nativeErrorPreference
+    [object] $nativeErrorPreferenceValue = if ($nativeErrorPreferenceWasDefined) {
+        $nativeErrorPreference.Value
+    }
+    else {
+        $null
+    }
+    [bool] $untrackedFixtureRejected = $false
+    try {
+        $script:PSNativeCommandUseErrorActionPreference = $true
+        try { [void](Assert-AgentEvalTrackedFixture -Root $fixtureRepository -FixturePath $untrackedFixture) }
+        catch {
+            $untrackedFixtureRejected = $_.Exception.Message.Contains(
+                'is not a tracked repository file', [StringComparison]::Ordinal)
+        }
+    }
+    finally {
+        if ($nativeErrorPreferenceWasDefined) {
+            $script:PSNativeCommandUseErrorActionPreference = $nativeErrorPreferenceValue
+        }
+        else {
+            Remove-Variable -Name PSNativeCommandUseErrorActionPreference -Scope Script -ErrorAction SilentlyContinue
+        }
+    }
+    Assert-True $untrackedFixtureRejected `
+        'Native-error preference bypassed the tracked-fixture diagnostic.'
+
+    $copySource = Join-Path $temporaryRoot 'copy source.bin'
+    $copyDestinationRoot = Join-Path $temporaryRoot 'copy destination'
+    [System.IO.Directory]::CreateDirectory($copyDestinationRoot) | Out-Null
+    [System.IO.File]::WriteAllText($copySource, 'source')
+    [System.IO.File]::WriteAllText((Join-Path $copyDestinationRoot 'copy.bin'), 'existing')
+    $copyFile = [pscustomobject]@{
+        sourcePath = $copySource
+        relativePath = 'copy.bin'
+        bytes = (Get-Item -LiteralPath $copySource).Length
+        sha256 = Get-AgentEvalFileHash $copySource
+    }
+    [bool] $copyDestinationRejected = $false
+    try { [void](Copy-AgentEvalAttestedFile -File $copyFile -DestinationRoot $copyDestinationRoot) }
+    catch { $copyDestinationRejected = $true }
+    Assert-True $copyDestinationRejected 'Attested copy unexpectedly replaced an existing destination.'
+    [System.IO.FileStream] $exclusiveSourceStream = $null
+    try {
+        $exclusiveSourceStream = [System.IO.FileStream]::new(
+            $copySource,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None)
+    }
+    finally {
+        if ($null -ne $exclusiveSourceStream) { $exclusiveSourceStream.Dispose() }
+    }
 
     $boundedSource = Join-Path $temporaryRoot 'bounded source'
     [System.IO.Directory]::CreateDirectory($boundedSource) | Out-Null
