@@ -214,7 +214,11 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
     [string] $skillText = [System.IO.File]::ReadAllText($skillPath).Replace("`r`n", "`n")
     [int] $frontmatterEnd = $skillText.IndexOf("`n---`n", 4, [StringComparison]::Ordinal)
     if ($frontmatterEnd -lt 0) { throw 'Fake skill frontmatter was malformed.' }
-    [string] $skillBody = $skillText.Substring($frontmatterEnd + 5)
+    [string] $sourceBody = $skillText.Substring($frontmatterEnd + 5)
+    if (-not $sourceBody.StartsWith("`n", [StringComparison]::Ordinal)) {
+        throw 'Fake skill frontmatter was not followed by a blank separator.'
+    }
+    [string] $skillBody = $sourceBody.Substring(1)
     [string] $skillDirectory = [System.IO.Path]::GetDirectoryName($skillPath)
     [string[]] $relatedPaths = @(Get-ChildItem -LiteralPath $skillDirectory -File -Recurse |
         Where-Object { -not [string]::Equals($_.FullName, $skillPath, [StringComparison]::Ordinal) } |

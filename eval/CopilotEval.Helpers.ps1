@@ -368,7 +368,11 @@ function Complete-AgentEvalDiscoveredSkillEvidence {
         }
         [int] $frontmatterEnd = $normalizedSource.IndexOf("`n---`n", 4, [StringComparison]::Ordinal)
         if ($frontmatterEnd -lt 0) { throw 'Filtrace skill frontmatter was not terminated.' }
-        $expectedBody = $normalizedSource.Substring($frontmatterEnd + 5)
+        [string] $sourceBody = $normalizedSource.Substring($frontmatterEnd + 5)
+        if (-not $sourceBody.StartsWith("`n", [StringComparison]::Ordinal)) {
+            throw 'Filtrace skill frontmatter was not followed by a blank separator.'
+        }
+        $expectedBody = $sourceBody.Substring(1)
         [string] $skillDirectory = [System.IO.Path]::GetDirectoryName($SourcePath)
         [string[]] $relatedPaths = @(Get-ChildItem -LiteralPath $skillDirectory -File -Recurse |
             Where-Object { -not [string]::Equals($_.FullName, $SourcePath, [StringComparison]::Ordinal) } |
@@ -399,7 +403,7 @@ function Complete-AgentEvalDiscoveredSkillEvidence {
         sourceTextSha256 = $source.textSha256
         sourceContextSha256 = if ($null -ne $expectedBody) { Get-AgentEvalTextHash $expectedBody } else { $null }
         observedTextSha256 = if ($null -ne $observedText) { Get-AgentEvalTextHash $observedText } else { $null }
-        textNormalization = 'frontmatter-removed-crlf-to-lf-v1'
+        textNormalization = 'frontmatter-and-leading-separator-removed-crlf-to-lf-v2'
         sourceBytes = $source.bytes
         sourceChars = $source.text.Length
         sourceLineCount = $source.lineCount
