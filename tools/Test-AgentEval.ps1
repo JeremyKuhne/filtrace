@@ -489,6 +489,25 @@ try {
         -ToolName web_fetch `
         -ToolArguments ([ordered]@{ url = 'https://example.com' })
     Assert-True ($unknownTool.permissionDecision -eq 'deny') 'Unknown tool was not denied before execution.'
+    $caseVariantPowerShell = Invoke-TestPolicyHook `
+        -Hook $policyProbe.preToolHook `
+        -SessionId $policySessionId `
+        -WorkingDirectory $policyWorkspace `
+        -ToolName PowerShell `
+        -ToolArguments $validArguments
+    Assert-True ($caseVariantPowerShell.permissionDecision -eq 'deny') `
+        'Case-variant PowerShell tool name was allowed before execution.'
+    $caseVariantHelp = Invoke-TestPolicyHook `
+        -Hook $policyProbe.preToolHook `
+        -SessionId $policySessionId `
+        -WorkingDirectory $policyWorkspace `
+        -ToolName powershell `
+        -ToolArguments ([ordered]@{
+            command = "& '$($policyProbe.context.cliPath)' '--HELP'"
+            description = 'Show case-variant help'
+        })
+    Assert-True ($caseVariantHelp.permissionDecision -eq 'deny') `
+        'Case-variant help token was allowed before execution.'
     $invalidCommands = @(
         "& 'Get-Date'",
         "$($policyProbe.command) | Out-String",
@@ -693,6 +712,14 @@ try {
         -ToolName view `
         -ToolArguments ([ordered]@{ path = $viewProbe.context.skillPath; view_range = @(1, 2) })
     Assert-True ($firstView.permissionDecision -eq 'allow') 'First bounded SKILL.md view was denied.'
+    $caseVariantView = Invoke-TestPolicyHook `
+        -Hook $viewProbe.preToolHook `
+        -SessionId $viewProbe.context.runId `
+        -WorkingDirectory $viewProbe.context.workspace `
+        -ToolName View `
+        -ToolArguments ([ordered]@{ path = $viewProbe.context.skillPath; view_range = @(1, 2) })
+    Assert-True ($caseVariantView.permissionDecision -eq 'deny') `
+        'Case-variant view tool name was allowed before execution.'
     $viewState = Get-CopilotEvalExecutionPolicyState $viewProbe.executionPolicy
     Assert-True ($viewState.callCount -eq 0 -and @($viewState.viewRequests).Count -eq 1) `
         'First SKILL.md page did not consume only one view allowance.'

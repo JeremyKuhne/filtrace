@@ -276,10 +276,12 @@ function Assert-LiteralCommand($Arguments, $Policy) {
     }
     Assert-OrdinaryFile -Path ([string]$Policy.cliPath) -Boundary ([string]$Policy.workspace)
 
-    if ($values.Count -eq 2 -and $values[1] -eq '--help') {
+    if ($values.Count -eq 2 -and
+        [string]::Equals($values[1], '--help', [StringComparison]::Ordinal)) {
         return [pscustomobject]@{ command = [string]$Arguments.command; isHelp = $true }
     }
-    if ($values.Count -eq 3 -and $values[2] -eq '--help') {
+    if ($values.Count -eq 3 -and
+        [string]::Equals($values[2], '--help', [StringComparison]::Ordinal)) {
         $helpFamily = @($Policy.commandFamilies | Where-Object {
                 [string]::Equals([string]$_.verb, $values[1], [StringComparison]::Ordinal)
             })
@@ -487,7 +489,7 @@ try {
             throw 'Policy view request limit was exceeded.'
         }
 
-        if ($toolName -eq 'view') {
+        if ([string]::Equals($toolName, 'view', [StringComparison]::Ordinal)) {
             if ($null -eq $skillSource) { throw 'View path was outside policy.' }
             $viewRequest = Get-SkillViewRequest -Arguments $toolArguments -Source $skillSource
             if ($viewRequests.Count -ge [int]$policy.maxViewCalls -or
@@ -500,7 +502,7 @@ try {
                     requestedBytes = $viewRequest.requestedBytes
                 })
         }
-        elseif ($toolName -eq 'powershell') {
+        elseif ([string]::Equals($toolName, 'powershell', [StringComparison]::Ordinal)) {
             $literalCommand = Assert-LiteralCommand -Arguments $toolArguments -Policy $policy
             if ($literalCommand.isHelp) {
                 if ($helpCommandHashes.Count -ge [int]$policy.maxHelpCalls) {

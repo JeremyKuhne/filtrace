@@ -557,7 +557,8 @@ function Get-AgentEvalLiteralCommand($Arguments, $Context, $ExecutionPolicy) {
     [string] $expectedExecutable = [System.IO.Path]::GetFullPath($Context.cliPath)
     if (-not [string]::Equals($executable, $expectedExecutable, [StringComparison]::Ordinal)) { return $null }
     [string[]] $argv = @($values | Select-Object -Skip 1)
-    if ($argv.Count -eq 1 -and $argv[0] -eq '--help') {
+    if ($argv.Count -eq 1 -and
+        [string]::Equals($argv[0], '--help', [StringComparison]::Ordinal)) {
         return [pscustomobject]@{
             command = [string]$Arguments.command
             verb = 'help'
@@ -566,7 +567,8 @@ function Get-AgentEvalLiteralCommand($Arguments, $Context, $ExecutionPolicy) {
             argv = $argv
         }
     }
-    if ($argv.Count -eq 2 -and $argv[1] -eq '--help') {
+    if ($argv.Count -eq 2 -and
+        [string]::Equals($argv[1], '--help', [StringComparison]::Ordinal)) {
         $helpFamily = @($ExecutionPolicy.commandFamilies | Where-Object {
                 [string]::Equals([string]$_.verb, $argv[0], [StringComparison]::Ordinal)
             })
@@ -1637,7 +1639,12 @@ function Invoke-EvalRun {
                 Sort-Object -Unique)
 
             if ($ok -and $arm -eq 'mcp') {
-                $missingTools = @($task.expectTools | Where-Object { $successfulNames -notcontains $_ })
+                $missingTools = @($task.expectTools | Where-Object {
+                    [string] $expectedTool = $_
+                    -not @($successfulNames | Where-Object {
+                        [string]::Equals([string]$_, $expectedTool, [StringComparison]::Ordinal)
+                        }).Count
+                    })
                 if ($missingTools.Count -gt 0) {
                     $ok = $false
                     $note = "missing expected successful MCP tool(s): $($missingTools -join ', ')"
@@ -1679,14 +1686,24 @@ function Invoke-EvalRun {
                 if ($arm -in @('cli', 'cli-skill')) { $task.requiredCliOperations }
             ) | Where-Object { $_ } | Sort-Object -CaseSensitive -Unique
             if ($ok -and $requiredOperations.Count -gt 0) {
-                $missingOperations = @($requiredOperations | Where-Object { $calledOperations -notcontains $_ })
+                $missingOperations = @($requiredOperations | Where-Object {
+                    [string] $expectedOperation = $_
+                    -not @($calledOperations | Where-Object {
+                        [string]::Equals([string]$_, $expectedOperation, [StringComparison]::Ordinal)
+                        }).Count
+                    })
                 if ($missingOperations.Count -gt 0) {
                     $ok = $false
                     $note = "missing expected operation(s): $($missingOperations -join ', ')"
                 }
             }
             if ($ok -and $task.forbidOperations.Count -gt 0) {
-                $forbiddenUsed = @($task.forbidOperations | Where-Object { $attemptedOperations -contains $_ })
+                $forbiddenUsed = @($task.forbidOperations | Where-Object {
+                    [string] $forbiddenOperation = $_
+                    @($attemptedOperations | Where-Object {
+                        [string]::Equals([string]$_, $forbiddenOperation, [StringComparison]::Ordinal)
+                        }).Count -gt 0
+                    })
                 if ($forbiddenUsed.Count -gt 0) {
                     $ok = $false
                     $note = "called forbidden operation(s): $($forbiddenUsed -join ', ')"
