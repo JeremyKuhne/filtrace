@@ -500,10 +500,18 @@ function ConvertFrom-AgentEvalJsonLines([string[]] $Lines) {
 function Get-AgentEvalLiteralCommand($Arguments, $Context, $ExecutionPolicy) {
     if ($null -eq $Arguments) { return $null }
     [string[]] $argumentMembers = @($Arguments.PSObject.Properties.Name)
-    [string[]] $allowedArgumentMembers = @('command', 'description', 'mode', 'initial_wait')
+    [System.Collections.Generic.HashSet[string]] $allowedArgumentMembers =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($member in @('command', 'description', 'mode', 'initial_wait')) {
+        [void]$allowedArgumentMembers.Add($member)
+    }
+    [System.Collections.Generic.HashSet[string]] $actualArgumentMembers =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($member in $argumentMembers) { [void]$actualArgumentMembers.Add($member) }
     if ($argumentMembers.Count -lt 2 -or $argumentMembers.Count -gt $allowedArgumentMembers.Count -or
-        @($argumentMembers | Where-Object { $allowedArgumentMembers -notcontains $_ }).Count -ne 0 -or
-        $argumentMembers -notcontains 'command' -or $argumentMembers -notcontains 'description' -or
+        @($argumentMembers | Where-Object { -not $allowedArgumentMembers.Contains($_) }).Count -ne 0 -or
+        -not $actualArgumentMembers.Contains('command') -or
+        -not $actualArgumentMembers.Contains('description') -or
         $Arguments.command -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Arguments.command) -or
         $Arguments.description -isnot [string] -or
         [string]::IsNullOrWhiteSpace([string]$Arguments.description) -or
@@ -511,12 +519,12 @@ function Get-AgentEvalLiteralCommand($Arguments, $Context, $ExecutionPolicy) {
         @($Arguments.description.ToCharArray() | Where-Object { [char]::IsControl($_) }).Count -ne 0) {
         return $null
     }
-    if ($argumentMembers -contains 'mode' -and
+    if ($actualArgumentMembers.Contains('mode') -and
         ($Arguments.mode -isnot [string] -or
         -not [string]::Equals([string]$Arguments.mode, 'sync', [StringComparison]::Ordinal))) {
         return $null
     }
-    if ($argumentMembers -contains 'initial_wait' -and
+    if ($actualArgumentMembers.Contains('initial_wait') -and
         (($Arguments.initial_wait -isnot [int] -and $Arguments.initial_wait -isnot [long]) -or
         [long]$Arguments.initial_wait -lt 1 -or [long]$Arguments.initial_wait -gt 30)) {
         return $null
@@ -1511,7 +1519,15 @@ if ($AgentHost -eq 'copilot' -and $arm -in @('cli', 'cli-skill')) {
     }
     [System.Collections.Generic.List[string]] $unsupportedTasks = [System.Collections.Generic.List[string]]::new()
     foreach ($task in $selected) {
-        try { [void](Get-AgentEvalTaskCommandFamilies -Task $task -AllowedVerbs $verbs) }
+        try {
+            if ([string]::Equals(
+                    [System.IO.Path]::GetFileName([string]$task.fixture),
+                    'manifest.json',
+                    [StringComparison]::Ordinal)) {
+                throw "Task '$($task.id)' is manifest-backed; strict arms do not copy its dependency closure."
+            }
+            [void](Get-AgentEvalTaskCommandFamilies -Task $task -AllowedVerbs $verbs)
+        }
         catch { $unsupportedTasks.Add("$($task.id): $($_.Exception.Message)") }
     }
     if ($unsupportedTasks.Count -gt 0) {

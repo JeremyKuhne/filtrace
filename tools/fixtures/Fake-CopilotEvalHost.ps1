@@ -419,6 +419,26 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
         $toolArguments.initial_wait = 30
     }
     switch ($mode) {
+        'command-member-case' {
+            $toolArguments = [ordered]@{
+                Command = $command
+                description = 'Analyze the owned trace with filtrace'
+                mode = 'sync'
+                initial_wait = 30
+            }
+        }
+        'description-member-case' {
+            $toolArguments = [ordered]@{
+                command = $command
+                Description = 'Analyze the owned trace with filtrace'
+                mode = 'sync'
+                initial_wait = 30
+            }
+        }
+        'mode-member-case' {
+            [void]$toolArguments.Remove('mode')
+            $toolArguments.Mode = 'sync'
+        }
         'missing-command-argument' { [void]$toolArguments.Remove('command') }
         'missing-description-argument' { [void]$toolArguments.Remove('description') }
         'invalid-command-type' { $toolArguments.command = @($command) }
@@ -431,6 +451,7 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
         'shell-sandbox-flag' { $toolArguments.sandbox = $true }
     }
     [string[]] $invalidToolArgumentModes = @(
+        'command-member-case', 'description-member-case', 'mode-member-case',
         'missing-command-argument', 'missing-description-argument', 'invalid-command-type',
         'invalid-mode-type', 'async-mode', 'repl-mode', 'invalid-initial-wait-type',
         'zero-initial-wait', 'unbounded-initial-wait', 'shell-sandbox-flag')

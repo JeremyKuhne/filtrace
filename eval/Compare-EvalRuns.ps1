@@ -278,6 +278,7 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
     timestamp = $payload.timestamp
     schemaVersion = [int]$payload.schemaVersion
     n         = if ([int]$payload.schemaVersion -eq 3) { [int]$payload.n } else { $null }
+    maxSteps  = if ([int]$payload.schemaVersion -eq 3) { [int]$payload.maxSteps } else { $null }
     summary   = $payload.summary
   }
 }
@@ -324,7 +325,7 @@ foreach ($run in $runs) {
     if (-not $b) { $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no baseline' }); $unpaired++; continue }
     if (-not $c) { $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no candidate' }); $unpaired++; continue }
     if ($b.schemaVersion -ne $c.schemaVersion -or
-      ($b.schemaVersion -eq 3 -and $b.n -ne $c.n)) {
+      ($b.schemaVersion -eq 3 -and ($b.n -ne $c.n -or $b.maxSteps -ne $c.maxSteps))) {
       $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'incompatible run bounds' })
       $unpaired++
       continue

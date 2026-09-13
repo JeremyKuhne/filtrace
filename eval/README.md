@@ -141,6 +141,8 @@ One invocation is capped at 64 total strict task iterations so copied immutable
 bundles and retained run evidence cannot grow without a run-wide bound. Before
 launch, actual fixture/CLI/skill input sizes plus the maximum per-run artifact and
 runtime budgets must also fit a 2 GiB projected retained-byte cap.
+Manifest-backed tasks are rejected before host launch until the strict context can
+copy and attest their dependency closure without changing relative paths.
 There is no shell allow rule. Normal permissions deny all shell, write, and URL
 requests. They also pass `read` to `--deny-tool`; Copilot CLI 1.0.82 accepts that
 argument. Retained real-host probes established that a matching `preToolUse` allow

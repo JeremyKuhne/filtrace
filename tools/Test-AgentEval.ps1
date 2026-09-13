@@ -482,6 +482,18 @@ try {
         -Hook $policyProbe.preToolHook `
         -RawInput '{'
     Assert-True ($malformedInput.permissionDecision -eq 'deny') 'Malformed hook input was not denied.'
+    [string] $caseVariantInputJson = [string]([ordered]@{
+            SessionId = $policySessionId
+            timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+            cwd = $policyWorkspace
+            toolName = 'powershell'
+            toolArgs = $validArguments
+        } | ConvertTo-Json -Depth 8 -Compress)
+    $caseVariantInput = Invoke-TestPolicyHook `
+        -Hook $policyProbe.preToolHook `
+        -RawInput $caseVariantInputJson
+    Assert-True ($caseVariantInput.permissionDecision -eq 'deny') `
+        'Case-variant top-level hook input member was accepted.'
     $unknownTool = Invoke-TestPolicyHook `
         -Hook $policyProbe.preToolHook `
         -SessionId $policySessionId `
@@ -541,6 +553,10 @@ try {
         Assert-True ($decision.permissionDecision -eq 'deny') 'Adversarial PowerShell description was not denied.'
     }
     [object[]] $invalidPowerShellArguments = @(
+        [ordered]@{ Command = $policyProbe.command; description = 'Case command member' }
+        [ordered]@{ command = $policyProbe.command; Description = 'Case description member' }
+        [ordered]@{ command = $policyProbe.command; description = 'Case mode member'; Mode = 'sync' }
+        [ordered]@{ command = $policyProbe.command; description = 'Case wait member'; Initial_Wait = 30 }
         [ordered]@{ description = 'Missing command' }
         [ordered]@{ command = $policyProbe.command }
         [ordered]@{ command = @($policyProbe.command); description = 'Invalid command type' }
@@ -897,7 +913,8 @@ try {
             'decoy-command', 'missing-call-id', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
             'denied-unknown-tool', 'powershell-tool-case',
             'string-success', 'mismatched-operation', 'unknown-cli-schema', 'malformed-shell-wrapper',
-            'nonzero-shell-wrapper', 'mismatched-shell-content', 'missing-command-argument',
+            'nonzero-shell-wrapper', 'mismatched-shell-content', 'command-member-case',
+            'description-member-case', 'mode-member-case', 'missing-command-argument',
             'missing-description-argument', 'invalid-command-type', 'invalid-mode-type', 'async-mode',
             'repl-mode', 'invalid-initial-wait-type', 'zero-initial-wait', 'unbounded-initial-wait',
             'shell-sandbox-flag')) {
@@ -1328,6 +1345,25 @@ try {
     Assert-True $unsupportedDefaultTasksRejected `
         'Strict CLI arm did not reject unsupported default tasks before host launch.'
 
+    [bool] $manifestTaskRejected = $false
+    try {
+        & $runner `
+            -AgentHost copilot `
+            -Arm cli `
+            -Model expected-model `
+            -ExpectedModel expected-model `
+            -Tasks manifest-batch `
+            -N 1 `
+            -OutDir (Join-Path $temporaryRoot 'manifest task') `
+            -CopilotPath $pwshPath `
+            -CopilotAdapterPath $fakeHost
+    }
+    catch {
+        $manifestTaskRejected = $_.Exception.Message.Contains(
+            'manifest-backed', [StringComparison]::Ordinal)
+    }
+    Assert-True $manifestTaskRejected 'Strict CLI arm accepted a manifest without its dependency closure.'
+
     [bool] $strictRunCapRejected = $false
     try {
         & $runner `
@@ -1422,6 +1458,19 @@ try {
     }
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $caseDistinctDirectory
     Assert-True ($LASTEXITCODE -eq 1) 'Case-distinct model identities were paired as one run.'
+
+    $maxStepsDirectory = Join-Path $temporaryRoot 'max-steps comparison'
+    [System.IO.Directory]::CreateDirectory($maxStepsDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $maxStepsRecord = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        if ($maxStepsRecord.label -ceq 'candidate') { $maxStepsRecord.maxSteps = 64 }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $maxStepsDirectory $resultPath.Name),
+            (($maxStepsRecord | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $maxStepsDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'Runs with different maxSteps budgets were paired.'
 
     $roundedSuccessDirectory = Join-Path $temporaryRoot 'rounded success comparison'
     [System.IO.Directory]::CreateDirectory($roundedSuccessDirectory) | Out-Null

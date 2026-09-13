@@ -210,10 +210,18 @@ function Assert-OptionValue([string] $Value, $Option) {
 
 function Assert-LiteralCommand($Arguments, $Policy) {
     [string[]] $argumentMembers = @(Get-ObjectMemberNames $Arguments)
-    [string[]] $allowedArgumentMembers = @('command', 'description', 'mode', 'initial_wait')
+    [System.Collections.Generic.HashSet[string]] $allowedArgumentMembers =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($member in @('command', 'description', 'mode', 'initial_wait')) {
+        [void]$allowedArgumentMembers.Add($member)
+    }
+    [System.Collections.Generic.HashSet[string]] $actualArgumentMembers =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($member in $argumentMembers) { [void]$actualArgumentMembers.Add($member) }
     if ($argumentMembers.Count -lt 2 -or $argumentMembers.Count -gt $allowedArgumentMembers.Count -or
-        @($argumentMembers | Where-Object { $allowedArgumentMembers -notcontains $_ }).Count -ne 0 -or
-        $argumentMembers -notcontains 'command' -or $argumentMembers -notcontains 'description' -or
+        @($argumentMembers | Where-Object { -not $allowedArgumentMembers.Contains($_) }).Count -ne 0 -or
+        -not $actualArgumentMembers.Contains('command') -or
+        -not $actualArgumentMembers.Contains('description') -or
         $Arguments.command -isnot [string] -or
         [string]::IsNullOrWhiteSpace([string]$Arguments.command) -or
         $Arguments.command.Length -gt 8192) {
@@ -225,12 +233,12 @@ function Assert-LiteralCommand($Arguments, $Policy) {
         @($Arguments.description.ToCharArray() | Where-Object { [char]::IsControl($_) }).Count -ne 0) {
         throw 'PowerShell description was outside policy.'
     }
-    if ($argumentMembers -contains 'mode' -and
+    if ($actualArgumentMembers.Contains('mode') -and
         ($Arguments.mode -isnot [string] -or
         -not [string]::Equals([string]$Arguments.mode, 'sync', [StringComparison]::Ordinal))) {
         throw 'PowerShell mode was outside policy.'
     }
-    if ($argumentMembers -contains 'initial_wait' -and
+    if ($actualArgumentMembers.Contains('initial_wait') -and
         (($Arguments.initial_wait -isnot [int] -and $Arguments.initial_wait -isnot [long]) -or
         [long]$Arguments.initial_wait -lt 1 -or [long]$Arguments.initial_wait -gt 30)) {
         throw 'PowerShell initial wait was outside policy.'
@@ -407,9 +415,17 @@ try {
     try { $inputObject = $inputText | ConvertFrom-Json }
     catch { throw 'Hook input was not valid JSON.' }
     [string[]] $inputMembers = @(Get-ObjectMemberNames $inputObject)
-    [string[]] $expectedInputMembers = @('sessionId', 'timestamp', 'cwd', 'toolName', 'toolArgs')
+    [System.Collections.Generic.HashSet[string]] $expectedInputMembers =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($member in @('sessionId', 'timestamp', 'cwd', 'toolName', 'toolArgs')) {
+        [void]$expectedInputMembers.Add($member)
+    }
+    [System.Collections.Generic.HashSet[string]] $actualInputMembers =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($member in $inputMembers) { [void]$actualInputMembers.Add($member) }
     if ($inputMembers.Count -ne $expectedInputMembers.Count -or
-        @($expectedInputMembers | Where-Object { $inputMembers -notcontains $_ }).Count -ne 0) {
+        $actualInputMembers.Count -ne $expectedInputMembers.Count -or
+        @($expectedInputMembers | Where-Object { -not $actualInputMembers.Contains($_) }).Count -ne 0) {
         throw 'Hook input shape was outside policy.'
     }
     if (($inputObject.timestamp -isnot [long] -and $inputObject.timestamp -isnot [int]) -or
