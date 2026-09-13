@@ -184,6 +184,25 @@ if ($mode -eq 'oversized-immutable') {
     try { $immutableStream.SetLength($immutableStream.Length + 20MB) } finally { $immutableStream.Dispose() }
     [System.Threading.Thread]::Sleep(5000)
 }
+if ($mode -eq 'orphan-descendant') {
+    [System.Diagnostics.ProcessStartInfo] $descendantStart = [System.Diagnostics.ProcessStartInfo]::new()
+    $descendantStart.FileName = (Get-Process -Id $PID).Path
+    $descendantStart.UseShellExecute = $false
+    $descendantStart.RedirectStandardOutput = $true
+    $descendantStart.RedirectStandardError = $true
+    foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+            '[Threading.Thread]::Sleep(10000)')) {
+        [void]$descendantStart.ArgumentList.Add($argument)
+    }
+    [System.Diagnostics.Process] $descendant = [System.Diagnostics.Process]::new()
+    $descendant.StartInfo = $descendantStart
+    if (-not $descendant.Start()) { throw 'Fake descendant did not start.' }
+    [System.IO.File]::WriteAllText(
+        (Join-Path $WorkingDirectory 'descendant.pid'),
+        [string]$descendant.Id,
+        [System.Text.UTF8Encoding]::new($false))
+    $descendant.Dispose()
+}
 $reportedModel = if ($mode -eq 'wrong-model') {
     'other-model'
 }
@@ -493,12 +512,47 @@ $events.Add($resultEvent)
                 'usage-missing-premium' { [void]$usageValue.Remove('totalPremiumRequestCost') }
                 'usage-wrong-type' { $usageValue.tokenDetails.input.tokenCount = '20' }
                 'usage-negative-token' { $usageValue.tokenDetails.cache_read.tokenCount = -1 }
+                'usage-model-mismatch' { $usageValue.currentModel = 'other-model' }
             }
             [string]($usageValue | ConvertTo-Json -Depth 6)
         }
         [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($UsageOutputFile)) | Out-Null
         [System.IO.File]::WriteAllText($UsageOutputFile, $usageJson, [System.Text.UTF8Encoding]::new($false))
     }
+
+if ($mode -in @('completion-before-start', 'skill-context-before-completion')) {
+    [string] $targetCallId = if ($mode -eq 'completion-before-start') { 'call-1' } else { 'skill-load' }
+    [int] $startIndex = -1
+    [int] $completionIndex = -1
+    [int] $contextIndex = -1
+    for ($eventIndex = 0; $eventIndex -lt $events.Count; $eventIndex++) {
+        $event = $events[$eventIndex]
+        if ($event.type -eq 'tool.execution_start' -and $event.data.toolCallId -eq $targetCallId) {
+            $startIndex = $eventIndex
+        }
+        elseif ($event.type -eq 'tool.execution_complete' -and $event.data.toolCallId -eq $targetCallId) {
+            $completionIndex = $eventIndex
+        }
+        elseif ($mode -eq 'skill-context-before-completion' -and $event.type -eq 'model.message' -and
+            $event.data.message.role -eq 'user' -and $event.data.message.content -is [string] -and
+            ([string]$event.data.message.content).StartsWith(
+                '<skill-context name="filtrace">', [StringComparison]::Ordinal)) {
+            $contextIndex = $eventIndex
+        }
+    }
+    if ($startIndex -lt 0 -or $completionIndex -lt 0) { throw 'Fake host could not reorder tool events.' }
+    if ($mode -eq 'completion-before-start') {
+        $completionEvent = $events[$completionIndex]
+        $events.RemoveAt($completionIndex)
+        $events.Insert($startIndex, $completionEvent)
+    }
+    else {
+        if ($contextIndex -lt 0) { throw 'Fake host could not reorder skill context.' }
+        $contextEvent = $events[$contextIndex]
+        $events.RemoveAt($contextIndex)
+        $events.Insert($completionIndex, $contextEvent)
+    }
+}
 
 foreach ($hostEvent in $events) {
     if ($mode -eq 'malformed-jsonl') {

@@ -625,6 +625,27 @@ function Test-AgentEvalHostUsage($Usage) {
     return $true
 }
 
+function Get-AgentEvalTaskExpectedOperations($Task) {
+    [System.Collections.Generic.HashSet[string]] $operations =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($step in @($Task.steps)) {
+        [string[]] $arguments = @($step.args)
+        if ($arguments.Count -eq 0) { throw "Task '$($Task.id)' has an empty command step." }
+        [string] $operationSource = $arguments[0]
+        if ([string]::Equals($operationSource, 'report', [StringComparison]::Ordinal)) {
+            [int[]] $kindIndexes = @(for ($index = 0; $index -lt $arguments.Count; $index++) {
+                    if ([string]::Equals($arguments[$index], '--kind', [StringComparison]::Ordinal)) { $index }
+                })
+            if ($kindIndexes.Count -ne 1 -or $kindIndexes[0] -ge ($arguments.Count - 1)) {
+                throw "Task '$($Task.id)' has a report step without exactly one kind."
+            }
+            $operationSource = $arguments[$kindIndexes[0] + 1]
+        }
+        [void]$operations.Add((Get-OperationName -Name $operationSource))
+    }
+    return [string[]]@($operations)
+}
+
 function Test-AgentEvalStringMultiset([string[]] $Left, [string[]] $Right) {
     if ($Left.Count -ne $Right.Count) { return $false }
     [string[]] $leftSorted = @($Left | Sort-Object)
@@ -836,6 +857,10 @@ function Invoke-CopilotIteration {
     $answerEvent = $null
     [int] $answerEventIndex = -1
     [int] $skillContextEventIndex = -1
+    [System.Collections.Generic.Dictionary[string, int]] $startEventIndexes =
+        [System.Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
+    [System.Collections.Generic.Dictionary[string, int]] $completionEventIndexes =
+        [System.Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
     for ($eventIndex = 0; $eventIndex -lt $events.Count; $eventIndex++) {
         $event = $events[$eventIndex]
         if ($event.PSObject.Properties.Name -contains 'type' -and
@@ -852,6 +877,22 @@ function Invoke-CopilotIteration {
             ([string]$event.data.message.content).StartsWith(
                 '<skill-context name="filtrace">', [StringComparison]::Ordinal)) {
             $skillContextEventIndex = $eventIndex
+        }
+        if ($event.PSObject.Properties.Name -contains 'type' -and
+            $event.type -eq 'tool.execution_start' -and
+            $event.PSObject.Properties.Name -contains 'data' -and
+            $event.data.PSObject.Properties.Name -contains 'toolCallId' -and
+            $event.data.toolCallId -is [string] -and
+            -not [string]::IsNullOrWhiteSpace([string]$event.data.toolCallId)) {
+            [void]$startEventIndexes.TryAdd([string]$event.data.toolCallId, $eventIndex)
+        }
+        if ($event.PSObject.Properties.Name -contains 'type' -and
+            $event.type -eq 'tool.execution_complete' -and
+            $event.PSObject.Properties.Name -contains 'data' -and
+            $event.data.PSObject.Properties.Name -contains 'toolCallId' -and
+            $event.data.toolCallId -is [string] -and
+            -not [string]::IsNullOrWhiteSpace([string]$event.data.toolCallId)) {
+            [void]$completionEventIndexes.TryAdd([string]$event.data.toolCallId, $eventIndex)
         }
     }
     $answer = if ($answerEvent -and $answerEvent.data.PSObject.Properties.Name -contains 'content') {
@@ -879,19 +920,6 @@ function Invoke-CopilotIteration {
         $_.PSObject.Properties.Name -contains 'type' -and $_.type -eq 'tool.execution_complete' -and
         $_.PSObject.Properties.Name -contains 'data'
     })
-    [System.Collections.Generic.Dictionary[string, int]] $completionEventIndexes =
-        [System.Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
-    for ($eventIndex = 0; $eventIndex -lt $events.Count; $eventIndex++) {
-        $event = $events[$eventIndex]
-        if ($event.PSObject.Properties.Name -contains 'type' -and
-            $event.type -eq 'tool.execution_complete' -and
-            $event.PSObject.Properties.Name -contains 'data' -and
-            $event.data.PSObject.Properties.Name -contains 'toolCallId' -and
-            $event.data.toolCallId -is [string] -and
-            -not [string]::IsNullOrWhiteSpace([string]$event.data.toolCallId)) {
-            [void]$completionEventIndexes.TryAdd([string]$event.data.toolCallId, $eventIndex)
-        }
-    }
     $completes = if ($arm -eq 'mcp') {
         [string[]] $mcpCallIds = @($starts | ForEach-Object { [string]$_.data.toolCallId })
         @($allCompletes | Where-Object { $mcpCallIds -contains [string]$_.data.toolCallId })
@@ -904,7 +932,18 @@ function Invoke-CopilotIteration {
     [bool] $evidenceValid = $true
     foreach ($start in $starts) {
         [string] $startId = if (@($start.data.PSObject.Properties.Name) -contains 'toolCallId') { [string]$start.data.toolCallId } else { '' }
-        if ([string]::IsNullOrWhiteSpace($startId) -or -not $startIds.Add($startId)) { $evidenceValid = $false }
+        if ([string]::IsNullOrWhiteSpace($startId) -or -not $startIds.Add($startId)) {
+            $evidenceValid = $false
+        }
+        else {
+            [int] $startEventIndex = -1
+            [int] $completionEventIndex = -1
+            if (-not $startEventIndexes.TryGetValue($startId, [ref]$startEventIndex) -or
+                -not $completionEventIndexes.TryGetValue($startId, [ref]$completionEventIndex) -or
+                $startEventIndex -ge $completionEventIndex) {
+                $evidenceValid = $false
+            }
+        }
     }
     foreach ($complete in $completes) {
         [string] $completionId = if (@($complete.data.PSObject.Properties.Name) -contains 'toolCallId') { [string]$complete.data.toolCallId } else { '' }
@@ -1121,6 +1160,18 @@ function Invoke-CopilotIteration {
         $skillEvidence.requestedBytes = 0
         $skillEvidence.reads = @()
         $skillEvidence.discovery = $completedSkillEvidence.discovery
+        if ($skillEvidence.verified) {
+            [int] $skillStartEventIndex = -1
+            [int] $skillCompletionEventIndex = -1
+            if (-not $startEventIndexes.TryGetValue(
+                    [string]$completedSkillEvidence.toolCallId, [ref]$skillStartEventIndex) -or
+                -not $completionEventIndexes.TryGetValue(
+                    [string]$completedSkillEvidence.toolCallId, [ref]$skillCompletionEventIndex) -or
+                $skillStartEventIndex -ge $skillCompletionEventIndex -or
+                $skillCompletionEventIndex -ge $skillContextEventIndex) {
+                $evidenceValid = $false
+            }
+        }
     }
     if ($answerEventIndex -lt 0 -or [string]::IsNullOrWhiteSpace([string]$answer)) {
         $evidenceValid = $false
@@ -1171,19 +1222,6 @@ function Invoke-CopilotIteration {
     else {
         $null
     }
-    $usage = if ($resultMembers -contains 'usage') { $result.usage } else { $null }
-    [bool] $usageValid = Test-AgentEvalHostUsage $usage
-    if ($null -ne $usage -and -not $usageValid) { $evidenceValid = $false }
-    [bool] $hasUsageEvidence = $usageValid -or [bool]$usageFile.available
-    $hostSucceeded = $copilotExitCode -eq 0 -and $null -ne $resultExitCode -and
-        $resultExitCode -eq 0 -and $evidenceValid -and $hasUsageEvidence
-    $note = ''
-    if ($copilotExitCode -ne 0) { $note = "copilot process exitCode $copilotExitCode" }
-    elseif ($null -eq $resultExitCode) { $note = 'copilot result event did not report an exit code' }
-    elseif ($resultExitCode -ne 0) { $note = "copilot exitCode $resultExitCode" }
-    elseif (-not $evidenceValid) { $note = 'copilot transcript evidence was malformed or included an unexpected tool attempt' }
-    elseif (-not $hasUsageEvidence) { $note = 'copilot host reported no valid usage evidence' }
-    elseif ($filtraceCalls -eq 0) { $note = 'no local filtrace tool call' }
     $modelEvents = @($events | Where-Object {
         $_.PSObject.Properties.Name -contains 'type' -and $_.type -eq 'session.tools_updated' -and
         $_.PSObject.Properties.Name -contains 'data'
@@ -1194,6 +1232,24 @@ function Invoke-CopilotIteration {
     } | ForEach-Object { [string]$_.data.model } | Sort-Object -CaseSensitive -Unique)
     $m = if ($iterationObservedModels.Count -eq 1) { $iterationObservedModels[0] } else { $null }
     if ($m) { $script:CopilotActualModel = $m }
+    $usage = if ($resultMembers -contains 'usage') { $result.usage } else { $null }
+    [bool] $usageValid = Test-AgentEvalHostUsage $usage
+    if ($null -ne $usage -and -not $usageValid) { $evidenceValid = $false }
+    if ($usageFile.available -and
+        ($null -eq $m -or -not [string]::Equals(
+            [string]$usageFile.value.currentModel, [string]$m, [StringComparison]::Ordinal))) {
+        $evidenceValid = $false
+    }
+    [bool] $hasUsageEvidence = $usageValid -or [bool]$usageFile.available
+    $hostSucceeded = $copilotExitCode -eq 0 -and $null -ne $resultExitCode -and
+        $resultExitCode -eq 0 -and $evidenceValid -and $hasUsageEvidence
+    $note = ''
+    if ($copilotExitCode -ne 0) { $note = "copilot process exitCode $copilotExitCode" }
+    elseif ($null -eq $resultExitCode) { $note = 'copilot result event did not report an exit code' }
+    elseif ($resultExitCode -ne 0) { $note = "copilot exitCode $resultExitCode" }
+    elseif (-not $evidenceValid) { $note = 'copilot transcript evidence was malformed or included an unexpected tool attempt' }
+    elseif (-not $hasUsageEvidence) { $note = 'copilot host reported no valid usage evidence' }
+    elseif ($filtraceCalls -eq 0) { $note = 'no local filtrace tool call' }
     $wallMs = if ($usage -and $usage.PSObject.Properties.Name -contains 'sessionDurationMs' -and $usage.sessionDurationMs) {
         [int]$usage.sessionDurationMs
     }
@@ -1256,6 +1312,7 @@ function Invoke-CopilotIteration {
                 hostRuntimeMaxBytes = $processResult.hostRuntimeMaxBytes
                 hostRuntimeMaxFileBytes = $processResult.hostRuntimeMaxFileBytes
                 hostRuntimeMaxEntries = $processResult.hostRuntimeMaxEntries
+                processTreeContained = $processResult.processTreeContained
             }
             inputPolicy = $context.inputPolicy
         }
@@ -1287,6 +1344,8 @@ foreach ($file in $allTaskFiles) {
     $task | Add-Member -NotePropertyName expectTools -NotePropertyValue @($qa.expectTools)
     $task | Add-Member -NotePropertyName expectOperations -NotePropertyValue @(
         if ($qaMembers -contains 'expectOperations') { $qa.expectOperations | Where-Object { $_ } })
+    $task | Add-Member -NotePropertyName requiredCliOperations -NotePropertyValue @(
+        Get-AgentEvalTaskExpectedOperations $task)
     $task | Add-Member -NotePropertyName forbidOperations -NotePropertyValue @(
         if ($qaMembers -contains 'forbidOperations') { $qa.forbidOperations | Where-Object { $_ } })
     $task | Add-Member -NotePropertyName maxCalls -NotePropertyValue $(
@@ -1508,8 +1567,12 @@ function Invoke-EvalRun {
 
             # Intent grading. Unlike the exact tool names, this survives a rename or a
             # consolidation, so a baseline and a candidate surface can be compared.
-            if ($ok -and $task.expectOperations.Count -gt 0) {
-                $missingOperations = @($task.expectOperations | Where-Object { $calledOperations -notcontains $_ })
+            [string[]] $requiredOperations = @(
+                $task.expectOperations
+                if ($arm -in @('cli', 'cli-skill')) { $task.requiredCliOperations }
+            ) | Where-Object { $_ } | Sort-Object -CaseSensitive -Unique
+            if ($ok -and $requiredOperations.Count -gt 0) {
+                $missingOperations = @($requiredOperations | Where-Object { $calledOperations -notcontains $_ })
                 if ($missingOperations.Count -gt 0) {
                     $ok = $false
                     $note = "missing expected operation(s): $($missingOperations -join ', ')"

@@ -134,7 +134,9 @@ skill arm enables discovery inside an otherwise empty owned workspace containing
 only the copied project skill. Both disable builtin MCPs, remote export/control,
 auto-update, bash environment loading, user prompts, and automatic system-temp
 access. Their available tools are only `powershell`, plus `skill` for cli-skill;
-the other observed host built-ins are explicitly excluded.
+the other observed host built-ins are explicitly excluded. On Windows, a handshake
+launcher joins a kill-on-close Job Object before it may start Copilot, so children
+remain owned and are terminated when the bounded run ends even if the host exits first.
 There is no shell allow rule. Normal permissions deny all shell, write, and URL
 requests. They also pass `read` to `--deny-tool`; Copilot CLI 1.0.82 accepts that
 argument. Retained real-host probes established that a matching `preToolUse` allow
@@ -255,7 +257,10 @@ host usage, model evidence, execution paths/hashes, skill evidence, and warnings
 The graded answer event must follow every counted successful analysis completion
 and, for `cli-skill`, the verified injected skill context. Strict CLI transcript
 entries retain the parser's derived operation, including `report --kind` intent,
-rather than inferring it later from the surface verb.
+rather than inferring it later from the surface verb. Tool evidence must preserve
+causal `start < completion < context/answer` order, and strict CLI grading requires
+every operation derived from the task's canonical steps in addition to explicit
+task expectations.
 Results land under `eval/results/` (git-ignored) as schema-v3 JSON with a median
 summary. `hostUsage` retains the result event. `hostUsageFile` separately records
 the bounded `--usage-output-file`, its hash, and detailed input/output/cache counts;
@@ -264,7 +269,8 @@ available file must contain nonnegative premium-request/user counts, a nonempty
 current model, and integer input/cache-read/cache-write/output token counts;
 malformed or incomplete accounting fails before a result is published. A successful
 iteration requires at least one validated source: result-event usage or the detailed
-usage file.
+usage file. When the detailed file is present, its `currentModel` must exactly match
+the one model identity observed in the JSONL stream.
 
 ### EP1 preflight checkpoint
 

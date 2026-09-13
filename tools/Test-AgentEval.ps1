@@ -19,6 +19,7 @@ $pwshPath = (Get-Process -Id $PID).Path
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace agent eval contract $([Guid]::NewGuid().ToString('N'))"
 [System.IO.Directory]::CreateDirectory($temporaryRoot) | Out-Null
 . $helpers
+. (Join-Path $root 'eval/Get-OperationName.ps1')
 
 function Assert-True([bool] $Condition, [string] $Message) {
     if (-not $Condition) { throw $Message }
@@ -254,7 +255,7 @@ try {
     Assert-True ($runnerErrors.Count -eq 0) 'Invoke-AgentEval.ps1 did not parse for isolated function tests.'
     foreach ($functionName in @(
             'ConvertFrom-AgentEvalJsonLines', 'Write-AgentEvalNewFile', 'Save-AgentEvalHostOutput',
-            'ConvertTo-AgentEvalResultJson')) {
+            'ConvertTo-AgentEvalResultJson', 'Get-AgentEvalTaskExpectedOperations')) {
         $functionAst = $runnerAst.Find({
                 param($node)
                 $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -263,6 +264,11 @@ try {
         Assert-True ($null -ne $functionAst) "Could not extract '$functionName' from Invoke-AgentEval.ps1."
         Invoke-Expression $functionAst.Extent.Text
     }
+    $cpuTask = Get-Content -LiteralPath (Join-Path $root 'eval/tasks/01-cpu-hotspot.json') -Raw | ConvertFrom-Json
+    [string[]] $cpuOperations = @(Get-AgentEvalTaskExpectedOperations $cpuTask)
+    Assert-True ($cpuOperations.Count -eq 2 -and $cpuOperations -contains 'rank' -and
+        $cpuOperations -contains 'callers') `
+        'Strict task operation derivation did not require both CPU analysis steps.'
 
     [string[]] $recordedEventTypes = @(
         'assistant.idle', 'assistant.message', 'assistant.message_delta', 'assistant.message_start',
@@ -381,6 +387,10 @@ try {
         'Live execution policy did not retain its allowed command hash.'
     Assert-True ($success.iterations[0].execution.isolation.executionPolicyHelpCallCount -eq 0) `
         'Analysis-only run unexpectedly consumed a help allowance.'
+    Assert-True ($success.iterations[0].execution.isolation.processTreeContained -eq $true) `
+        'Strict Windows run did not retain process-tree containment evidence.'
+    Assert-True (@($success.iterations[0].operations) -contains 'gc') `
+        'Strict report-kind operation was not retained for intent grading.'
     Assert-True ($success.iterations[0].execution.hostOutput.retained -eq $true) `
         'Successful fake run did not retain exact host output.'
     Assert-True (Test-Path -LiteralPath $success.iterations[0].execution.hostOutput.stdoutPath -PathType Leaf) `
@@ -425,6 +435,10 @@ try {
             -Mode $mode `
             -ExpectedMessage 'Copilot usage output schema was malformed.'
     }
+    $usageModelMismatch = Invoke-FakeRun -Name 'usage model mismatch' -Mode usage-model-mismatch
+    Assert-True ($usageModelMismatch.iterations[0].success -eq $false -and
+        $usageModelMismatch.iterations[0].hostUsageFile.available -eq $true) `
+        'Usage accounting for a different model unexpectedly passed.'
 
     $legacyToolArguments = Invoke-FakeRun -Name 'cli legacy tool arguments' -Mode legacy-tool-arguments
     Assert-True ($legacyToolArguments.iterations[0].success -eq $true) `
@@ -844,7 +858,7 @@ try {
     }
 
     foreach ($mode in @(
-            'answer-only', 'answer-before-analysis', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
+            'answer-only', 'answer-before-analysis', 'completion-before-start', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
             'decoy-command', 'missing-call-id', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
             'string-success', 'mismatched-operation', 'unknown-cli-schema', 'malformed-shell-wrapper',
             'nonzero-shell-wrapper', 'mismatched-shell-content', 'missing-command-argument',
@@ -934,7 +948,7 @@ try {
     foreach ($mode in @(
             'missing-skill-read', 'missing-skill-discovery', 'wrong-skill-hash',
             'failed-skill-load', 'missing-skill-context', 'skill-extra-context',
-            'skill-ledger-mismatch', 'answer-before-skill-context')) {
+            'skill-ledger-mismatch', 'answer-before-skill-context', 'skill-context-before-completion')) {
         $negative = Invoke-FakeRun -Name "skill $mode" -Mode $mode -Arm cli-skill
         Assert-True ($negative.iterations[0].success -eq $false) "Fake skill mode '$mode' unexpectedly passed."
         if ($mode -eq 'missing-skill-read') {
@@ -965,6 +979,18 @@ try {
         'Closed host streams suspended periodic artifact enforcement.'
     Assert-FakeRunThrows -Name 'output bound' -Mode oversized-output -ExpectedMessage 'output exceeded 1024 bytes' -MaxOutputBytes 1024
     Assert-FakeRunThrows -Name 'artifact bound' -Mode oversized-artifact -ExpectedMessage 'artifacts exceeded 16777216 bytes'
+
+    $descendantRun = Invoke-FakeRun -Name 'orphan descendant' -Mode orphan-descendant
+    [string] $descendantPidPath = Join-Path $descendantRun.iterations[0].execution.workspace 'descendant.pid'
+    Assert-True (Test-Path -LiteralPath $descendantPidPath -PathType Leaf) `
+        'Fake host did not record its descendant process id.'
+    [int] $descendantPid = [int][System.IO.File]::ReadAllText($descendantPidPath)
+    [System.Diagnostics.Process] $descendantProcess = Get-Process -Id $descendantPid -ErrorAction SilentlyContinue
+    if ($null -ne $descendantProcess) {
+        try { [void]$descendantProcess.WaitForExit(3000) } finally { $descendantProcess.Dispose() }
+    }
+    Assert-True ($null -eq (Get-Process -Id $descendantPid -ErrorAction SilentlyContinue)) `
+        'A descendant survived the contained Copilot host process.'
 
     $runtimeCache = Invoke-FakeRun -Name 'host runtime cache' -Mode host-runtime-cache
     Assert-True ($runtimeCache.iterations[0].success -eq $true) 'Bounded host runtime cache run failed.'
@@ -1341,6 +1367,7 @@ try {
     Assert-True ($LASTEXITCODE -eq 1) 'Unverified schema-v3 A/A records compared neutral.'
 
     Write-Host 'Agent eval fake-host contract passed.' -ForegroundColor Green
+    exit 0
 }
 finally {
     if (Test-Path -LiteralPath $temporaryRoot) {

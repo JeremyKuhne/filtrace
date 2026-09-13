@@ -12,6 +12,124 @@ function Get-AgentEvalTextHash([string] $Text) {
     return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 }
 
+function Initialize-AgentEvalWindowsJobObjectType {
+    if ($null -ne ('Filtrace.AgentEval.WindowsJobObject' -as [type])) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace Filtrace.AgentEval
+{
+    public static class WindowsJobObject
+    {
+        private const uint JobObjectExtendedLimitInformation = 9;
+        private const uint JobObjectLimitKillOnJobClose = 0x00002000;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BasicLimitInformation
+        {
+            public long PerProcessUserTimeLimit;
+            public long PerJobUserTimeLimit;
+            public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize;
+            public UIntPtr MaximumWorkingSetSize;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass;
+            public uint SchedulingClass;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IoCounters
+        {
+            public ulong ReadOperationCount;
+            public ulong WriteOperationCount;
+            public ulong OtherOperationCount;
+            public ulong ReadTransferCount;
+            public ulong WriteTransferCount;
+            public ulong OtherTransferCount;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ExtendedLimitInformation
+        {
+            public BasicLimitInformation BasicLimitInformation;
+            public IoCounters IoInfo;
+            public UIntPtr ProcessMemoryLimit;
+            public UIntPtr JobMemoryLimit;
+            public UIntPtr PeakProcessMemoryUsed;
+            public UIntPtr PeakJobMemoryUsed;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CreateJobObjectW(IntPtr jobAttributes, string name);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetInformationJobObject(
+            IntPtr job,
+            uint informationClass,
+            IntPtr information,
+            uint informationLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        public static IntPtr CreateKillOnClose()
+        {
+            IntPtr job = CreateJobObjectW(IntPtr.Zero, null);
+            if (job == IntPtr.Zero)
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+
+            ExtendedLimitInformation limits = new ExtendedLimitInformation();
+            limits.BasicLimitInformation.LimitFlags = JobObjectLimitKillOnJobClose;
+            int size = Marshal.SizeOf<ExtendedLimitInformation>();
+            IntPtr buffer = Marshal.AllocHGlobal(size);
+            try
+            {
+                Marshal.StructureToPtr(limits, buffer, false);
+                if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, buffer, (uint)size))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                return job;
+            }
+            catch
+            {
+                CloseHandle(job);
+                throw;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        public static void Assign(IntPtr job, IntPtr process)
+        {
+            if (!AssignProcessToJobObject(job, process))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+        }
+
+        public static void Close(IntPtr job)
+        {
+            if (job != IntPtr.Zero)
+            {
+                CloseHandle(job);
+            }
+        }
+    }
+}
+'@
+}
+
 function Get-AgentEvalResultText($Result) {
     if ($Result -is [string]) { return [string]$Result }
     if ($null -eq $Result) { return $null }
@@ -1315,13 +1433,45 @@ function Invoke-BoundedCopilotProcess {
         [hashtable] $Environment = @{}
     )
 
+    [bool] $containProcessTree = [bool]$Context.isolateHome
+    if ($containProcessTree -and -not [System.OperatingSystem]::IsWindows()) {
+        throw 'Strict Copilot process-tree containment currently requires Windows.'
+    }
+    [string] $launchFilePath = $FilePath
+    [string[]] $launchArguments = $Arguments
+    if ($containProcessTree) {
+        [string] $wrapper = @'
+$ErrorActionPreference = 'Stop'
+try {
+    if ([Console]::In.ReadLine() -cne 'start') { throw 'Missing process start signal.' }
+    [string] $targetPath = [Text.Encoding]::UTF8.GetString(
+        [Convert]::FromBase64String($env:FILTRACE_AGENT_EVAL_TARGET))
+    [string] $argumentJson = [Text.Encoding]::UTF8.GetString(
+        [Convert]::FromBase64String($env:FILTRACE_AGENT_EVAL_ARGUMENTS))
+    [string[]] $targetArguments = @($argumentJson | ConvertFrom-Json)
+    Remove-Item Env:FILTRACE_AGENT_EVAL_TARGET, Env:FILTRACE_AGENT_EVAL_ARGUMENTS
+    & $targetPath @targetArguments
+    exit $LASTEXITCODE
+}
+catch {
+    [Console]::Error.WriteLine('FILTRACE_AGENT_EVAL_LAUNCH_FAILURE: ' + $_.Exception.Message)
+    exit 125
+}
+'@
+        $launchFilePath = (Get-Process -Id $PID).Path
+        $launchArguments = @(
+            '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand',
+            [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($wrapper)))
+    }
+
     [System.Diagnostics.ProcessStartInfo] $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $FilePath
+    $startInfo.FileName = $launchFilePath
     $startInfo.WorkingDirectory = $Context.workspace
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    foreach ($argument in $Arguments) { [void]$startInfo.ArgumentList.Add($argument) }
+    $startInfo.RedirectStandardInput = $containProcessTree
+    foreach ($argument in $launchArguments) { [void]$startInfo.ArgumentList.Add($argument) }
 
     if ($Context.isolateHome) {
         $startInfo.Environment.Clear()
@@ -1348,6 +1498,13 @@ function Invoke-BoundedCopilotProcess {
         if ($null -eq $entry.Value) { [void]$startInfo.Environment.Remove([string]$entry.Key) }
         else { $startInfo.Environment[[string]$entry.Key] = [string]$entry.Value }
     }
+    if ($containProcessTree) {
+        [string] $argumentJson = ConvertTo-Json -InputObject ([string[]]$Arguments) -Compress
+        $startInfo.Environment['FILTRACE_AGENT_EVAL_TARGET'] =
+            [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($FilePath))
+        $startInfo.Environment['FILTRACE_AGENT_EVAL_ARGUMENTS'] =
+            [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($argumentJson))
+    }
 
     [System.Diagnostics.Process] $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
@@ -1357,10 +1514,20 @@ function Invoke-BoundedCopilotProcess {
     [long] $capturedBytes = 0
     [System.Diagnostics.Stopwatch] $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     [bool] $started = $false
+    [IntPtr] $jobHandle = [IntPtr]::Zero
 
     try {
+        if ($containProcessTree) {
+            Initialize-AgentEvalWindowsJobObjectType
+            $jobHandle = [Filtrace.AgentEval.WindowsJobObject]::CreateKillOnClose()
+        }
         if (-not $process.Start()) { throw "Failed to start '$FilePath'." }
         $started = $true
+        if ($containProcessTree) {
+            [Filtrace.AgentEval.WindowsJobObject]::Assign($jobHandle, $process.Handle)
+            $process.StandardInput.WriteLine('start')
+            $process.StandardInput.Close()
+        }
         [char[]] $stdoutBuffer = [char[]]::new(4096)
         [char[]] $stderrBuffer = [char[]]::new(4096)
         [System.Threading.Tasks.Task[int]] $stdoutTask = $process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
@@ -1446,6 +1613,11 @@ function Invoke-BoundedCopilotProcess {
         Assert-AgentEvalContextIntegrity $Context
         [string] $stdoutText = $stdout.ToString()
         [string] $stderrText = $stderr.ToString()
+        if ($containProcessTree -and $process.ExitCode -eq 125 -and
+            $stderrText.Contains('FILTRACE_AGENT_EVAL_LAUNCH_FAILURE:', [StringComparison]::Ordinal)) {
+            $capturedBytes = 0
+            throw "Contained Copilot process launcher failed: $stderrText"
+        }
         return [pscustomobject]@{
             exitCode = $process.ExitCode
             stdout = @($stdoutText -split '\r?\n' | Where-Object { $_.Length -gt 0 })
@@ -1461,6 +1633,7 @@ function Invoke-BoundedCopilotProcess {
             hostRuntimeMaxBytes = $MaxHostRuntimeBytes
             hostRuntimeMaxFileBytes = 128MB
             hostRuntimeMaxEntries = 1024
+            processTreeContained = $containProcessTree
         }
     }
     catch {
@@ -1469,6 +1642,10 @@ function Invoke-BoundedCopilotProcess {
             $_.Exception)
     }
     finally {
+        if ($jobHandle -ne 0) {
+            [Filtrace.AgentEval.WindowsJobObject]::Close($jobHandle)
+            $jobHandle = 0
+        }
         Stop-AgentEvalProcess $process $started
         $process.Dispose()
         $stopwatch.Stop()
