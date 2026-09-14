@@ -866,7 +866,19 @@ function Test-AgentEvalCliHelpResult($Result) {
 function Test-AgentEvalCliResult($Result, [string] $ExpectedOperation) {
     [string] $resultText = Get-AgentEvalPowerShellResultText $Result
     if ([string]::IsNullOrWhiteSpace($resultText)) { return $false }
-    try { $payload = $resultText | ConvertFrom-Json }
+    try {
+        [System.Text.Json.JsonDocument] $document =
+            [System.Text.Json.JsonDocument]::Parse($resultText)
+        try {
+            Assert-AgentEvalUniqueJsonMembers `
+                -Element $document.RootElement `
+                -Context 'filtrace result'
+        }
+        finally {
+            $document.Dispose()
+        }
+        $payload = $resultText | ConvertFrom-Json
+    }
     catch { return $false }
     if ($payload -isnot [pscustomobject]) { return $false }
     [string[]] $members = @($payload.PSObject.Properties.Name)

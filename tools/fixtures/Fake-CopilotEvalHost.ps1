@@ -723,6 +723,21 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
                         '{"gcCount":7}'
                     }
                     [string] $json = "{`"schemaVersion`":$schemaVersion,`"context`":{`"operation`":`"$reportedOperation`"},`"result`":$resultJson}"
+                    if ($mode -eq 'duplicate-cli-root-member') {
+                        $json = $json.Replace(
+                            '"schemaVersion":17,',
+                            '"schemaVersion":16,"schemaVersion":17,')
+                    }
+                    elseif ($mode -eq 'duplicate-cli-context-member') {
+                        $json = $json.Replace(
+                            '"context":{"operation":"gc"}',
+                            '"context":{"operation":"rank","operation":"gc"}')
+                    }
+                    elseif ($mode -eq 'duplicate-cli-result-member') {
+                        $json = $json.Replace(
+                            '"result":{"gcCount":7}',
+                            '"result":{"gcCount":6,"gcCount":7}')
+                    }
                     [string] $content = switch ($mode) {
                         'malformed-shell-wrapper' { "prefix`n$json`n<shellId: 0 completed with exit code 0>"; break }
                         'nonzero-shell-wrapper' { "$json`n<shellId: 0 completed with exit code 1>"; break }

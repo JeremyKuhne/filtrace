@@ -237,6 +237,8 @@ artifact/runtime bytes, and the input manifests are retained in each successful
 iteration record. The wall-time deadline and periodic artifact/runtime scans
 continue after redirected streams close; a host process that remains alive is
 stopped at the configured deadline.
+JSONL event objects and the Filtrace JSON document embedded in a successful shell
+completion reject recursive duplicate members before PowerShell object conversion.
 The separately requested usage JSON is capped at 1 MiB and rejects duplicate or
 unknown members throughout its usage and token-count objects before retention.
 If timeout, output, artifact, or launch enforcement throws before normal retention,
