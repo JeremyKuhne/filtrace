@@ -130,6 +130,274 @@ namespace Filtrace.AgentEval
 '@
 }
 
+function Initialize-AgentEvalPolicyLedgerType {
+    if ($null -ne ('Filtrace.AgentEval.PolicyLedgerServer' -as [type])) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Pipes;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+
+namespace Filtrace.AgentEval
+{
+    public sealed class PolicyLedgerServer : IDisposable
+    {
+        private sealed class ViewRequest
+        {
+            public string Hash { get; init; }
+            public JsonElement Arguments { get; init; }
+            public long RequestedBytes { get; init; }
+        }
+
+        private readonly object _gate = new object();
+        private readonly int _maxCalls;
+        private readonly int _maxHelpCalls;
+        private readonly int _maxViewCalls;
+        private readonly long _maxViewBytes;
+        private readonly List<string> _commandHashes = new List<string>();
+        private readonly List<string> _helpCommandHashes = new List<string>();
+        private readonly List<ViewRequest> _viewRequests = new List<ViewRequest>();
+        private readonly CancellationTokenSource _cancellation = new CancellationTokenSource();
+        private readonly Thread _thread;
+        private NamedPipeServerStream _activePipe;
+        private Exception _failure;
+        private bool _disposed;
+        private long _viewBytes;
+
+        public PolicyLedgerServer(
+            string pipeName,
+            int maxCalls,
+            int maxHelpCalls,
+            int maxViewCalls,
+            long maxViewBytes)
+        {
+            PipeName = pipeName ?? throw new ArgumentNullException(nameof(pipeName));
+            _maxCalls = maxCalls;
+            _maxHelpCalls = maxHelpCalls;
+            _maxViewCalls = maxViewCalls;
+            _maxViewBytes = maxViewBytes;
+            _thread = new Thread(Run) { IsBackground = true, Name = "Filtrace agent-eval policy ledger" };
+            _thread.Start();
+        }
+
+        public string PipeName { get; }
+
+        public string SnapshotJson()
+        {
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                using MemoryStream stream = new MemoryStream();
+                using (Utf8JsonWriter writer = new Utf8JsonWriter(stream))
+                {
+                    writer.WriteStartObject();
+                    writer.WritePropertyName("commandHashes");
+                    JsonSerializer.Serialize(writer, _commandHashes);
+                    writer.WritePropertyName("helpCommandHashes");
+                    JsonSerializer.Serialize(writer, _helpCommandHashes);
+                    writer.WritePropertyName("viewRequests");
+                    writer.WriteStartArray();
+                    foreach (ViewRequest request in _viewRequests)
+                    {
+                        writer.WriteStartObject();
+                        writer.WriteString("requestHash", request.Hash);
+                        writer.WritePropertyName("arguments");
+                        request.Arguments.WriteTo(writer);
+                        writer.WriteNumber("requestedBytes", request.RequestedBytes);
+                        writer.WriteEndObject();
+                    }
+                    writer.WriteEndArray();
+                    writer.WriteEndObject();
+                }
+                return Encoding.UTF8.GetString(stream.ToArray());
+            }
+        }
+
+        private void Run()
+        {
+            while (!_cancellation.IsCancellationRequested)
+            {
+                NamedPipeServerStream pipe = null;
+                try
+                {
+                    pipe = new NamedPipeServerStream(
+                        PipeName,
+                        PipeDirection.InOut,
+                        1,
+                        PipeTransmissionMode.Byte,
+                        PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                    lock (_gate) { _activePipe = pipe; }
+                    pipe.WaitForConnectionAsync(_cancellation.Token).GetAwaiter().GetResult();
+                    Handle(pipe);
+                }
+                catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (ObjectDisposedException) when (_cancellation.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception exception)
+                {
+                    lock (_gate)
+                    {
+                        if (!_disposed) { _failure = exception; }
+                    }
+                }
+                finally
+                {
+                    lock (_gate)
+                    {
+                        if (ReferenceEquals(_activePipe, pipe)) { _activePipe = null; }
+                    }
+                    pipe?.Dispose();
+                }
+            }
+        }
+
+        private void Handle(NamedPipeServerStream pipe)
+        {
+            string line;
+            try { line = ReadBoundedUtf8Line(pipe, 65536); }
+            catch (DecoderFallbackException) { line = null; }
+            using StreamWriter writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, true) { AutoFlush = true };
+            bool allowed = false;
+            if (line != null)
+            {
+                try { allowed = Consume(line); }
+                catch (JsonException) { allowed = false; }
+                catch (InvalidOperationException) { allowed = false; }
+                catch (OverflowException) { allowed = false; }
+            }
+            writer.WriteLine(allowed ? "{\"allowed\":true}" : "{\"allowed\":false}");
+        }
+
+        private static string ReadBoundedUtf8Line(Stream stream, int maxBytes)
+        {
+            using MemoryStream line = new MemoryStream();
+            byte[] buffer = new byte[4096];
+            while (true)
+            {
+                int bytesRead = stream.Read(buffer, 0, buffer.Length);
+                if (bytesRead == 0) { break; }
+                int terminator = bytesRead;
+                for (int index = 0; index < bytesRead; index++)
+                {
+                    if (buffer[index] == (byte)'\r' || buffer[index] == (byte)'\n')
+                    {
+                        terminator = index;
+                        break;
+                    }
+                }
+                if (line.Length > maxBytes - terminator) { return null; }
+                line.Write(buffer, 0, terminator);
+                if (terminator != bytesRead) { break; }
+            }
+            return new UTF8Encoding(false, true).GetString(line.ToArray());
+        }
+
+        private bool Consume(string json)
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) { return false; }
+            string category = null;
+            string hash = null;
+            JsonElement arguments = default;
+            long requestedBytes = 0;
+            int memberCount = 0;
+            foreach (JsonProperty property in root.EnumerateObject())
+            {
+                memberCount++;
+                switch (property.Name)
+                {
+                    case "category" when property.Value.ValueKind == JsonValueKind.String:
+                        category = property.Value.GetString();
+                        break;
+                    case "hash" when property.Value.ValueKind == JsonValueKind.String:
+                        hash = property.Value.GetString();
+                        break;
+                    case "arguments" when property.Value.ValueKind == JsonValueKind.Object:
+                        arguments = property.Value.Clone();
+                        break;
+                    case "requestedBytes" when property.Value.TryGetInt64(out long value):
+                        requestedBytes = value;
+                        break;
+                    default:
+                        return false;
+                }
+            }
+            if (!IsLowerHexHash(hash)) { return false; }
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                if (string.Equals(category, "command", StringComparison.Ordinal) && memberCount == 2)
+                {
+                    if (_commandHashes.Count >= _maxCalls) { return false; }
+                    _commandHashes.Add(hash);
+                    return true;
+                }
+                if (string.Equals(category, "help", StringComparison.Ordinal) && memberCount == 2)
+                {
+                    if (_helpCommandHashes.Count >= _maxHelpCalls) { return false; }
+                    _helpCommandHashes.Add(hash);
+                    return true;
+                }
+                if (string.Equals(category, "view", StringComparison.Ordinal) && memberCount == 4 &&
+                    arguments.ValueKind == JsonValueKind.Object && requestedBytes >= 0 &&
+                    requestedBytes <= _maxViewBytes - _viewBytes && _viewRequests.Count < _maxViewCalls)
+                {
+                    _viewRequests.Add(new ViewRequest
+                    {
+                        Hash = hash,
+                        Arguments = arguments,
+                        RequestedBytes = requestedBytes
+                    });
+                    _viewBytes += requestedBytes;
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        private static bool IsLowerHexHash(string value)
+        {
+            if (value == null || value.Length != 64) { return false; }
+            foreach (char character in value)
+            {
+                if (!((character >= '0' && character <= '9') ||
+                    (character >= 'a' && character <= 'f'))) { return false; }
+            }
+            return true;
+        }
+
+        private void ThrowIfUnavailable()
+        {
+            if (_disposed) { throw new ObjectDisposedException(nameof(PolicyLedgerServer)); }
+            if (_failure != null) { throw new InvalidOperationException("Policy ledger server failed.", _failure); }
+        }
+
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                if (_disposed) { return; }
+                _disposed = true;
+                _cancellation.Cancel();
+                _activePipe?.Dispose();
+            }
+            _thread.Join(2000);
+            _cancellation.Dispose();
+        }
+    }
+}
+'@
+}
+
 function Get-AgentEvalResultText($Result) {
     if ($Result -is [string]) { return [string]$Result }
     if ($null -eq $Result) { return $null }
@@ -473,6 +741,9 @@ function Complete-AgentEvalDiscoveredSkillEvidence {
             $_.data.PSObject.Properties.Name -ccontains 'skills'
             })
         if ($skillEvents.Count -ne 1) { throw 'Host did not report exactly one skill inventory.' }
+        if ($skillEvents[0].data.skills -isnot [object[]]) {
+            throw 'Host skill inventory was not an array.'
+        }
         $matches = @($skillEvents[0].data.skills | Where-Object {
                 [string]::Equals([string]$_.name, 'filtrace', [StringComparison]::Ordinal)
             })
@@ -818,6 +1089,7 @@ function New-CopilotEvalContext {
         $OutDir
     }
     [string] $runDirectory = Join-Path $strictBase "runs/$runId"
+    [string] $failureLogDirectory = Join-Path $strictBase "failures/$runId"
     [string] $workspace = if ($StrictCliArm) { Join-Path $runDirectory 'workspace' } else { $Root }
     [string] $isolatedHome = if ($StrictCliArm) { Join-Path $runDirectory 'home' } else { $null }
     [string] $logDirectory = Join-Path $runDirectory 'logs'
@@ -943,6 +1215,7 @@ function New-CopilotEvalContext {
         home = $isolatedHome
         isolateHome = [bool]$StrictCliArm
         logDirectory = $logDirectory
+        failureLogDirectory = $failureLogDirectory
         usagePath = (Join-Path $runDirectory 'usage.json')
         fixturePath = $ownedFixture
         fixtureSha256 = $ownedFixtureHash
@@ -1123,18 +1396,16 @@ function Initialize-CopilotEvalExecutionPolicy {
         }
     }
     [string] $policyPath = Join-Path $policyDirectory 'execution-policy.json'
-    [string] $statePath = Join-Path $policyDirectory 'execution-state.json'
-    [string] $lockPath = Join-Path $policyDirectory 'execution-state.lock'
+    [string] $ledgerPipeName = "filtrace-agent-eval-$([Guid]::NewGuid().ToString('N'))"
     $policy = [ordered]@{
-        schemaVersion = 5
+        schemaVersion = 6
         sessionId = $Context.runId
         workspace = $Context.workspace
         cliPath = $Context.cliPath
         fixturePath = $Context.fixturePath
         maxCalls = $effectiveMaxCalls
         maxHelpCalls = $maxHelpCalls
-        statePath = $statePath
-        lockPath = $lockPath
+        ledgerPipeName = $ledgerPipeName
         viewFiles = $viewFiles.ToArray()
         maxViewCalls = 4
         maxViewBytes = 64MB
@@ -1175,13 +1446,21 @@ function Initialize-CopilotEvalExecutionPolicy {
         ($hookConfiguration | ConvertTo-Json -Depth 8),
         [System.Text.UTF8Encoding]::new($false))
     Add-AgentEvalGeneratedImmutableFile -Context $Context -Path $hookConfigurationPath
+    Initialize-AgentEvalPolicyLedgerType
+    $ledger = [Filtrace.AgentEval.PolicyLedgerServer]::new(
+        $ledgerPipeName,
+        $effectiveMaxCalls,
+        $maxHelpCalls,
+        4,
+        64MB)
 
     return [pscustomobject]@{
         maxCalls = $effectiveMaxCalls
         maxHelpCalls = $maxHelpCalls
         policyPath = $policyPath
         policySha256 = $policySha256
-        statePath = $statePath
+        ledgerPipeName = $ledgerPipeName
+        ledger = $ledger
         hookConfigurationPath = $hookConfigurationPath
         hookPath = $hookCopy.path
         commandFamilies = $commandFamilies
@@ -1192,22 +1471,8 @@ function Initialize-CopilotEvalExecutionPolicy {
 }
 
 function Get-CopilotEvalExecutionPolicyState([object] $ExecutionPolicy) {
-    if (-not (Test-Path -LiteralPath $ExecutionPolicy.statePath -PathType Leaf)) {
-        return [pscustomobject]@{
-            callCount = 0
-            commandHashes = @()
-            helpCallCount = 0
-            helpCommandHashes = @()
-            viewRequests = @()
-        }
-    }
-    [System.IO.FileInfo] $stateFile = Get-Item -LiteralPath $ExecutionPolicy.statePath
-    if (($stateFile.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or
-        $stateFile.Length -gt 65536) {
-        throw 'Copilot pre-execution policy state was not a bounded ordinary file.'
-    }
-    try { $state = [System.IO.File]::ReadAllText($stateFile.FullName) | ConvertFrom-Json }
-    catch { throw 'Copilot pre-execution policy state was malformed.' }
+    try { $state = $ExecutionPolicy.ledger.SnapshotJson() | ConvertFrom-Json }
+    catch { throw 'Copilot pre-execution policy ledger was unavailable.' }
     if ($state -isnot [pscustomobject]) { throw 'Copilot pre-execution policy state shape was malformed.' }
     [string[]] $stateMembers = @($state.PSObject.Properties.Name)
     if ($stateMembers.Count -ne 3 -or
@@ -1525,6 +1790,46 @@ function Stop-AgentEvalProcess([System.Diagnostics.Process] $Process, [bool] $St
     try { [void]$Process.WaitForExit(5000) } catch {}
 }
 
+function Save-AgentEvalFailureOutput(
+    [object] $Context,
+    [string] $StdoutText,
+    [string] $StderrText,
+    [ValidateRange(1024, 8192)][int] $MaxBytes = 8192) {
+    [string] $failureDirectory = [System.IO.Path]::GetFullPath([string]$Context.failureLogDirectory)
+    [string] $failureRoot = [System.IO.Path]::GetDirectoryName(
+        [System.IO.Path]::GetDirectoryName($failureDirectory))
+    if (-not (Test-AgentEvalPathContained -Path $failureDirectory -Root $failureRoot)) {
+        throw 'Copilot failure output directory escaped its evaluator-owned root.'
+    }
+    Assert-AgentEvalNoReparseAncestor -Path $failureDirectory
+    [System.IO.Directory]::CreateDirectory($failureDirectory) | Out-Null
+    Assert-AgentEvalNoReparsePoint -Path $failureDirectory -Boundary $failureRoot
+
+    [System.Text.UTF8Encoding] $utf8 = [System.Text.UTF8Encoding]::new($false)
+    [byte[]] $stdoutBytes = $utf8.GetBytes($StdoutText)
+    [byte[]] $stderrBytes = $utf8.GetBytes($StderrText)
+    [int] $stdoutLength = [Math]::Min($stdoutBytes.Length, $MaxBytes)
+    [int] $stderrLength = [Math]::Min($stderrBytes.Length, $MaxBytes - $stdoutLength)
+    [string] $stdoutPath = Join-Path $failureDirectory 'host-stdout.partial.log'
+    [string] $stderrPath = Join-Path $failureDirectory 'host-stderr.partial.log'
+    [System.IO.FileStream] $stdoutStream = [System.IO.File]::Open(
+        $stdoutPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    try { $stdoutStream.Write($stdoutBytes, 0, $stdoutLength) }
+    finally { $stdoutStream.Dispose() }
+    [System.IO.FileStream] $stderrStream = [System.IO.File]::Open(
+        $stderrPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+    try { $stderrStream.Write($stderrBytes, 0, $stderrLength) }
+    finally { $stderrStream.Dispose() }
+    return [pscustomobject]@{
+        directory = $failureDirectory
+        stdoutPath = $stdoutPath
+        stderrPath = $stderrPath
+        stdoutBytes = $stdoutLength
+        stderrBytes = $stderrLength
+        maxBytes = $MaxBytes
+    }
+}
+
 function Invoke-BoundedCopilotProcess {
     param(
         [Parameter(Mandatory)][string] $FilePath,
@@ -1683,11 +1988,25 @@ catch {
             }
 
             [char[]] $buffer = if ($isStdout) { $stdoutBuffer } else { $stderrBuffer }
-            $capturedBytes += $utf8.GetByteCount($buffer, 0, $characterCount)
-            if ($capturedBytes -gt $MaxOutputBytes) {
+            [long] $chunkBytes = $utf8.GetByteCount($buffer, 0, $characterCount)
+            if ($chunkBytes -gt ($MaxOutputBytes - $capturedBytes)) {
+                [int] $remainingBytes = [int][Math]::Max(0, $MaxOutputBytes - $capturedBytes)
+                [int] $low = 0
+                [int] $high = [Math]::Min($characterCount, $remainingBytes)
+                while ($low -lt $high) {
+                    [int] $middle = [int][Math]::Ceiling(($low + $high) / 2.0)
+                    if ($utf8.GetByteCount($buffer, 0, $middle) -le $remainingBytes) { $low = $middle }
+                    else { $high = $middle - 1 }
+                }
+                if ($low -gt 0) {
+                    if ($isStdout) { [void]$stdout.Append($buffer, 0, $low) }
+                    else { [void]$stderr.Append($buffer, 0, $low) }
+                    $capturedBytes += $utf8.GetByteCount($buffer, 0, $low)
+                }
                 Stop-AgentEvalProcess $process $started
                 throw "Copilot host output exceeded $MaxOutputBytes bytes."
             }
+            $capturedBytes += $chunkBytes
 
             if ($isStdout) {
                 [void]$stdout.Append($stdoutBuffer, 0, $characterCount)
@@ -1749,9 +2068,22 @@ catch {
         }
     }
     catch {
+        [System.Exception] $failure = $_.Exception
+        Stop-AgentEvalProcess $process $started
+        [string] $retentionMessage = ''
+        try {
+            $failureOutput = Save-AgentEvalFailureOutput `
+                -Context $Context `
+                -StdoutText $stdout.ToString() `
+                -StderrText $stderr.ToString()
+            $retentionMessage = " Bounded output retained at '$($failureOutput.directory)'."
+        }
+        catch {
+            $retentionMessage = " Bounded output retention also failed: $($_.Exception.Message)"
+        }
         throw [System.InvalidOperationException]::new(
-            "Copilot host '$FilePath' failed after $capturedBytes captured bytes: $($_.Exception.Message)",
-            $_.Exception)
+            "Copilot host '$FilePath' failed after $capturedBytes captured bytes: $($failure.Message)$retentionMessage",
+            $failure)
     }
     finally {
         if ($jobHandle -ne 0) {

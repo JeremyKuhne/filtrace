@@ -56,6 +56,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+[long] $MaxResultBytes = 256MB
 if ([string]::Equals($Baseline, $Candidate, [StringComparison]::Ordinal)) {
   throw 'Baseline and candidate labels must differ.'
 }
@@ -326,6 +327,9 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
   [string] $name = $_.Name
   [object[]] $matchingLabels = @($labelSelectors | Where-Object { $name -cmatch $_.pattern })
   if ($matchingLabels.Count -ne 1) { throw "Result '$path' has an ambiguous filename label." }
+  if ($_.Length -gt $MaxResultBytes) {
+    throw "Result '$path' exceeds $MaxResultBytes bytes."
+  }
   [string] $json = Get-Content -LiteralPath $path -Raw
   try { $payload = $json | ConvertFrom-Json }
   catch { throw "Unreadable matching result '$path': $($_.Exception.Message)" }

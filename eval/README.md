@@ -168,11 +168,13 @@ For `view`, the hook requires one exact path from the copied skill inventory and
 optional bounded two-integer line range. The post-run parser independently validates
 the same request and returned source bytes before accepting the read as evidence.
 
-Before returning `permissionDecision: allow`, the hook atomically appends an
-analysis-command hash to a ledger capped at `min(MaxSteps, task.maxCalls)` or a
-help-command hash to a separate ledger capped at the top-level plus each
-task-derived command family. A help lookup therefore cannot consume a one-call
-analysis budget. The retained
+Before returning `permissionDecision: allow`, the hook consumes an allowance from
+a monotonic in-memory ledger owned by the evaluator process. The host can neither
+rewrite nor reset that state; direct clients can only consume capacity. Analysis
+hashes are capped at `min(MaxSteps, task.maxCalls)`, help hashes use a separate cap
+for the top level plus each task-derived command family, and bounded view requests
+share the same authoritative snapshot. A help lookup therefore cannot consume a
+one-call analysis budget. The retained
 Copilot CLI 1.0.82 nonce probe established that `preToolUse` runs first and that an
 explicit allow bypasses both `permissionRequest` and the normal shell deny. Missing,
 malformed, crashed, or timed-out hooks receive no explicit allow and therefore
@@ -196,9 +198,10 @@ Before launch, the runner accepts only a tracked, HEAD-clean file beneath
 512 MiB. It inventories and hashes at most 256 CLI files / 512 entries / 512 MiB
 and 64 skill files / 128 entries / 16 MiB, hashes source bytes before and after the
 streaming copy, hashes each destination, and rechecks immutable inputs after the
-host exits. Every viewable skill file is held with read sharing only for the host
-lifetime and its expected hash is embedded in the immutable hook policy. Before each
-periodic artifact scan excludes those inputs, it also
+host exits. Every copied immutable CLI/runtime, fixture, skill, hook, policy, and
+configuration file is held with read sharing only for the host lifetime; viewable
+skill hashes are also embedded in the immutable hook policy. Before each periodic
+artifact scan excludes those inputs, it also
 requires their attested lengths and ordinary non-reparse paths; growth is rejected
 while the host is still running. Dynamic host artifacts are independently capped
 at 16 MiB and 512 total files/directories. On Windows, host distribution assets unpacked beneath the
@@ -217,6 +220,10 @@ artifact/runtime bytes, and the input manifests are retained in each successful
 iteration record. The wall-time deadline and periodic artifact/runtime scans
 continue after redirected streams close; a host process that remains alive is
 stopped at the configured deadline.
+If timeout, output, artifact, or launch enforcement throws before normal retention,
+the runner writes at most 8 KiB of captured stdout/stderr prefixes under an
+evaluator-owned sibling `failures/<run-id>` directory before rethrowing. This
+failure record is separate from the host-writable artifact budget.
 
 The strict arms remain Windows-only and require both `-Model` and `-ExpectedModel`; requested and observed
 identities must be nonempty and exactly equal using ordinal comparison. Missing,

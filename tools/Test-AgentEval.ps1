@@ -18,6 +18,8 @@ $fakeHost = Join-Path $root 'tools/fixtures/Fake-CopilotEvalHost.ps1'
 $pwshPath = (Get-Process -Id $PID).Path
 $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace agent eval contract $([Guid]::NewGuid().ToString('N'))"
 [System.IO.Directory]::CreateDirectory($temporaryRoot) | Out-Null
+[System.Collections.Generic.List[System.IDisposable]] $policyLedgers =
+    [System.Collections.Generic.List[System.IDisposable]]::new()
 . $helpers
 . (Join-Path $root 'eval/Get-OperationName.ps1')
 
@@ -83,6 +85,7 @@ function New-TestExecutionPolicy(
         -AllowedVerbs @('report') `
         -MaxCalls $MaxCalls `
         -HookSourcePath $policyHook
+    $policyLedgers.Add($executionPolicy.ledger)
     $hookConfiguration = Get-Content -LiteralPath $executionPolicy.hookConfigurationPath -Raw | ConvertFrom-Json
     return [pscustomobject]@{
         context = $context
@@ -119,6 +122,47 @@ function Invoke-TestPolicyHook {
     Assert-True ($output.Count -eq 1) `
         "Policy hook for '$ToolName' did not emit exactly one decision; count=$($output.Count), output='$($output -join ' | ')'."
     return $output[0] | ConvertFrom-Json
+}
+
+function Invoke-TestRawLedgerRequest(
+    [string] $PipeName,
+    [string] $RequestText,
+    [switch] $OmitTerminator) {
+    [System.IO.Pipes.NamedPipeClientStream] $pipe =
+        [System.IO.Pipes.NamedPipeClientStream]::new(
+            '.',
+            $PipeName,
+            [System.IO.Pipes.PipeDirection]::InOut,
+            [System.IO.Pipes.PipeOptions]::Asynchronous)
+    [System.IO.StreamReader] $reader = $null
+    [System.IO.StreamWriter] $writer = $null
+    try {
+        $pipe.Connect(2000)
+        $reader = [System.IO.StreamReader]::new($pipe, [System.Text.UTF8Encoding]::new($false, $true), $false, 4096, $true)
+        $writer = [System.IO.StreamWriter]::new($pipe, [System.Text.UTF8Encoding]::new($false), 4096, $true)
+        $writer.AutoFlush = $true
+        if ($OmitTerminator) {
+            $writer.Write($RequestText)
+            $writer.Flush()
+        }
+        else {
+            $writer.WriteLine($RequestText)
+        }
+        $responseTask = $reader.ReadLineAsync()
+        if (-not $responseTask.Wait(2000)) { throw 'Policy ledger did not bound its request read.' }
+        return $responseTask.GetAwaiter().GetResult() | ConvertFrom-Json
+    }
+    finally {
+        if ($null -ne $writer) { $writer.Dispose() }
+        if ($null -ne $reader) { $reader.Dispose() }
+        $pipe.Dispose()
+    }
+}
+
+function Invoke-TestLedgerRequest([string] $PipeName, $Request) {
+    return Invoke-TestRawLedgerRequest `
+        -PipeName $PipeName `
+        -RequestText ($Request | ConvertTo-Json -Depth 6 -Compress)
 }
 
 function Invoke-FakeRun {
@@ -190,6 +234,7 @@ function Assert-FakeRunThrows {
         [Parameter(Mandatory)][string] $Name,
         [Parameter(Mandatory)][string] $Mode,
         [Parameter(Mandatory)][string] $ExpectedMessage,
+        [string] $OutDir,
         [int] $TimeoutSeconds = 30,
         [int] $MaxOutputBytes = 10485760,
         [int] $MaxArtifactBytes = 16777216
@@ -201,6 +246,7 @@ function Assert-FakeRunThrows {
         [void](Invoke-FakeRun `
                 -Name $Name `
                 -Mode $Mode `
+                -OutDir $OutDir `
                 -TimeoutSeconds $TimeoutSeconds `
                 -MaxOutputBytes $MaxOutputBytes `
                 -MaxArtifactBytes $MaxArtifactBytes)
@@ -630,7 +676,7 @@ try {
             -WithSkill
         [string] $invalidPolicyText = [System.IO.File]::ReadAllText($invalidPolicyProbe.executionPolicy.policyPath)
         if ($policyMutation -eq 'root-member-case') {
-            $invalidPolicyText = $invalidPolicyText.Replace('"schemaVersion": 5', '"SchemaVersion": 5')
+            $invalidPolicyText = $invalidPolicyText.Replace('"schemaVersion": 6', '"SchemaVersion": 6')
         }
         elseif ($policyMutation -eq 'family-member-case') {
             $invalidPolicyText = $invalidPolicyText.Replace('"verb": "report"', '"Verb": "report"')
@@ -674,41 +720,47 @@ try {
         Assert-True ($invalidPolicyDecision.permissionDecision -eq 'deny') `
             "Policy hook accepted malformed policy '$policyMutation'."
     }
-    $invalidStateProbe = New-TestExecutionPolicy -Name 'invalid policy state contract' -MaxCalls 1
-    [object[]] $invalidPolicyStates = @(
-        [ordered]@{ CommandHashes = @(); helpCommandHashes = @(); viewRequests = @() }
-        [ordered]@{ commandHashes = ''; helpCommandHashes = @(); viewRequests = @() }
-        [ordered]@{ commandHashes = @(('A' * 64)); helpCommandHashes = @(); viewRequests = @() }
-        [ordered]@{
-            commandHashes = @()
-            helpCommandHashes = @()
-            viewRequests = @([ordered]@{
-                    RequestHash = ('0' * 64)
-                    arguments = [ordered]@{ path = $invalidStateProbe.context.skillPath }
-                    requestedBytes = 1
-                })
+    $ledgerOwnershipProbe = New-TestExecutionPolicy -Name 'parent-owned ledger contract' -MaxCalls 1
+    $firstLedgerDecision = Invoke-TestPolicyHook `
+        -Hook $ledgerOwnershipProbe.preToolHook `
+        -SessionId $ledgerOwnershipProbe.context.runId `
+        -WorkingDirectory $ledgerOwnershipProbe.context.workspace `
+        -ToolName powershell `
+        -ToolArguments ([ordered]@{
+            command = $ledgerOwnershipProbe.command
+            description = 'Consume the sole analysis allowance'
         })
-    foreach ($invalidPolicyState in $invalidPolicyStates) {
-        [System.IO.File]::WriteAllText(
-            $invalidStateProbe.executionPolicy.statePath,
-            ([string]($invalidPolicyState | ConvertTo-Json -Depth 8 -Compress)),
-            [System.Text.UTF8Encoding]::new($false))
-        [bool] $stateReaderRejected = $false
-        try { [void](Get-CopilotEvalExecutionPolicyState $invalidStateProbe.executionPolicy) }
-        catch { $stateReaderRejected = $true }
-        Assert-True $stateReaderRejected 'Post-run validation accepted malformed policy state.'
-        $invalidStateDecision = Invoke-TestPolicyHook `
-            -Hook $invalidStateProbe.preToolHook `
-            -SessionId $invalidStateProbe.context.runId `
-            -WorkingDirectory $invalidStateProbe.context.workspace `
-            -ToolName powershell `
-            -ToolArguments ([ordered]@{
-                command = $invalidStateProbe.command
-                description = 'Reject malformed state'
-            })
-        Assert-True ($invalidStateDecision.permissionDecision -eq 'deny') `
-            'Policy hook accepted malformed policy state.'
+    Assert-True ($firstLedgerDecision.permissionDecision -eq 'allow') `
+        'Parent-owned ledger denied its first analysis allowance.'
+    $oversizedLedgerDecision = Invoke-TestRawLedgerRequest `
+        -PipeName $ledgerOwnershipProbe.executionPolicy.ledgerPipeName `
+        -RequestText ('x' * 65537) `
+        -OmitTerminator
+    Assert-True ($oversizedLedgerDecision.allowed -eq $false) `
+        'Parent-owned ledger did not promptly deny an unterminated oversized request.'
+    foreach ($hostileRequest in @(
+            [ordered]@{ category = 'reset'; hash = ('0' * 64) }
+            [ordered]@{ category = 'command'; hash = ('0' * 64); commandHashes = @() }
+            [ordered]@{ Category = 'command'; hash = ('0' * 64) })) {
+        $hostileDecision = Invoke-TestLedgerRequest `
+            -PipeName $ledgerOwnershipProbe.executionPolicy.ledgerPipeName `
+            -Request $hostileRequest
+        Assert-True ($hostileDecision.allowed -eq $false) `
+            'Parent-owned ledger accepted a reset, overwrite, or case-variant request.'
     }
+    $exhaustedLedgerDecision = Invoke-TestPolicyHook `
+        -Hook $ledgerOwnershipProbe.preToolHook `
+        -SessionId $ledgerOwnershipProbe.context.runId `
+        -WorkingDirectory $ledgerOwnershipProbe.context.workspace `
+        -ToolName powershell `
+        -ToolArguments ([ordered]@{
+            command = $ledgerOwnershipProbe.command
+            description = 'Prove hostile requests did not reset the allowance'
+        })
+    $ledgerOwnershipState = Get-CopilotEvalExecutionPolicyState $ledgerOwnershipProbe.executionPolicy
+    Assert-True ($exhaustedLedgerDecision.permissionDecision -eq 'deny' -and
+        $ledgerOwnershipState.callCount -eq 1) `
+        'Hostile ledger requests reset or forged the authoritative allowance state.'
     $malformedInput = Invoke-TestPolicyHook `
         -Hook $policyProbe.preToolHook `
         -RawInput '{'
@@ -1202,7 +1254,12 @@ try {
         -Mode case-variant-event `
         -ExpectedMessage 'unknown event type' `
         -ExpectedRawText '"type":"RESULT"'
-    Assert-FakeRunThrows -Name 'mutated bundle' -Mode mutated-bundle -ExpectedMessage 'input attestation failed'
+    $lockedBundle = Invoke-FakeRun -Name 'locked bundle' -Mode mutated-bundle
+    Assert-True ($lockedBundle.iterations[0].success -eq $true) `
+        'The host could rewrite the owned CLI bundle before authorization.'
+    $lockedFixture = Invoke-FakeRun -Name 'locked fixture' -Mode mutated-fixture
+    Assert-True ($lockedFixture.iterations[0].success -eq $true) `
+        'The host could rewrite the owned fixture before authorization.'
     $lockedPolicy = Invoke-FakeRun -Name 'locked execution policy' -Mode mutated-execution-policy
     Assert-True ($lockedPolicy.iterations[0].success -eq $true) `
         'The host could rewrite the execution policy before tool authorization.'
@@ -1211,14 +1268,9 @@ try {
         -Mode mutated-hook-configuration
     Assert-True ($lockedHookConfiguration.iterations[0].success -eq $true) `
         'The host could rewrite the hook configuration before tool authorization.'
-    $immutableGrowthStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    Assert-FakeRunThrows `
-        -Name 'oversized immutable' `
-        -Mode oversized-immutable `
-        -ExpectedMessage 'input attestation failed'
-    $immutableGrowthStopwatch.Stop()
-    Assert-True ($immutableGrowthStopwatch.Elapsed.TotalSeconds -lt 4) `
-        'Oversized immutable growth remained excluded until host exit.'
+    $lockedImmutableGrowth = Invoke-FakeRun -Name 'locked immutable growth' -Mode oversized-immutable
+    Assert-True ($lockedImmutableGrowth.iterations[0].success -eq $true) `
+        'The host could grow the owned CLI bundle before authorization.'
     $wrongModel = Invoke-FakeRun -Name 'cli wrong-model' -Mode wrong-model
     Assert-True ($wrongModel.iterations[0].success -eq $false) 'Wrong observed model unexpectedly passed.'
     Assert-True ($wrongModel.model.requested -eq 'expected-model') 'Requested model was not retained.'
@@ -1294,7 +1346,7 @@ try {
             'missing-skill-read', 'missing-skill-discovery', 'wrong-skill-hash',
             'failed-skill-load', 'missing-skill-context', 'skill-extra-context',
             'skill-ledger-mismatch', 'skill-tool-case', 'skill-argument-name-case',
-            'skill-argument-value-case', 'skill-discovery-name-case',
+            'skill-argument-value-case', 'scalar-skill-inventory', 'skill-discovery-name-case',
             'skill-discovery-source-case', 'skill-context-role-case', 'skill-view-altered',
             'answer-before-skill-context', 'skill-context-before-completion')) {
         $negative = Invoke-FakeRun -Name "skill $mode" -Mode $mode -Arm cli-skill
@@ -1325,7 +1377,20 @@ try {
     $closedStreamArtifactStopwatch.Stop()
     Assert-True ($closedStreamArtifactStopwatch.Elapsed.TotalSeconds -lt 4) `
         'Closed host streams suspended periodic artifact enforcement.'
-    Assert-FakeRunThrows -Name 'output bound' -Mode oversized-output -ExpectedMessage 'output exceeded 1024 bytes' -MaxOutputBytes 1024
+    [string] $outputBoundDirectory = Join-Path $temporaryRoot 'output bound'
+    Assert-FakeRunThrows `
+        -Name 'output bound' `
+        -Mode oversized-output `
+        -ExpectedMessage 'output exceeded 1024 bytes' `
+        -OutDir $outputBoundDirectory `
+        -MaxOutputBytes 1024
+    [System.IO.FileInfo[]] $failureOutputFiles = @(
+        Get-ChildItem -LiteralPath (Join-Path $outputBoundDirectory 'failures') -File -Recurse)
+    [long] $failureOutputBytes = [long](
+        $failureOutputFiles | Measure-Object -Property Length -Sum).Sum
+    Assert-True ($failureOutputFiles.Count -eq 2 -and
+        $failureOutputBytes -gt 0 -and $failureOutputBytes -le 8192) `
+        'Output-limit failure did not retain a nonempty evaluator-owned prefix within 8192 bytes.'
     Assert-FakeRunThrows -Name 'artifact bound' -Mode oversized-artifact -ExpectedMessage 'artifacts exceeded 16777216 bytes'
 
     $descendantStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -1909,7 +1974,7 @@ try {
     Assert-True ($LASTEXITCODE -eq 0) 'Validated schema-v2 records did not compare neutral.'
 
         foreach ($case in @(
-            'malformed', 'invalid-timestamp', 'empty-summary', 'duplicate-task', 'wrong-field-type',
+            'malformed', 'oversized-result', 'invalid-timestamp', 'empty-summary', 'duplicate-task', 'wrong-field-type',
             'summary-success-mismatch', 'summary-median-mismatch', 'med-help-member-case',
             'missing-strict-expected-model',
             'wrong-success-count', 'wrapped-schema-version', 'oversized-n', 'oversized-max-steps',
@@ -1923,6 +1988,11 @@ try {
         $casePath = Get-ChildItem -LiteralPath $caseDirectory -Filter '*-baseline-*.json' | Select-Object -First 1
         if ($case -eq 'malformed') {
             [System.IO.File]::WriteAllText($casePath.FullName, '{')
+        }
+        elseif ($case -eq 'oversized-result') {
+            [System.IO.FileStream] $oversizedResultStream = [System.IO.File]::OpenWrite($casePath.FullName)
+            try { $oversizedResultStream.SetLength(256MB + 1) }
+            finally { $oversizedResultStream.Dispose() }
         }
         else {
             $invalid = Read-TestResult $casePath.FullName
@@ -1982,6 +2052,7 @@ try {
     exit 0
 }
 finally {
+    foreach ($policyLedger in $policyLedgers) { $policyLedger.Dispose() }
     if (Test-Path -LiteralPath $temporaryRoot) {
         Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
     }

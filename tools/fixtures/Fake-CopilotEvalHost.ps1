@@ -176,13 +176,38 @@ if ($mode -eq 'host-runtime-outside-cache') {
     try { $stream.SetLength(20MB) } finally { $stream.Dispose() }
 }
 if ($mode -eq 'mutated-bundle') {
-    [System.IO.File]::AppendAllText((Join-Path (Split-Path -Parent $filtracePath) 'Filtrace.Core.dll'), 'changed')
+    [string] $immutablePath = Join-Path (Split-Path -Parent $filtracePath) 'Filtrace.Core.dll'
+    [long] $immutableLength = (Get-Item -LiteralPath $immutablePath).Length
+    try { [System.IO.File]::AppendAllText($immutablePath, 'changed') }
+    catch [System.IO.IOException] { }
+    catch [System.UnauthorizedAccessException] { }
+    if ((Get-Item -LiteralPath $immutablePath).Length -ne $immutableLength) {
+        throw 'Fake Copilot host could rewrite the owned CLI bundle.'
+    }
+}
+if ($mode -eq 'mutated-fixture') {
+    [long] $fixtureLength = (Get-Item -LiteralPath $fixture).Length
+    try { [System.IO.File]::AppendAllText($fixture, 'changed') }
+    catch [System.IO.IOException] { }
+    catch [System.UnauthorizedAccessException] { }
+    if ((Get-Item -LiteralPath $fixture).Length -ne $fixtureLength) {
+        throw 'Fake Copilot host could rewrite the owned fixture.'
+    }
 }
 if ($mode -eq 'oversized-immutable') {
     [string] $immutablePath = Join-Path (Split-Path -Parent $filtracePath) 'Filtrace.Core.dll'
-    [System.IO.FileStream] $immutableStream = [System.IO.File]::OpenWrite($immutablePath)
-    try { $immutableStream.SetLength($immutableStream.Length + 20MB) } finally { $immutableStream.Dispose() }
-    [System.Threading.Thread]::Sleep(5000)
+    [long] $immutableLength = (Get-Item -LiteralPath $immutablePath).Length
+    [System.IO.FileStream] $immutableStream = $null
+    try {
+        $immutableStream = [System.IO.File]::OpenWrite($immutablePath)
+        $immutableStream.SetLength($immutableStream.Length + 20MB)
+    }
+    catch [System.IO.IOException] { }
+    catch [System.UnauthorizedAccessException] { }
+    finally { if ($null -ne $immutableStream) { $immutableStream.Dispose() } }
+    if ((Get-Item -LiteralPath $immutablePath).Length -ne $immutableLength) {
+        throw 'Fake Copilot host could grow the owned CLI bundle.'
+    }
 }
 if ($mode -eq 'orphan-descendant') {
     [System.Diagnostics.ProcessStartInfo] $descendantStart = [System.Diagnostics.ProcessStartInfo]::new()
@@ -233,19 +258,23 @@ $completionSucceeded = $mode -ne 'failed-completion'
 $answer = if ($mode -eq 'wrong-answer') { 'There were 6 garbage collections.' } else { 'There were 7 garbage collections.' }
 
 $events = [System.Collections.Generic.List[object]]::new()
-$reportedSkills = if ($skillPath -and $mode -ne 'missing-skill-discovery') {
-    @([ordered]@{
-            name = if ($mode -eq 'skill-discovery-name-case') { 'FILTRACE' } else { 'filtrace' }
-            commandName = 'filtrace'
-            source = if ($mode -eq 'skill-discovery-source-case') { 'PROJECT' } else { 'project' }
-            enabled = $true
-            path = $skillPath
-        })
+[System.Collections.Generic.List[object]] $reportedSkills = [System.Collections.Generic.List[object]]::new()
+if ($skillPath -and $mode -ne 'missing-skill-discovery') {
+    $reportedSkills.Add([ordered]@{
+        name = if ($mode -eq 'skill-discovery-name-case') { 'FILTRACE' } else { 'filtrace' }
+        commandName = 'filtrace'
+        source = if ($mode -eq 'skill-discovery-source-case') { 'PROJECT' } else { 'project' }
+        enabled = $true
+        path = $skillPath
+    })
 }
-else { @() }
+$skillsPayload = $reportedSkills.ToArray()
+if ($mode -eq 'scalar-skill-inventory' -and $reportedSkills.Count -eq 1) {
+    $skillsPayload = $reportedSkills[0]
+}
 $events.Add([ordered]@{
         type = 'session.skills_loaded'
-        data = [ordered]@{ skills = $reportedSkills }
+        data = [ordered]@{ skills = $skillsPayload }
     })
 $events.Add([ordered]@{
         type = 'model.messages_snapshot'
@@ -524,7 +553,7 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
         try {
             [System.IO.File]::WriteAllText(
                 $policyPath,
-                $policyText.Replace('"schemaVersion": 5', '"schemaVersion": 6'),
+                $policyText.Replace('"schemaVersion": 6', '"schemaVersion": 7'),
                 [System.Text.UTF8Encoding]::new($false))
         }
         catch [System.IO.IOException] { }

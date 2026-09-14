@@ -947,30 +947,48 @@ function Invoke-CopilotIteration {
     }
     [System.Collections.Generic.List[System.IO.FileStream]] $securityFileLocks =
         [System.Collections.Generic.List[System.IO.FileStream]]::new()
+    $executionPolicyState = $null
     try {
-        if ($executionPolicy) {
-            foreach ($securityPath in @(
-                    $executionPolicy.policyPath,
-                    $executionPolicy.hookConfigurationPath,
-                    $executionPolicy.hookPath) + @($executionPolicy.viewFiles | ForEach-Object { $_.path })) {
-                $securityFileLocks.Add([System.IO.FileStream]::new(
-                        $securityPath,
-                        [System.IO.FileMode]::Open,
-                        [System.IO.FileAccess]::Read,
-                        [System.IO.FileShare]::Read))
+        try {
+            if ($executionPolicy) {
+                [StringComparer] $pathComparer = if ([System.OperatingSystem]::IsWindows()) {
+                    [StringComparer]::OrdinalIgnoreCase
+                }
+                else {
+                    [StringComparer]::Ordinal
+                }
+                [System.Collections.Generic.HashSet[string]] $securityPaths =
+                    [System.Collections.Generic.HashSet[string]]::new($pathComparer)
+                foreach ($immutableFile in @($context.immutableFiles)) {
+                    [void]$securityPaths.Add([System.IO.Path]::GetFullPath([string]$immutableFile.path))
+                }
+                foreach ($securityPath in $securityPaths) {
+                    $securityFileLocks.Add([System.IO.FileStream]::new(
+                            $securityPath,
+                            [System.IO.FileMode]::Open,
+                            [System.IO.FileAccess]::Read,
+                            [System.IO.FileShare]::Read))
+                }
             }
+            $processResult = Invoke-BoundedCopilotProcess `
+                -FilePath $CopilotPath `
+                -Arguments $processArgs `
+                -Context $context `
+                -TimeoutSeconds $NativeTimeoutSeconds `
+                -MaxOutputBytes $MaxHostOutputBytes `
+                -MaxArtifactBytes $MaxHostArtifactBytes `
+                -Environment $processEnvironment
+            $executionPolicyState = if ($executionPolicy) {
+                Get-CopilotEvalExecutionPolicyState -ExecutionPolicy $executionPolicy
+            }
+            else { $null }
         }
-        $processResult = Invoke-BoundedCopilotProcess `
-            -FilePath $CopilotPath `
-            -Arguments $processArgs `
-            -Context $context `
-            -TimeoutSeconds $NativeTimeoutSeconds `
-            -MaxOutputBytes $MaxHostOutputBytes `
-            -MaxArtifactBytes $MaxHostArtifactBytes `
-            -Environment $processEnvironment
+        finally {
+            foreach ($securityFileLock in $securityFileLocks) { $securityFileLock.Dispose() }
+        }
     }
     finally {
-        foreach ($securityFileLock in $securityFileLocks) { $securityFileLock.Dispose() }
+        if ($executionPolicy) { $executionPolicy.ledger.Dispose() }
     }
     $outputPersistence = $null
     [System.Exception] $outputPersistenceError = $null
@@ -984,10 +1002,6 @@ function Invoke-CopilotIteration {
     catch {
         $outputPersistenceError = $_.Exception
     }
-    $executionPolicyState = if ($executionPolicy) {
-        Get-CopilotEvalExecutionPolicyState -ExecutionPolicy $executionPolicy
-    }
-    else { $null }
     $usageFile = Get-AgentEvalHostUsageFile -Context $context
     $out = $processResult.stdout
     $copilotExitCode = $processResult.exitCode

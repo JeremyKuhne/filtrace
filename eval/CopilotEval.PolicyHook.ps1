@@ -57,17 +57,17 @@ function Assert-PolicyShape($Policy) {
         -Value $Policy `
         -ExpectedMembers @(
             'schemaVersion', 'sessionId', 'workspace', 'cliPath', 'fixturePath',
-            'maxCalls', 'maxHelpCalls', 'statePath', 'lockPath', 'viewFiles',
+            'maxCalls', 'maxHelpCalls', 'ledgerPipeName', 'viewFiles',
             'maxViewCalls', 'maxViewBytes', 'commandFamilies') `
         -Message 'Policy shape was malformed.'
     if (($Policy.schemaVersion -isnot [int] -and $Policy.schemaVersion -isnot [long]) -or
-        [long]$Policy.schemaVersion -ne 5 -or
+        [long]$Policy.schemaVersion -ne 6 -or
         $Policy.sessionId -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Policy.sessionId) -or
         $Policy.workspace -isnot [string] -or
         $Policy.cliPath -isnot [string] -or
         $Policy.fixturePath -isnot [string] -or
-        $Policy.statePath -isnot [string] -or
-        $Policy.lockPath -isnot [string] -or
+        $Policy.ledgerPipeName -isnot [string] -or
+        $Policy.ledgerPipeName -cnotmatch '^filtrace-agent-eval-[0-9a-f]{32}$' -or
         $Policy.viewFiles -isnot [object[]] -or $Policy.viewFiles.Count -gt 64 -or
         ($Policy.maxCalls -isnot [int] -and $Policy.maxCalls -isnot [long]) -or
         [long]$Policy.maxCalls -lt 1 -or [long]$Policy.maxCalls -gt 64 -or
@@ -490,62 +490,52 @@ function Assert-LiteralCommand($Arguments, $Policy) {
     return [pscustomobject]@{ command = [string]$Arguments.command; isHelp = $false }
 }
 
-function Read-PolicyState([string] $StatePath) {
-    if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) {
-        return [pscustomobject]@{ commandHashes = @(); helpCommandHashes = @(); viewRequests = @() }
+function Invoke-PolicyLedgerConsume(
+    $Policy,
+    [string] $Category,
+    [string] $Hash,
+    $Arguments,
+    [long] $RequestedBytes) {
+    $request = [ordered]@{
+        category = $Category
+        hash = $Hash
     }
-    [System.IO.FileInfo] $stateFile = Get-Item -LiteralPath $StatePath
-    if ($stateFile.Length -gt 65536) { throw 'Policy state exceeded its byte limit.' }
-    try { $state = [System.IO.File]::ReadAllText($StatePath) | ConvertFrom-Json }
-    catch { throw 'Policy state was malformed.' }
-    if ($state -isnot [pscustomobject]) { throw 'Policy state shape was malformed.' }
-    [string[]] $stateMembers = @(Get-ObjectMemberNames $state)
-    if ($stateMembers.Count -ne 3 -or
-        $stateMembers -cnotcontains 'commandHashes' -or
-        $stateMembers -cnotcontains 'helpCommandHashes' -or
-        $stateMembers -cnotcontains 'viewRequests' -or
-        $state.commandHashes -isnot [object[]] -or
-        $state.helpCommandHashes -isnot [object[]] -or
-        $state.viewRequests -isnot [object[]]) {
-        throw 'Policy state shape was malformed.'
+    if ([string]::Equals($Category, 'view', [StringComparison]::Ordinal)) {
+        $request.arguments = $Arguments
+        $request.requestedBytes = $RequestedBytes
     }
-    return $state
-}
-
-function Open-PolicyLock([string] $LockPath) {
-    [System.Diagnostics.Stopwatch] $wait = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($true) {
-        try {
-            return [System.IO.File]::Open(
-                $LockPath,
-                [System.IO.FileMode]::OpenOrCreate,
-                [System.IO.FileAccess]::ReadWrite,
-                [System.IO.FileShare]::None)
-        }
-        catch [System.IO.IOException] {
-            if ($wait.ElapsedMilliseconds -ge 2000) { throw }
-            [System.Threading.Thread]::Sleep(10)
-        }
-    }
-}
-
-function Write-PolicyState(
-    [string] $StatePath,
-    [string[]] $CommandHashes,
-    [string[]] $HelpCommandHashes,
-    [object[]] $ViewRequests) {
-    [string] $temporaryPath = "$StatePath.$([Guid]::NewGuid().ToString('N')).tmp"
+    [System.IO.Pipes.NamedPipeClientStream] $pipe =
+        [System.IO.Pipes.NamedPipeClientStream]::new(
+            '.',
+            [string]$Policy.ledgerPipeName,
+            [System.IO.Pipes.PipeDirection]::InOut,
+            [System.IO.Pipes.PipeOptions]::Asynchronous)
+    [System.IO.StreamReader] $reader = $null
+    [System.IO.StreamWriter] $writer = $null
     try {
-        [string] $json = [string]([ordered]@{
-            commandHashes = @($CommandHashes)
-            helpCommandHashes = @($HelpCommandHashes)
-            viewRequests = @($ViewRequests)
-            } | ConvertTo-Json -Depth 6 -Compress)
-        [System.IO.File]::WriteAllText($temporaryPath, $json, [System.Text.UTF8Encoding]::new($false))
-        [System.IO.File]::Move($temporaryPath, $StatePath, $true)
+        $pipe.Connect(2000)
+        $reader = [System.IO.StreamReader]::new($pipe, [System.Text.UTF8Encoding]::new($false, $true), $false, 4096, $true)
+        $writer = [System.IO.StreamWriter]::new($pipe, [System.Text.UTF8Encoding]::new($false), 4096, $true)
+        $writer.AutoFlush = $true
+        $writer.WriteLine(($request | ConvertTo-Json -Depth 6 -Compress))
+        [string] $responseText = $reader.ReadLine()
+        if ([string]::IsNullOrWhiteSpace($responseText) -or $responseText.Length -gt 256) {
+            throw 'Policy ledger returned no bounded decision.'
+        }
+        try { $response = $responseText | ConvertFrom-Json }
+        catch { throw 'Policy ledger returned malformed JSON.' }
+        Assert-ExactObjectMembers `
+            -Value $response `
+            -ExpectedMembers @('allowed') `
+            -Message 'Policy ledger decision shape was malformed.'
+        if ($response.allowed -isnot [bool] -or -not $response.allowed) {
+            throw 'Policy ledger denied the allowance consumption.'
+        }
     }
     finally {
-        if (Test-Path -LiteralPath $temporaryPath) { Remove-Item -LiteralPath $temporaryPath -Force }
+        if ($null -ne $writer) { $writer.Dispose() }
+        if ($null -ne $reader) { $reader.Dispose() }
+        $pipe.Dispose()
     }
 }
 
@@ -560,12 +550,6 @@ try {
     }
     $policy = [System.Text.UTF8Encoding]::new($false, $true).GetString($policyBytes) | ConvertFrom-Json
     Assert-PolicyShape $policy
-    [string] $policyDirectory = $policyFile.DirectoryName
-    foreach ($statePath in @([string]$policy.statePath, [string]$policy.lockPath)) {
-        if (-not (Test-PathContained -Path $statePath -Root $policyDirectory)) {
-            throw 'Policy state path escaped its boundary.'
-        }
-    }
 
     [string] $inputText = Read-BoundedText -Reader ([Console]::In) -MaxCharacters 65536
     try { $inputObject = $inputText | ConvertFrom-Json }
@@ -599,100 +583,30 @@ try {
     $toolArguments = ConvertFrom-ToolArguments $inputObject.toolArgs
     [string] $toolName = [string]$inputObject.toolName
 
-    [System.IO.FileStream] $lock = $null
-    try {
-        $lock = Open-PolicyLock -LockPath ([string]$policy.lockPath)
-        $state = Read-PolicyState -StatePath ([string]$policy.statePath)
-        [System.Collections.Generic.List[string]] $commandHashes =
-            [System.Collections.Generic.List[string]]::new()
-        foreach ($commandHash in @($state.commandHashes)) {
-            if ($commandHash -isnot [string] -or $commandHash -cnotmatch '^[0-9a-f]{64}$') {
-                throw 'Policy command hash was malformed.'
-            }
-            $commandHashes.Add([string]$commandHash)
-        }
-        if ($commandHashes.Count -gt [int]$policy.maxCalls) { throw 'Policy command count exceeded its limit.' }
-        [System.Collections.Generic.List[string]] $helpCommandHashes =
-            [System.Collections.Generic.List[string]]::new()
-        foreach ($commandHash in @($state.helpCommandHashes)) {
-            if ($commandHash -isnot [string] -or $commandHash -cnotmatch '^[0-9a-f]{64}$') {
-                throw 'Policy help command hash was malformed.'
-            }
-            $helpCommandHashes.Add([string]$commandHash)
-        }
-        if ($helpCommandHashes.Count -gt [int]$policy.maxHelpCalls) {
-            throw 'Policy help command count exceeded its limit.'
-        }
-        [System.Collections.Generic.List[object]] $viewRequests =
-            [System.Collections.Generic.List[object]]::new()
-        [long] $requestedViewBytes = 0
-        foreach ($usedViewRequest in $state.viewRequests) {
-            if ($usedViewRequest -isnot [pscustomobject]) { throw 'Policy view request was malformed.' }
-            [string[]] $requestMembers = @(Get-ObjectMemberNames $usedViewRequest)
-            if ($requestMembers.Count -ne 3 -or $requestMembers -cnotcontains 'requestHash' -or
-                $requestMembers -cnotcontains 'arguments' -or $requestMembers -cnotcontains 'requestedBytes' -or
-                $usedViewRequest.requestHash -isnot [string] -or
-                $usedViewRequest.requestHash -cnotmatch '^[0-9a-f]{64}$' -or
-                ($usedViewRequest.requestedBytes -isnot [int] -and $usedViewRequest.requestedBytes -isnot [long])) {
-                throw 'Policy view request was malformed.'
-            }
-            $skillSource = Get-ViewSource -Arguments $usedViewRequest.arguments -Policy $policy
-            $parsedViewRequest = Get-SkillViewRequest -Arguments $usedViewRequest.arguments -Source $skillSource
-            if (-not [string]::Equals(
-                    [string]$usedViewRequest.requestHash,
-                    [string]$parsedViewRequest.requestHash,
-                    [StringComparison]::Ordinal) -or
-                [long]$usedViewRequest.requestedBytes -ne [long]$parsedViewRequest.requestedBytes) {
-                throw 'Policy view request hash was malformed.'
-            }
-            $requestedViewBytes += [long]$parsedViewRequest.requestedBytes
-            $viewRequests.Add($usedViewRequest)
-        }
-        if ($viewRequests.Count -gt [int]$policy.maxViewCalls -or
-            $requestedViewBytes -gt [long]$policy.maxViewBytes) {
-            throw 'Policy view request limit was exceeded.'
-        }
-
-        if ([string]::Equals($toolName, 'view', [StringComparison]::Ordinal)) {
-            $skillSource = Get-ViewSource -Arguments $toolArguments -Policy $policy
-            $viewRequest = Get-SkillViewRequest -Arguments $toolArguments -Source $skillSource
-            if ($viewRequests.Count -ge [int]$policy.maxViewCalls -or
-                [long]$viewRequest.requestedBytes -gt ([long]$policy.maxViewBytes - $requestedViewBytes)) {
-                throw 'View request limit was reached.'
-            }
-            $viewRequests.Add([pscustomobject]@{
-                    requestHash = $viewRequest.requestHash
-                    arguments = $viewRequest.arguments
-                    requestedBytes = $viewRequest.requestedBytes
-                })
-        }
-        elseif ([string]::Equals($toolName, 'powershell', [StringComparison]::Ordinal)) {
-            $literalCommand = Assert-LiteralCommand -Arguments $toolArguments -Policy $policy
-            if ($literalCommand.isHelp) {
-                if ($helpCommandHashes.Count -ge [int]$policy.maxHelpCalls) {
-                    throw "Filtrace help call limit $($policy.maxHelpCalls) was reached."
-                }
-            }
-            elseif ($commandHashes.Count -ge [int]$policy.maxCalls) {
-                throw "Filtrace analysis call limit $($policy.maxCalls) was reached."
-            }
-            [byte[]] $commandBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$literalCommand.command)
-            [string] $commandHash =
-                [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($commandBytes)).ToLowerInvariant()
-            if ($literalCommand.isHelp) { $helpCommandHashes.Add($commandHash) }
-            else { $commandHashes.Add($commandHash) }
-        }
-        else {
-            throw "Tool '$toolName' was outside policy."
-        }
-        Write-PolicyState `
-            -StatePath ([string]$policy.statePath) `
-            -CommandHashes $commandHashes.ToArray() `
-            -HelpCommandHashes $helpCommandHashes.ToArray() `
-            -ViewRequests $viewRequests.ToArray()
+    if ([string]::Equals($toolName, 'view', [StringComparison]::Ordinal)) {
+        $skillSource = Get-ViewSource -Arguments $toolArguments -Policy $policy
+        $viewRequest = Get-SkillViewRequest -Arguments $toolArguments -Source $skillSource
+        Invoke-PolicyLedgerConsume `
+            -Policy $policy `
+            -Category view `
+            -Hash $viewRequest.requestHash `
+            -Arguments $viewRequest.arguments `
+            -RequestedBytes $viewRequest.requestedBytes
     }
-    finally {
-        if ($null -ne $lock) { $lock.Dispose() }
+    elseif ([string]::Equals($toolName, 'powershell', [StringComparison]::Ordinal)) {
+        $literalCommand = Assert-LiteralCommand -Arguments $toolArguments -Policy $policy
+        [byte[]] $commandBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$literalCommand.command)
+        [string] $commandHash =
+            [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($commandBytes)).ToLowerInvariant()
+        Invoke-PolicyLedgerConsume `
+            -Policy $policy `
+            -Category $(if ($literalCommand.isHelp) { 'help' } else { 'command' }) `
+            -Hash $commandHash `
+            -Arguments $null `
+            -RequestedBytes 0
+    }
+    else {
+        throw "Tool '$toolName' was outside policy."
     }
     Write-PolicyDecision -Allowed $true -Reason ''
 }
