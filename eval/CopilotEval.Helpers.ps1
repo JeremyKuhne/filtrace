@@ -135,10 +135,10 @@ function Get-AgentEvalResultText($Result) {
     if ($null -eq $Result) { return $null }
 
     $members = @($Result.PSObject.Properties.Name)
-    if ($members -contains 'text' -and $Result.text -is [string]) {
+    if ($members -ccontains 'text' -and $Result.text -is [string]) {
         return [string]$Result.text
     }
-    if ($members -contains 'content' -and $Result.content -is [string]) {
+    if ($members -ccontains 'content' -and $Result.content -is [string]) {
         return [string]$Result.content
     }
     return $null
@@ -180,8 +180,11 @@ function Get-AgentEvalSkillViewRequest($Arguments, $Source) {
     }
     [string[]] $members = @($Arguments.PSObject.Properties.Name)
     if ($members.Count -lt 1 -or $members.Count -gt 2 -or
-        $members -notcontains 'path' -or
-        @($members | Where-Object { $_ -notin @('path', 'view_range') }).Count -ne 0 -or
+        $members -cnotcontains 'path' -or
+        @($members | Where-Object {
+            -not ([string]::Equals($_, 'path', [StringComparison]::Ordinal) -or
+                [string]::Equals($_, 'view_range', [StringComparison]::Ordinal))
+            }).Count -ne 0 -or
         $Arguments.path -isnot [string] -or
         -not [System.IO.Path]::IsPathFullyQualified([string]$Arguments.path) -or
         -not [string]::Equals(
@@ -194,7 +197,7 @@ function Get-AgentEvalSkillViewRequest($Arguments, $Source) {
     [int] $startLine = 1
     [int] $endLine = -1
     [long] $maximumEndLine = [long]$Source.lineCount + 512
-    [bool] $explicitRange = $members -contains 'view_range'
+    [bool] $explicitRange = $members -ccontains 'view_range'
     if ($explicitRange) {
         if ($null -eq $Arguments.view_range -or $Arguments.view_range -is [string] -or
             $Arguments.view_range -is [ValueType]) {
@@ -249,8 +252,8 @@ function Get-AgentEvalSkillViewPayload($Result, $Request, $Source) {
         throw 'Skill view result was not the observed object shape.'
     }
     [string[]] $members = @($Result.PSObject.Properties.Name)
-    if ($members.Count -ne 2 -or $members -notcontains 'content' -or
-        $members -notcontains 'detailedContent' -or $Result.content -isnot [string] -or
+    if ($members.Count -ne 2 -or $members -cnotcontains 'content' -or
+        $members -cnotcontains 'detailedContent' -or $Result.content -isnot [string] -or
         $Result.detailedContent -isnot [string]) {
         throw 'Skill view result was not the observed content/detailedContent shape.'
     }
@@ -440,22 +443,25 @@ function Complete-AgentEvalDiscoveredSkillEvidence {
     $expectedBody = $null
     try {
         $skillEvents = @($Events | Where-Object {
-                $_.type -eq 'session.skills_loaded' -and
-                $_.data.PSObject.Properties.Name -contains 'skills'
+            [string]::Equals([string]$_.type, 'session.skills_loaded', [StringComparison]::Ordinal) -and
+            $_.data.PSObject.Properties.Name -ccontains 'skills'
             })
         if ($skillEvents.Count -ne 1) { throw 'Host did not report exactly one skill inventory.' }
-        $matches = @($skillEvents[0].data.skills | Where-Object { $_.name -eq 'filtrace' })
+        $matches = @($skillEvents[0].data.skills | Where-Object {
+                [string]::Equals([string]$_.name, 'filtrace', [StringComparison]::Ordinal)
+            })
         if ($matches.Count -ne 1) { throw 'Host did not discover exactly one filtrace skill.' }
         $discovery = $matches[0]
         [string] $discoveredPath = [System.IO.Path]::GetFullPath([string]$discovery.path)
-        if ($discovery.source -ne 'project' -or $discovery.enabled -isnot [bool] -or
+        if (-not [string]::Equals([string]$discovery.source, 'project', [StringComparison]::Ordinal) -or
+            $discovery.enabled -isnot [bool] -or
             -not $discovery.enabled -or
             -not [string]::Equals($discoveredPath, [System.IO.Path]::GetFullPath($SourcePath), [StringComparison]::Ordinal)) {
             throw 'Filtrace skill discovery metadata did not match the owned project skill.'
         }
 
         $starts = @($Events | Where-Object {
-            $_.type -eq 'tool.execution_start' -and
+            [string]::Equals([string]$_.type, 'tool.execution_start', [StringComparison]::Ordinal) -and
             [string]::Equals([string]$_.data.toolName, 'skill', [StringComparison]::Ordinal)
             })
         if ($starts.Count -ne 1) { throw 'Host did not invoke the skill tool exactly once.' }
@@ -469,7 +475,8 @@ function Complete-AgentEvalDiscoveredSkillEvidence {
         }
         $toolCallId = [string]$starts[0].data.toolCallId
         $completions = @($Events | Where-Object {
-                $_.type -eq 'tool.execution_complete' -and $_.data.toolCallId -eq $toolCallId
+            [string]::Equals([string]$_.type, 'tool.execution_complete', [StringComparison]::Ordinal) -and
+            [string]::Equals([string]$_.data.toolCallId, $toolCallId, [StringComparison]::Ordinal)
             })
         if ($completions.Count -ne 1 -or $completions[0].data.success -isnot [bool] -or
             -not $completions[0].data.success) {
@@ -477,7 +484,8 @@ function Complete-AgentEvalDiscoveredSkillEvidence {
         }
 
         $contexts = @($Events | Where-Object {
-                $_.type -eq 'model.message' -and $_.data.message.role -eq 'user' -and
+            [string]::Equals([string]$_.type, 'model.message', [StringComparison]::Ordinal) -and
+            [string]::Equals([string]$_.data.message.role, 'user', [StringComparison]::Ordinal) -and
                 $_.data.message.content -is [string] -and
                 ([string]$_.data.message.content).StartsWith('<skill-context name="filtrace">', [StringComparison]::Ordinal)
             })
@@ -537,7 +545,7 @@ function Complete-AgentEvalDiscoveredSkillEvidence {
 function Get-AgentEvalPowerShellResultText($Result) {
     if ($null -eq $Result -or $Result -is [string]) { return $null }
     [string[]] $members = @($Result.PSObject.Properties.Name)
-    if ($members.Count -ne 2 -or $members -notcontains 'content' -or $members -notcontains 'detailedContent' -or
+    if ($members.Count -ne 2 -or $members -cnotcontains 'content' -or $members -cnotcontains 'detailedContent' -or
         $Result.content -isnot [string] -or $Result.detailedContent -isnot [string] -or
         -not [string]::Equals([string]$Result.content, [string]$Result.detailedContent, [StringComparison]::Ordinal)) {
         return $null
@@ -605,6 +613,19 @@ function Assert-AgentEvalNoReparsePoint([string] $Path, [string] $Boundary) {
         $current = if ($current -is [System.IO.FileInfo]) { $current.Directory } else { $current.Parent }
     }
     throw "Eval input '$Path' was not beneath '$Boundary'."
+}
+
+function Assert-AgentEvalNoReparseAncestor([string] $Path) {
+    [string] $current = [System.IO.Path]::GetFullPath($Path)
+    while (-not (Test-Path -LiteralPath $current)) {
+        [string] $parent = [System.IO.Path]::GetDirectoryName($current)
+        if ([string]::IsNullOrWhiteSpace($parent) -or
+            [string]::Equals($parent, $current, [StringComparison]::Ordinal)) {
+            throw "Eval path '$Path' has no existing ordinary ancestor."
+        }
+        $current = $parent
+    }
+    Assert-AgentEvalNoReparsePoint -Path $current -Boundary ([System.IO.Path]::GetPathRoot($current))
 }
 
 function Assert-AgentEvalTrackedFixture([string] $Root, [string] $FixturePath) {
@@ -758,10 +779,12 @@ function New-CopilotEvalContext {
     [string] $workspace = if ($StrictCliArm) { Join-Path $runDirectory 'workspace' } else { $Root }
     [string] $isolatedHome = if ($StrictCliArm) { Join-Path $runDirectory 'home' } else { $null }
     [string] $logDirectory = Join-Path $runDirectory 'logs'
+    if ($StrictCliArm) { Assert-AgentEvalNoReparseAncestor -Path $strictBase }
     foreach ($directory in @($runDirectory, $workspace, $isolatedHome, $logDirectory) | Where-Object { $_ }) {
         [System.IO.Directory]::CreateDirectory($directory) | Out-Null
     }
     if ($StrictCliArm) {
+        Assert-AgentEvalNoReparsePoint -Path $workspace -Boundary ([System.IO.Path]::GetPathRoot($workspace))
         if (Test-AgentEvalPathContained -Path $workspace -Root $Root) {
             throw "Strict Copilot workspace '$workspace' must be outside the repository."
         }
@@ -919,14 +942,14 @@ function Get-AgentEvalTaskCommandFamilies {
         [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($step in @($Task.steps)) {
         [string[]] $stepMembers = @($step.PSObject.Properties.Name)
-        if ($stepMembers -notcontains 'args') { throw "Task '$($Task.id)' has a step without args." }
+        if ($stepMembers -cnotcontains 'args') { throw "Task '$($Task.id)' has a step without args." }
         [object[]] $arguments = @($step.args)
         if ($arguments.Count -lt 2 -or $arguments.Count -gt 30 -or
             @($arguments | Where-Object { $_ -isnot [string] }).Count -ne 0) {
             throw "Task '$($Task.id)' has an unsupported command shape."
         }
         [string] $verb = [string]$arguments[0]
-        if ($AllowedVerbs -notcontains $verb -or -not $seenVerbs.Add($verb)) {
+        if ($AllowedVerbs -cnotcontains $verb -or -not $seenVerbs.Add($verb)) {
             throw "Task '$($Task.id)' cannot derive one bounded policy for verb '$verb'."
         }
         if (-not [string]::Equals([string]$arguments[1], '{fixture}', [StringComparison]::Ordinal)) {
@@ -984,14 +1007,15 @@ function Get-AgentEvalTaskCommandFamilies {
     return $families
 }
 
-function Add-AgentEvalImmutableFile([object] $Context, [string] $Path, [string] $SourcePath) {
+function Add-AgentEvalGeneratedImmutableFile([object] $Context, [string] $Path) {
     [System.IO.FileInfo] $file = Get-Item -LiteralPath $Path
     $Context.immutableFiles.Add([pscustomobject]@{
-            sourcePath = $SourcePath
+            sourcePath = $null
             path = $file.FullName
             relativePath = [System.IO.Path]::GetRelativePath($Context.runDirectory, $file.FullName).Replace('\', '/')
             bytes = $file.Length
             sha256 = Get-AgentEvalFileHash $file.FullName
+            verifyHashDuringRun = $true
         })
 }
 
@@ -1063,7 +1087,7 @@ function Initialize-CopilotEvalExecutionPolicy {
         $policyPath,
         ($policy | ConvertTo-Json -Depth 8),
         [System.Text.UTF8Encoding]::new($false))
-    Add-AgentEvalImmutableFile -Context $Context -Path $policyPath -SourcePath $policyPath
+    Add-AgentEvalGeneratedImmutableFile -Context $Context -Path $policyPath
 
     [string] $hookHostPath = (Get-Process -Id $PID).Path
     if ([System.IO.Path]::GetFileNameWithoutExtension($hookHostPath) -ne 'pwsh') {
@@ -1091,7 +1115,7 @@ function Initialize-CopilotEvalExecutionPolicy {
         $hookConfigurationPath,
         ($hookConfiguration | ConvertTo-Json -Depth 8),
         [System.Text.UTF8Encoding]::new($false))
-    Add-AgentEvalImmutableFile -Context $Context -Path $hookConfigurationPath -SourcePath $hookConfigurationPath
+    Add-AgentEvalGeneratedImmutableFile -Context $Context -Path $hookConfigurationPath
 
     return [pscustomobject]@{
         maxCalls = $effectiveMaxCalls
@@ -1125,34 +1149,41 @@ function Get-CopilotEvalExecutionPolicyState([object] $ExecutionPolicy) {
     }
     try { $state = [System.IO.File]::ReadAllText($stateFile.FullName) | ConvertFrom-Json }
     catch { throw 'Copilot pre-execution policy state was malformed.' }
+    if ($state -isnot [pscustomobject]) { throw 'Copilot pre-execution policy state shape was malformed.' }
     [string[]] $stateMembers = @($state.PSObject.Properties.Name)
     if ($stateMembers.Count -ne 3 -or
-        $stateMembers -notcontains 'commandHashes' -or
-        $stateMembers -notcontains 'helpCommandHashes' -or
-        $stateMembers -notcontains 'viewRequests') {
+        $stateMembers -cnotcontains 'commandHashes' -or
+        $stateMembers -cnotcontains 'helpCommandHashes' -or
+        $stateMembers -cnotcontains 'viewRequests' -or
+        $state.commandHashes -isnot [object[]] -or
+        $state.helpCommandHashes -isnot [object[]] -or
+        $state.viewRequests -isnot [object[]]) {
         throw 'Copilot pre-execution policy state shape was malformed.'
     }
-    [object[]] $commandHashes = @($state.commandHashes)
+    [object[]] $commandHashes = $state.commandHashes
     if ($commandHashes.Count -gt [int]$ExecutionPolicy.maxCalls -or
-        @($commandHashes | Where-Object { $_ -isnot [string] -or $_ -notmatch '^[0-9a-f]{64}$' }).Count -ne 0) {
+        @($commandHashes | Where-Object { $_ -isnot [string] -or $_ -cnotmatch '^[0-9a-f]{64}$' }).Count -ne 0) {
         throw 'Copilot pre-execution policy command hashes were malformed.'
     }
-    [object[]] $helpCommandHashes = @($state.helpCommandHashes)
+    [object[]] $helpCommandHashes = $state.helpCommandHashes
     if ($helpCommandHashes.Count -gt [int]$ExecutionPolicy.maxHelpCalls -or
-        @($helpCommandHashes | Where-Object { $_ -isnot [string] -or $_ -notmatch '^[0-9a-f]{64}$' }).Count -ne 0) {
+        @($helpCommandHashes | Where-Object { $_ -isnot [string] -or $_ -cnotmatch '^[0-9a-f]{64}$' }).Count -ne 0) {
         throw 'Copilot pre-execution policy help command hashes were malformed.'
     }
-    [object[]] $viewRequests = @($state.viewRequests)
+    [object[]] $viewRequests = $state.viewRequests
     if ($viewRequests.Count -gt [int]$ExecutionPolicy.maxViewCalls) {
         throw 'Copilot pre-execution policy view requests were malformed.'
     }
     [long] $requestedBytes = 0
     $skillSource = if ($ExecutionPolicy.viewPath) { Get-AgentEvalSkillSource $ExecutionPolicy.viewPath } else { $null }
     foreach ($viewRequest in $viewRequests) {
+        if ($viewRequest -isnot [pscustomobject]) {
+            throw 'Copilot pre-execution policy view requests were malformed.'
+        }
         [string[]] $requestMembers = @($viewRequest.PSObject.Properties.Name)
-        if ($requestMembers.Count -ne 3 -or $requestMembers -notcontains 'requestHash' -or
-            $requestMembers -notcontains 'arguments' -or $requestMembers -notcontains 'requestedBytes' -or
-            $viewRequest.requestHash -isnot [string] -or $viewRequest.requestHash -notmatch '^[0-9a-f]{64}$' -or
+        if ($requestMembers.Count -ne 3 -or $requestMembers -cnotcontains 'requestHash' -or
+            $requestMembers -cnotcontains 'arguments' -or $requestMembers -cnotcontains 'requestedBytes' -or
+            $viewRequest.requestHash -isnot [string] -or $viewRequest.requestHash -cnotmatch '^[0-9a-f]{64}$' -or
             ($viewRequest.requestedBytes -isnot [int] -and $viewRequest.requestedBytes -isnot [long]) -or
             $null -eq $skillSource) {
             throw 'Copilot pre-execution policy view requests were malformed.'
@@ -1313,7 +1344,10 @@ function Get-AgentEvalCopilotUsage {
         }
         [System.IO.FileInfo] $file = Get-Item -LiteralPath $immutableFile.path -Force
         if (($file.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or
-            $file.Length -ne [long]$immutableFile.bytes) {
+            $file.Length -ne [long]$immutableFile.bytes -or
+            ($immutableFile.PSObject.Properties.Name -ccontains 'verifyHashDuringRun' -and
+                [bool]$immutableFile.verifyHashDuringRun -and
+                (Get-AgentEvalFileHash $file.FullName) -ne $immutableFile.sha256)) {
             throw "Eval input attestation failed for '$($immutableFile.relativePath)'."
         }
         Assert-AgentEvalNoReparsePoint -Path $file.FullName -Boundary $Context.runDirectory
@@ -1335,10 +1369,13 @@ function Get-AgentEvalCopilotUsage {
 
 function Assert-AgentEvalContextIntegrity($Context) {
     foreach ($file in @($Context.immutableFiles)) {
+        [bool] $sourceChanged = $file.PSObject.Properties.Name -ccontains 'sourcePath' -and
+            -not [string]::IsNullOrWhiteSpace([string]$file.sourcePath) -and
+            (Get-AgentEvalFileHash $file.sourcePath) -ne $file.sha256
         if (-not (Test-Path -LiteralPath $file.path -PathType Leaf) -or
             (Get-Item -LiteralPath $file.path).Length -ne [long]$file.bytes -or
             (Get-AgentEvalFileHash $file.path) -ne $file.sha256 -or
-            (Get-AgentEvalFileHash $file.sourcePath) -ne $file.sha256) {
+            $sourceChanged) {
             throw "Eval input attestation failed for '$($file.relativePath)'."
         }
     }
@@ -1372,7 +1409,7 @@ function Get-AgentEvalHostUsageFile($Context) {
     }
     [string[]] $usageMembers = @($value.PSObject.Properties | ForEach-Object { $_.Name })
     foreach ($member in @('totalPremiumRequestCost', 'totalUserRequests', 'tokenDetails', 'currentModel')) {
-        if ($usageMembers -notcontains $member) { throw 'Copilot usage output schema was malformed.' }
+        if ($usageMembers -cnotcontains $member) { throw 'Copilot usage output schema was malformed.' }
     }
     [bool] $premiumCostValid = $value.totalPremiumRequestCost -is [byte] -or
         $value.totalPremiumRequestCost -is [sbyte] -or
@@ -1398,13 +1435,13 @@ function Get-AgentEvalHostUsageFile($Context) {
     }
     [string[]] $tokenDetailMembers = @($value.tokenDetails.PSObject.Properties | ForEach-Object { $_.Name })
     foreach ($tokenKind in @('input', 'cache_read', 'cache_write', 'output')) {
-        if ($tokenDetailMembers -notcontains $tokenKind) { throw 'Copilot usage output schema was malformed.' }
+        if ($tokenDetailMembers -cnotcontains $tokenKind) { throw 'Copilot usage output schema was malformed.' }
         $tokenDetail = $value.tokenDetails.$tokenKind
         if ($null -eq $tokenDetail -or $tokenDetail -is [string] -or $tokenDetail -is [ValueType]) {
             throw 'Copilot usage output schema was malformed.'
         }
         [string[]] $tokenMembers = @($tokenDetail.PSObject.Properties | ForEach-Object { $_.Name })
-        if ($tokenMembers -notcontains 'tokenCount' -or
+        if ($tokenMembers -cnotcontains 'tokenCount' -or
             ($tokenDetail.tokenCount -isnot [int] -and $tokenDetail.tokenCount -isnot [long]) -or
             [long]$tokenDetail.tokenCount -lt 0) {
             throw 'Copilot usage output schema was malformed.'

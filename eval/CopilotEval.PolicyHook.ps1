@@ -37,6 +37,103 @@ function Get-ObjectMemberNames($Value) {
     return @($Value.PSObject.Properties.Name)
 }
 
+function Assert-ExactObjectMembers($Value, [string[]] $ExpectedMembers, [string] $Message) {
+    if ($Value -isnot [pscustomobject]) { throw $Message }
+    [string[]] $members = @(Get-ObjectMemberNames $Value)
+    [System.Collections.Generic.HashSet[string]] $expected =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($member in $ExpectedMembers) { [void]$expected.Add($member) }
+    if ($members.Count -ne $expected.Count -or
+        @($members | Where-Object { -not $expected.Contains($_) }).Count -ne 0) {
+        throw $Message
+    }
+}
+
+function Assert-PolicyShape($Policy) {
+    Assert-ExactObjectMembers `
+        -Value $Policy `
+        -ExpectedMembers @(
+            'schemaVersion', 'sessionId', 'workspace', 'cliPath', 'fixturePath',
+            'maxCalls', 'maxHelpCalls', 'statePath', 'lockPath', 'viewPath',
+            'viewLineCount', 'maxViewCalls', 'maxViewBytes', 'commandFamilies') `
+        -Message 'Policy shape was malformed.'
+    if (($Policy.schemaVersion -isnot [int] -and $Policy.schemaVersion -isnot [long]) -or
+        [long]$Policy.schemaVersion -ne 4 -or
+        $Policy.sessionId -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Policy.sessionId) -or
+        $Policy.workspace -isnot [string] -or
+        $Policy.cliPath -isnot [string] -or
+        $Policy.fixturePath -isnot [string] -or
+        $Policy.statePath -isnot [string] -or
+        $Policy.lockPath -isnot [string] -or
+        ($null -ne $Policy.viewPath -and $Policy.viewPath -isnot [string]) -or
+        ($Policy.maxCalls -isnot [int] -and $Policy.maxCalls -isnot [long]) -or
+        [long]$Policy.maxCalls -lt 1 -or [long]$Policy.maxCalls -gt 64 -or
+        ($Policy.maxHelpCalls -isnot [int] -and $Policy.maxHelpCalls -isnot [long]) -or
+        [long]$Policy.maxHelpCalls -lt 1 -or [long]$Policy.maxHelpCalls -gt 64 -or
+        ($Policy.viewLineCount -isnot [int] -and $Policy.viewLineCount -isnot [long]) -or
+        [long]$Policy.viewLineCount -lt 0 -or [long]$Policy.viewLineCount -gt [int]::MaxValue -or
+        ($Policy.maxViewCalls -isnot [int] -and $Policy.maxViewCalls -isnot [long]) -or
+        [long]$Policy.maxViewCalls -ne 4 -or
+        ($Policy.maxViewBytes -isnot [int] -and $Policy.maxViewBytes -isnot [long]) -or
+        [long]$Policy.maxViewBytes -ne 64MB -or
+        $Policy.commandFamilies -isnot [object[]] -or
+        $Policy.commandFamilies.Count -lt 1 -or $Policy.commandFamilies.Count -gt 16) {
+        throw 'Policy header was malformed.'
+    }
+    foreach ($family in $Policy.commandFamilies) {
+        Assert-ExactObjectMembers `
+            -Value $family `
+            -ExpectedMembers @('verb', 'maxPositionals', 'options') `
+            -Message 'Policy command family was malformed.'
+        if ($family.verb -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$family.verb) -or
+            ($family.maxPositionals -isnot [int] -and $family.maxPositionals -isnot [long]) -or
+            [long]$family.maxPositionals -lt 0 -or [long]$family.maxPositionals -gt 30 -or
+            $family.options -isnot [object[]]) {
+            throw 'Policy command family was malformed.'
+        }
+        foreach ($option in $family.options) {
+            if ($option -isnot [pscustomobject] -or $option.name -isnot [string] -or
+                -not ([string]$option.name).StartsWith('--', [StringComparison]::Ordinal) -or
+                $option.kind -isnot [string]) {
+                throw 'Policy option was malformed.'
+            }
+            [string] $kind = [string]$option.kind
+            if ([string]::Equals($kind, 'enum', [StringComparison]::Ordinal)) {
+                Assert-ExactObjectMembers `
+                    -Value $option `
+                    -ExpectedMembers @('name', 'kind', 'values') `
+                    -Message 'Policy option was malformed.'
+                if ($option.values -isnot [object[]] -or $option.values.Count -lt 1 -or
+                    @($option.values | Where-Object { $_ -isnot [string] }).Count -ne 0) {
+                    throw 'Policy option was malformed.'
+                }
+            }
+            elseif ([string]::Equals($kind, 'integer', [StringComparison]::Ordinal) -or
+                [string]::Equals($kind, 'decimal', [StringComparison]::Ordinal)) {
+                Assert-ExactObjectMembers `
+                    -Value $option `
+                    -ExpectedMembers @('name', 'kind', 'minimum', 'maximum') `
+                    -Message 'Policy option was malformed.'
+                if (($option.minimum -isnot [int] -and $option.minimum -isnot [long]) -or
+                    ($option.maximum -isnot [int] -and $option.maximum -isnot [long]) -or
+                    [long]$option.minimum -gt [long]$option.maximum) {
+                    throw 'Policy option was malformed.'
+                }
+            }
+            elseif ([string]::Equals($kind, 'text', [StringComparison]::Ordinal) -or
+                [string]::Equals($kind, 'switch', [StringComparison]::Ordinal)) {
+                Assert-ExactObjectMembers `
+                    -Value $option `
+                    -ExpectedMembers @('name', 'kind') `
+                    -Message 'Policy option was malformed.'
+            }
+            else {
+                throw 'Policy option was malformed.'
+            }
+        }
+    }
+}
+
 function ConvertFrom-ToolArguments($Value) {
     if ($Value -is [string]) {
         if ($Value.Length -gt 16384) { throw 'Tool arguments exceeded their character limit.' }
@@ -103,8 +200,11 @@ function Get-SkillSource([string] $Path) {
 function Get-SkillViewRequest($Arguments, $Source) {
     [string[]] $members = @(Get-ObjectMemberNames $Arguments)
     if ($members.Count -lt 1 -or $members.Count -gt 2 -or
-        $members -notcontains 'path' -or
-        @($members | Where-Object { $_ -notin @('path', 'view_range') }).Count -ne 0 -or
+        $members -cnotcontains 'path' -or
+        @($members | Where-Object {
+                -not ([string]::Equals($_, 'path', [StringComparison]::Ordinal) -or
+                    [string]::Equals($_, 'view_range', [StringComparison]::Ordinal))
+            }).Count -ne 0 -or
         $Arguments.path -isnot [string] -or
         -not [System.IO.Path]::IsPathFullyQualified([string]$Arguments.path) -or
         -not [string]::Equals(
@@ -117,7 +217,7 @@ function Get-SkillViewRequest($Arguments, $Source) {
     [int] $startLine = 1
     [int] $endLine = -1
     [long] $maximumEndLine = [long]$Source.lineCount + 512
-    [bool] $explicitRange = $members -contains 'view_range'
+    [bool] $explicitRange = $members -ccontains 'view_range'
     if ($explicitRange) {
         if ($null -eq $Arguments.view_range -or $Arguments.view_range -is [string] -or
             $Arguments.view_range -is [ValueType]) {
@@ -347,11 +447,15 @@ function Read-PolicyState([string] $StatePath) {
     if ($stateFile.Length -gt 65536) { throw 'Policy state exceeded its byte limit.' }
     try { $state = [System.IO.File]::ReadAllText($StatePath) | ConvertFrom-Json }
     catch { throw 'Policy state was malformed.' }
+    if ($state -isnot [pscustomobject]) { throw 'Policy state shape was malformed.' }
     [string[]] $stateMembers = @(Get-ObjectMemberNames $state)
     if ($stateMembers.Count -ne 3 -or
-        $stateMembers -notcontains 'commandHashes' -or
-        $stateMembers -notcontains 'helpCommandHashes' -or
-        $stateMembers -notcontains 'viewRequests') {
+        $stateMembers -cnotcontains 'commandHashes' -or
+        $stateMembers -cnotcontains 'helpCommandHashes' -or
+        $stateMembers -cnotcontains 'viewRequests' -or
+        $state.commandHashes -isnot [object[]] -or
+        $state.helpCommandHashes -isnot [object[]] -or
+        $state.viewRequests -isnot [object[]]) {
         throw 'Policy state shape was malformed.'
     }
     return $state
@@ -398,12 +502,7 @@ try {
     [System.IO.FileInfo] $policyFile = Get-Item -LiteralPath $PolicyPath
     if ($policyFile.Length -gt 65536) { throw 'Policy exceeded its byte limit.' }
     $policy = [System.IO.File]::ReadAllText($policyFile.FullName) | ConvertFrom-Json
-    if ($policy.schemaVersion -notin @(4, 4L) -or $policy.maxCalls -lt 1 -or $policy.maxCalls -gt 64 -or
-        $policy.maxHelpCalls -lt 1 -or $policy.maxHelpCalls -gt 64 -or
-        $policy.maxViewCalls -notin @(4, 4L) -or $policy.maxViewBytes -notin @(64MB, [long]64MB) -or
-        $policy.viewLineCount -lt 0) {
-        throw 'Policy header was malformed.'
-    }
+    Assert-PolicyShape $policy
     [string] $policyDirectory = $policyFile.DirectoryName
     foreach ($statePath in @([string]$policy.statePath, [string]$policy.lockPath)) {
         if (-not (Test-PathContained -Path $statePath -Root $policyDirectory)) {
@@ -450,7 +549,7 @@ try {
         [System.Collections.Generic.List[string]] $commandHashes =
             [System.Collections.Generic.List[string]]::new()
         foreach ($commandHash in @($state.commandHashes)) {
-            if ($commandHash -isnot [string] -or $commandHash -notmatch '^[0-9a-f]{64}$') {
+            if ($commandHash -isnot [string] -or $commandHash -cnotmatch '^[0-9a-f]{64}$') {
                 throw 'Policy command hash was malformed.'
             }
             $commandHashes.Add([string]$commandHash)
@@ -459,7 +558,7 @@ try {
         [System.Collections.Generic.List[string]] $helpCommandHashes =
             [System.Collections.Generic.List[string]]::new()
         foreach ($commandHash in @($state.helpCommandHashes)) {
-            if ($commandHash -isnot [string] -or $commandHash -notmatch '^[0-9a-f]{64}$') {
+            if ($commandHash -isnot [string] -or $commandHash -cnotmatch '^[0-9a-f]{64}$') {
                 throw 'Policy help command hash was malformed.'
             }
             $helpCommandHashes.Add([string]$commandHash)
@@ -479,12 +578,13 @@ try {
         [System.Collections.Generic.List[object]] $viewRequests =
             [System.Collections.Generic.List[object]]::new()
         [long] $requestedViewBytes = 0
-        foreach ($usedViewRequest in @($state.viewRequests)) {
+        foreach ($usedViewRequest in $state.viewRequests) {
+            if ($usedViewRequest -isnot [pscustomobject]) { throw 'Policy view request was malformed.' }
             [string[]] $requestMembers = @(Get-ObjectMemberNames $usedViewRequest)
-            if ($requestMembers.Count -ne 3 -or $requestMembers -notcontains 'requestHash' -or
-                $requestMembers -notcontains 'arguments' -or $requestMembers -notcontains 'requestedBytes' -or
+            if ($requestMembers.Count -ne 3 -or $requestMembers -cnotcontains 'requestHash' -or
+                $requestMembers -cnotcontains 'arguments' -or $requestMembers -cnotcontains 'requestedBytes' -or
                 $usedViewRequest.requestHash -isnot [string] -or
-                $usedViewRequest.requestHash -notmatch '^[0-9a-f]{64}$' -or
+                $usedViewRequest.requestHash -cnotmatch '^[0-9a-f]{64}$' -or
                 ($usedViewRequest.requestedBytes -isnot [int] -and $usedViewRequest.requestedBytes -isnot [long]) -or
                 $null -eq $skillSource) {
                 throw 'Policy view request was malformed.'

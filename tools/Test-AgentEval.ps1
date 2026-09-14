@@ -453,6 +453,11 @@ try {
     Assert-True ($usageModelMismatch.iterations[0].success -eq $false -and
         $usageModelMismatch.iterations[0].hostUsageFile.available -eq $true) `
         'Usage accounting for a different model unexpectedly passed.'
+    $oversizedSessionDuration = Invoke-FakeRun `
+        -Name 'oversized session duration' `
+        -Mode oversized-session-duration
+    Assert-True ($oversizedSessionDuration.iterations[0].success -eq $false) `
+        'A session duration above the persisted metric range unexpectedly passed.'
 
     $legacyToolArguments = Invoke-FakeRun -Name 'cli legacy tool arguments' -Mode legacy-tool-arguments
     Assert-True ($legacyToolArguments.iterations[0].success -eq $true) `
@@ -484,6 +489,77 @@ try {
     }
     $initialState = Get-CopilotEvalExecutionPolicyState $policyProbe.executionPolicy
     Assert-True ($initialState.callCount -eq 0) 'Fresh single-stage policy did not begin at count zero.'
+    foreach ($policyMutation in @('root-member-case', 'scalar-families', 'family-member-case', 'scalar-enum-values')) {
+        $invalidPolicyProbe = New-TestExecutionPolicy -Name "invalid policy $policyMutation" -MaxCalls 1
+        [string] $invalidPolicyText = [System.IO.File]::ReadAllText($invalidPolicyProbe.executionPolicy.policyPath)
+        if ($policyMutation -eq 'root-member-case') {
+            $invalidPolicyText = $invalidPolicyText.Replace('"schemaVersion": 4', '"SchemaVersion": 4')
+        }
+        elseif ($policyMutation -eq 'family-member-case') {
+            $invalidPolicyText = $invalidPolicyText.Replace('"verb": "report"', '"Verb": "report"')
+        }
+        else {
+            $invalidPolicy = $invalidPolicyText | ConvertFrom-Json
+            if ($policyMutation -eq 'scalar-families') {
+                $invalidPolicy.commandFamilies = $invalidPolicy.commandFamilies[0]
+            }
+            else {
+                $enumOption = @($invalidPolicy.commandFamilies[0].options | Where-Object { $_.kind -eq 'enum' })[0]
+                $enumOption.values = $enumOption.values[0]
+            }
+            $invalidPolicyText = $invalidPolicy | ConvertTo-Json -Depth 8
+        }
+        [System.IO.File]::WriteAllText(
+            $invalidPolicyProbe.executionPolicy.policyPath,
+            $invalidPolicyText,
+            [System.Text.UTF8Encoding]::new($false))
+        $invalidPolicyDecision = Invoke-TestPolicyHook `
+            -Hook $invalidPolicyProbe.preToolHook `
+            -SessionId $invalidPolicyProbe.context.runId `
+            -WorkingDirectory $invalidPolicyProbe.context.workspace `
+            -ToolName powershell `
+            -ToolArguments ([ordered]@{
+                command = $invalidPolicyProbe.command
+                description = 'Reject malformed policy'
+            })
+        Assert-True ($invalidPolicyDecision.permissionDecision -eq 'deny') `
+            "Policy hook accepted malformed policy '$policyMutation'."
+    }
+    $invalidStateProbe = New-TestExecutionPolicy -Name 'invalid policy state contract' -MaxCalls 1
+    [object[]] $invalidPolicyStates = @(
+        [ordered]@{ CommandHashes = @(); helpCommandHashes = @(); viewRequests = @() }
+        [ordered]@{ commandHashes = ''; helpCommandHashes = @(); viewRequests = @() }
+        [ordered]@{ commandHashes = @(('A' * 64)); helpCommandHashes = @(); viewRequests = @() }
+        [ordered]@{
+            commandHashes = @()
+            helpCommandHashes = @()
+            viewRequests = @([ordered]@{
+                    RequestHash = ('0' * 64)
+                    arguments = [ordered]@{ path = $invalidStateProbe.context.skillPath }
+                    requestedBytes = 1
+                })
+        })
+    foreach ($invalidPolicyState in $invalidPolicyStates) {
+        [System.IO.File]::WriteAllText(
+            $invalidStateProbe.executionPolicy.statePath,
+            ([string]($invalidPolicyState | ConvertTo-Json -Depth 8 -Compress)),
+            [System.Text.UTF8Encoding]::new($false))
+        [bool] $stateReaderRejected = $false
+        try { [void](Get-CopilotEvalExecutionPolicyState $invalidStateProbe.executionPolicy) }
+        catch { $stateReaderRejected = $true }
+        Assert-True $stateReaderRejected 'Post-run validation accepted malformed policy state.'
+        $invalidStateDecision = Invoke-TestPolicyHook `
+            -Hook $invalidStateProbe.preToolHook `
+            -SessionId $invalidStateProbe.context.runId `
+            -WorkingDirectory $invalidStateProbe.context.workspace `
+            -ToolName powershell `
+            -ToolArguments ([ordered]@{
+                command = $invalidStateProbe.command
+                description = 'Reject malformed state'
+            })
+        Assert-True ($invalidStateDecision.permissionDecision -eq 'deny') `
+            'Policy hook accepted malformed policy state.'
+    }
     $malformedInput = Invoke-TestPolicyHook `
         -Hook $policyProbe.preToolHook `
         -RawInput '{'
@@ -798,31 +874,42 @@ try {
         -ToolName view `
         -ToolArguments ([ordered]@{ path = $otherViewPath })
     Assert-True ($otherView.permissionDecision -eq 'deny') 'Non-SKILL.md view was not denied.'
-    [object[]] $invalidViewArguments = @(
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = 1 }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @() }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @(1) }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @(1, 2, 3) }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @('1', 2) }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @($true, 2) }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @(0, 1) }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @(1, 0) }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @(2, 1) }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @(7, 7) }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @(1, 519) }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @(1, [long]::MaxValue) }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @(1, -2) }
-        [ordered]@{ path = $viewProbe.context.skillPath; view_range = @(1, 2); extra = $true })
     $invalidViewProbe = New-TestExecutionPolicy -Name 'invalid view policy hook contract' -MaxCalls 1 -WithSkill
+    [string] $invalidViewPath = $invalidViewProbe.context.skillPath
+    [object[]] $invalidViewArguments = @(
+        [ordered]@{ Path = $invalidViewPath }
+        [ordered]@{ path = $invalidViewPath; View_Range = @(1, 2) }
+        [ordered]@{ path = $invalidViewPath; view_range = 1 }
+        [ordered]@{ path = $invalidViewPath; view_range = @() }
+        [ordered]@{ path = $invalidViewPath; view_range = @(1) }
+        [ordered]@{ path = $invalidViewPath; view_range = @(1, 2, 3) }
+        [ordered]@{ path = $invalidViewPath; view_range = @('1', 2) }
+        [ordered]@{ path = $invalidViewPath; view_range = @($true, 2) }
+        [ordered]@{ path = $invalidViewPath; view_range = @(0, 1) }
+        [ordered]@{ path = $invalidViewPath; view_range = @(1, 0) }
+        [ordered]@{ path = $invalidViewPath; view_range = @(2, 1) }
+        [ordered]@{ path = $invalidViewPath; view_range = @(7, 7) }
+        [ordered]@{ path = $invalidViewPath; view_range = @(1, 519) }
+        [ordered]@{ path = $invalidViewPath; view_range = @(1, [long]::MaxValue) }
+        [ordered]@{ path = $invalidViewPath; view_range = @(1, -2) }
+        [ordered]@{ path = $invalidViewPath; view_range = @(1, 2); extra = $true })
     foreach ($invalidViewArgument in $invalidViewArguments) {
-        $invalidViewArgument.path = $invalidViewProbe.context.skillPath
+        [bool] $viewEvidenceRejected = $false
+        try {
+            [void](Get-AgentEvalSkillViewRequest `
+                    -Arguments $invalidViewArgument `
+                    -Source (Get-AgentEvalSkillSource $invalidViewProbe.context.skillPath))
+        }
+        catch { $viewEvidenceRejected = $true }
+        Assert-True $viewEvidenceRejected 'Transcript validation accepted malformed view arguments.'
         $invalidView = Invoke-TestPolicyHook `
             -Hook $invalidViewProbe.preToolHook `
             -SessionId $invalidViewProbe.context.runId `
             -WorkingDirectory $invalidViewProbe.context.workspace `
             -ToolName view `
             -ToolArguments $invalidViewArgument
-        Assert-True ($invalidView.permissionDecision -eq 'deny') 'Malformed view_range was not denied.'
+        Assert-True ($invalidView.permissionDecision -eq 'deny') `
+            "Malformed view arguments were not denied: $($invalidViewArgument | ConvertTo-Json -Depth 4 -Compress)"
     }
 
     [int] $truncatedLength = $viewSource.text.IndexOf('é', [StringComparison]::Ordinal) + 1
@@ -918,7 +1005,10 @@ try {
             'answer-only', 'answer-before-analysis', 'completion-before-start', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
             'decoy-command', 'missing-call-id', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
             'denied-unknown-tool', 'powershell-tool-case',
-            'string-success', 'mismatched-operation', 'unknown-cli-schema', 'malformed-shell-wrapper',
+            'string-success', 'mismatched-operation', 'unknown-cli-schema', 'scalar-cli-result',
+            'event-data-member-case', 'tool-call-id-member-case', 'completion-result-member-case',
+            'completion-success-member-case', 'answer-content-member-case',
+            'result-exit-code-member-case', 'model-member-case', 'malformed-shell-wrapper',
             'nonzero-shell-wrapper', 'mismatched-shell-content', 'command-member-case',
             'description-member-case', 'mode-member-case', 'missing-command-argument',
             'missing-description-argument', 'invalid-command-type', 'invalid-mode-type', 'async-mode',
@@ -954,6 +1044,14 @@ try {
         -ExpectedMessage 'unknown event type' `
         -ExpectedRawText '"type":"RESULT"'
     Assert-FakeRunThrows -Name 'mutated bundle' -Mode mutated-bundle -ExpectedMessage 'input attestation failed'
+    Assert-FakeRunThrows `
+        -Name 'mutated execution policy' `
+        -Mode mutated-execution-policy `
+        -ExpectedMessage 'input attestation failed'
+    Assert-FakeRunThrows `
+        -Name 'mutated hook configuration' `
+        -Mode mutated-hook-configuration `
+        -ExpectedMessage 'input attestation failed'
     $immutableGrowthStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     Assert-FakeRunThrows `
         -Name 'oversized immutable' `
@@ -1017,7 +1115,8 @@ try {
             'missing-skill-read', 'missing-skill-discovery', 'wrong-skill-hash',
             'failed-skill-load', 'missing-skill-context', 'skill-extra-context',
             'skill-ledger-mismatch', 'skill-tool-case', 'skill-argument-name-case',
-            'skill-argument-value-case', 'skill-view-altered',
+            'skill-argument-value-case', 'skill-discovery-name-case',
+            'skill-discovery-source-case', 'skill-context-role-case', 'skill-view-altered',
             'answer-before-skill-context', 'skill-context-before-completion')) {
         $negative = Invoke-FakeRun -Name "skill $mode" -Mode $mode -Arm cli-skill
         Assert-True ($negative.iterations[0].success -eq $false) "Fake skill mode '$mode' unexpectedly passed."
@@ -1335,6 +1434,10 @@ try {
     }
     catch { $reparseRejected = $_.Exception.Message.Contains('reparse point', [StringComparison]::Ordinal) }
     Assert-True $reparseRejected 'Prelaunch reparse-point input was not rejected.'
+    [bool] $reparseAncestorRejected = $false
+    try { Assert-AgentEvalNoReparseAncestor -Path (Join-Path $reparseRoot 'linked/future/run') }
+    catch { $reparseAncestorRejected = $_.Exception.Message.Contains('reparse point', [StringComparison]::Ordinal) }
+    Assert-True $reparseAncestorRejected 'Strict workspace ancestry accepted a pre-existing reparse point.'
     [bool] $usageDescendantReparseRejected = $false
     try {
         [void](Get-AgentEvalDirectoryUsage `
@@ -1485,6 +1588,37 @@ try {
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate baseline -ResultsDir $comparisonDirectory
     Assert-True ($LASTEXITCODE -eq 1) 'A comparison using the same label for both sides was accepted.'
 
+    $zeroTokenDirectory = Join-Path $temporaryRoot 'zero-token baseline comparison'
+    [System.IO.Directory]::CreateDirectory($zeroTokenDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $zeroToken = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        if ($zeroToken.label -ceq 'baseline') {
+            foreach ($iteration in @($zeroToken.iterations)) { $iteration.tokens = 0 }
+            $zeroToken.summary[0].MedTokens = 0
+        }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $zeroTokenDirectory $resultPath.Name),
+            (($zeroToken | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $zeroTokenDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'Positive candidate tokens compared neutral against a zero-token baseline.'
+
+    $filenameLabelDirectory = Join-Path $temporaryRoot 'filename label comparison'
+    [System.IO.Directory]::CreateDirectory($filenameLabelDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        Copy-Item -LiteralPath $resultPath.FullName -Destination $filenameLabelDirectory
+    }
+    $candidatePath = Get-ChildItem -LiteralPath $filenameLabelDirectory -Filter '*-candidate-*.json' | Select-Object -First 1
+    $mislabeled = Get-Content -LiteralPath $candidatePath.FullName -Raw | ConvertFrom-Json
+    $mislabeled.timestamp = '9999-12-31T23:59:59Z'
+    [System.IO.File]::WriteAllText(
+        (Join-Path $filenameLabelDirectory 'copilot-expected-model-baseline-99991231-235959-999.json'),
+        (($mislabeled | ConvertTo-Json -Depth 20) + "`n"),
+        [System.Text.UTF8Encoding]::new($false))
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $filenameLabelDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'A filename label that disagreed with its payload label was accepted.'
+
     $defaultMcpDirectory = Join-Path $temporaryRoot 'default mcp comparison'
     [System.IO.Directory]::CreateDirectory($defaultMcpDirectory) | Out-Null
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
@@ -1582,6 +1716,7 @@ try {
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
         $legacy = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
         $legacy.schemaVersion = 2
+        $legacy.arm = 'mcp'
         $legacy.model = 'expected-model'
         $legacy.PSObject.Properties.Remove('n')
         $legacy.PSObject.Properties.Remove('maxSteps')
@@ -1597,7 +1732,9 @@ try {
         foreach ($case in @(
             'malformed', 'empty-summary', 'duplicate-task', 'wrong-field-type',
             'summary-success-mismatch', 'summary-median-mismatch', 'missing-strict-expected-model',
-            'wrong-success-count', 'oversized-n', 'oversized-max-steps')) {
+            'wrong-success-count', 'oversized-n', 'oversized-max-steps',
+            'scalar-summary', 'scalar-iterations', 'scalar-observed-distinct',
+            'scalar-observed-models', 'strict-schema-v2')) {
         $caseDirectory = Join-Path $temporaryRoot "comparison $case"
         [System.IO.Directory]::CreateDirectory($caseDirectory) | Out-Null
         foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
@@ -1619,6 +1756,17 @@ try {
                 'wrong-success-count' { $invalid.summary[0].SuccessCount = 0 }
                 'oversized-n' { $invalid.n = 1001 }
                 'oversized-max-steps' { $invalid.maxSteps = 65 }
+                'scalar-summary' { $invalid.summary = $invalid.summary[0] }
+                'scalar-iterations' { $invalid.iterations = $invalid.iterations[0] }
+                'scalar-observed-distinct' { $invalid.model.observedDistinct = $invalid.model.observed }
+                'scalar-observed-models' { $invalid.iterations[0].observedModels = $invalid.iterations[0].observedModel }
+                'strict-schema-v2' {
+                    $invalid.schemaVersion = 2
+                    $invalid.model = 'expected-model'
+                    $invalid.PSObject.Properties.Remove('n')
+                    $invalid.PSObject.Properties.Remove('maxSteps')
+                    $invalid.PSObject.Properties.Remove('iterations')
+                }
             }
             [System.IO.File]::WriteAllText(
                 $casePath.FullName,

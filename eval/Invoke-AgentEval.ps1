@@ -637,13 +637,14 @@ function Test-AgentEvalCliResult($Result, [string] $ExpectedOperation) {
     if ([string]::IsNullOrWhiteSpace($resultText)) { return $false }
     try { $payload = $resultText | ConvertFrom-Json }
     catch { return $false }
+    if ($payload -isnot [pscustomobject]) { return $false }
     [string[]] $members = @($payload.PSObject.Properties.Name)
-    if ($members -notcontains 'schemaVersion' -or $payload.schemaVersion -notin @(17, 17L) -or
-        $members -notcontains 'context' -or $null -eq $payload.context -or
-        @($payload.context.PSObject.Properties.Name) -notcontains 'operation' -or
+    if ($members -cnotcontains 'schemaVersion' -or $payload.schemaVersion -notin @(17, 17L) -or
+        $members -cnotcontains 'context' -or $payload.context -isnot [pscustomobject] -or
+        @($payload.context.PSObject.Properties.Name) -cnotcontains 'operation' -or
         $payload.context.operation -isnot [string] -or
         -not [string]::Equals([string]$payload.context.operation, $ExpectedOperation, [StringComparison]::Ordinal) -or
-        $members -notcontains 'result' -or $null -eq $payload.result) {
+        $members -cnotcontains 'result' -or $payload.result -isnot [pscustomobject]) {
         return $false
     }
     return $true
@@ -653,7 +654,7 @@ function Test-AgentEvalHostUsage($Usage) {
     if ($null -eq $Usage -or $Usage -is [string] -or $Usage -is [ValueType]) { return $false }
     [string[]] $members = @($Usage.PSObject.Properties | ForEach-Object { $_.Name })
     foreach ($member in @('premiumRequests', 'totalApiDurationMs', 'sessionDurationMs')) {
-        if ($members -notcontains $member) { return $false }
+        if ($members -cnotcontains $member) { return $false }
     }
     [bool] $premiumRequestsTypeValid = $Usage.premiumRequests -is [byte] -or
         $Usage.premiumRequests -is [sbyte] -or
@@ -672,9 +673,9 @@ function Test-AgentEvalHostUsage($Usage) {
         return $false
     }
     foreach ($member in @('totalApiDurationMs', 'sessionDurationMs')) {
-        if ($members -notcontains $member -or
+        if ($members -cnotcontains $member -or
             ($Usage.$member -isnot [int] -and $Usage.$member -isnot [long]) -or
-            [long]$Usage.$member -lt 0) {
+            [long]$Usage.$member -lt 0 -or [long]$Usage.$member -gt [int]::MaxValue) {
             return $false
         }
     }
@@ -764,10 +765,10 @@ function Get-AgentEvalStrictRunProjection {
 
 function Test-AgentEvalStringMultiset([string[]] $Left, [string[]] $Right) {
     if ($Left.Count -ne $Right.Count) { return $false }
-    [string[]] $leftSorted = @($Left | Sort-Object)
-    [string[]] $rightSorted = @($Right | Sort-Object)
+    [string[]] $leftSorted = @($Left | Sort-Object -CaseSensitive)
+    [string[]] $rightSorted = @($Right | Sort-Object -CaseSensitive)
     for ($index = 0; $index -lt $leftSorted.Count; $index++) {
-        if (-not [string]::Equals($leftSorted[$index], $rightSorted[$index], [StringComparison]::OrdinalIgnoreCase)) {
+        if (-not [string]::Equals($leftSorted[$index], $rightSorted[$index], [StringComparison]::Ordinal)) {
             return $false
         }
     }
@@ -775,21 +776,21 @@ function Test-AgentEvalStringMultiset([string[]] $Left, [string[]] $Right) {
 }
 
 function Test-AgentEvalPolicyDeniedCompletion($Completion) {
-    if ($null -eq $Completion -or
-        @($Completion.PSObject.Properties.Name) -notcontains 'data' -or
-        $null -eq $Completion.data) {
+    if ($Completion -isnot [pscustomobject] -or
+        @($Completion.PSObject.Properties.Name) -cnotcontains 'data' -or
+        $Completion.data -isnot [pscustomobject]) {
         return $false
     }
     [string[]] $members = @($Completion.data.PSObject.Properties.Name)
-    if ($members -notcontains 'success' -or $Completion.data.success -isnot [bool] -or
-        $Completion.data.success -or $members -notcontains 'error' -or
-        $null -eq $Completion.data.error) {
+    if ($members -cnotcontains 'success' -or $Completion.data.success -isnot [bool] -or
+        $Completion.data.success -or $members -cnotcontains 'error' -or
+        $Completion.data.error -isnot [pscustomobject]) {
         return $false
     }
     [string[]] $errorMembers = @($Completion.data.error.PSObject.Properties.Name)
-    return $errorMembers -contains 'code' -and $Completion.data.error.code -is [string] -and
+    return $errorMembers -ccontains 'code' -and $Completion.data.error.code -is [string] -and
         [string]::Equals([string]$Completion.data.error.code, 'denied', [StringComparison]::Ordinal) -and
-        $errorMembers -contains 'message' -and $Completion.data.error.message -is [string] -and
+        $errorMembers -ccontains 'message' -and $Completion.data.error.message -is [string] -and
         ([string]$Completion.data.error.message).StartsWith(
             'Denied by preToolUse hook:', [StringComparison]::Ordinal)
 }
@@ -979,39 +980,42 @@ function Invoke-CopilotIteration {
         [System.Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
     for ($eventIndex = 0; $eventIndex -lt $events.Count; $eventIndex++) {
         $event = $events[$eventIndex]
-        if ($event.PSObject.Properties.Name -contains 'type' -and
-            $event.type -eq 'assistant.message' -and
-            $event.PSObject.Properties.Name -contains 'data') {
+        [string[]] $eventMembers = @($event.PSObject.Properties.Name)
+        if ($eventMembers -ccontains 'type' -and
+            [string]::Equals([string]$event.type, 'assistant.message', [StringComparison]::Ordinal) -and
+            $eventMembers -ccontains 'data' -and $event.data -is [pscustomobject]) {
             $answerEvent = $event
             $answerEventIndex = $eventIndex
         }
-        if ($event.PSObject.Properties.Name -contains 'type' -and
-            $event.type -eq 'model.message' -and
-            $event.PSObject.Properties.Name -contains 'data' -and
-            $event.data.message.role -eq 'user' -and
+        if ($eventMembers -ccontains 'type' -and
+            [string]::Equals([string]$event.type, 'model.message', [StringComparison]::Ordinal) -and
+            $eventMembers -ccontains 'data' -and $event.data -is [pscustomobject] -and
+            @($event.data.PSObject.Properties.Name) -ccontains 'message' -and
+            $event.data.message -is [pscustomobject] -and
+            [string]::Equals([string]$event.data.message.role, 'user', [StringComparison]::Ordinal) -and
             $event.data.message.content -is [string] -and
             ([string]$event.data.message.content).StartsWith(
                 '<skill-context name="filtrace">', [StringComparison]::Ordinal)) {
             $skillContextEventIndex = $eventIndex
         }
-        if ($event.PSObject.Properties.Name -contains 'type' -and
-            $event.type -eq 'tool.execution_start' -and
-            $event.PSObject.Properties.Name -contains 'data' -and
-            $event.data.PSObject.Properties.Name -contains 'toolCallId' -and
+        if ($eventMembers -ccontains 'type' -and
+            [string]::Equals([string]$event.type, 'tool.execution_start', [StringComparison]::Ordinal) -and
+            $eventMembers -ccontains 'data' -and $event.data -is [pscustomobject] -and
+            $event.data.PSObject.Properties.Name -ccontains 'toolCallId' -and
             $event.data.toolCallId -is [string] -and
             -not [string]::IsNullOrWhiteSpace([string]$event.data.toolCallId)) {
             [void]$startEventIndexes.TryAdd([string]$event.data.toolCallId, $eventIndex)
         }
-        if ($event.PSObject.Properties.Name -contains 'type' -and
-            $event.type -eq 'tool.execution_complete' -and
-            $event.PSObject.Properties.Name -contains 'data' -and
-            $event.data.PSObject.Properties.Name -contains 'toolCallId' -and
+        if ($eventMembers -ccontains 'type' -and
+            [string]::Equals([string]$event.type, 'tool.execution_complete', [StringComparison]::Ordinal) -and
+            $eventMembers -ccontains 'data' -and $event.data -is [pscustomobject] -and
+            $event.data.PSObject.Properties.Name -ccontains 'toolCallId' -and
             $event.data.toolCallId -is [string] -and
             -not [string]::IsNullOrWhiteSpace([string]$event.data.toolCallId)) {
             [void]$completionEventIndexes.TryAdd([string]$event.data.toolCallId, $eventIndex)
         }
     }
-    $answer = if ($answerEvent -and $answerEvent.data.PSObject.Properties.Name -contains 'content') {
+    $answer = if ($answerEvent -and $answerEvent.data.PSObject.Properties.Name -ccontains 'content') {
         & $mask ([string]$answerEvent.data.content)
     }
     else {
@@ -1019,26 +1023,31 @@ function Invoke-CopilotIteration {
     }
     $starts = if ($arm -eq 'mcp') {
         @($events | Where-Object {
-            $_.PSObject.Properties.Name -contains 'type' -and $_.type -eq 'tool.execution_start' -and
-            $_.PSObject.Properties.Name -contains 'data' -and
-            $_.data.PSObject.Properties.Name -contains 'mcpServerName' -and
-            $_.data.mcpServerName -eq 'filtrace'
+            $_.PSObject.Properties.Name -ccontains 'type' -and
+            [string]::Equals([string]$_.type, 'tool.execution_start', [StringComparison]::Ordinal) -and
+            $_.PSObject.Properties.Name -ccontains 'data' -and $_.data -is [pscustomobject] -and
+            $_.data.PSObject.Properties.Name -ccontains 'mcpServerName' -and
+            [string]::Equals([string]$_.data.mcpServerName, 'filtrace', [StringComparison]::Ordinal)
         })
     }
     else {
         @($events | Where-Object {
-            $_.PSObject.Properties.Name -contains 'type' -and $_.type -eq 'tool.execution_start' -and
-            $_.PSObject.Properties.Name -contains 'data'
+            $_.PSObject.Properties.Name -ccontains 'type' -and
+            [string]::Equals([string]$_.type, 'tool.execution_start', [StringComparison]::Ordinal) -and
+            $_.PSObject.Properties.Name -ccontains 'data' -and $_.data -is [pscustomobject]
         })
     }
     $starts = @($starts)
     $allCompletes = @($events | Where-Object {
-        $_.PSObject.Properties.Name -contains 'type' -and $_.type -eq 'tool.execution_complete' -and
-        $_.PSObject.Properties.Name -contains 'data'
+        $_.PSObject.Properties.Name -ccontains 'type' -and
+        [string]::Equals([string]$_.type, 'tool.execution_complete', [StringComparison]::Ordinal) -and
+        $_.PSObject.Properties.Name -ccontains 'data' -and $_.data -is [pscustomobject]
     })
     $completes = if ($arm -eq 'mcp') {
-        [string[]] $mcpCallIds = @($starts | ForEach-Object { [string]$_.data.toolCallId })
-        @($allCompletes | Where-Object { $mcpCallIds -contains [string]$_.data.toolCallId })
+        [System.Collections.Generic.HashSet[string]] $mcpCallIds =
+            [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($start in $starts) { [void]$mcpCallIds.Add([string]$start.data.toolCallId) }
+        @($allCompletes | Where-Object { $mcpCallIds.Contains([string]$_.data.toolCallId) })
     }
     else {
         $allCompletes
@@ -1047,7 +1056,7 @@ function Invoke-CopilotIteration {
     [System.Collections.Generic.HashSet[string]] $completionIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     [bool] $evidenceValid = $true
     foreach ($start in $starts) {
-        [string] $startId = if (@($start.data.PSObject.Properties.Name) -contains 'toolCallId') { [string]$start.data.toolCallId } else { '' }
+        [string] $startId = if (@($start.data.PSObject.Properties.Name) -ccontains 'toolCallId') { [string]$start.data.toolCallId } else { '' }
         if ([string]::IsNullOrWhiteSpace($startId) -or -not $startIds.Add($startId)) {
             $evidenceValid = $false
         }
@@ -1062,7 +1071,7 @@ function Invoke-CopilotIteration {
         }
     }
     foreach ($complete in $completes) {
-        [string] $completionId = if (@($complete.data.PSObject.Properties.Name) -contains 'toolCallId') { [string]$complete.data.toolCallId } else { '' }
+        [string] $completionId = if (@($complete.data.PSObject.Properties.Name) -ccontains 'toolCallId') { [string]$complete.data.toolCallId } else { '' }
         if ([string]::IsNullOrWhiteSpace($completionId) -or -not $completionIds.Add($completionId) -or
             -not $startIds.Contains($completionId)) {
             $evidenceValid = $false
@@ -1114,18 +1123,19 @@ function Invoke-CopilotIteration {
     $skillSource = if ($context.skillPath) { Get-AgentEvalSkillSource $context.skillPath } else { $null }
     foreach ($s in $starts) {
         $startMembers = @($s.data.PSObject.Properties.Name)
-        $callId = if ($startMembers -contains 'toolCallId') { [string]$s.data.toolCallId } else { '' }
+        $callId = if ($startMembers -ccontains 'toolCallId') { [string]$s.data.toolCallId } else { '' }
         $c = if ($callId) {
             $completes | Where-Object {
-                $_.data.PSObject.Properties.Name -contains 'toolCallId' -and $_.data.toolCallId -eq $callId
+                $_.data.PSObject.Properties.Name -ccontains 'toolCallId' -and
+                [string]::Equals([string]$_.data.toolCallId, $callId, [StringComparison]::Ordinal)
             } | Select-Object -First 1
         }
         else {
             $null
         }
         $completionMembers = if ($c) { @($c.data.PSObject.Properties.Name) } else { @() }
-        $completionResult = if ($completionMembers -contains 'result') { $c.data.result } else { $null }
-        $completionSucceeded = $completionMembers -contains 'success' -and
+        $completionResult = if ($completionMembers -ccontains 'result') { $c.data.result } else { $null }
+        $completionSucceeded = $completionMembers -ccontains 'success' -and
             $c.data.success -is [bool] -and $c.data.success
         $completionDeniedByPolicy = Test-AgentEvalPolicyDeniedCompletion $c
         $split = Measure-McpResultTokens -Result $completionResult
@@ -1142,8 +1152,8 @@ function Invoke-CopilotIteration {
         $operationName = ''
         $evidenceKind = 'other'
         if ($arm -ne 'mcp') {
-            $arguments = if ($startMembers -contains 'arguments') { $s.data.arguments } else { $null }
-            [string] $toolName = if ($startMembers -contains 'toolName') { [string]$s.data.toolName } else { '' }
+            $arguments = if ($startMembers -ccontains 'arguments') { $s.data.arguments } else { $null }
+            [string] $toolName = if ($startMembers -ccontains 'toolName') { [string]$s.data.toolName } else { '' }
                 $literalCommand = if ([string]::Equals(
                     $toolName, 'powershell', [StringComparison]::Ordinal)) {
                 Get-AgentEvalLiteralCommand `
@@ -1329,30 +1339,32 @@ function Invoke-CopilotIteration {
         }
     }
     $resultEvents = @($events | Where-Object {
-        $_.PSObject.Properties.Name -contains 'type' -and $_.type -eq 'result'
+        $_.PSObject.Properties.Name -ccontains 'type' -and
+        [string]::Equals([string]$_.type, 'result', [StringComparison]::Ordinal)
     })
     if ($resultEvents.Count -ne 1) { $evidenceValid = $false }
     $result = $resultEvents | Select-Object -First 1
     $resultMembers = if ($result) { @($result.PSObject.Properties.Name) } else { @() }
-    $resultExitCode = if ($resultMembers -contains 'exitCode' -and
-        $result.exitCode -in @([int]$result.exitCode, [long]$result.exitCode) -and
-        ($result.exitCode -is [int] -or $result.exitCode -is [long])) {
+    $resultExitCode = if ($resultMembers -ccontains 'exitCode' -and
+        ($result.exitCode -is [int] -or $result.exitCode -is [long]) -and
+        [long]$result.exitCode -ge [int]::MinValue -and [long]$result.exitCode -le [int]::MaxValue) {
         [int]$result.exitCode
     }
     else {
         $null
     }
     $modelEvents = @($events | Where-Object {
-        $_.PSObject.Properties.Name -contains 'type' -and $_.type -eq 'session.tools_updated' -and
-        $_.PSObject.Properties.Name -contains 'data'
+        $_.PSObject.Properties.Name -ccontains 'type' -and
+        [string]::Equals([string]$_.type, 'session.tools_updated', [StringComparison]::Ordinal) -and
+        $_.PSObject.Properties.Name -ccontains 'data' -and $_.data -is [pscustomobject]
     })
     $iterationObservedModels = @($modelEvents | Where-Object {
-        $_.data.PSObject.Properties.Name -contains 'model' -and
+        $_.data.PSObject.Properties.Name -ccontains 'model' -and
         $_.data.model -is [string] -and -not [string]::IsNullOrWhiteSpace([string]$_.data.model)
     } | ForEach-Object { [string]$_.data.model } | Sort-Object -CaseSensitive -Unique)
     $m = if ($iterationObservedModels.Count -eq 1) { $iterationObservedModels[0] } else { $null }
     if ($m) { $script:CopilotActualModel = $m }
-    $usage = if ($resultMembers -contains 'usage') { $result.usage } else { $null }
+    $usage = if ($resultMembers -ccontains 'usage') { $result.usage } else { $null }
     [bool] $usageValid = Test-AgentEvalHostUsage $usage
     if ($null -ne $usage -and -not $usageValid) { $evidenceValid = $false }
     if ($usageFile.available -and
@@ -1370,7 +1382,7 @@ function Invoke-CopilotIteration {
     elseif (-not $evidenceValid) { $note = 'copilot transcript evidence was malformed or included an unexpected tool attempt' }
     elseif (-not $hasUsageEvidence) { $note = 'copilot host reported no valid usage evidence' }
     elseif ($filtraceCalls -eq 0) { $note = 'no local filtrace tool call' }
-    $wallMs = if ($usage -and $usage.PSObject.Properties.Name -contains 'sessionDurationMs' -and $usage.sessionDurationMs) {
+    $wallMs = if ($usageValid -and $usage.sessionDurationMs) {
         [int]$usage.sessionDurationMs
     }
     else {

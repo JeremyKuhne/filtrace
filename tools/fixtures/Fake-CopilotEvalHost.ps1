@@ -217,9 +217,9 @@ $answer = if ($mode -eq 'wrong-answer') { 'There were 6 garbage collections.' } 
 $events = [System.Collections.Generic.List[object]]::new()
 $reportedSkills = if ($skillPath -and $mode -ne 'missing-skill-discovery') {
     @([ordered]@{
-            name = 'filtrace'
+            name = if ($mode -eq 'skill-discovery-name-case') { 'FILTRACE' } else { 'filtrace' }
             commandName = 'filtrace'
-            source = 'project'
+            source = if ($mode -eq 'skill-discovery-source-case') { 'PROJECT' } else { 'project' }
             enabled = $true
             path = $skillPath
         })
@@ -320,7 +320,7 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
                 type = 'model.message'
                 data = [ordered]@{
                     message = [ordered]@{
-                        role = 'user'
+                        role = if ($mode -eq 'skill-context-role-case') { 'USER' } else { 'user' }
                         content = "<skill-context name=`"filtrace`">`nBase directory for this skill: $skillDirectory$relatedSection$extraContext`n`n$contextBody`n</skill-context>"
                     }
                 }
@@ -532,7 +532,8 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
                 success = if ($mode -eq 'string-success') { 'true' } else { $completionSucceeded }
                 result = if ($completionSucceeded) {
                     [int] $schemaVersion = if ($mode -eq 'unknown-cli-schema') { 16 } else { 17 }
-                    [string] $json = "{`"schemaVersion`":$schemaVersion,`"context`":{`"operation`":`"$reportedOperation`"},`"result`":{`"gcCount`":7}}"
+                    [string] $resultJson = if ($mode -eq 'scalar-cli-result') { '"forged"' } else { '{"gcCount":7}' }
+                    [string] $json = "{`"schemaVersion`":$schemaVersion,`"context`":{`"operation`":`"$reportedOperation`"},`"result`":$resultJson}"
                     [string] $content = switch ($mode) {
                         'malformed-shell-wrapper' { "prefix`n$json`n<shellId: 0 completed with exit code 0>"; break }
                         'nonzero-shell-wrapper' { "$json`n<shellId: 0 completed with exit code 1>"; break }
@@ -568,7 +569,7 @@ if ($mode -ne 'missing-all-usage') {
     $resultEvent.usage = [ordered]@{
         premiumRequests = if ($mode -eq 'fractional-premium-usage') { 0.33 } else { 1 }
         totalApiDurationMs = 20
-        sessionDurationMs = 25
+        sessionDurationMs = if ($mode -eq 'oversized-session-duration') { [long][int]::MaxValue + 1 } else { 25 }
     }
 }
 $events.Add($resultEvent)
@@ -640,10 +641,54 @@ if ($mode -in @('completion-before-start', 'skill-context-before-completion')) {
     }
 }
 
+if ($mode -eq 'mutated-execution-policy') {
+    [int] $policyPathIndex = [Array]::IndexOf([object[]]$preToolHook[0].args, '-PolicyPath')
+    if ($policyPathIndex -lt 0) { throw 'Fake host could not locate the execution policy path.' }
+    [string] $policyPath = [string]$preToolHook[0].args[$policyPathIndex + 1]
+    [string] $policyText = [System.IO.File]::ReadAllText($policyPath)
+    [System.IO.File]::WriteAllText(
+        $policyPath,
+        $policyText.Replace('"schemaVersion": 4', '"schemaVersion": 5'),
+        [System.Text.UTF8Encoding]::new($false))
+}
+if ($mode -eq 'mutated-hook-configuration') {
+    [string] $hookText = [System.IO.File]::ReadAllText($hookConfigurationPath)
+    [System.IO.File]::WriteAllText(
+        $hookConfigurationPath,
+        $hookText.Replace('"version": 1', '"version": 2'),
+        [System.Text.UTF8Encoding]::new($false))
+}
+
 foreach ($hostEvent in $events) {
     if ($mode -eq 'malformed-jsonl') {
         [Console]::Out.WriteLine('{')
         $mode = 'malformed-jsonl-emitted'
     }
-    $hostEvent | ConvertTo-Json -Depth 8 -Compress
+    [string] $eventJson = [string]($hostEvent | ConvertTo-Json -Depth 8 -Compress)
+    if ($mode -eq 'event-data-member-case' -and $hostEvent.type -eq 'tool.execution_start' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"data":', '"Data":')
+    }
+    elseif ($mode -eq 'tool-call-id-member-case' -and $hostEvent.type -eq 'tool.execution_start' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"toolCallId":', '"ToolCallId":')
+    }
+    elseif ($mode -eq 'completion-result-member-case' -and $hostEvent.type -eq 'tool.execution_complete' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"result":', '"Result":')
+    }
+    elseif ($mode -eq 'completion-success-member-case' -and $hostEvent.type -eq 'tool.execution_complete' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"success":', '"Success":')
+    }
+    elseif ($mode -eq 'answer-content-member-case' -and $hostEvent.type -eq 'assistant.message') {
+        $eventJson = $eventJson.Replace('"content":', '"Content":')
+    }
+    elseif ($mode -eq 'result-exit-code-member-case' -and $hostEvent.type -eq 'result') {
+        $eventJson = $eventJson.Replace('"exitCode":', '"ExitCode":')
+    }
+    elseif ($mode -eq 'model-member-case' -and $hostEvent.type -eq 'session.tools_updated') {
+        $eventJson = $eventJson.Replace('"model":', '"Model":')
+    }
+    $eventJson
 }

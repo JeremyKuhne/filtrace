@@ -77,6 +77,14 @@ function Test-FiniteNumber($Value) {
   return -not [double]::IsNaN($number) -and -not [double]::IsInfinity($number)
 }
 
+function Test-JsonObject($Value) {
+  return $null -ne $Value -and $Value -is [pscustomobject]
+}
+
+function Test-JsonArray($Value) {
+  return $Value -is [object[]]
+}
+
 function Get-ResultMedian([object[]] $Values) {
   [long[]] $sorted = @($Values | ForEach-Object { [long]$_ } | Sort-Object)
   [int] $count = $sorted.Count
@@ -86,10 +94,11 @@ function Get-ResultMedian([object[]] $Values) {
 }
 
 function Assert-ResultPayload($Payload, [string] $Path) {
+  if (-not (Test-JsonObject $Payload)) { throw "Result '$Path' is not an object." }
   [string[]] $requiredRoot = @('schemaVersion', 'host', 'arm', 'label', 'timestamp', 'summary')
   [string[]] $rootMembers = @($Payload.PSObject.Properties.Name)
   foreach ($member in $requiredRoot) {
-    if ($rootMembers -notcontains $member) { throw "Result '$Path' is missing '$member'." }
+    if ($rootMembers -cnotcontains $member) { throw "Result '$Path' is missing '$member'." }
   }
 
   if ($Payload.schemaVersion -isnot [long] -and $Payload.schemaVersion -isnot [int]) {
@@ -111,13 +120,15 @@ function Assert-ResultPayload($Payload, [string] $Path) {
     throw "Result '$Path' has an invalid timestamp."
   }
 
-  [object[]] $summary = @($Payload.summary)
+  if (-not (Test-JsonArray $Payload.summary)) { throw "Result '$Path' summary is not an array." }
+  [object[]] $summary = $Payload.summary
   if ($summary.Count -eq 0) { throw "Result '$Path' has an empty summary." }
   [System.Collections.Generic.HashSet[string]] $tasks = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
   foreach ($row in $summary) {
+    if (-not (Test-JsonObject $row)) { throw "Result '$Path' has a non-object summary row." }
     [string[]] $rowMembers = @($row.PSObject.Properties.Name)
     foreach ($member in @('Task', 'Success%', 'MedCalls', 'MedTokens', 'MedMs')) {
-      if ($rowMembers -notcontains $member) { throw "Result '$Path' summary row is missing '$member'." }
+      if ($rowMembers -cnotcontains $member) { throw "Result '$Path' summary row is missing '$member'." }
     }
     if ($row.Task -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$row.Task)) {
       throw "Result '$Path' has an invalid summary task."
@@ -139,7 +150,11 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   }
 
   if ($schemaVersion -eq 2) {
-    if ($rootMembers -notcontains 'model' -or $Payload.model -isnot [string] -or
+    [bool] $strictCopilotCliArm = [string]::Equals([string]$Payload.host, 'copilot', [StringComparison]::Ordinal) -and
+      ([string]::Equals([string]$Payload.arm, 'cli', [StringComparison]::Ordinal) -or
+        [string]::Equals([string]$Payload.arm, 'cli-skill', [StringComparison]::Ordinal))
+    if ($strictCopilotCliArm) { throw "Legacy result '$Path' cannot represent a strict Copilot CLI arm." }
+    if ($rootMembers -cnotcontains 'model' -or $Payload.model -isnot [string] -or
       [string]::IsNullOrWhiteSpace([string]$Payload.model)) {
       throw "Legacy result '$Path' has an invalid model."
     }
@@ -147,11 +162,12 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   }
 
   foreach ($member in @('model', 'n', 'maxSteps', 'iterations')) {
-    if ($rootMembers -notcontains $member) { throw "Schema-v3 result '$Path' is missing '$member'." }
+    if ($rootMembers -cnotcontains $member) { throw "Schema-v3 result '$Path' is missing '$member'." }
   }
+  if (-not (Test-JsonObject $Payload.model)) { throw "Schema-v3 result '$Path' model is not an object." }
   [string[]] $modelMembers = @($Payload.model.PSObject.Properties.Name)
   foreach ($member in @('requested', 'expected', 'observed', 'observedDistinct', 'verified')) {
-    if ($modelMembers -notcontains $member) { throw "Schema-v3 result '$Path' model is missing '$member'." }
+    if ($modelMembers -cnotcontains $member) { throw "Schema-v3 result '$Path' model is missing '$member'." }
   }
   [bool] $defaultCopilotMcpModel = $null -eq $Payload.model.requested -and
     [string]::Equals([string]$Payload.host, 'copilot', [StringComparison]::Ordinal) -and
@@ -166,7 +182,10 @@ function Assert-ResultPayload($Payload, [string] $Path) {
     ($Payload.model.expected -is [string] -and
       -not [string]::IsNullOrWhiteSpace([string]$Payload.model.expected) -and
       [string]::Equals([string]$Payload.model.expected, [string]$Payload.model.observed, [StringComparison]::Ordinal))
-  [object[]] $observedDistinct = @($Payload.model.observedDistinct)
+  if (-not (Test-JsonArray $Payload.model.observedDistinct)) {
+    throw "Schema-v3 result '$Path' model observedDistinct is not an array."
+  }
+  [object[]] $observedDistinct = $Payload.model.observedDistinct
   if ($Payload.model.observed -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.model.observed) -or
     $Payload.model.verified -isnot [bool] -or -not $Payload.model.verified -or
     (-not $defaultCopilotMcpModel -and -not $requestedModelMatches) -or -not $expectedModelMatches -or
@@ -179,7 +198,8 @@ function Assert-ResultPayload($Payload, [string] $Path) {
     throw "Schema-v3 result '$Path' has invalid iteration bounds."
   }
 
-  [object[]] $iterations = @($Payload.iterations)
+  if (-not (Test-JsonArray $Payload.iterations)) { throw "Schema-v3 result '$Path' iterations is not an array." }
+  [object[]] $iterations = $Payload.iterations
   if ($iterations.Count -ne ($tasks.Count * [int]$Payload.n)) {
     throw "Schema-v3 result '$Path' has an invalid iteration count."
   }
@@ -193,9 +213,10 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   }
   [System.Collections.Generic.HashSet[string]] $iterationKeys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
   foreach ($iteration in $iterations) {
+    if (-not (Test-JsonObject $iteration)) { throw "Schema-v3 result '$Path' has a non-object iteration." }
     [string[]] $iterationMembers = @($iteration.PSObject.Properties.Name)
     foreach ($member in @('task', 'iteration', 'success', 'calls', 'helpCalls', 'tokens', 'wallMs', 'observedModel', 'observedModels')) {
-      if ($iterationMembers -notcontains $member) { throw "Schema-v3 result '$Path' iteration is missing '$member'." }
+      if ($iterationMembers -cnotcontains $member) { throw "Schema-v3 result '$Path' iteration is missing '$member'." }
     }
     if ($iteration.task -isnot [string] -or -not $tasks.Contains([string]$iteration.task) -or
       $iteration.iteration -isnot [long] -and $iteration.iteration -isnot [int] -or
@@ -212,7 +233,10 @@ function Assert-ResultPayload($Payload, [string] $Path) {
         throw "Schema-v3 result '$Path' has an invalid iteration '$member'."
       }
     }
-    [object[]] $observedModels = @($iteration.observedModels)
+    if (-not (Test-JsonArray $iteration.observedModels)) {
+      throw "Schema-v3 result '$Path' iteration observedModels is not an array."
+    }
+    [object[]] $observedModels = $iteration.observedModels
     if ($iteration.observedModel -isnot [string] -or
       -not [string]::Equals([string]$iteration.observedModel, [string]$Payload.model.observed, [StringComparison]::Ordinal) -or
       $observedModels.Count -ne 1 -or $observedModels[0] -isnot [string] -or
@@ -230,7 +254,7 @@ function Assert-ResultPayload($Payload, [string] $Path) {
     }
     [int] $successCount = @($taskIterations | Where-Object { $_.success }).Count
     [string[]] $rowMembers = @($row.PSObject.Properties | ForEach-Object { $_.Name })
-    if ($rowMembers -contains 'SuccessCount') {
+    if ($rowMembers -ccontains 'SuccessCount') {
       if (($row.SuccessCount -isnot [int] -and $row.SuccessCount -isnot [long]) -or
         [long]$row.SuccessCount -ne $successCount) {
         throw "Schema-v3 result '$Path' summary 'SuccessCount' does not match task '$($row.Task)' iterations."
@@ -261,17 +285,26 @@ function Get-LabelFilePattern([string] $Label) {
 
 # Load only generated top-level result files for the requested labels. Any matching
 # file that cannot be parsed or validated makes the comparison unverifiable.
-[string[]] $labelPatterns = @((Get-LabelFilePattern $Baseline), (Get-LabelFilePattern $Candidate))
+$labelSelectors = @(
+  [pscustomobject]@{ label = $Baseline; pattern = Get-LabelFilePattern $Baseline }
+  [pscustomobject]@{ label = $Candidate; pattern = Get-LabelFilePattern $Candidate }
+)
+if ([string]::Equals($labelSelectors[0].pattern, $labelSelectors[1].pattern, [StringComparison]::Ordinal)) {
+  throw 'Baseline and candidate labels map to the same result filename pattern.'
+}
 $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Object {
   [string] $name = $_.Name
-  @($labelPatterns | Where-Object { $name -match $_ }).Count -gt 0
+  @($labelSelectors | Where-Object { $name -cmatch $_.pattern }).Count -gt 0
 } | ForEach-Object {
   [string] $path = $_.FullName
+  [string] $name = $_.Name
+  [object[]] $matchingLabels = @($labelSelectors | Where-Object { $name -cmatch $_.pattern })
+  if ($matchingLabels.Count -ne 1) { throw "Result '$path' has an ambiguous filename label." }
   try { $payload = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json }
   catch { throw "Unreadable matching result '$path': $($_.Exception.Message)" }
   Assert-ResultPayload -Payload $payload -Path $path
-  if (-not [string]::Equals([string]$payload.label, $Baseline, [StringComparison]::Ordinal) -and
-    -not [string]::Equals([string]$payload.label, $Candidate, [StringComparison]::Ordinal)) {
+  if (-not [string]::Equals(
+      [string]$payload.label, [string]$matchingLabels[0].label, [StringComparison]::Ordinal)) {
     throw "Result '$path' filename label does not match payload label '$($payload.label)'."
   }
   [string] $model = if ([int]$payload.schemaVersion -eq 2) { [string]$payload.model } else { [string]$payload.model.observed }
@@ -351,14 +384,21 @@ foreach ($run in $runs) {
         }
         $dc = [int]$cr.MedCalls - [int]$br.MedCalls
         $bt = [double]$br.MedTokens; $ct = [double]$cr.MedTokens
+        [bool] $unboundedTokenGrowth = $bt -eq 0 -and $ct -gt 0
         $dtFrac = if ($bt -gt 0) { ($ct - $bt) / $bt } else { 0 }
 
         $verdict = 'neutral'
         if ($ds -lt 0) { $verdict = 'REGRESSION'; $regressions++ }
-        elseif ($dtFrac -gt $TokenGrowthTolerance) { $verdict = 'REGRESSION'; $regressions++ }
+        elseif ($unboundedTokenGrowth -or $dtFrac -gt $TokenGrowthTolerance) { $verdict = 'REGRESSION'; $regressions++ }
         elseif ($ds -gt 0 -or $dtFrac -lt -0.05 -or $dc -lt 0) { $verdict = 'improved'; $improvements++ }
 
         $sign = if ($dtFrac -ge 0) { '+' } else { '' }
+        [string] $tokenDisplay = if ($unboundedTokenGrowth) {
+          '{0}->{1} (unbounded)' -f $br.MedTokens, $cr.MedTokens
+        }
+        else {
+          '{0}->{1} ({2}{3}%)' -f $br.MedTokens, $cr.MedTokens, $sign, [int][math]::Round($dtFrac * 100)
+        }
         [string] $successDisplay = if ($b.schemaVersion -eq 3) {
           '{0}/{1}->{2}/{3}' -f $br.SuccessCount, $b.n, $cr.SuccessCount, $c.n
         }
@@ -370,7 +410,7 @@ foreach ($run in $runs) {
                 Task    = $t
             Success = $successDisplay
                 Calls   = ('{0}->{1}' -f $br.MedCalls, $cr.MedCalls)
-                Tokens  = ('{0}->{1} ({2}{3}%)' -f $br.MedTokens, $cr.MedTokens, $sign, [int][math]::Round($dtFrac * 100))
+                Tokens  = $tokenDisplay
                 Verdict = $verdict
             })
     }
