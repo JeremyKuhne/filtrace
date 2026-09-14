@@ -50,6 +50,10 @@ function New-TestExecutionPolicy(
             'preserve  trailing  spaces  '
             'last line') -join "`r`n") + "`r`n"
         [System.IO.File]::WriteAllText($path, $skillText, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText(
+            (Join-Path $workspace '.agents/skills/filtrace/reference.md'),
+            "related detail`r`n",
+            [System.Text.UTF8Encoding]::new($false))
         $path
     }
     else { $null }
@@ -62,7 +66,12 @@ function New-TestExecutionPolicy(
         cliPath = $cliPath
         fixturePath = $fixturePath
         skillPath = $skillPath
-        skillInventory = if ($skillPath) { @([pscustomobject]@{ path = 'SKILL.md' }) } else { @() }
+        skillInventory = if ($skillPath) {
+            @(
+                [pscustomobject]@{ path = 'SKILL.md' }
+                [pscustomobject]@{ path = 'reference.md' })
+        }
+        else { @() }
         immutableFiles = [System.Collections.Generic.List[object]]::new()
     }
     $task = Get-Content -LiteralPath (Join-Path $root 'eval/tasks/04-gc-report.json') -Raw | ConvertFrom-Json
@@ -233,6 +242,23 @@ function Assert-FakeParserFailureArtifacts {
         "Fake parser case '$Name' did not retain the failing raw line."
 }
 
+function Read-TestResult([string] $Path) {
+    [string] $json = [System.IO.File]::ReadAllText($Path)
+    [System.Text.Json.JsonDocument] $document = [System.Text.Json.JsonDocument]::Parse($json)
+    try {
+        [System.Text.Json.JsonElement] $timestamp = $document.RootElement.GetProperty('timestamp')
+        if ($timestamp.ValueKind -ne [System.Text.Json.JsonValueKind]::String) {
+            throw "Test result '$Path' did not contain a string timestamp."
+        }
+        $result = $json | ConvertFrom-Json
+        $result.timestamp = $timestamp.GetString()
+        return $result
+    }
+    finally {
+        $document.Dispose()
+    }
+}
+
 try {
     [System.Text.RegularExpressions.RegexOptions] $modelPatternOptions =
         [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor
@@ -324,6 +350,20 @@ try {
     try { [void](ConvertFrom-AgentEvalJsonLines @('{"type":"RESULT","exitCode":0}')) }
     catch { $caseVariantEventRejected = $_.Exception.Message.Contains('unknown event type', [StringComparison]::Ordinal) }
     Assert-True $caseVariantEventRejected 'The isolated JSONL parser accepted a case-variant event type.'
+    [bool] $missingEventTypeRejected = $false
+    try { [void](ConvertFrom-AgentEvalJsonLines @('{"data":{}}')) }
+    catch {
+        $missingEventTypeRejected = $_.Exception.Message.Contains(
+            "without exactly one lowercase 'type' member", [StringComparison]::Ordinal)
+    }
+    Assert-True $missingEventTypeRejected 'The isolated JSONL parser accepted an event without a type member.'
+    [bool] $nonStringEventTypeRejected = $false
+    try { [void](ConvertFrom-AgentEvalJsonLines @('{"type":1}')) }
+    catch {
+        $nonStringEventTypeRejected = $_.Exception.Message.Contains(
+            'non-string type', [StringComparison]::Ordinal)
+    }
+    Assert-True $nonStringEventTypeRejected 'The isolated JSONL parser accepted a non-string event type.'
 
     $serializedLedger = (ConvertTo-AgentEvalResultJson ([ordered]@{
                 request = [ordered]@{ arguments = [ordered]@{ view_range = @(251, 500) } }
@@ -538,23 +578,34 @@ try {
         })
     Assert-True ($policyHashDecision.permissionDecision -eq 'deny') `
         'Policy hook accepted bytes that did not match the generated policy hash.'
-    foreach ($policyMutation in @('root-member-case', 'scalar-families', 'family-member-case', 'scalar-enum-values')) {
-        $invalidPolicyProbe = New-TestExecutionPolicy -Name "invalid policy $policyMutation" -MaxCalls 1
+    foreach ($policyMutation in @(
+            'root-member-case', 'scalar-families', 'family-member-case', 'scalar-enum-values',
+            'scalar-view-files', 'view-file-member-case')) {
+        $invalidPolicyProbe = New-TestExecutionPolicy `
+            -Name "invalid policy $policyMutation" `
+            -MaxCalls 1 `
+            -WithSkill
         [string] $invalidPolicyText = [System.IO.File]::ReadAllText($invalidPolicyProbe.executionPolicy.policyPath)
         if ($policyMutation -eq 'root-member-case') {
-            $invalidPolicyText = $invalidPolicyText.Replace('"schemaVersion": 4', '"SchemaVersion": 4')
+            $invalidPolicyText = $invalidPolicyText.Replace('"schemaVersion": 5', '"SchemaVersion": 5')
         }
         elseif ($policyMutation -eq 'family-member-case') {
             $invalidPolicyText = $invalidPolicyText.Replace('"verb": "report"', '"Verb": "report"')
+        }
+        elseif ($policyMutation -eq 'view-file-member-case') {
+            $invalidPolicyText = $invalidPolicyText.Replace('"path":', '"Path":')
         }
         else {
             $invalidPolicy = $invalidPolicyText | ConvertFrom-Json
             if ($policyMutation -eq 'scalar-families') {
                 $invalidPolicy.commandFamilies = $invalidPolicy.commandFamilies[0]
             }
-            else {
+            elseif ($policyMutation -eq 'scalar-enum-values') {
                 $enumOption = @($invalidPolicy.commandFamilies[0].options | Where-Object { $_.kind -eq 'enum' })[0]
                 $enumOption.values = $enumOption.values[0]
+            }
+            else {
+                $invalidPolicy.viewFiles = $invalidPolicy.viewFiles[0]
             }
             $invalidPolicyText = $invalidPolicy | ConvertTo-Json -Depth 8
         }
@@ -562,6 +613,12 @@ try {
             $invalidPolicyProbe.executionPolicy.policyPath,
             $invalidPolicyText,
             [System.Text.UTF8Encoding]::new($false))
+        [int] $expectedHashIndex = [Array]::IndexOf(
+            [object[]]$invalidPolicyProbe.preToolHook.args,
+            '-ExpectedPolicySha256')
+        Assert-True ($expectedHashIndex -ge 0) 'Invalid-policy probe did not contain an expected hash argument.'
+        $invalidPolicyProbe.preToolHook.args[$expectedHashIndex + 1] =
+            (Get-FileHash -LiteralPath $invalidPolicyProbe.executionPolicy.policyPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $invalidPolicyDecision = Invoke-TestPolicyHook `
             -Hook $invalidPolicyProbe.preToolHook `
             -SessionId $invalidPolicyProbe.context.runId `
@@ -914,7 +971,16 @@ try {
         'Beyond-EOF view did not clamp bytes while preserving its exact requested argument hash.'
     Assert-True (@($boundedViewState.viewRequests[3].arguments.view_range)[1] -eq 7) `
         'View policy ledger normalized the requested end line instead of preserving it.'
-    [string] $otherViewPath = Join-Path (Split-Path -Parent $viewProbe.context.skillPath) 'reference.md'
+    $relatedViewProbe = New-TestExecutionPolicy -Name 'related view policy hook contract' -MaxCalls 1 -WithSkill
+    [string] $relatedViewPath = Join-Path (Split-Path -Parent $relatedViewProbe.context.skillPath) 'reference.md'
+    $relatedView = Invoke-TestPolicyHook `
+        -Hook $relatedViewProbe.preToolHook `
+        -SessionId $relatedViewProbe.context.runId `
+        -WorkingDirectory $relatedViewProbe.context.workspace `
+        -ToolName view `
+        -ToolArguments ([ordered]@{ path = $relatedViewPath })
+    Assert-True ($relatedView.permissionDecision -eq 'allow') 'Attested related skill file view was denied.'
+    [string] $otherViewPath = Join-Path (Split-Path -Parent $viewProbe.context.skillPath) 'unlisted.md'
     [System.IO.File]::WriteAllText($otherViewPath, 'not the selected skill entry point')
     $otherView = Invoke-TestPolicyHook `
         -Hook $viewProbe.preToolHook `
@@ -1152,10 +1218,18 @@ try {
         'Skill arm unexpectedly disabled project customizations.'
     Assert-True (@($skillSuccess.iterations[0].execution.isolation.availableTools) -contains 'skill') `
         'Skill arm did not expose the native skill tool.'
+    Assert-True (@($skillSuccess.iterations[0].execution.isolation.availableTools) -contains 'view') `
+        'Skill arm did not expose bounded related-file views.'
     $skillViewSuccess = Invoke-FakeRun -Name 'skill view success' -Mode skill-view-success -Arm cli-skill
     Assert-True ($skillViewSuccess.iterations[0].success -eq $true -and
         @($skillViewSuccess.iterations[0].transcript | Where-Object { $_.kind -eq 'skill-read' }).Count -eq 1) `
-        'An exact allowed SKILL.md view did not remain verified.'
+        'An exact allowed related-file view did not remain verified.'
+    $lockedSkillView = Invoke-FakeRun `
+        -Name 'locked skill view file' `
+        -Mode mutated-skill-view-file `
+        -Arm cli-skill
+    Assert-True ($lockedSkillView.iterations[0].success -eq $true) `
+        'The host could rewrite a viewable skill file before authorization.'
     $sourceSkillFiles = @(Get-ChildItem -LiteralPath (Join-Path $root '.agents/skills/filtrace') -File -Recurse)
     Assert-True `
         (@($skillSuccess.iterations[0].skill.inventory).Count -eq $sourceSkillFiles.Count) `
@@ -1640,7 +1714,7 @@ try {
     $zeroTokenDirectory = Join-Path $temporaryRoot 'zero-token baseline comparison'
     [System.IO.Directory]::CreateDirectory($zeroTokenDirectory) | Out-Null
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
-        $zeroToken = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        $zeroToken = Read-TestResult $resultPath.FullName
         if ($zeroToken.label -ceq 'baseline') {
             foreach ($iteration in @($zeroToken.iterations)) { $iteration.tokens = 0 }
             $zeroToken.summary[0].MedTokens = 0
@@ -1659,8 +1733,8 @@ try {
         Copy-Item -LiteralPath $resultPath.FullName -Destination $filenameLabelDirectory
     }
     $candidatePath = Get-ChildItem -LiteralPath $filenameLabelDirectory -Filter '*-candidate-*.json' | Select-Object -First 1
-    $mislabeled = Get-Content -LiteralPath $candidatePath.FullName -Raw | ConvertFrom-Json
-    $mislabeled.timestamp = '9999-12-31T23:59:59Z'
+    $mislabeled = Read-TestResult $candidatePath.FullName
+    $mislabeled.timestamp = '9999-12-31T23:59:59.0000000+00:00'
     [System.IO.File]::WriteAllText(
         (Join-Path $filenameLabelDirectory 'copilot-expected-model-baseline-99991231-235959-999.json'),
         (($mislabeled | ConvertTo-Json -Depth 20) + "`n"),
@@ -1671,7 +1745,7 @@ try {
     $defaultMcpDirectory = Join-Path $temporaryRoot 'default mcp comparison'
     [System.IO.Directory]::CreateDirectory($defaultMcpDirectory) | Out-Null
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
-        $defaultMcp = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        $defaultMcp = Read-TestResult $resultPath.FullName
         $defaultMcp.arm = 'mcp'
         $defaultMcp.model.requested = $null
         $defaultMcp.model.expected = $null
@@ -1686,7 +1760,7 @@ try {
     $legacyV3Directory = Join-Path $temporaryRoot 'legacy schema-v3 comparison'
     [System.IO.Directory]::CreateDirectory($legacyV3Directory) | Out-Null
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
-        $legacyV3 = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        $legacyV3 = Read-TestResult $resultPath.FullName
         $legacyV3.summary[0].PSObject.Properties.Remove('SuccessCount')
         [System.IO.File]::WriteAllText(
             (Join-Path $legacyV3Directory $resultPath.Name),
@@ -1699,7 +1773,7 @@ try {
     $caseDistinctDirectory = Join-Path $temporaryRoot 'case-distinct model comparison'
     [System.IO.Directory]::CreateDirectory($caseDistinctDirectory) | Out-Null
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
-        $caseDistinct = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        $caseDistinct = Read-TestResult $resultPath.FullName
         if ($caseDistinct.label -ceq 'candidate') {
             $caseDistinct.model.requested = 'Expected-Model'
             $caseDistinct.model.expected = 'Expected-Model'
@@ -1721,7 +1795,7 @@ try {
     $maxStepsDirectory = Join-Path $temporaryRoot 'max-steps comparison'
     [System.IO.Directory]::CreateDirectory($maxStepsDirectory) | Out-Null
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
-        $maxStepsRecord = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        $maxStepsRecord = Read-TestResult $resultPath.FullName
         if ($maxStepsRecord.label -ceq 'candidate') { $maxStepsRecord.maxSteps = 64 }
         [System.IO.File]::WriteAllText(
             (Join-Path $maxStepsDirectory $resultPath.Name),
@@ -1734,7 +1808,7 @@ try {
     $roundedSuccessDirectory = Join-Path $temporaryRoot 'rounded success comparison'
     [System.IO.Directory]::CreateDirectory($roundedSuccessDirectory) | Out-Null
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
-        $roundedSuccess = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        $roundedSuccess = Read-TestResult $resultPath.FullName
         $seed = $roundedSuccess.iterations[0]
         $roundedSuccess.n = 1000
         $roundedSuccess.iterations = @(for ($iteration = 1; $iteration -le 1000; $iteration++) {
@@ -1763,7 +1837,7 @@ try {
     $legacyDirectory = Join-Path $temporaryRoot 'legacy comparison'
     [System.IO.Directory]::CreateDirectory($legacyDirectory) | Out-Null
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
-        $legacy = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        $legacy = Read-TestResult $resultPath.FullName
         $legacy.schemaVersion = 2
         $legacy.arm = 'mcp'
         $legacy.model = 'expected-model'
@@ -1779,7 +1853,7 @@ try {
     Assert-True ($LASTEXITCODE -eq 0) 'Validated schema-v2 records did not compare neutral.'
 
         foreach ($case in @(
-            'malformed', 'empty-summary', 'duplicate-task', 'wrong-field-type',
+            'malformed', 'invalid-timestamp', 'empty-summary', 'duplicate-task', 'wrong-field-type',
             'summary-success-mismatch', 'summary-median-mismatch', 'missing-strict-expected-model',
             'wrong-success-count', 'oversized-n', 'oversized-max-steps',
             'scalar-summary', 'scalar-iterations', 'scalar-observed-distinct',
@@ -1794,8 +1868,9 @@ try {
             [System.IO.File]::WriteAllText($casePath.FullName, '{')
         }
         else {
-            $invalid = Get-Content -LiteralPath $casePath.FullName -Raw | ConvertFrom-Json
+            $invalid = Read-TestResult $casePath.FullName
             switch ($case) {
+                'invalid-timestamp' { $invalid.timestamp = '09/14/2026 03:18:11' }
                 'empty-summary' { $invalid.summary = @() }
                 'duplicate-task' { $invalid.summary = @($invalid.summary[0], $invalid.summary[0]) }
                 'wrong-field-type' { $invalid.summary[0].MedCalls = 'one' }
@@ -1828,7 +1903,7 @@ try {
 
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json') {
         if ($resultPath.Name -eq 'unrelated.json') { continue }
-        $unverified = Get-Content -LiteralPath $resultPath.FullName -Raw | ConvertFrom-Json
+        $unverified = Read-TestResult $resultPath.FullName
         $unverified.model.observed = $null
         $unverified.model.observedDistinct = @()
         $unverified.model.verified = $false

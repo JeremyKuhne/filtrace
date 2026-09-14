@@ -84,7 +84,7 @@ gates.
 
 | Area | Remaining outcome | Kind |
 | --- | --- | --- |
-| Active cross-repository work | Compare CLI plus genuinely discovered skill against CLI-only on one ready-capture task. Keep model, host, CLI, fixture, prompt, and tool policy fixed. | Agent workflow evidence |
+| Active cross-repository work | Compare CLI plus genuinely discovered skill against CLI-only on one ready-capture task. Keep model, host, CLI, fixture, prompt, and analysis command policy fixed; the skill arm necessarily adds native skill discovery and bounded reads of its attested files. | Agent workflow evidence |
 | PP02 / Track D evidence | Recheck the durable corpus and complete an exact baseline-versus-baseline default-job reconstruction. Add provider-rich, negative-control, repeated-query, disposal/eviction, and bounded-concurrency evidence only as a selected comparison needs it. Reach a kept, rejected, or explicitly blocked disposition for each scheduled LP item; inconclusive experiments do not close one. | Harness and evidence |
 | PP09 workflow | Evaluate SC10 manifest-addressed lifecycle first. Implement ambiguity, routing, or hint improvements only from a reproduced agent failure; VC3 remains optional. | Conditional Filtrace implementation |
 | PP10 adoption | Decide whether and how FastTrace becomes a product dependency; complete required native host evidence or explicitly narrow the claim, and resolve default DIA/native-symbol distribution. | Validation and product decision |

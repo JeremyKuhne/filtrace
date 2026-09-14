@@ -112,7 +112,8 @@ contract and the no-LLM gate.
   JSON object shape. Decoy text, extra commands, writes, unknown tools, unknown
   event types, malformed events, and failed completions do not pass.
 - **`copilot` -> cli-skill arm** uses the same host, explicit model, task prompt,
-  and PowerShell access as the Copilot cli arm, but adds the native `skill` tool and copies the exact shipped
+  and PowerShell access as the Copilot cli arm, but adds the native `skill` and
+  bounded `view` tools and copies the exact shipped
   `.agents/skills/filtrace` tree into the owned workspace and enables normal
   project-skill discovery. It requires one enabled `source: project` Filtrace
   entry at the copied path, one exact `skill {"skill":"filtrace"}` invocation,
@@ -132,8 +133,10 @@ settings are not inherited. The CLI-only arm disables custom instructions; the
 skill arm enables discovery inside an otherwise empty owned workspace containing
 only the copied project skill. Both disable builtin MCPs, remote export/control,
 auto-update, bash environment loading, user prompts, and automatic system-temp
-access. Their available tools are only `powershell`, plus `skill` for cli-skill;
-the other observed host built-ins are explicitly excluded. On Windows, a handshake
+access. Their available analysis tool is only `powershell`; cli-skill additionally
+receives `skill` and `view`. `view` is hook-limited to the copied, hash-bound skill
+inventory, four requests, and 64 MiB of cumulative requested source. The other
+observed host built-ins are explicitly excluded. On Windows, a handshake
 launcher joins a kill-on-close Job Object before it may start Copilot, so children
 remain owned and are terminated when the bounded run ends even if the host exits first.
 One invocation is capped at 64 total strict task iterations so copied immutable
@@ -161,6 +164,9 @@ and option names come from the task's canonical analysis steps, while text and
 numeric values remain typed and bounded rather than fixed to the expected answer.
 Unknown tool argument members and command options, including environment, input,
 timeout, sandbox, output, symbol/network, and native-symbol options, are rejected.
+For `view`, the hook requires one exact path from the copied skill inventory and an
+optional bounded two-integer line range. The post-run parser independently validates
+the same request and returned source bytes before accepting the read as evidence.
 
 Before returning `permissionDecision: allow`, the hook atomically appends an
 analysis-command hash to a ledger capped at `min(MaxSteps, task.maxCalls)` or a
@@ -190,7 +196,9 @@ Before launch, the runner accepts only a tracked, HEAD-clean file beneath
 512 MiB. It inventories and hashes at most 256 CLI files / 512 entries / 512 MiB
 and 64 skill files / 128 entries / 16 MiB, hashes source bytes before and after the
 streaming copy, hashes each destination, and rechecks immutable inputs after the
-host exits. Before each periodic artifact scan excludes those inputs, it also
+host exits. Every viewable skill file is held with read sharing only for the host
+lifetime and its expected hash is embedded in the immutable hook policy. Before each
+periodic artifact scan excludes those inputs, it also
 requires their attested lengths and ordinary non-reparse paths; growth is rejected
 while the host is still running. Dynamic host artifacts are independently capped
 at 16 MiB and 512 total files/directories. On Windows, host distribution assets unpacked beneath the

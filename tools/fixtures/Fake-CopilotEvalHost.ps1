@@ -64,7 +64,7 @@ if ($skillPath -and ($Prompt.Contains($skillPath, [StringComparison]::OrdinalIgn
         $Prompt.Contains('skill at ', [StringComparison]::OrdinalIgnoreCase))) {
     throw 'Fake Copilot host received a prompt-directed skill path.'
 }
-$expectedTools = if ($skillPath) { 'powershell,skill' } else { 'powershell' }
+$expectedTools = if ($skillPath) { 'powershell,skill,view' } else { 'powershell' }
 $observedBuiltinTools = @(
     'powershell', 'read_powershell', 'stop_powershell', 'list_powershell', 'apply_patch', 'view',
     'web_fetch', 'fetch_copilot_cli_documentation', 'skill', 'sql', 'session_store_sql',
@@ -201,6 +201,24 @@ if ($mode -eq 'orphan-descendant') {
         [System.Text.UTF8Encoding]::new($false))
     $descendant.Dispose()
 }
+if ($mode -eq 'mutated-skill-view-file') {
+    [string] $relatedSkillPath = Join-Path (Split-Path -Parent $skillPath) 'references/guide.md'
+    [string] $relatedSkillText = [System.IO.File]::ReadAllText($relatedSkillPath)
+    try {
+        [System.IO.File]::WriteAllText(
+            $relatedSkillPath,
+            '!' + $relatedSkillText.Substring(1),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    catch [System.IO.IOException] { }
+    catch [System.UnauthorizedAccessException] { }
+    if (-not [string]::Equals(
+            [System.IO.File]::ReadAllText($relatedSkillPath),
+            $relatedSkillText,
+            [StringComparison]::Ordinal)) {
+        throw 'Fake Copilot host could rewrite a viewable skill file.'
+    }
+}
 $reportedModel = if ($mode -eq 'wrong-model') {
     'other-model'
 }
@@ -326,8 +344,9 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
                 }
             })
     }
-    if ($mode -in @('skill-view-success', 'skill-view-altered')) {
-        $viewArguments = [ordered]@{ path = $skillPath }
+    if ($mode -in @('skill-view-success', 'skill-view-altered', 'mutated-skill-view-file')) {
+        [string] $relatedPath = Join-Path $skillDirectory 'references/guide.md'
+        $viewArguments = [ordered]@{ path = $relatedPath }
         $viewDecision = Invoke-FakePolicyHook `
             -Hook $preToolHook[0] `
             -ToolName view `
@@ -343,7 +362,7 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
                     arguments = $viewArguments
                 }
             })
-        [string] $viewContent = [System.IO.File]::ReadAllText($skillPath)
+        [string] $viewContent = [System.IO.File]::ReadAllText($relatedPath)
         if ($mode -eq 'skill-view-altered') { $viewContent = '!' + $viewContent.Substring(1) }
         $events.Add([ordered]@{
                 type = 'tool.execution_complete'
@@ -494,7 +513,7 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
         try {
             [System.IO.File]::WriteAllText(
                 $policyPath,
-                $policyText.Replace('"schemaVersion": 4', '"schemaVersion": 5'),
+                $policyText.Replace('"schemaVersion": 5', '"schemaVersion": 6'),
                 [System.Text.UTF8Encoding]::new($false))
         }
         catch [System.IO.IOException] { }

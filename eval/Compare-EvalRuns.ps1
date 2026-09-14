@@ -84,6 +84,39 @@ function Test-JsonArray($Value) {
   return $Value -is [object[]]
 }
 
+function Get-ResultTimestamp([string] $Json, [string] $Path) {
+  [System.Text.Json.JsonDocument] $document = [System.Text.Json.JsonDocument]::Parse($Json)
+  try {
+    if ($document.RootElement.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) {
+      throw "Result '$Path' is not an object."
+    }
+    [int] $timestampCount = 0
+    [string] $timestampText = $null
+    [bool] $timestampIsString = $false
+    foreach ($property in $document.RootElement.EnumerateObject()) {
+      if ([string]::Equals($property.Name, 'timestamp', [StringComparison]::Ordinal)) {
+        $timestampCount++
+        $timestampIsString = $property.Value.ValueKind -eq [System.Text.Json.JsonValueKind]::String
+        if ($timestampIsString) { $timestampText = $property.Value.GetString() }
+      }
+    }
+    [DateTimeOffset] $timestamp = [DateTimeOffset]::MinValue
+    if ($timestampCount -ne 1 -or -not $timestampIsString -or
+      -not [DateTimeOffset]::TryParseExact(
+        $timestampText,
+        'o',
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::None,
+        [ref]$timestamp)) {
+      throw "Result '$Path' has an invalid timestamp."
+    }
+    return $timestamp.ToUniversalTime()
+  }
+  finally {
+    $document.Dispose()
+  }
+}
+
 function Get-ResultMedian([object[]] $Values) {
   [long[]] $sorted = @($Values | ForEach-Object { [long]$_ } | Sort-Object)
   [int] $count = $sorted.Count
@@ -110,15 +143,6 @@ function Assert-ResultPayload($Payload, [string] $Path) {
       throw "Result '$Path' has an invalid '$member'."
     }
   }
-  [datetime] $parsedTimestamp = [datetime]::MinValue
-  if ($Payload.timestamp -is [datetime]) {
-    $parsedTimestamp = [datetime]$Payload.timestamp
-  }
-  elseif ($Payload.timestamp -isnot [string] -or
-    -not [datetime]::TryParse([string]$Payload.timestamp, [ref]$parsedTimestamp)) {
-    throw "Result '$Path' has an invalid timestamp."
-  }
-
   if (-not (Test-JsonArray $Payload.summary)) { throw "Result '$Path' summary is not an array." }
   [object[]] $summary = $Payload.summary
   if ($summary.Count -eq 0) { throw "Result '$Path' has an empty summary." }
@@ -299,8 +323,10 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
   [string] $name = $_.Name
   [object[]] $matchingLabels = @($labelSelectors | Where-Object { $name -cmatch $_.pattern })
   if ($matchingLabels.Count -ne 1) { throw "Result '$path' has an ambiguous filename label." }
-  try { $payload = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json }
+  [string] $json = Get-Content -LiteralPath $path -Raw
+  try { $payload = $json | ConvertFrom-Json }
   catch { throw "Unreadable matching result '$path': $($_.Exception.Message)" }
+  [DateTimeOffset] $parsedTimestamp = Get-ResultTimestamp -Json $json -Path $path
   Assert-ResultPayload -Payload $payload -Path $path
   if (-not [string]::Equals(
       [string]$payload.label, [string]$matchingLabels[0].label, [StringComparison]::Ordinal)) {
@@ -310,7 +336,7 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
   [pscustomobject]@{
     key       = ('{0}/{1}/{2}' -f $payload.host, $payload.arm, $model)
     label     = [string]$payload.label
-    timestamp = $payload.timestamp
+    timestamp = $parsedTimestamp
     schemaVersion = [int]$payload.schemaVersion
     n         = if ([int]$payload.schemaVersion -eq 3) { [int]$payload.n } else { $null }
     maxSteps  = if ([int]$payload.schemaVersion -eq 3) { [int]$payload.maxSteps } else { $null }
@@ -326,7 +352,7 @@ function Get-LatestRun([string]$Label) {
     if (-not [string]::Equals([string]$run.label, $Label, [StringComparison]::Ordinal)) { continue }
     $existing = $null
     if (-not $latest.TryGetValue([string]$run.key, [ref]$existing) -or
-      [datetime]$run.timestamp -gt [datetime]$existing.timestamp) {
+      [DateTimeOffset]$run.timestamp -gt [DateTimeOffset]$existing.timestamp) {
       $latest[[string]$run.key] = $run
     }
     }

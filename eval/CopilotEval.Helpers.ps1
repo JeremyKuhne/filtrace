@@ -247,6 +247,32 @@ function Get-AgentEvalSkillViewRequest($Arguments, $Source) {
     }
 }
 
+function Get-AgentEvalExecutionPolicyViewSource($Arguments, $ExecutionPolicy) {
+    if ($null -eq $Arguments -or $Arguments -is [string] -or $Arguments -is [ValueType]) {
+        throw 'Skill view path was outside protocol.'
+    }
+    [string[]] $members = @($Arguments.PSObject.Properties.Name)
+    if ($members -cnotcontains 'path' -or $Arguments.path -isnot [string] -or
+        -not [System.IO.Path]::IsPathFullyQualified([string]$Arguments.path)) {
+        throw 'Skill view path was outside protocol.'
+    }
+    [string] $canonicalPath = [System.IO.Path]::GetFullPath([string]$Arguments.path)
+    [object[]] $matches = @($ExecutionPolicy.viewFiles | Where-Object {
+            [string]::Equals(
+                [System.IO.Path]::GetFullPath([string]$_.path),
+                $canonicalPath,
+                [StringComparison]::Ordinal)
+        })
+    if ($matches.Count -ne 1) { throw 'Skill view path was outside protocol.' }
+    $viewFile = $matches[0]
+    $source = Get-AgentEvalSkillSource $canonicalPath
+    if ([int]$source.lineCount -ne [int]$viewFile.lineCount -or
+        -not [string]::Equals([string]$source.byteSha256, [string]$viewFile.sha256, [StringComparison]::Ordinal)) {
+        throw 'Skill view source metadata did not match the attested file.'
+    }
+    return $source
+}
+
 function Get-AgentEvalSkillViewPayload($Result, $Request, $Source) {
     if ($null -eq $Result -or $Result -is [string] -or $Result -is [ValueType]) {
         throw 'Skill view result was not the observed object shape.'
@@ -1064,13 +1090,24 @@ function Initialize-CopilotEvalExecutionPolicy {
         }) -DestinationRoot $policyDirectory
     $Context.immutableFiles.Add($hookCopy)
 
-    $skillSource = if ($Context.skillPath) { Get-AgentEvalSkillSource $Context.skillPath } else { $null }
-    [string] $viewPath = if ($skillSource) { [string]$skillSource.path } else { $null }
+    [System.Collections.Generic.List[object]] $viewFiles = [System.Collections.Generic.List[object]]::new()
+    if ($Context.skillPath) {
+        [string] $skillDirectory = [System.IO.Path]::GetDirectoryName([string]$Context.skillPath)
+        foreach ($skillFile in @($Context.skillInventory | Sort-Object path)) {
+            [string] $viewPath = Join-Path $skillDirectory ([string]$skillFile.path)
+            $skillSource = Get-AgentEvalSkillSource $viewPath
+            $viewFiles.Add([pscustomobject]@{
+                    path = $skillSource.path
+                    lineCount = [int]$skillSource.lineCount
+                    sha256 = $skillSource.byteSha256
+                })
+        }
+    }
     [string] $policyPath = Join-Path $policyDirectory 'execution-policy.json'
     [string] $statePath = Join-Path $policyDirectory 'execution-state.json'
     [string] $lockPath = Join-Path $policyDirectory 'execution-state.lock'
     $policy = [ordered]@{
-        schemaVersion = 4
+        schemaVersion = 5
         sessionId = $Context.runId
         workspace = $Context.workspace
         cliPath = $Context.cliPath
@@ -1079,8 +1116,7 @@ function Initialize-CopilotEvalExecutionPolicy {
         maxHelpCalls = $maxHelpCalls
         statePath = $statePath
         lockPath = $lockPath
-        viewPath = $viewPath
-        viewLineCount = if ($skillSource) { [int]$skillSource.lineCount } else { 0 }
+        viewFiles = $viewFiles.ToArray()
         maxViewCalls = 4
         maxViewBytes = 64MB
         commandFamilies = $commandFamilies
@@ -1130,10 +1166,9 @@ function Initialize-CopilotEvalExecutionPolicy {
         hookConfigurationPath = $hookConfigurationPath
         hookPath = $hookCopy.path
         commandFamilies = $commandFamilies
-        viewPath = $viewPath
+        viewFiles = $viewFiles.ToArray()
         maxViewCalls = 4
         maxViewBytes = 64MB
-        viewLineCount = if ($skillSource) { [int]$skillSource.lineCount } else { 0 }
     }
 }
 
@@ -1180,7 +1215,6 @@ function Get-CopilotEvalExecutionPolicyState([object] $ExecutionPolicy) {
         throw 'Copilot pre-execution policy view requests were malformed.'
     }
     [long] $requestedBytes = 0
-    $skillSource = if ($ExecutionPolicy.viewPath) { Get-AgentEvalSkillSource $ExecutionPolicy.viewPath } else { $null }
     foreach ($viewRequest in $viewRequests) {
         if ($viewRequest -isnot [pscustomobject]) {
             throw 'Copilot pre-execution policy view requests were malformed.'
@@ -1189,10 +1223,12 @@ function Get-CopilotEvalExecutionPolicyState([object] $ExecutionPolicy) {
         if ($requestMembers.Count -ne 3 -or $requestMembers -cnotcontains 'requestHash' -or
             $requestMembers -cnotcontains 'arguments' -or $requestMembers -cnotcontains 'requestedBytes' -or
             $viewRequest.requestHash -isnot [string] -or $viewRequest.requestHash -cnotmatch '^[0-9a-f]{64}$' -or
-            ($viewRequest.requestedBytes -isnot [int] -and $viewRequest.requestedBytes -isnot [long]) -or
-            $null -eq $skillSource) {
+            ($viewRequest.requestedBytes -isnot [int] -and $viewRequest.requestedBytes -isnot [long])) {
             throw 'Copilot pre-execution policy view requests were malformed.'
         }
+        $skillSource = Get-AgentEvalExecutionPolicyViewSource `
+            -Arguments $viewRequest.arguments `
+            -ExecutionPolicy $ExecutionPolicy
         $parsedRequest = Get-AgentEvalSkillViewRequest -Arguments $viewRequest.arguments -Source $skillSource
         if (-not [string]::Equals($parsedRequest.hash, [string]$viewRequest.requestHash, [StringComparison]::Ordinal) -or
             [long]$parsedRequest.requestedBytes -ne [long]$viewRequest.requestedBytes) {

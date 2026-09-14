@@ -57,24 +57,22 @@ function Assert-PolicyShape($Policy) {
         -Value $Policy `
         -ExpectedMembers @(
             'schemaVersion', 'sessionId', 'workspace', 'cliPath', 'fixturePath',
-            'maxCalls', 'maxHelpCalls', 'statePath', 'lockPath', 'viewPath',
-            'viewLineCount', 'maxViewCalls', 'maxViewBytes', 'commandFamilies') `
+            'maxCalls', 'maxHelpCalls', 'statePath', 'lockPath', 'viewFiles',
+            'maxViewCalls', 'maxViewBytes', 'commandFamilies') `
         -Message 'Policy shape was malformed.'
     if (($Policy.schemaVersion -isnot [int] -and $Policy.schemaVersion -isnot [long]) -or
-        [long]$Policy.schemaVersion -ne 4 -or
+        [long]$Policy.schemaVersion -ne 5 -or
         $Policy.sessionId -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Policy.sessionId) -or
         $Policy.workspace -isnot [string] -or
         $Policy.cliPath -isnot [string] -or
         $Policy.fixturePath -isnot [string] -or
         $Policy.statePath -isnot [string] -or
         $Policy.lockPath -isnot [string] -or
-        ($null -ne $Policy.viewPath -and $Policy.viewPath -isnot [string]) -or
+        $Policy.viewFiles -isnot [object[]] -or $Policy.viewFiles.Count -gt 64 -or
         ($Policy.maxCalls -isnot [int] -and $Policy.maxCalls -isnot [long]) -or
         [long]$Policy.maxCalls -lt 1 -or [long]$Policy.maxCalls -gt 64 -or
         ($Policy.maxHelpCalls -isnot [int] -and $Policy.maxHelpCalls -isnot [long]) -or
         [long]$Policy.maxHelpCalls -lt 1 -or [long]$Policy.maxHelpCalls -gt 64 -or
-        ($Policy.viewLineCount -isnot [int] -and $Policy.viewLineCount -isnot [long]) -or
-        [long]$Policy.viewLineCount -lt 0 -or [long]$Policy.viewLineCount -gt [int]::MaxValue -or
         ($Policy.maxViewCalls -isnot [int] -and $Policy.maxViewCalls -isnot [long]) -or
         [long]$Policy.maxViewCalls -ne 4 -or
         ($Policy.maxViewBytes -isnot [int] -and $Policy.maxViewBytes -isnot [long]) -or
@@ -82,6 +80,23 @@ function Assert-PolicyShape($Policy) {
         $Policy.commandFamilies -isnot [object[]] -or
         $Policy.commandFamilies.Count -lt 1 -or $Policy.commandFamilies.Count -gt 16) {
         throw 'Policy header was malformed.'
+    }
+    [System.Collections.Generic.HashSet[string]] $viewPaths =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($viewFile in $Policy.viewFiles) {
+        Assert-ExactObjectMembers `
+            -Value $viewFile `
+            -ExpectedMembers @('path', 'lineCount', 'sha256') `
+            -Message 'Policy view file was malformed.'
+        if ($viewFile.path -isnot [string] -or
+            -not [System.IO.Path]::IsPathFullyQualified([string]$viewFile.path) -or
+            -not (Test-PathContained -Path ([string]$viewFile.path) -Root ([string]$Policy.workspace)) -or
+            ($viewFile.lineCount -isnot [int] -and $viewFile.lineCount -isnot [long]) -or
+            [long]$viewFile.lineCount -lt 0 -or [long]$viewFile.lineCount -gt [int]::MaxValue -or
+            $viewFile.sha256 -isnot [string] -or $viewFile.sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+            -not $viewPaths.Add([System.IO.Path]::GetFullPath([string]$viewFile.path))) {
+            throw 'Policy view file was malformed.'
+        }
     }
     foreach ($family in $Policy.commandFamilies) {
         Assert-ExactObjectMembers `
@@ -177,6 +192,12 @@ function Get-TextHash([string] $Text) {
     return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 }
 
+function Get-FileHash([string] $Path) {
+    [byte[]] $bytes = [System.IO.File]::ReadAllBytes($Path)
+    return [Convert]::ToHexString(
+        [System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+}
+
 function Get-SkillSource([string] $Path) {
     [System.IO.FileInfo] $file = Get-Item -LiteralPath $Path
     if ($file.Length -gt 16MB) { throw 'Skill entry point exceeded its byte limit.' }
@@ -198,6 +219,33 @@ function Get-SkillSource([string] $Path) {
         lineStarts = $lineStarts.ToArray()
         lineCount = $lineStarts.Count
     }
+}
+
+function Get-ViewSource($Arguments, $Policy) {
+    if ($null -eq $Arguments -or $Arguments -is [string] -or $Arguments -is [ValueType]) {
+        throw 'View path was outside policy.'
+    }
+    [string[]] $members = @(Get-ObjectMemberNames $Arguments)
+    if ($members -cnotcontains 'path' -or $Arguments.path -isnot [string] -or
+        -not [System.IO.Path]::IsPathFullyQualified([string]$Arguments.path)) {
+        throw 'View path was outside policy.'
+    }
+    [string] $canonicalPath = [System.IO.Path]::GetFullPath([string]$Arguments.path)
+    [object[]] $matches = @($Policy.viewFiles | Where-Object {
+            [string]::Equals(
+                [System.IO.Path]::GetFullPath([string]$_.path),
+                $canonicalPath,
+                [StringComparison]::Ordinal)
+        })
+    if ($matches.Count -ne 1) { throw 'View path was outside policy.' }
+    $viewFile = $matches[0]
+    Assert-OrdinaryFile -Path $canonicalPath -Boundary ([string]$Policy.workspace)
+    $source = Get-SkillSource $canonicalPath
+    if ([int]$source.lineCount -ne [int]$viewFile.lineCount -or
+        -not [string]::Equals((Get-FileHash $canonicalPath), [string]$viewFile.sha256, [StringComparison]::Ordinal)) {
+        throw 'Policy view source metadata was malformed.'
+    }
+    return $source
 }
 
 function Get-SkillViewRequest($Arguments, $Source) {
@@ -575,15 +623,6 @@ try {
         if ($helpCommandHashes.Count -gt [int]$policy.maxHelpCalls) {
             throw 'Policy help command count exceeded its limit.'
         }
-        $skillSource = if ($policy.viewPath -is [string] -and -not [string]::IsNullOrWhiteSpace([string]$policy.viewPath)) {
-            Assert-OrdinaryFile -Path ([string]$policy.viewPath) -Boundary ([string]$policy.workspace)
-            Get-SkillSource ([string]$policy.viewPath)
-        }
-        else { $null }
-        if (($null -eq $skillSource -and [int]$policy.viewLineCount -ne 0) -or
-            ($null -ne $skillSource -and [int]$skillSource.lineCount -ne [int]$policy.viewLineCount)) {
-            throw 'Policy view source metadata was malformed.'
-        }
         [System.Collections.Generic.List[object]] $viewRequests =
             [System.Collections.Generic.List[object]]::new()
         [long] $requestedViewBytes = 0
@@ -594,10 +633,10 @@ try {
                 $requestMembers -cnotcontains 'arguments' -or $requestMembers -cnotcontains 'requestedBytes' -or
                 $usedViewRequest.requestHash -isnot [string] -or
                 $usedViewRequest.requestHash -cnotmatch '^[0-9a-f]{64}$' -or
-                ($usedViewRequest.requestedBytes -isnot [int] -and $usedViewRequest.requestedBytes -isnot [long]) -or
-                $null -eq $skillSource) {
+                ($usedViewRequest.requestedBytes -isnot [int] -and $usedViewRequest.requestedBytes -isnot [long])) {
                 throw 'Policy view request was malformed.'
             }
+            $skillSource = Get-ViewSource -Arguments $usedViewRequest.arguments -Policy $policy
             $parsedViewRequest = Get-SkillViewRequest -Arguments $usedViewRequest.arguments -Source $skillSource
             if (-not [string]::Equals(
                     [string]$usedViewRequest.requestHash,
@@ -615,7 +654,7 @@ try {
         }
 
         if ([string]::Equals($toolName, 'view', [StringComparison]::Ordinal)) {
-            if ($null -eq $skillSource) { throw 'View path was outside policy.' }
+            $skillSource = Get-ViewSource -Arguments $toolArguments -Policy $policy
             $viewRequest = Get-SkillViewRequest -Arguments $toolArguments -Source $skillSource
             if ($viewRequests.Count -ge [int]$policy.maxViewCalls -or
                 [long]$viewRequest.requestedBytes -gt ([long]$policy.maxViewBytes - $requestedViewBytes)) {

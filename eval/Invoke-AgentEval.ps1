@@ -26,8 +26,9 @@
     ARMS: the ollama host keeps its mediated cli arm (the harness runs filtrace for
     the model). The Copilot host accepts mcp, cli, and cli-skill. mcp preserves the
     existing MCP-tool path. The two Copilot CLI arms use the same host, pinned model,
-    and tool set against this checkout's apphost; only cli-skill receives the shipped
-    skill. Copilot CLI runs use an outside-repository workspace, empty owned config
+    task prompt, and analysis command policy against this checkout's apphost;
+    cli-skill additionally receives the shipped skill and bounded reads of its
+    attested files. Copilot CLI runs use an outside-repository workspace, empty owned config
     homes, copied committed trace, safe child-environment allowlist, disabled remote
     export, and bounded process output, dynamic artifacts, and wall time. A per-run
     pre-tool hook validates task-derived literal filtrace argv and atomically
@@ -484,11 +485,19 @@ function ConvertFrom-AgentEvalJsonLines([string[]] $Lines) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         try { $record = $line | ConvertFrom-Json }
         catch { throw "Copilot host emitted malformed JSONL: $($_.Exception.Message)" }
+        if ($record -isnot [pscustomobject]) {
+            throw 'Copilot host emitted a non-object JSONL event.'
+        }
         [string[]] $members = @($record.PSObject.Properties.Name)
         if (@($members | Where-Object {
                     [string]::Equals($_, 'type', [StringComparison]::Ordinal)
-                }).Count -ne 1 -or $record.type -isnot [string] -or
-            -not $knownTypes.Contains([string]$record.type)) {
+                }).Count -ne 1) {
+            throw "Copilot host emitted a JSONL event without exactly one lowercase 'type' member."
+        }
+        if ($record.type -isnot [string]) {
+            throw 'Copilot host emitted a JSONL event with a non-string type.'
+        }
+        if (-not $knownTypes.Contains([string]$record.type)) {
             throw "Copilot host emitted an unknown event type '$($record.type)'."
         }
         $events.Add($record)
@@ -909,7 +918,7 @@ function Invoke-CopilotIteration {
         $cmdArgs += @('--allow-all', '--no-custom-instructions', '--additional-mcp-config', "@$McpConfig")
     }
     else {
-        [string[]] $availableToolNames = if ($arm -eq 'cli-skill') { @('powershell', 'skill') } else { @('powershell') }
+        [string[]] $availableToolNames = if ($arm -eq 'cli-skill') { @('powershell', 'skill', 'view') } else { @('powershell') }
         [string[]] $observedBuiltinTools = @(
             'powershell', 'read_powershell', 'stop_powershell', 'list_powershell', 'apply_patch', 'view',
             'web_fetch', 'fetch_copilot_cli_documentation', 'skill', 'sql', 'session_store_sql',
@@ -938,7 +947,7 @@ function Invoke-CopilotIteration {
             foreach ($securityPath in @(
                     $executionPolicy.policyPath,
                     $executionPolicy.hookConfigurationPath,
-                    $executionPolicy.hookPath)) {
+                    $executionPolicy.hookPath) + @($executionPolicy.viewFiles | ForEach-Object { $_.path })) {
                 $securityFileLocks.Add([System.IO.FileStream]::new(
                         $securityPath,
                         [System.IO.FileMode]::Open,
@@ -1141,7 +1150,6 @@ function Invoke-CopilotIteration {
         [System.Collections.Generic.List[string]]::new()
     [System.Collections.Generic.List[int]] $successfulAnalysisCompletionIndexes =
         [System.Collections.Generic.List[int]]::new()
-    $skillSource = if ($context.skillPath) { Get-AgentEvalSkillSource $context.skillPath } else { $null }
     foreach ($s in $starts) {
         $startMembers = @($s.data.PSObject.Properties.Name)
         $callId = if ($startMembers -ccontains 'toolCallId') { [string]$s.data.toolCallId } else { '' }
@@ -1217,12 +1225,15 @@ function Invoke-CopilotIteration {
                 [string]::Equals($toolName, 'view', [StringComparison]::Ordinal) -and
                 $context.skillPath) {
                 try {
-                    $viewRequest = Get-AgentEvalSkillViewRequest -Arguments $arguments -Source $skillSource
+                    $viewSource = Get-AgentEvalExecutionPolicyViewSource `
+                        -Arguments $arguments `
+                        -ExecutionPolicy $executionPolicy
+                    $viewRequest = Get-AgentEvalSkillViewRequest -Arguments $arguments -Source $viewSource
                     if (-not $completionSucceeded) { throw 'Skill view completion was not successful.' }
                     [void](Get-AgentEvalSkillViewPayload `
                             -Result $completionResult `
                             -Request $viewRequest `
-                            -Source $skillSource)
+                            -Source $viewSource)
                     $evidenceKind = 'skill-read'
                     $commandName = 'view'
                     $operationName = 'view'
@@ -1445,7 +1456,7 @@ function Invoke-CopilotIteration {
                 ownedEnvironment = $context.isolation.ownedEnvironment
                 noCustomInstructions = [bool]($arm -eq 'cli')
                 builtinMcpsDisabled = [bool]($arm -in @('cli', 'cli-skill'))
-                availableTools = if ($arm -eq 'cli-skill') { @('powershell', 'skill') } elseif ($arm -eq 'cli') { @('powershell') } else { @() }
+                availableTools = if ($arm -eq 'cli-skill') { @('powershell', 'skill', 'view') } elseif ($arm -eq 'cli') { @('powershell') } else { @() }
                 excludedTools = if ($arm -in @('cli', 'cli-skill')) { $excludedToolNames } else { @() }
                 shellDefaultDenied = [bool]($arm -in @('cli', 'cli-skill'))
                 writeDenied = [bool]($arm -in @('cli', 'cli-skill'))
