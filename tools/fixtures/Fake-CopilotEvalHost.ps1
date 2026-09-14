@@ -486,6 +486,31 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
         'missing-command-argument', 'missing-description-argument', 'invalid-command-type',
         'invalid-mode-type', 'async-mode', 'repl-mode', 'invalid-initial-wait-type',
         'zero-initial-wait', 'unbounded-initial-wait', 'shell-sandbox-flag')
+    if ($mode -eq 'mutated-execution-policy') {
+        [int] $policyPathIndex = [Array]::IndexOf([object[]]$preToolHook[0].args, '-PolicyPath')
+        if ($policyPathIndex -lt 0) { throw 'Fake host could not locate the execution policy path.' }
+        [string] $policyPath = [string]$preToolHook[0].args[$policyPathIndex + 1]
+        [string] $policyText = [System.IO.File]::ReadAllText($policyPath)
+        try {
+            [System.IO.File]::WriteAllText(
+                $policyPath,
+                $policyText.Replace('"schemaVersion": 4', '"schemaVersion": 5'),
+                [System.Text.UTF8Encoding]::new($false))
+        }
+        catch [System.IO.IOException] { }
+        catch [System.UnauthorizedAccessException] { }
+    }
+    if ($mode -eq 'mutated-hook-configuration') {
+        [string] $hookText = [System.IO.File]::ReadAllText($hookConfigurationPath)
+        try {
+            [System.IO.File]::WriteAllText(
+                $hookConfigurationPath,
+                $hookText.Replace('"version": 1', '"version": 2'),
+                [System.Text.UTF8Encoding]::new($false))
+        }
+        catch [System.IO.IOException] { }
+        catch [System.UnauthorizedAccessException] { }
+    }
         if ($mode -notin @(
             'decoy-command', 'wrong-cli-path', 'unexpected-tool', 'denied-unknown-tool',
             'powershell-tool-case')) {
@@ -531,7 +556,15 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
                 toolCallId = $callId
                 success = if ($mode -eq 'string-success') { 'true' } else { $completionSucceeded }
                 result = if ($completionSucceeded) {
-                    [int] $schemaVersion = if ($mode -eq 'unknown-cli-schema') { 16 } else { 17 }
+                    [string] $schemaVersion = if ($mode -eq 'unknown-cli-schema') {
+                        '16'
+                    }
+                    elseif ($mode -eq 'fractional-cli-schema') {
+                        '17.0'
+                    }
+                    else {
+                        '17'
+                    }
                     [string] $resultJson = if ($mode -eq 'scalar-cli-result') { '"forged"' } else { '{"gcCount":7}' }
                     [string] $json = "{`"schemaVersion`":$schemaVersion,`"context`":{`"operation`":`"$reportedOperation`"},`"result`":$resultJson}"
                     [string] $content = switch ($mode) {
@@ -639,24 +672,6 @@ if ($mode -in @('completion-before-start', 'skill-context-before-completion')) {
         $events.RemoveAt($contextIndex)
         $events.Insert($completionIndex, $contextEvent)
     }
-}
-
-if ($mode -eq 'mutated-execution-policy') {
-    [int] $policyPathIndex = [Array]::IndexOf([object[]]$preToolHook[0].args, '-PolicyPath')
-    if ($policyPathIndex -lt 0) { throw 'Fake host could not locate the execution policy path.' }
-    [string] $policyPath = [string]$preToolHook[0].args[$policyPathIndex + 1]
-    [string] $policyText = [System.IO.File]::ReadAllText($policyPath)
-    [System.IO.File]::WriteAllText(
-        $policyPath,
-        $policyText.Replace('"schemaVersion": 4', '"schemaVersion": 5'),
-        [System.Text.UTF8Encoding]::new($false))
-}
-if ($mode -eq 'mutated-hook-configuration') {
-    [string] $hookText = [System.IO.File]::ReadAllText($hookConfigurationPath)
-    [System.IO.File]::WriteAllText(
-        $hookConfigurationPath,
-        $hookText.Replace('"version": 1', '"version": 2'),
-        [System.Text.UTF8Encoding]::new($false))
 }
 
 foreach ($hostEvent in $events) {

@@ -324,6 +324,21 @@ try {
     catch { $depthWarningRejected = $true }
     Assert-True $depthWarningRejected 'Result serialization did not fail on a depth warning.'
 
+    [string] $mcpOnlyRoot = Join-Path $temporaryRoot 'mcp only root'
+    [string] $mcpOnlyFixture = Join-Path $mcpOnlyRoot 'fixture.nettrace'
+    [System.IO.Directory]::CreateDirectory($mcpOnlyRoot) | Out-Null
+    [System.IO.File]::WriteAllText($mcpOnlyFixture, 'mcp fixture')
+    $mcpOnlyContext = New-CopilotEvalContext `
+        -Root $mcpOnlyRoot `
+        -OutDir (Join-Path $temporaryRoot 'mcp only output') `
+        -Arm mcp `
+        -FixturePath $mcpOnlyFixture `
+        -Configuration Release
+    Assert-True ([string]::IsNullOrEmpty([string]$mcpOnlyContext.cliPath) -and
+        [string]::IsNullOrEmpty([string]$mcpOnlyContext.cliSourcePath) -and
+        $mcpOnlyContext.workspace -eq $mcpOnlyRoot) `
+        'MCP-only context creation still required or exposed a CLI apphost.'
+
     [string] $fallbackRunDirectory = Join-Path $temporaryRoot 'output retention fallback'
     [string] $fallbackLogDirectory = Join-Path $fallbackRunDirectory 'logs'
     [System.IO.Directory]::CreateDirectory($fallbackLogDirectory) | Out-Null
@@ -489,6 +504,23 @@ try {
     }
     $initialState = Get-CopilotEvalExecutionPolicyState $policyProbe.executionPolicy
     Assert-True ($initialState.callCount -eq 0) 'Fresh single-stage policy did not begin at count zero.'
+    $policyHashProbe = New-TestExecutionPolicy -Name 'policy hash binding contract' -MaxCalls 1
+    [string] $policyHashText = [System.IO.File]::ReadAllText($policyHashProbe.executionPolicy.policyPath)
+    [System.IO.File]::WriteAllText(
+        $policyHashProbe.executionPolicy.policyPath,
+        $policyHashText.Replace('"maxCalls": 1', '"maxCalls": 2'),
+        [System.Text.UTF8Encoding]::new($false))
+    $policyHashDecision = Invoke-TestPolicyHook `
+        -Hook $policyHashProbe.preToolHook `
+        -SessionId $policyHashProbe.context.runId `
+        -WorkingDirectory $policyHashProbe.context.workspace `
+        -ToolName powershell `
+        -ToolArguments ([ordered]@{
+            command = $policyHashProbe.command
+            description = 'Reject changed policy bytes'
+        })
+    Assert-True ($policyHashDecision.permissionDecision -eq 'deny') `
+        'Policy hook accepted bytes that did not match the generated policy hash.'
     foreach ($policyMutation in @('root-member-case', 'scalar-families', 'family-member-case', 'scalar-enum-values')) {
         $invalidPolicyProbe = New-TestExecutionPolicy -Name "invalid policy $policyMutation" -MaxCalls 1
         [string] $invalidPolicyText = [System.IO.File]::ReadAllText($invalidPolicyProbe.executionPolicy.policyPath)
@@ -1005,7 +1037,7 @@ try {
             'answer-only', 'answer-before-analysis', 'completion-before-start', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
             'decoy-command', 'missing-call-id', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
             'denied-unknown-tool', 'powershell-tool-case',
-            'string-success', 'mismatched-operation', 'unknown-cli-schema', 'scalar-cli-result',
+            'string-success', 'mismatched-operation', 'unknown-cli-schema', 'fractional-cli-schema', 'scalar-cli-result',
             'event-data-member-case', 'tool-call-id-member-case', 'completion-result-member-case',
             'completion-success-member-case', 'answer-content-member-case',
             'result-exit-code-member-case', 'model-member-case', 'malformed-shell-wrapper',
@@ -1044,14 +1076,14 @@ try {
         -ExpectedMessage 'unknown event type' `
         -ExpectedRawText '"type":"RESULT"'
     Assert-FakeRunThrows -Name 'mutated bundle' -Mode mutated-bundle -ExpectedMessage 'input attestation failed'
-    Assert-FakeRunThrows `
-        -Name 'mutated execution policy' `
-        -Mode mutated-execution-policy `
-        -ExpectedMessage 'input attestation failed'
-    Assert-FakeRunThrows `
-        -Name 'mutated hook configuration' `
-        -Mode mutated-hook-configuration `
-        -ExpectedMessage 'input attestation failed'
+    $lockedPolicy = Invoke-FakeRun -Name 'locked execution policy' -Mode mutated-execution-policy
+    Assert-True ($lockedPolicy.iterations[0].success -eq $true) `
+        'The host could rewrite the execution policy before tool authorization.'
+    $lockedHookConfiguration = Invoke-FakeRun `
+        -Name 'locked hook configuration' `
+        -Mode mutated-hook-configuration
+    Assert-True ($lockedHookConfiguration.iterations[0].success -eq $true) `
+        'The host could rewrite the hook configuration before tool authorization.'
     $immutableGrowthStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     Assert-FakeRunThrows `
         -Name 'oversized immutable' `

@@ -6,7 +6,10 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [string] $PolicyPath
+    [string] $PolicyPath,
+    [Parameter(Mandatory)]
+    [ValidatePattern('^[0-9a-f]{64}$')]
+    [string] $ExpectedPolicySha256
 )
 
 Set-StrictMode -Version Latest
@@ -501,7 +504,13 @@ function Write-PolicyState(
 try {
     [System.IO.FileInfo] $policyFile = Get-Item -LiteralPath $PolicyPath
     if ($policyFile.Length -gt 65536) { throw 'Policy exceeded its byte limit.' }
-    $policy = [System.IO.File]::ReadAllText($policyFile.FullName) | ConvertFrom-Json
+    [byte[]] $policyBytes = [System.IO.File]::ReadAllBytes($policyFile.FullName)
+    [string] $policySha256 = [Convert]::ToHexString(
+        [System.Security.Cryptography.SHA256]::HashData($policyBytes)).ToLowerInvariant()
+    if (-not [string]::Equals($policySha256, $ExpectedPolicySha256, [StringComparison]::Ordinal)) {
+        throw 'Policy hash did not match the expected immutable value.'
+    }
+    $policy = [System.Text.UTF8Encoding]::new($false, $true).GetString($policyBytes) | ConvertFrom-Json
     Assert-PolicyShape $policy
     [string] $policyDirectory = $policyFile.DirectoryName
     foreach ($statePath in @([string]$policy.statePath, [string]$policy.lockPath)) {

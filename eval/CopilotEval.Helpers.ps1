@@ -812,16 +812,18 @@ function New-CopilotEvalContext {
     }
     [string] $ownedFixtureHash = Get-AgentEvalFileHash $ownedFixture
 
-    [string] $appHostName = if ([System.OperatingSystem]::IsWindows()) { 'filtrace.exe' } else { 'filtrace' }
-    [string] $cliSourceDirectory = Join-Path $Root "src/Filtrace/bin/$Configuration/net10.0"
-    [string] $cliSourcePath = Join-Path $cliSourceDirectory $appHostName
-    if (-not (Test-Path -LiteralPath $cliSourcePath -PathType Leaf)) {
-        throw "Current-checkout filtrace apphost not found at '$cliSourcePath'. Build src/Filtrace first."
-    }
-    [string] $cliSourceHash = Get-AgentEvalFileHash $cliSourcePath
-    [string] $cliPath = $cliSourcePath
+    [string] $cliSourcePath = $null
+    [string] $cliSourceHash = $null
+    [string] $cliPath = $null
     [System.Collections.Generic.List[object]] $cliInventory = [System.Collections.Generic.List[object]]::new()
     if ($StrictCliArm) {
+        [string] $appHostName = if ([System.OperatingSystem]::IsWindows()) { 'filtrace.exe' } else { 'filtrace' }
+        [string] $cliSourceDirectory = Join-Path $Root "src/Filtrace/bin/$Configuration/net10.0"
+        $cliSourcePath = Join-Path $cliSourceDirectory $appHostName
+        if (-not (Test-Path -LiteralPath $cliSourcePath -PathType Leaf)) {
+            throw "Current-checkout filtrace apphost not found at '$cliSourcePath'. Build src/Filtrace first."
+        }
+        $cliSourceHash = Get-AgentEvalFileHash $cliSourcePath
         [string] $ownedCliDirectory = Join-Path $workspace 'tools/filtrace'
         [System.IO.Directory]::CreateDirectory($ownedCliDirectory) | Out-Null
         $runtimeInventory = Get-AgentEvalFileInventory `
@@ -1088,6 +1090,7 @@ function Initialize-CopilotEvalExecutionPolicy {
         ($policy | ConvertTo-Json -Depth 8),
         [System.Text.UTF8Encoding]::new($false))
     Add-AgentEvalGeneratedImmutableFile -Context $Context -Path $policyPath
+    [string] $policySha256 = Get-AgentEvalFileHash $policyPath
 
     [string] $hookHostPath = (Get-Process -Id $PID).Path
     if ([System.IO.Path]::GetFileNameWithoutExtension($hookHostPath) -ne 'pwsh') {
@@ -1103,7 +1106,8 @@ function Initialize-CopilotEvalExecutionPolicy {
     $preToolHook.matcher = 'powershell|view'
     $preToolHook.args = @(
         '-NoLogo', '-NoProfile', '-NonInteractive', '-File', $hookCopy.path,
-        '-PolicyPath', $policyPath)
+        '-PolicyPath', $policyPath,
+        '-ExpectedPolicySha256', $policySha256)
     [string] $hookConfigurationPath = Join-Path $hooksDirectory 'filtrace-eval-policy.json'
     $hookConfiguration = [ordered]@{
         version = 1
@@ -1121,6 +1125,7 @@ function Initialize-CopilotEvalExecutionPolicy {
         maxCalls = $effectiveMaxCalls
         maxHelpCalls = $maxHelpCalls
         policyPath = $policyPath
+        policySha256 = $policySha256
         statePath = $statePath
         hookConfigurationPath = $hookConfigurationPath
         hookPath = $hookCopy.path

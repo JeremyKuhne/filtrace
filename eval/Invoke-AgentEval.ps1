@@ -639,7 +639,9 @@ function Test-AgentEvalCliResult($Result, [string] $ExpectedOperation) {
     catch { return $false }
     if ($payload -isnot [pscustomobject]) { return $false }
     [string[]] $members = @($payload.PSObject.Properties.Name)
-    if ($members -cnotcontains 'schemaVersion' -or $payload.schemaVersion -notin @(17, 17L) -or
+    if ($members -cnotcontains 'schemaVersion' -or
+        ($payload.schemaVersion -isnot [int] -and $payload.schemaVersion -isnot [long]) -or
+        [long]$payload.schemaVersion -ne 17 -or
         $members -cnotcontains 'context' -or $payload.context -isnot [pscustomobject] -or
         @($payload.context.PSObject.Properties.Name) -cnotcontains 'operation' -or
         $payload.context.operation -isnot [string] -or
@@ -929,14 +931,33 @@ function Invoke-CopilotIteration {
         $processEnvironment['FILTRACE_AGENT_EVAL_FAKE_MODE'] =
             [System.Environment]::GetEnvironmentVariable('FILTRACE_AGENT_EVAL_FAKE_MODE')
     }
-    $processResult = Invoke-BoundedCopilotProcess `
-        -FilePath $CopilotPath `
-        -Arguments $processArgs `
-        -Context $context `
-        -TimeoutSeconds $NativeTimeoutSeconds `
-        -MaxOutputBytes $MaxHostOutputBytes `
-        -MaxArtifactBytes $MaxHostArtifactBytes `
-        -Environment $processEnvironment
+    [System.Collections.Generic.List[System.IO.FileStream]] $securityFileLocks =
+        [System.Collections.Generic.List[System.IO.FileStream]]::new()
+    try {
+        if ($executionPolicy) {
+            foreach ($securityPath in @(
+                    $executionPolicy.policyPath,
+                    $executionPolicy.hookConfigurationPath,
+                    $executionPolicy.hookPath)) {
+                $securityFileLocks.Add([System.IO.FileStream]::new(
+                        $securityPath,
+                        [System.IO.FileMode]::Open,
+                        [System.IO.FileAccess]::Read,
+                        [System.IO.FileShare]::Read))
+            }
+        }
+        $processResult = Invoke-BoundedCopilotProcess `
+            -FilePath $CopilotPath `
+            -Arguments $processArgs `
+            -Context $context `
+            -TimeoutSeconds $NativeTimeoutSeconds `
+            -MaxOutputBytes $MaxHostOutputBytes `
+            -MaxArtifactBytes $MaxHostArtifactBytes `
+            -Environment $processEnvironment
+    }
+    finally {
+        foreach ($securityFileLock in $securityFileLocks) { $securityFileLock.Dispose() }
+    }
     $outputPersistence = $null
     [System.Exception] $outputPersistenceError = $null
     try {
