@@ -103,7 +103,9 @@ jobs:
   build-windows:
     name: build (Windows)
     runs-on: windows-latest
-    timeout-minutes: 15
+    # The prerequisite Windows matrix takes about nine minutes; the fail-closed
+    # fake-host contract adds about six. Keep bounded headroom for hosted variance.
+    timeout-minutes: 20
     env:
       NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
     steps:
@@ -161,6 +163,10 @@ jobs:
       - name: Eval gate
         shell: pwsh
         run: ./eval/Invoke-Eval.ps1 -Configuration Release
+
+      - name: Agent eval fake-host contract
+        shell: pwsh
+        run: ./tools/Test-AgentEval.ps1
 
   # The main ruleset requires this stable check name. `if: always()` and the
   # explicit result checks turn upstream failures or cancellations into a red

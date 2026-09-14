@@ -1,0 +1,939 @@
+#!/usr/bin/env pwsh
+# Copyright (c) 2025 Jeremy W Kuhne
+# SPDX-License-Identifier: MIT
+# See LICENSE file in the project root for full license information
+
+[CmdletBinding()]
+param(
+    [Alias('C')]
+    [string] $WorkingDirectory,
+    [Alias('p')]
+    [string] $Prompt,
+    [Alias('output-format')]
+    [string] $OutputFormat,
+    [Alias('no-custom-instructions')]
+    [switch] $NoCustomInstructions,
+    [Alias('disable-builtin-mcps')]
+    [switch] $DisableBuiltinMcps,
+    [Alias('no-remote-export')]
+    [switch] $NoRemoteExport,
+    [Alias('no-remote')]
+    [switch] $NoRemote,
+    [Alias('no-auto-update')]
+    [switch] $NoAutoUpdate,
+    [Alias('no-bash-env')]
+    [switch] $NoBashEnvironment,
+    [Alias('no-ask-user')]
+    [switch] $NoAskUser,
+    [Alias('disallow-temp-dir')]
+    [switch] $DisallowTempDirectory,
+    [Alias('session-id')]
+    [string] $SessionId,
+    [Alias('usage-output-file')]
+    [string] $UsageOutputFile,
+    [Alias('log-dir')]
+    [string] $LogDirectory,
+    [Alias('available-tools')]
+    [string] $AvailableTools,
+    [Alias('excluded-tools')]
+    [string] $ExcludedTools,
+    [Alias('allow-tool')]
+    [string[]] $AllowedTools,
+    [Alias('deny-tool')]
+    [string[]] $DeniedTools,
+    [Alias('max-ai-credits')]
+    [int] $MaxAiCredits,
+    [Alias('allow-all')]
+    [switch] $AllowAll,
+    [Alias('additional-mcp-config')]
+    [string] $AdditionalMcpConfig,
+    [string] $Model
+)
+
+$mode = if ($env:FILTRACE_AGENT_EVAL_FAKE_MODE) { $env:FILTRACE_AGENT_EVAL_FAKE_MODE } else { 'success' }
+if ($mode -eq 'mcp-success') {
+    if ($Prompt -notmatch 'trace at (.+?) and answer') {
+        throw 'Fake Copilot MCP host could not recover the fixture path from the prompt.'
+    }
+    if (-not $AllowAll -or -not $NoCustomInstructions -or -not $DisableBuiltinMcps -or
+        -not $NoRemoteExport -or -not $NoRemote -or -not $NoAutoUpdate -or
+        -not $NoBashEnvironment -or -not $NoAskUser -or $DisallowTempDirectory -or
+        $OutputFormat -ne 'json' -or $Model -ne 'expected-model' -or
+        [string]::IsNullOrWhiteSpace($SessionId) -or
+        [string]::IsNullOrWhiteSpace($UsageOutputFile) -or
+        [string]::IsNullOrWhiteSpace($LogDirectory) -or
+        -not $AdditionalMcpConfig.StartsWith('@', [StringComparison]::Ordinal) -or
+        -not (Test-Path -LiteralPath $AdditionalMcpConfig.Substring(1) -PathType Leaf)) {
+        throw 'Fake Copilot MCP host did not receive the required MCP-only contract.'
+    }
+    [object[]] $mcpEvents = @(
+        [ordered]@{
+            type = 'session.tools_updated'
+            data = [ordered]@{ model = 'expected-model' }
+        }
+        [ordered]@{
+            type = 'model.model_call_started'
+            data = [ordered]@{ model = 'provider-model'; provider = 'copilot' }
+        }
+        [ordered]@{
+            type = 'tool.execution_start'
+            data = [ordered]@{
+                toolCallId = 'mcp-call-1'
+                mcpServerName = 'filtrace'
+                mcpToolName = 'trace_gc'
+                arguments = [ordered]@{ trace_path = $Matches[1] }
+            }
+        }
+        [ordered]@{
+            type = 'tool.execution_complete'
+            data = [ordered]@{
+                toolCallId = 'mcp-call-1'
+                success = $true
+                result = [ordered]@{ content = '{"gcCount":7}' }
+            }
+        }
+        [ordered]@{
+            type = 'assistant.message'
+            data = [ordered]@{ content = 'There were 7 garbage collections.' }
+        }
+        [ordered]@{
+            type = 'result'
+            exitCode = 0
+            usage = [ordered]@{
+                premiumRequests = 1
+                totalApiDurationMs = 20
+                sessionDurationMs = 25
+            }
+        })
+    foreach ($mcpEvent in $mcpEvents) {
+        [string]($mcpEvent | ConvertTo-Json -Depth 8 -Compress)
+    }
+    $usageValue = [ordered]@{
+        totalPremiumRequestCost = 1
+        totalUserRequests = 1
+        tokenDetails = [ordered]@{
+            input = [ordered]@{ tokenCount = 20 }
+            cache_read = [ordered]@{ tokenCount = 5 }
+            cache_write = [ordered]@{ tokenCount = 15 }
+            output = [ordered]@{ tokenCount = 10 }
+        }
+        currentModel = 'expected-model'
+    }
+    [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($UsageOutputFile)) | Out-Null
+    [System.IO.File]::WriteAllText(
+        $UsageOutputFile,
+        [string]($usageValue | ConvertTo-Json -Depth 6),
+        [System.Text.UTF8Encoding]::new($false))
+    exit 0
+}
+
+if ($Prompt -notmatch 'trace at (.+?) and answer') {
+    throw 'Fake Copilot host could not recover the fixture path from the prompt.'
+}
+
+$fixture = $Matches[1]
+if ($Prompt -notmatch 'local filtrace CLI at (.+?), analyze') {
+    throw 'Fake Copilot host could not recover the owned filtrace path from the prompt.'
+}
+$filtracePath = $Matches[1]
+$appHostName = [System.IO.Path]::GetFileName($filtracePath)
+$skillPath = if (-not $NoCustomInstructions) {
+    Join-Path $WorkingDirectory '.agents/skills/filtrace/SKILL.md'
+}
+else { $null }
+if ($skillPath -and ($Prompt.Contains($skillPath, [StringComparison]::OrdinalIgnoreCase) -or
+        $Prompt.Contains('skill at ', [StringComparison]::OrdinalIgnoreCase))) {
+    throw 'Fake Copilot host received a prompt-directed skill path.'
+}
+$expectedTools = if ($skillPath) { 'powershell,skill,view' } else { 'powershell' }
+$observedBuiltinTools = @(
+    'powershell', 'read_powershell', 'stop_powershell', 'list_powershell', 'apply_patch', 'view',
+    'web_fetch', 'fetch_copilot_cli_documentation', 'skill', 'sql', 'session_store_sql',
+    'read_agent', 'list_agents', 'write_agent', 'rg', 'glob', 'task')
+$expectedExcludedTools = @($observedBuiltinTools | Where-Object { $expectedTools.Split(',') -notcontains $_ }) -join ','
+$deniedToolNames = @($DeniedTools | ForEach-Object { $_ -split ',' })
+if ($AvailableTools -ne $expectedTools -or $ExcludedTools -ne $expectedExcludedTools -or
+    $AllowedTools.Count -ne 0 -or $deniedToolNames -notcontains 'read' -or $deniedToolNames -notcontains 'shell' -or
+    $deniedToolNames -notcontains 'write' -or $deniedToolNames -notcontains 'url' -or $MaxAiCredits -ne 30) {
+    throw 'Fake Copilot host did not receive the strict owned-apphost tool policy.'
+}
+$hookConfigurationPath = Join-Path $env:COPILOT_HOME 'hooks/filtrace-eval-policy.json'
+if (-not (Test-Path -LiteralPath $hookConfigurationPath -PathType Leaf)) {
+    throw 'Fake Copilot host did not receive the isolated pre-execution hook configuration.'
+}
+$hookConfiguration = Get-Content -LiteralPath $hookConfigurationPath -Raw | ConvertFrom-Json
+$preToolHook = @($hookConfiguration.hooks.preToolUse)
+if (@($hookConfiguration.hooks.PSObject.Properties.Name).Count -ne 1 -or
+    @($hookConfiguration.hooks.PSObject.Properties.Name)[0] -ne 'preToolUse' -or
+    $preToolHook.Count -ne 1 -or
+    $preToolHook[0].exec -ne (Get-Process -Id $PID).Path -or
+    $preToolHook[0].args -contains '-Mode') {
+    throw 'Fake Copilot host received a malformed pre-execution hook configuration.'
+}
+
+function Invoke-FakePolicyHook($Hook, [string] $ToolName, $ToolArguments) {
+    $hookInput = [ordered]@{
+        sessionId = $SessionId
+        timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        cwd = $WorkingDirectory
+        toolName = $ToolName
+        toolArgs = $ToolArguments
+    } | ConvertTo-Json -Depth 8 -Compress
+    [string[]] $hookOutput = @($hookInput | & ([string]$Hook.exec) @($Hook.args))
+    if ($LASTEXITCODE -ne 0 -or $hookOutput.Count -ne 1) {
+        throw "Fake Copilot host policy hook failed for '$ToolName'."
+    }
+    return $hookOutput[0] | ConvertFrom-Json
+}
+$requiredSwitches = @(
+    $DisableBuiltinMcps, $NoRemoteExport, $NoRemote,
+    $NoAutoUpdate, $NoBashEnvironment, $NoAskUser, $DisallowTempDirectory)
+if ($requiredSwitches -contains $false -or [bool]$NoCustomInstructions -eq [bool]$skillPath -or
+    $Model -ne 'expected-model' -or $OutputFormat -ne 'json' -or
+    -not $SessionId -or -not $UsageOutputFile -or -not $LogDirectory) {
+    throw 'Fake Copilot host did not receive the required isolation switches.'
+}
+if (-not $WorkingDirectory.Contains(' ', [StringComparison]::Ordinal)) {
+    throw 'Fake Copilot host expected an isolated working directory containing a space.'
+}
+$expectedHome = Join-Path ([System.IO.Path]::GetDirectoryName($WorkingDirectory)) 'home'
+if ($env:HOME -ne $expectedHome -or $env:USERPROFILE -ne $expectedHome -or
+    $env:XDG_CONFIG_HOME -ne (Join-Path $expectedHome '.config') -or
+    $env:APPDATA -ne (Join-Path $expectedHome 'AppData/Roaming') -or
+    $env:LOCALAPPDATA -ne (Join-Path $expectedHome 'AppData/Local') -or
+    $env:COPILOT_HOME -ne (Join-Path $expectedHome 'copilot')) {
+    throw 'Fake Copilot host did not receive the isolated per-process home environment.'
+}
+foreach ($name in @('GITHUB_TOKEN', 'GH_TOKEN', 'COPILOT_ALLOW_ALL', 'COPILOT_MODEL', 'COPILOT_PROVIDER',
+        'COPILOT_CUSTOM_INSTRUCTIONS_DIRS', 'OTEL_EXPORTER_OTLP_ENDPOINT', 'FILTRACE_AGENT_EVAL_SECRET')) {
+    if (-not [string]::IsNullOrEmpty([System.Environment]::GetEnvironmentVariable($name))) {
+        throw "Fake Copilot host inherited forbidden environment variable '$name'."
+    }
+}
+for ($directory = Get-Item -LiteralPath $WorkingDirectory; $null -ne $directory; $directory = $directory.Parent) {
+    if (Test-Path -LiteralPath (Join-Path $directory.FullName 'AGENTS.md')) {
+        throw 'Fake Copilot host workspace can discover an ancestor AGENTS.md.'
+    }
+}
+if ($mode -eq 'timeout') {
+    [System.Threading.Thread]::Sleep(5000)
+}
+if ($mode -in @('closed-stream-timeout', 'closed-stream-artifact')) {
+    Add-Type -Namespace AgentEval -Name NativeMethods -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+public static extern System.IntPtr GetStdHandle(int handle);
+[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+public static extern bool CloseHandle(System.IntPtr handle);
+'@
+    [void][AgentEval.NativeMethods]::CloseHandle([AgentEval.NativeMethods]::GetStdHandle(-11))
+    [void][AgentEval.NativeMethods]::CloseHandle([AgentEval.NativeMethods]::GetStdHandle(-12))
+    if ($mode -eq 'closed-stream-artifact') {
+        [System.IO.FileStream] $closedStreamArtifact =
+            [System.IO.File]::Create((Join-Path $WorkingDirectory 'closed-stream-oversized.bin'))
+        try { $closedStreamArtifact.SetLength(20MB) } finally { $closedStreamArtifact.Dispose() }
+    }
+    [System.Threading.Thread]::Sleep(10000)
+    exit 0
+}
+if ($mode -eq 'oversized-output') {
+    [Console]::Out.WriteLine(('x' * 4096))
+}
+if ($mode -eq 'oversized-artifact') {
+    [string] $oversizedPath = Join-Path $WorkingDirectory 'oversized.bin'
+    [System.IO.FileStream] $stream = [System.IO.File]::Create($oversizedPath)
+    try { $stream.SetLength(20MB) } finally { $stream.Dispose() }
+}
+if ($mode -eq 'host-runtime-cache') {
+    [string] $runtimeDirectory = Join-Path $env:LOCALAPPDATA 'copilot/pkg/win32-x64/test-runtime'
+    [System.IO.Directory]::CreateDirectory($runtimeDirectory) | Out-Null
+    [System.IO.FileStream] $stream = [System.IO.File]::Create((Join-Path $runtimeDirectory 'runtime.node'))
+    try { $stream.SetLength(20MB) } finally { $stream.Dispose() }
+}
+if ($mode -eq 'host-runtime-outside-cache') {
+    [string] $runtimeDirectory = Join-Path $env:LOCALAPPDATA 'copilot/not-pkg'
+    [System.IO.Directory]::CreateDirectory($runtimeDirectory) | Out-Null
+    [System.IO.FileStream] $stream = [System.IO.File]::Create((Join-Path $runtimeDirectory 'runtime.node'))
+    try { $stream.SetLength(20MB) } finally { $stream.Dispose() }
+}
+if ($mode -eq 'mutated-bundle') {
+    [string] $immutablePath = Join-Path (Split-Path -Parent $filtracePath) 'Filtrace.Core.dll'
+    [long] $immutableLength = (Get-Item -LiteralPath $immutablePath).Length
+    try { [System.IO.File]::AppendAllText($immutablePath, 'changed') }
+    catch [System.IO.IOException] { }
+    catch [System.UnauthorizedAccessException] { }
+    if ((Get-Item -LiteralPath $immutablePath).Length -ne $immutableLength) {
+        throw 'Fake Copilot host could rewrite the owned CLI bundle.'
+    }
+}
+if ($mode -eq 'mutated-fixture') {
+    [long] $fixtureLength = (Get-Item -LiteralPath $fixture).Length
+    try { [System.IO.File]::AppendAllText($fixture, 'changed') }
+    catch [System.IO.IOException] { }
+    catch [System.UnauthorizedAccessException] { }
+    if ((Get-Item -LiteralPath $fixture).Length -ne $fixtureLength) {
+        throw 'Fake Copilot host could rewrite the owned fixture.'
+    }
+}
+if ($mode -eq 'oversized-immutable') {
+    [string] $immutablePath = Join-Path (Split-Path -Parent $filtracePath) 'Filtrace.Core.dll'
+    [long] $immutableLength = (Get-Item -LiteralPath $immutablePath).Length
+    [System.IO.FileStream] $immutableStream = $null
+    try {
+        $immutableStream = [System.IO.File]::OpenWrite($immutablePath)
+        $immutableStream.SetLength($immutableStream.Length + 20MB)
+    }
+    catch [System.IO.IOException] { }
+    catch [System.UnauthorizedAccessException] { }
+    finally { if ($null -ne $immutableStream) { $immutableStream.Dispose() } }
+    if ((Get-Item -LiteralPath $immutablePath).Length -ne $immutableLength) {
+        throw 'Fake Copilot host could grow the owned CLI bundle.'
+    }
+}
+if ($mode -eq 'orphan-descendant') {
+    [System.Diagnostics.ProcessStartInfo] $descendantStart = [System.Diagnostics.ProcessStartInfo]::new()
+    $descendantStart.FileName = (Get-Process -Id $PID).Path
+    $descendantStart.UseShellExecute = $false
+    foreach ($argument in @('-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+            '[Threading.Thread]::Sleep(10000)')) {
+        [void]$descendantStart.ArgumentList.Add($argument)
+    }
+    [System.Diagnostics.Process] $descendant = [System.Diagnostics.Process]::new()
+    $descendant.StartInfo = $descendantStart
+    if (-not $descendant.Start()) { throw 'Fake descendant did not start.' }
+    [System.IO.File]::WriteAllText(
+        (Join-Path $WorkingDirectory 'descendant.pid'),
+        [string]$descendant.Id,
+        [System.Text.UTF8Encoding]::new($false))
+    $descendant.Dispose()
+}
+if ($mode -eq 'mutated-skill-view-file') {
+    [string] $relatedSkillPath = Join-Path (Split-Path -Parent $skillPath) 'references/guide.md'
+    [string] $relatedSkillText = [System.IO.File]::ReadAllText($relatedSkillPath)
+    try {
+        [System.IO.File]::WriteAllText(
+            $relatedSkillPath,
+            '!' + $relatedSkillText.Substring(1),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    catch [System.IO.IOException] { }
+    catch [System.UnauthorizedAccessException] { }
+    if (-not [string]::Equals(
+            [System.IO.File]::ReadAllText($relatedSkillPath),
+            $relatedSkillText,
+            [StringComparison]::Ordinal)) {
+        throw 'Fake Copilot host could rewrite a viewable skill file.'
+    }
+}
+$reportedModel = if ($mode -eq 'wrong-model') {
+    'other-model'
+}
+elseif ($mode -eq 'wrong-model-case') {
+    'Expected-Model'
+}
+else {
+    'expected-model'
+}
+$reportedFiltracePath = if ($mode -eq 'wrong-cli-path') { Join-Path $WorkingDirectory "other/$appHostName" } else { $filtracePath }
+$completionSucceeded = $mode -ne 'failed-completion'
+$answer = if ($mode -eq 'wrong-answer') { 'There were 6 garbage collections.' } else { 'There were 7 garbage collections.' }
+
+$events = [System.Collections.Generic.List[object]]::new()
+[System.Collections.Generic.List[object]] $reportedSkills = [System.Collections.Generic.List[object]]::new()
+if ($skillPath -and $mode -ne 'missing-skill-discovery') {
+    $reportedSkills.Add([ordered]@{
+        name = if ($mode -eq 'skill-discovery-name-case') { 'FILTRACE' } else { 'filtrace' }
+        commandName = 'filtrace'
+        source = if ($mode -eq 'skill-discovery-source-case') { 'PROJECT' } else { 'project' }
+        enabled = $true
+        path = $skillPath
+    })
+}
+$skillsPayload = $reportedSkills.ToArray()
+if ($mode -eq 'scalar-skill-inventory' -and $reportedSkills.Count -eq 1) {
+    $skillsPayload = $reportedSkills[0]
+}
+$events.Add([ordered]@{
+        type = 'session.skills_loaded'
+        data = [ordered]@{ skills = $skillsPayload }
+    })
+$events.Add([ordered]@{
+        type = 'model.messages_snapshot'
+        data = [ordered]@{ messages = @() }
+    })
+if ($mode -ne 'missing-model') {
+    $events.Add([ordered]@{
+            type = 'session.tools_updated'
+            data = [ordered]@{ model = $reportedModel }
+        })
+    if ($mode -in @('model-variant', 'model-case-variant')) {
+        [string] $variantModel = if ($mode -eq 'model-case-variant') { 'Expected-Model' } else { 'expected-model-variant' }
+        $events.Add([ordered]@{
+                type = 'session.tools_updated'
+                data = [ordered]@{ model = $variantModel }
+            })
+    }
+    if ($mode -in @('scalar-model-data', 'missing-model-value', 'non-string-model-value')) {
+        $invalidModelData = switch ($mode) {
+            'scalar-model-data' { 'expected-model' }
+            'missing-model-value' { [ordered]@{} }
+            'non-string-model-value' { [ordered]@{ model = 1 } }
+        }
+        $events.Add([ordered]@{
+                type = 'session.tools_updated'
+                data = $invalidModelData
+            })
+    }
+}
+$events.Add([ordered]@{
+        type = 'model.model_call_started'
+        data = [ordered]@{ model = 'provider-model'; provider = 'copilot' }
+    })
+
+if ($mode -in @('answer-before-analysis', 'answer-before-skill-context')) {
+    $events.Add([ordered]@{
+            type = 'assistant.message'
+            data = [ordered]@{ content = $answer }
+        })
+}
+
+if ($skillPath -and $mode -ne 'missing-skill-read') {
+    [string] $skillText = [System.IO.File]::ReadAllText($skillPath).Replace("`r`n", "`n")
+    [int] $frontmatterEnd = $skillText.IndexOf("`n---`n", 4, [StringComparison]::Ordinal)
+    if ($frontmatterEnd -lt 0) { throw 'Fake skill frontmatter was malformed.' }
+    [string] $sourceBody = $skillText.Substring($frontmatterEnd + 5)
+    if (-not $sourceBody.StartsWith("`n", [StringComparison]::Ordinal)) {
+        throw 'Fake skill frontmatter was not followed by a blank separator.'
+    }
+    [string] $skillBody = $sourceBody.Substring(1)
+    [string] $skillDirectory = [System.IO.Path]::GetDirectoryName($skillPath)
+    [string[]] $relatedPaths = @(Get-ChildItem -LiteralPath $skillDirectory -File -Recurse |
+        Where-Object { -not [string]::Equals($_.FullName, $skillPath, [StringComparison]::Ordinal) } |
+        Sort-Object { [System.IO.Path]::GetRelativePath($skillDirectory, $_.FullName) } |
+        ForEach-Object { $_.FullName })
+    [string] $relatedSection = if ($relatedPaths.Count -gt 0) {
+        "`n`nRelated files (use view tool to read):`n" +
+            (($relatedPaths | ForEach-Object { "  - $_" }) -join "`n")
+    }
+    else { '' }
+    [string] $reportedSkillName = if ($mode -eq 'skill-ledger-mismatch') { 'other-skill' } else { 'filtrace' }
+    [string] $reportedSkillToolName = if ($mode -eq 'skill-tool-case') { 'Skill' } else { 'skill' }
+    $reportedSkillArguments = if ($mode -eq 'skill-argument-name-case') {
+        [ordered]@{ Skill = 'filtrace' }
+    }
+    elseif ($mode -eq 'skill-argument-value-case') {
+        [ordered]@{ skill = 'FILTRACE' }
+    }
+    else {
+        [ordered]@{ skill = $reportedSkillName }
+    }
+    [string] $contextBody = if ($mode -in @(
+            'wrong-skill-hash', 'skill-missing-page', 'skill-hole', 'skill-reorder',
+            'skill-overlap-conflict', 'skill-malformed-line-hint', 'skill-malformed-suffix',
+            'skill-wrong-character', 'skill-forged-diff')) {
+        '!' + $skillBody.Substring(1)
+    }
+    else { $skillBody }
+    [string] $extraContext = if ($mode -eq 'skill-extra-context') { "`nInjected text outside the skill source." } else { '' }
+    $events.Add([ordered]@{
+            type = 'tool.execution_start'
+            data = [ordered]@{
+                toolCallId = 'skill-load'
+                toolName = $reportedSkillToolName
+                arguments = $reportedSkillArguments
+            }
+        })
+    $skillCompletionData = [ordered]@{
+        toolCallId = 'skill-load'
+        success = $mode -ne 'failed-skill-load'
+    }
+    if ($skillCompletionData.success) {
+        $skillCompletionData.result = [ordered]@{
+            content = 'Skill "filtrace" loaded successfully. Follow the instructions in the skill context.'
+            detailedContent = "Skill loaded successfully ✅`n`n$skillBody"
+        }
+    }
+    else {
+        $skillCompletionData.error = [ordered]@{
+            code = 'failed'
+            message = 'Skill load failed.'
+        }
+    }
+    $events.Add([ordered]@{
+            type = 'tool.execution_complete'
+            data = $skillCompletionData
+        })
+    if ($mode -ne 'missing-skill-context') {
+        $events.Add([ordered]@{
+                type = 'model.message'
+                data = [ordered]@{
+                    message = [ordered]@{
+                        role = if ($mode -eq 'skill-context-role-case') { 'USER' } else { 'user' }
+                        content = "<skill-context name=`"filtrace`">`nBase directory for this skill: $skillDirectory$relatedSection$extraContext`n`n$contextBody`n</skill-context>"
+                    }
+                }
+            })
+    }
+    if ($mode -in @('skill-view-success', 'skill-view-altered', 'mutated-skill-view-file')) {
+        [string] $relatedPath = Join-Path $skillDirectory 'references/guide.md'
+        $viewArguments = [ordered]@{ path = $relatedPath }
+        $viewDecision = Invoke-FakePolicyHook `
+            -Hook $preToolHook[0] `
+            -ToolName view `
+            -ToolArguments $viewArguments
+        if ($viewDecision.permissionDecision -ne 'allow') {
+            throw 'Fake Copilot host policy denied the bounded SKILL.md view.'
+        }
+        $events.Add([ordered]@{
+                type = 'tool.execution_start'
+                data = [ordered]@{
+                    toolCallId = 'skill-view'
+                    toolName = 'view'
+                    arguments = $viewArguments
+                }
+            })
+        [string] $viewContent = [System.IO.File]::ReadAllText($relatedPath)
+        if ($mode -eq 'skill-view-altered') { $viewContent = '!' + $viewContent.Substring(1) }
+        $events.Add([ordered]@{
+                type = 'tool.execution_complete'
+                data = [ordered]@{
+                    toolCallId = 'skill-view'
+                    success = $true
+                    result = [ordered]@{
+                        content = $viewContent
+                        detailedContent = $viewContent
+                    }
+                }
+            })
+    }
+}
+
+if ($mode -eq 'help-success') {
+    [string] $helpCommand = "& '$filtracePath' '--help'"
+    $helpArguments = [ordered]@{
+        command = $helpCommand
+        description = 'Show filtrace CLI help'
+        mode = 'sync'
+        initial_wait = 30
+    }
+    $helpDecision = Invoke-FakePolicyHook `
+        -Hook $preToolHook[0] `
+        -ToolName powershell `
+        -ToolArguments $helpArguments
+    if ($helpDecision.permissionDecision -ne 'allow') {
+        throw 'Fake Copilot host policy denied bounded top-level help.'
+    }
+    $events.Add([ordered]@{
+            type = 'tool.execution_start'
+            data = [ordered]@{
+                toolCallId = 'help-call'
+                toolName = 'powershell'
+                arguments = $helpArguments
+            }
+        })
+    [string] $helpResult = "Usage: [command] [-h|--help]`n`nCommands:`n  report"
+    $events.Add([ordered]@{
+            type = 'tool.execution_complete'
+            data = [ordered]@{
+                toolCallId = 'help-call'
+                success = $true
+                result = [ordered]@{
+                    content = "$helpResult`n<shellId: 0 completed with exit code 0>"
+                    detailedContent = "$helpResult`n<shellId: 0 completed with exit code 0>"
+                }
+            }
+        })
+}
+
+if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
+    [string] $reportedOperation = if ($mode -eq 'mismatched-operation') { 'rank' } else { 'gc' }
+    [string] $command = if ($mode -eq 'decoy-command') {
+        "Write-Output '$reportedFiltracePath report $fixture --format json'"
+    }
+    else {
+        [string[]] $commandParts = @($reportedFiltracePath, 'report', $fixture, '--kind', 'gc', '--format', 'json')
+        '& ' + (($commandParts | ForEach-Object { "'$($_.Replace("'", "''"))'" }) -join ' ')
+    }
+    if ($mode -eq 'recorded-policy-denial') {
+        $events.Add([ordered]@{
+                type = 'tool.execution_start'
+                data = [ordered]@{
+                    toolCallId = 'denied-call'
+                    toolName = 'powershell'
+                    arguments = [ordered]@{
+                        command = $command
+                        description = 'Inspect trace format and analysis capabilities'
+                        mode = 'sync'
+                        initial_wait = 30
+                    }
+                }
+            })
+        $events.Add([ordered]@{
+                type = 'tool.execution_complete'
+                data = [ordered]@{
+                    toolCallId = 'denied-call'
+                    success = $false
+                    error = [ordered]@{
+                        message = 'Denied by preToolUse hook: Denied by the bounded filtrace evaluation policy.'
+                        code = 'denied'
+                    }
+                }
+            })
+    }
+    [string] $callId = if ($mode -eq 'missing-call-id') { '' } else { 'call-1' }
+    [string] $toolName = if ($mode -in @('unexpected-tool', 'denied-unknown-tool')) {
+        'write'
+    }
+    elseif ($mode -eq 'powershell-tool-case') {
+        'PowerShell'
+    }
+    else {
+        'powershell'
+    }
+    $toolArguments = [ordered]@{
+        command = $command
+        description = 'Analyze the owned trace with filtrace'
+    }
+    if ($mode -notin @('legacy-tool-arguments', 'recorded-policy-denial')) {
+        $toolArguments.mode = 'sync'
+        $toolArguments.initial_wait = 30
+    }
+    switch ($mode) {
+        'command-member-case' {
+            $toolArguments = [ordered]@{
+                Command = $command
+                description = 'Analyze the owned trace with filtrace'
+                mode = 'sync'
+                initial_wait = 30
+            }
+        }
+        'description-member-case' {
+            $toolArguments = [ordered]@{
+                command = $command
+                Description = 'Analyze the owned trace with filtrace'
+                mode = 'sync'
+                initial_wait = 30
+            }
+        }
+        'mode-member-case' {
+            [void]$toolArguments.Remove('mode')
+            $toolArguments.Mode = 'sync'
+        }
+        'missing-command-argument' { [void]$toolArguments.Remove('command') }
+        'missing-description-argument' { [void]$toolArguments.Remove('description') }
+        'invalid-command-type' { $toolArguments.command = @($command) }
+        'invalid-mode-type' { $toolArguments.mode = $true }
+        'async-mode' { $toolArguments.mode = 'async' }
+        'repl-mode' { $toolArguments.mode = 'repl' }
+        'invalid-initial-wait-type' { $toolArguments.initial_wait = '30' }
+        'zero-initial-wait' { $toolArguments.initial_wait = 0 }
+        'unbounded-initial-wait' { $toolArguments.initial_wait = 31 }
+        'shell-sandbox-flag' { $toolArguments.sandbox = $true }
+    }
+    [string[]] $invalidToolArgumentModes = @(
+        'command-member-case', 'description-member-case', 'mode-member-case',
+        'missing-command-argument', 'missing-description-argument', 'invalid-command-type',
+        'invalid-mode-type', 'async-mode', 'repl-mode', 'invalid-initial-wait-type',
+        'zero-initial-wait', 'unbounded-initial-wait', 'shell-sandbox-flag')
+    if ($mode -eq 'mutated-execution-policy') {
+        [int] $policyPathIndex = [Array]::IndexOf([object[]]$preToolHook[0].args, '-PolicyPath')
+        if ($policyPathIndex -lt 0) { throw 'Fake host could not locate the execution policy path.' }
+        [string] $policyPath = [string]$preToolHook[0].args[$policyPathIndex + 1]
+        [string] $policyText = [System.IO.File]::ReadAllText($policyPath)
+        try {
+            [System.IO.File]::WriteAllText(
+                $policyPath,
+                $policyText.Replace('"schemaVersion": 6', '"schemaVersion": 7'),
+                [System.Text.UTF8Encoding]::new($false))
+        }
+        catch [System.IO.IOException] { }
+        catch [System.UnauthorizedAccessException] { }
+    }
+    if ($mode -eq 'mutated-hook-configuration') {
+        [string] $hookText = [System.IO.File]::ReadAllText($hookConfigurationPath)
+        try {
+            [System.IO.File]::WriteAllText(
+                $hookConfigurationPath,
+                $hookText.Replace('"version": 1', '"version": 2'),
+                [System.Text.UTF8Encoding]::new($false))
+        }
+        catch [System.IO.IOException] { }
+        catch [System.UnauthorizedAccessException] { }
+    }
+        if ($mode -notin @(
+            'decoy-command', 'wrong-cli-path', 'unexpected-tool', 'denied-unknown-tool',
+            'powershell-tool-case')) {
+        $preToolDecision = Invoke-FakePolicyHook `
+            -Hook $preToolHook[0] `
+            -ToolName $toolName `
+            -ToolArguments $toolArguments
+        [string] $expectedDecision = if ($invalidToolArgumentModes -contains $mode) { 'deny' } else { 'allow' }
+        if ($preToolDecision.permissionDecision -ne $expectedDecision) {
+            throw "Fake Copilot host policy returned '$($preToolDecision.permissionDecision)' for '$mode'; expected '$expectedDecision'."
+        }
+    }
+    if ($mode -eq 'allowed-no-execution') {
+        $toolName = $null
+    }
+    if ($null -ne $toolName) {
+    $events.Add([ordered]@{
+            type = 'tool.execution_start'
+            data = [ordered]@{
+                toolCallId = $callId
+                toolName = $toolName
+                arguments = $toolArguments
+            }
+        })
+    if ($mode -eq 'duplicate-call-id') { $events.Add($events[$events.Count - 1]) }
+    if ($mode -eq 'denied-unknown-tool') {
+        $events.Add([ordered]@{
+                type = 'tool.execution_complete'
+                data = [ordered]@{
+                    toolCallId = $callId
+                    success = $false
+                    error = [ordered]@{
+                        code = 'denied'
+                        message = 'Denied by preToolUse hook: Denied by the bounded filtrace evaluation policy.'
+                    }
+                }
+            })
+    }
+    elseif ($mode -ne 'missing-completion') {
+        $completionData = [ordered]@{
+            toolCallId = $callId
+            success = if ($mode -eq 'string-success') { 'true' } else { $completionSucceeded }
+        }
+        if ($completionSucceeded) {
+            $completionData.result = @(
+                    [string] $schemaVersion = if ($mode -eq 'unknown-cli-schema') {
+                        '16'
+                    }
+                    elseif ($mode -eq 'fractional-cli-schema') {
+                        '17.0'
+                    }
+                    else {
+                        '17'
+                    }
+                    [string] $resultJson = if ($mode -eq 'scalar-cli-result') {
+                        '"forged"'
+                    }
+                    elseif ($mode -eq 'empty-cli-result') {
+                        '{}'
+                    }
+                    else {
+                        '{"gcCount":7}'
+                    }
+                    [string] $json = "{`"schemaVersion`":$schemaVersion,`"context`":{`"operation`":`"$reportedOperation`"},`"result`":$resultJson}"
+                    if ($mode -eq 'duplicate-cli-root-member') {
+                        $json = $json.Replace(
+                            '"schemaVersion":17,',
+                            '"schemaVersion":16,"schemaVersion":17,')
+                    }
+                    elseif ($mode -eq 'duplicate-cli-context-member') {
+                        $json = $json.Replace(
+                            '"context":{"operation":"gc"}',
+                            '"context":{"operation":"rank","operation":"gc"}')
+                    }
+                    elseif ($mode -eq 'duplicate-cli-result-member') {
+                        $json = $json.Replace(
+                            '"result":{"gcCount":7}',
+                            '"result":{"gcCount":6,"gcCount":7}')
+                    }
+                    [string] $content = switch ($mode) {
+                        'malformed-shell-wrapper' { "prefix`n$json`n<shellId: 0 completed with exit code 0>"; break }
+                        'nonzero-shell-wrapper' { "$json`n<shellId: 0 completed with exit code 1>"; break }
+                        default { "$json`n<shellId: 0 completed with exit code 0>" }
+                    }
+                    [string] $detailedContent = if ($mode -eq 'mismatched-shell-content') { "$content changed" } else { $content }
+                    [ordered]@{ content = $content; detailedContent = $detailedContent }
+                )[0]
+        }
+        else {
+            $completionData.error = [ordered]@{
+                code = 'failed'
+                message = 'Filtrace failed.'
+            }
+        }
+        $events.Add([ordered]@{
+                type = 'tool.execution_complete'
+                data = $completionData
+            })
+    }
+    }
+}
+
+if ($mode -notin @('answer-before-analysis', 'answer-before-skill-context')) {
+    $events.Add([ordered]@{
+            type = 'assistant.message'
+            data = [ordered]@{ content = if ($mode -eq 'non-string-answer-content') { 7 } else { $answer } }
+        })
+}
+if ($mode -eq 'unknown-event') {
+    $events.Add([ordered]@{ type = 'future.event'; data = [ordered]@{} })
+}
+if ($mode -eq 'case-variant-event') {
+    $events.Add([ordered]@{ type = 'RESULT'; data = [ordered]@{} })
+}
+$resultEvent = [ordered]@{
+    type = 'result'
+    exitCode = if ($mode -eq 'host-failure') { 1 } else { 0 }
+}
+if ($mode -ne 'missing-all-usage') {
+    $resultEvent.usage = [ordered]@{
+        premiumRequests = if ($mode -eq 'fractional-premium-usage') { 0.33 } else { 1 }
+        totalApiDurationMs = 20
+        sessionDurationMs = if ($mode -eq 'oversized-session-duration') { [long][int]::MaxValue + 1 } else { 25 }
+    }
+}
+$events.Add($resultEvent)
+
+if ($mode -in @('model-after-analysis', 'skill-discovery-after-invocation')) {
+    [string] $eventType = if ($mode -eq 'model-after-analysis') {
+        'session.tools_updated'
+    }
+    else {
+        'session.skills_loaded'
+    }
+    [System.Collections.Generic.List[object]] $movedEvents = [System.Collections.Generic.List[object]]::new()
+    for ($eventIndex = $events.Count - 1; $eventIndex -ge 0; $eventIndex--) {
+        if ([string]::Equals([string]$events[$eventIndex].type, $eventType, [StringComparison]::Ordinal)) {
+            $movedEvents.Insert(0, $events[$eventIndex])
+            $events.RemoveAt($eventIndex)
+        }
+    }
+    [int] $resultIndex = -1
+    for ($eventIndex = 0; $eventIndex -lt $events.Count; $eventIndex++) {
+        if ([string]::Equals([string]$events[$eventIndex].type, 'result', [StringComparison]::Ordinal)) {
+            $resultIndex = $eventIndex
+            break
+        }
+    }
+    if ($movedEvents.Count -eq 0 -or $resultIndex -lt 0) { throw "Fake host could not reorder '$eventType'." }
+    foreach ($movedEvent in $movedEvents) {
+        $events.Insert($resultIndex, $movedEvent)
+        $resultIndex++
+    }
+}
+if ($mode -eq 'event-after-result') {
+    $events.Add([ordered]@{
+            type = 'assistant.idle'
+            data = [ordered]@{}
+        })
+}
+
+    if ($mode -notin @('missing-usage-output', 'missing-all-usage')) {
+        [string] $usageJson = if ($mode -eq 'malformed-usage-output') {
+            '{'
+        }
+        elseif ($mode -eq 'empty-usage-output') {
+            '{}'
+        }
+        else {
+            $usageValue = [ordered]@{
+                    totalPremiumRequestCost = 1
+                    totalUserRequests = 1
+                    tokenDetails = [ordered]@{
+                        input = [ordered]@{ tokenCount = 20 }
+                        cache_read = [ordered]@{ tokenCount = 5 }
+                        cache_write = [ordered]@{ tokenCount = 15 }
+                        output = [ordered]@{ tokenCount = 10 }
+                    }
+                    currentModel = $reportedModel
+                }
+            switch ($mode) {
+                'usage-missing-token-details' { [void]$usageValue.Remove('tokenDetails') }
+                'usage-missing-token-count' { [void]$usageValue.tokenDetails.output.Remove('tokenCount') }
+                'usage-missing-premium' { [void]$usageValue.Remove('totalPremiumRequestCost') }
+                'usage-wrong-type' { $usageValue.tokenDetails.input.tokenCount = '20' }
+                'usage-negative-token' { $usageValue.tokenDetails.cache_read.tokenCount = -1 }
+                'usage-model-mismatch' { $usageValue.currentModel = 'other-model' }
+            }
+            [string]($usageValue | ConvertTo-Json -Depth 6)
+        }
+        if ($mode -eq 'duplicate-usage-output') {
+            $usageJson = $usageJson.Replace(
+                '"currentModel":',
+                '"currentModel":"duplicate","currentModel":')
+        }
+        [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($UsageOutputFile)) | Out-Null
+        [System.IO.File]::WriteAllText($UsageOutputFile, $usageJson, [System.Text.UTF8Encoding]::new($false))
+    }
+
+if ($mode -in @('completion-before-start', 'skill-context-before-completion')) {
+    [string] $targetCallId = if ($mode -eq 'completion-before-start') { 'call-1' } else { 'skill-load' }
+    [int] $startIndex = -1
+    [int] $completionIndex = -1
+    [int] $contextIndex = -1
+    for ($eventIndex = 0; $eventIndex -lt $events.Count; $eventIndex++) {
+        $event = $events[$eventIndex]
+        if ($event.type -eq 'tool.execution_start' -and $event.data.toolCallId -eq $targetCallId) {
+            $startIndex = $eventIndex
+        }
+        elseif ($event.type -eq 'tool.execution_complete' -and $event.data.toolCallId -eq $targetCallId) {
+            $completionIndex = $eventIndex
+        }
+        elseif ($mode -eq 'skill-context-before-completion' -and $event.type -eq 'model.message' -and
+            $event.data.message.role -eq 'user' -and $event.data.message.content -is [string] -and
+            ([string]$event.data.message.content).StartsWith(
+                '<skill-context name="filtrace">', [StringComparison]::Ordinal)) {
+            $contextIndex = $eventIndex
+        }
+    }
+    if ($startIndex -lt 0 -or $completionIndex -lt 0) { throw 'Fake host could not reorder tool events.' }
+    if ($mode -eq 'completion-before-start') {
+        $completionEvent = $events[$completionIndex]
+        $events.RemoveAt($completionIndex)
+        $events.Insert($startIndex, $completionEvent)
+    }
+    else {
+        if ($contextIndex -lt 0) { throw 'Fake host could not reorder skill context.' }
+        $contextEvent = $events[$contextIndex]
+        $events.RemoveAt($contextIndex)
+        $events.Insert($completionIndex, $contextEvent)
+    }
+}
+
+foreach ($hostEvent in $events) {
+    if ($mode -eq 'malformed-jsonl') {
+        [Console]::Out.WriteLine('{')
+        $mode = 'malformed-jsonl-emitted'
+    }
+    [string] $eventJson = [string]($hostEvent | ConvertTo-Json -Depth 8 -Compress)
+    if ($mode -eq 'event-root-extra-member' -and $hostEvent.type -eq 'tool.execution_start' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Substring(0, $eventJson.Length - 1) + ',"extra":true}'
+    }
+    elseif ($mode -eq 'duplicate-event-member' -and $hostEvent.type -eq 'tool.execution_start' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"toolCallId":"call-1"', '"toolCallId":"call-1","toolCallId":"call-1"')
+    }
+    elseif ($mode -eq 'event-data-extra-member' -and $hostEvent.type -eq 'tool.execution_start' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"arguments":', '"extra":true,"arguments":')
+    }
+    elseif ($mode -eq 'event-data-member-case' -and $hostEvent.type -eq 'tool.execution_start' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"data":', '"Data":')
+    }
+    elseif ($mode -eq 'tool-call-id-member-case' -and $hostEvent.type -eq 'tool.execution_start' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"toolCallId":', '"ToolCallId":')
+    }
+    elseif ($mode -eq 'completion-result-member-case' -and $hostEvent.type -eq 'tool.execution_complete' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"result":', '"Result":')
+    }
+    elseif ($mode -eq 'completion-success-member-case' -and $hostEvent.type -eq 'tool.execution_complete' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"success":', '"Success":')
+    }
+    elseif ($mode -eq 'answer-content-member-case' -and $hostEvent.type -eq 'assistant.message') {
+        $eventJson = $eventJson.Replace('"content":', '"Content":')
+    }
+    elseif ($mode -eq 'result-exit-code-member-case' -and $hostEvent.type -eq 'result') {
+        $eventJson = $eventJson.Replace('"exitCode":', '"ExitCode":')
+    }
+    elseif ($mode -eq 'model-member-case' -and $hostEvent.type -eq 'session.tools_updated') {
+        $eventJson = $eventJson.Replace('"model":', '"Model":')
+    }
+    $eventJson
+}

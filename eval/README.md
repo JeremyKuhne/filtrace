@@ -75,13 +75,12 @@ A task is one JSON file in [tasks/](tasks/):
 agent only a task's natural-language `prompt` and lets the model choose which
 filtrace commands to run, then scores whether it reached the right answer and at
 what cost. That catches MCP descriptions/server instructions and CLI command,
-error, output, and hint regressions - surfaces the deterministic gate cannot see.
-It does **not** currently evaluate the shipped `SKILL.md`; that needs a separate arm
-with repository customizations enabled. It is non-deterministic and needs a model
-host, so it runs locally / occasionally, never in CI; the deterministic gate stays
-the regression net.
+error, output, hint, and discovered skill-use regressions - surfaces the
+deterministic gate cannot see. It is non-deterministic and needs a model host, so
+live runs remain local/occasional; CI runs only its deterministic fake-host
+contract and the no-LLM gate.
 
-**Two host/arm combinations are wired:**
+**Four host/arm combinations are wired:**
 
 - **`ollama` -> cli arm** (local, no metered API). The harness mediates a ReAct
   loop: the model emits one action per turn (`RUN: <args>` or `ANSWER: <text>`),
@@ -97,11 +96,184 @@ the regression net.
   exercises the **MCP tool descriptions** the cli arm never touches, on the real
   production agent. It deliberately passes `--no-custom-instructions`, isolating
   the MCP contract from `AGENTS.md` and the filtrace skill. By default it uses
-  Copilot's own model (the result records the actual model, e.g.
-  `claude-opus-4.6`); pass `-Model` to pin one.
+  Copilot's own model and records the actual identity; pass `-Model` to pin one.
+  An explicit `McpDll` run does not resolve or require the separate Filtrace CLI
+  output.
+- **`copilot` -> cli arm** is an experimental Windows-only EP1 evidence arm. It
+  invokes a byte-verified owned copy of the current checkout's native apphost
+  bundle, not a global `filtrace`. Before execution, an isolated per-run hook
+  requires one literal PowerShell invocation of that apphost, the exact owned
+  trace path, a task-derived read-only verb/option family, bounded typed values,
+  and a final `--format json`. The JSONL parser independently requires a correlated
+  `powershell` start/completion pair with the same shape. It accepts the required
+  `command` and `description` members, optional literal `mode: "sync"`, and an
+  optional integer `initial_wait` from 1 through 30; every other argument member is
+  rejected. The successful completion
+  must contain filtrace schema 17 and an operation matching the executed read-only
+  verb. Its result must also contain an operation-specific typed anchor such as
+  rank rows, callers, a report count, events, processes, or a tree root; an empty
+  result object is not successful evidence. The parser retains only explicitly
+  modeled evidence-bearing event types, rejects unknown or duplicate members and
+  malformed nested payloads before interpretation, and requires the sole `result`
+  event to be the final nonempty JSONL record. Known protocol chatter is discarded
+  rather than treated as evidence. Decoy text, extra commands, writes, unknown
+  tools, malformed events, post-result events, and failed completions do not pass.
+- **`copilot` -> cli-skill arm** uses the same host, explicit model, task prompt,
+  and PowerShell access as the Copilot cli arm, but adds the native `skill` and
+  bounded `view` tools and copies the exact shipped
+  `.agents/skills/filtrace` tree into the owned workspace and enables normal
+  project-skill discovery. It requires one enabled `source: project` Filtrace
+  entry at the copied path, one exact `skill {"skill":"filtrace"}` invocation,
+  a successful completion, and one injected `<skill-context name="filtrace">`
+  whose body exactly matches `SKILL.md` after frontmatter and its leading blank
+  separator are removed and CRLF is normalized to LF. Startup metadata alone is
+  not use evidence.
+
+The strict Copilot CLI arms create a GUID-owned workspace outside the repository
+when `-OutDir` equals or is beneath this checkout. They reject any selected
+workspace with an ancestor `AGENTS.md`, so discovery cannot reach unattested
+instructions. The child environment starts empty, copies only required
+OS/process/path/locale/.NET variables, and redirects `HOME`, `USERPROFILE`,
+`XDG_CONFIG_HOME`, `APPDATA`, `LOCALAPPDATA`, and `COPILOT_HOME` to owned empty
+directories. Token, provider, custom-instruction, MCP, and telemetry environment
+settings are not inherited. The CLI-only arm disables custom instructions; the
+skill arm enables discovery inside an otherwise empty owned workspace containing
+only the copied project skill. Both disable builtin MCPs, remote export/control,
+auto-update, bash environment loading, user prompts, and automatic system-temp
+access. Their available analysis tool is only `powershell`; cli-skill additionally
+receives `skill` and `view`. `view` is hook-limited to the copied, hash-bound skill
+inventory, four requests, and 64 MiB of cumulative requested source. The other
+observed host built-ins are explicitly excluded. On Windows, a handshake
+launcher joins a kill-on-close Job Object before it may start Copilot, so children
+remain owned and are terminated when the bounded run ends even if the host exits first.
+One invocation is capped at 64 total strict task iterations so copied immutable
+bundles and retained run evidence cannot grow without a run-wide bound. Before
+launch, actual fixture/CLI/skill input sizes plus the maximum per-run artifact and
+runtime budgets must also fit a 2 GiB projected retained-byte cap.
+Manifest-backed tasks are rejected before host launch until the strict context can
+copy and attest their dependency closure without changing relative paths.
+There is no shell allow rule. Normal permissions deny all shell, write, and URL
+requests. They also pass `read` to `--deny-tool`; Copilot CLI 1.0.82 accepts that
+argument. Retained real-host probes established that a matching `preToolUse` allow
+executes `view` while a missing allow falls through to the normal read denial.
+
+For each iteration the runner writes hook configuration only under that run's
+isolated `COPILOT_HOME/hooks`. Its command hooks use direct `exec` plus argument
+arrays to a copied, hashed PowerShell 7 guard. One `preToolUse` hook validates the
+exact recorded input members (`sessionId`, `timestamp`, `cwd`, `toolName`, and
+`toolArgs`) and the session and working directory. For `powershell`, it accepts the
+observed `command` plus a nonempty, single-line description of at most 256
+characters. It also accepts the two optional host metadata members described above,
+with the same bounds used for transcript evidence. The description and host fields
+are metadata; only the command is parsed. The command must be one all-single-quoted
+PowerShell AST invocation using the exact owned apphost and fixture. Permitted verbs
+and option names come from the task's canonical analysis steps, while text and
+numeric values remain typed and bounded rather than fixed to the expected answer.
+Unknown tool argument members and command options, including environment, input,
+timeout, sandbox, output, symbol/network, and native-symbol options, are rejected.
+For `view`, the hook requires one exact path from the copied skill inventory and an
+optional bounded two-integer line range. The post-run parser independently validates
+the same request and returned source bytes before accepting the read as evidence.
+The raw hook envelope and string-valued `toolArgs` are parsed for duplicate members
+before PowerShell object coercion. The parent ledger independently applies the same
+rule to its request envelope and nested view arguments.
+
+Before returning `permissionDecision: allow`, the hook consumes an allowance from
+a monotonic in-memory ledger owned by the evaluator process. The host can neither
+rewrite nor reset that state. The parent ledger independently parses each exact
+command or view request against its immutable task policy and computes the retained
+hash and requested-byte count itself; a direct client cannot authorize a
+caller-supplied hash, relabel an analysis as help, or spend view capacity on another
+path. Analysis hashes are capped at `min(MaxSteps, task.maxCalls)`, help hashes use
+a separate cap for the top level plus each task-derived command family, and bounded
+view requests share the same authoritative snapshot. A help lookup therefore cannot
+consume a one-call analysis budget. Each pipe request is capped at 64 KiB and a
+two-second read, so a stalled client cannot hold the ledger through the hook's
+decision window. The retained
+Copilot CLI 1.0.82 nonce probe established that `preToolUse` runs first and that an
+explicit allow bypasses both `permissionRequest` and the normal shell deny. Missing,
+malformed, crashed, or timed-out hooks receive no explicit allow and therefore
+fall through to the normal deny. Conservative consumption is intentional: if an
+allowed command never appears in the transcript, ledger/transcript mismatch rejects
+the iteration. Successful PowerShell results must use the observed object with equal
+`content` and `detailedContent`, one JSON payload, and the exact trailing
+`<shellId: N completed with exit code 0>` line before schema-17 and operation checks.
+
+The native `skill` tool is not shell execution and does not use the PowerShell
+hook. Its display result can be shorter than the source, so `detailedContent` is
+not treated as complete evidence. The evaluator verifies the model-visible
+`<skill-context>` message instead. Copilot removes YAML frontmatter and normalizes
+CRLF to LF before injection, and its wrapper consumes the blank separator before
+the Markdown body; the complete normalized wrapper and body must match. Results
+keep the raw file SHA-256, decoded source hash, expected context hash, observed
+context hash, discovery metadata, and correlated skill call ID as separate evidence.
+The matching enabled project-skill inventory must occur before the native skill
+invocation; appending discovery metadata after use does not attest discovery.
+
+Before launch, the runner accepts only a tracked, HEAD-clean file beneath
+`tests/Filtrace.Core.Tests/Fixtures`, rejects UNC/reparse paths, and caps it at
+512 MiB. It inventories and hashes at most 256 CLI files / 512 entries / 512 MiB
+and 64 skill files / 128 entries / 16 MiB, hashes source bytes before and after the
+streaming copy, hashes each destination, and rechecks immutable inputs after the
+host exits. Every copied immutable CLI/runtime, fixture, skill, hook, policy, and
+configuration file is held with read sharing only for the host lifetime; viewable
+skill hashes are also embedded in the immutable hook policy. Before each periodic
+artifact scan excludes those inputs, it also
+requires their attested lengths and ordinary non-reparse paths; growth is rejected
+while the host is still running. Dynamic host artifacts are independently capped
+at 16 MiB and 512 total files/directories. On Windows, host distribution assets unpacked beneath the
+fixed isolated `home/AppData/Local/copilot/pkg` cache are measured separately at
+256 MiB total, 1,024 files/directories, and 128 MiB per file. No other home path is
+excluded. This classification is path-based accounting and does not infer which
+process wrote a cache entry. Combined captured output is capped at 10 MiB and wall
+time at 10 minutes. After a completed host process, exact UTF-8 stdout and stderr are
+written with create-new semantics to `logs/host-stdout.jsonl` and
+`logs/host-stderr.log` before ledger or JSONL parsing. They count against the dynamic
+artifact budget. If the remaining byte budget cannot hold both, a bounded
+`logs/host-output-not-retained.txt` diagnostic is written instead. A parser failure
+does not publish an eval result, but the retained raw files remain available and a
+diagnostic-write failure does not replace the parser error. These controls, measured
+artifact/runtime bytes, and the input manifests are retained in each successful
+iteration record. The wall-time deadline and periodic artifact/runtime scans
+continue after redirected streams close; a host process that remains alive is
+stopped at the configured deadline.
+JSONL event objects and the Filtrace JSON document embedded in a successful shell
+completion reject recursive duplicate members before PowerShell object conversion.
+The separately requested usage JSON is capped at 1 MiB and rejects duplicate or
+unknown members throughout its usage and token-count objects before retention.
+If timeout, output, artifact, or launch enforcement throws before normal retention,
+the runner writes at most 8 KiB of captured stdout/stderr prefixes under an
+evaluator-owned sibling `failures/<run-id>` directory before rethrowing. This
+failure record is separate from the host-writable artifact budget.
+
+The strict arms remain Windows-only and require both `-Model` and `-ExpectedModel`; requested and observed
+identities must be nonempty and exactly equal using ordinal comparison. Missing,
+different-case, case-distinct multiple identities, or mismatched identity fails.
+Identity comes from the host's
+`session.tools_updated` current model; a provider's lower-level chunk model label is
+not substituted for it. At least one valid identity event must precede the first
+model or tool call; a matching identity reported only after analysis does not attest
+the work. Exact identities remain in local result evidence so comparison can verify
+matched arms. The default `eval/results/` location is ignored and never committed;
+public PRs and documentation use role labels rather than those private identifiers.
+The deterministic fake validates generated hook placement,
+literal-command decisions, recorded input shape/order, malformed/unknown inputs,
+bounded description metadata, unsafe option rejection, exact concurrent cap
+consumption, no-hook fallback, strict shell-result extraction, launch arguments,
+and transcript/state agreement. A retained native Copilot CLI 1.0.82 protocol probe
+on 2026-09-13 discovered Filtrace from the owned project path, invoked it through
+the native skill tool, and matched the configured evaluation-model identity. It
+completed in 3.355 seconds, reported
+one premium request, and emitted complete host token accounting. This verifies
+host, model, and skill protocol availability; it is not the ready-capture efficacy
+smoke. If an isolated home cannot use platform-keyring authentication, the run must
+fail clearly; do not copy credentials or weaken isolation.
 
 `claude` is recognized but not yet wired. The trace path is masked back to
-`<TRACE>` in transcripts and answers so it does not leak.
+`<TRACE>` in persisted transcripts and answers. The owned path and fixture-derived
+CLI output are still sent to the selected model; only committed eval fixtures are
+allowed, and the raw trace is never attached as a model resource. `--no-remote-export`
+prevents host transcript export, not the model interaction itself.
 
 ```pwsh
 # Local model (cli arm), a quick two-task sample.
@@ -111,15 +283,83 @@ the regression net.
 # Build the MCP server first: dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c Release
 ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Tasks cpu-hotspot,gc-report -N 1
 
-# A fuller measurement (medians get meaningful around N = 5-10).
+# Experimental Copilot CLI arm. Use the exact model id reported by the installed host.
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Arm cli -Model <model-id> `
+  -ExpectedModel <model-id> -Tasks cpu-hotspot,gc-report -N 1
+
+# Same host/model/task, with the shipped project skill genuinely discovered and verified.
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Arm cli-skill -Model <model-id> `
+  -ExpectedModel <model-id> -Tasks cpu-hotspot,gc-report -N 1
+
+# Repeated observations; summaries remain descriptive rather than statistical.
 ./eval/Invoke-AgentEval.ps1 -AgentHost ollama -Model deepseek-r1:8b -N 10
 ```
 
 Each (task, iteration) records **success** (the answer contains every `expect`
-substring; transcript review remains necessary), **calls** (filtrace invocations), **tokens** (the offline estimate of
-the tool output the agent consumed - the same accounting the gate uses), and
-**wall-time**, plus a per-command transcript. Results land under `eval/results/`
-(git-ignored) as JSON with a median summary.
+substring and required evidence passes; transcript review remains necessary),
+**calls** (filtrace invocations), **tokens** (the offline estimate of observed tool
+result payloads - not inferred model context), and **wall-time**, plus transcript,
+host usage, model evidence, execution paths/hashes, skill evidence, and warnings.
+Each accepted skill-file view retains its attested source byte/text hashes, exact
+request hash and range, requested bytes, returned-content and logical-payload hashes,
+character counts, line coverage, and truncation protocol; aggregate skill fields
+retain total requested and returned content.
+
+Schema-v3 labeled records also retain one arm-neutral input identity per task: the
+task file hash, matching MCP-QA row hash, primary fixture hash, and a deterministic
+closure hash over canonical file arguments plus captures referenced by manifests.
+`Compare-EvalRuns.ps1` requires those identities, model/host/arm, task set, iteration
+count, and call budget to match before calculating deltas. CLI and skill hashes are
+deliberately excluded from this identity because they are the surfaces an A/B run
+may change. Comparison tolerance must be a finite fraction from zero through one,
+and raw duplicate members are rejected before conversion. Schema-v3 records require
+their complete root evidence, nonnegative integer transport metrics, and exact
+host-specific nested object and array shapes; summary rows accept only the documented
+schema members.
+The graded answer event must follow every counted successful analysis completion
+and, for `cli-skill`, the verified injected skill context. Strict CLI transcript
+entries retain the parser's derived operation, including `report --kind` intent,
+rather than inferring it later from the surface verb. Tool evidence must preserve
+causal `start < completion < context/answer` order, and strict CLI grading requires
+every operation derived from the task's canonical steps in addition to explicit
+task expectations.
+Results land under `eval/results/` (git-ignored) as schema-v3 JSON with a median
+summary. Schema-v3 rows retain exact `SuccessCount` for comparison while
+`Success%` remains a rounded display value; older schema-v3 rows derive the count
+from their validated iterations. `hostUsage` retains the result event. `hostUsageFile` separately records
+the bounded `--usage-output-file`, its hash, and detailed input/output/cache counts;
+a missing file remains explicitly unavailable rather than becoming zero. An
+available file must contain nonnegative premium-request/user counts, a nonempty
+current model, and integer input/cache-read/cache-write/output token counts;
+malformed or incomplete accounting fails before a result is published. A successful
+iteration requires at least one validated source: result-event usage or the detailed
+usage file. When the detailed file is present, its `currentModel` must exactly match
+the one model identity observed in the JSONL stream.
+
+### EP1 preflight checkpoint
+
+The 2026-09-13 preflight used Copilot CLI 1.0.82 and a fixed model identity retained
+in private evidence. The fail-closed fake-host contract passed, including wrong or
+missing model, skill, tool, result, and usage evidence. A restricted live protocol
+probe confirmed the configured identity, project-skill
+discovery, native `skill` invocation, and complete injected context.
+
+One `cpu-hotspot` smoke per arm then used the same CLI hash
+`b0528f858d11a2f864c42334354fb22e74dcea710ed3b6a4ad3f9c737e89ef4f`
+and fixture hash
+`2891c917c511763561ec18ad8982eba82a81dda72a47e0774de76790272145d1`.
+Both returned `MyApp.Inner` at 16 ms / 64% self weight and `MyApp.Work` as its
+100% caller.
+
+| Arm | Analysis / help / denied calls | Observed result tokens | Host elapsed | Host input / cache-read / cache-write / output tokens |
+|---|---:|---:|---:|---:|
+| CLI only | 2 / 1 / 1 | 932 | 29.957 s | 15 / 26,442 / 7,699 / 870 |
+| CLI plus discovered skill | 2 / 1 / 1 | 955 | 32.704 s | 18 / 46,173 / 11,050 / 1,001 |
+
+Each arm reported one premium request. The skill arm's discovery, invocation, and
+context hashes verified. This single pair proves protocol and accounting readiness;
+it does not establish an efficacy advantage. The next accepted evidence is three
+alternating pairs on a frozen ready-capture task with transcript-level grading.
 
 Substring matching removes thousands separators from digit runs on both sides
 first, so a task can pin `4309` and an answer that says "4,309" still matches.
@@ -188,14 +428,12 @@ Their priority comes from the public roadmap, not this harness document:
 | Disambiguate several matching frames | There is no ambiguity diagnostic to assert - `callers <prefix>` silently aggregates every match. |
 | Choose `classify` over a generic report for native runtime CPU | The committed ETW fixture resolves 0% of its CPU frames, so `classify` returns one `other` category. |
 
-Live success means the final answer contains each task's expected substring; on the
-Copilot arm, every expected MCP tool must also succeed. That is deterministic enough
-for baseline/candidate comparison, but it is not semantic grading: review transcripts
-before accepting a surface change, especially when an answer can still be correct for
-the wrong reason. The current arms also cannot establish
-that a `SKILL.md` edit helped, because neither loads it. Measure skill revisions in a
-separate run with customizations enabled rather than attributing an MCP-only result
-to the skill.
+Live success still uses expected substrings rather than a general semantic grader.
+The MCP arm requires its expected MCP tools; strict CLI arms require matched local
+apphost evidence; cli-skill also requires verified project discovery, invocation,
+and injected context. These checks reject unsupported provenance but do not establish
+that the skill caused a better answer. The three alternating ready-capture
+comparison pairs and semantic-grader follow-up remain EP1 work.
 
 ### Example local run
 
@@ -214,9 +452,10 @@ The model self-corrected a wrong flag from the CLI's error text, which is why th
 two-step tasks took more than the canonical call count - exactly the agent
 overhead this arm is meant to measure.
 
-A `copilot` mcp-arm sample (model `claude-opus-4.6`, the CLI default) on the same
-`gc-report` task answered correctly in **1** `trace_gc` call - the agent selects
-the right tool straight from the MCP descriptions:
+A `copilot` mcp-arm sample using the CLI-default model on the same `gc-report`
+task answered correctly in **1** `trace_gc` call - the agent selects the right
+tool straight from the MCP descriptions. The exact model identity remains in the
+private evidence:
 
 | Task | Host / arm | Success | Calls | Tokens |
 |---|---|---|---|---|
@@ -231,52 +470,49 @@ Filtrace backlog.
 The point of the live arm is to improve the surfaces it actually presents to an
 agent - MCP tool descriptions/server instructions, or CLI arguments, errors,
 results, and hints - and test whether a change helped without regressing. These
-surfaces are compiled in, so a candidate is a rebuilt working tree. `SKILL.md` is
-outside this loop until a customization-enabled arm is added. The measured loop:
+surfaces are compiled in, so a candidate is a rebuilt working tree. Skill changes
+use matched `cli-skill` and `cli` runs; the MCP-only loop below remains appropriate
+for MCP descriptions and server instructions. The measured loop:
 
 ```pwsh
 # 1. Baseline at HEAD, across a couple of models (evaluator diversity).
-./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models gpt-5.6-sol,claude-haiku-4.5 -N 5 -Label baseline
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models <model-a>,<model-b> -N 5 -Label baseline
 
 # 2. Edit a surface - e.g. a [Description] on a trace_* tool in TraceTools.cs - and rebuild.
 dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c Release
 
 # 3. Candidate, same models, the other label.
-./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models gpt-5.6-sol,claude-haiku-4.5 -N 5 -Label candidate
+./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models <model-a>,<model-b> -N 5 -Label candidate
 
 # 4. Compare; non-zero exit if any model regressed.
 ./eval/Compare-EvalRuns.ps1 -Baseline baseline -Candidate candidate
 ```
 
-- **`-Models`** runs the matrix across several models in one invocation; **`-Label`**
-  stamps each result so the comparer can pair them. For copilot, `--model` gives
-  real model diversity - which is why a second host (e.g. Claude Code) is not
-  needed for overfitting detection.
-- **Choose models by tier, and verify the ids before a long run.** The available set
-  changes, and ids are the picker label lowercased and hyphenated
-  (`Claude Opus 5` -> `claude-opus-5`). Cost per session varies enormously by model,
-  so calibrate rather than assume - two tasks at `-N 1` is enough:
+- **`-Models`** runs several configured models in one invocation; **`-Label`**
+  stamps each result so the comparer can pair them. These are descriptive paired
+  observations, not a statistical overfitting test.
+- **Verify model ids and metering with the installed host before a live run.** Do
+  not derive an id from a display label or reuse an unobserved name. Start with a
+  coordinator-approved reduced preflight:
 
   ```pwsh
   ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models <candidates> -Tasks event-count-only,cpu-hotspot -N 1
   ```
 
-  Then read `iterations[].hostUsage` from each result. Measured 2026-08-02, premium
-  requests per session: `claude-opus-5` 15, `gemini-3.6-flash` 14,
-  `claude-haiku-4.5` 0.33, `gpt-5.6-sol` 0. A full 23-task run at N=3 is 69 sessions
-  per model, so the tier choice is the difference between roughly 20 and roughly
-  1,000 premium requests. Prefer one zero-multiplier and one cheap model for routine
-  runs - cheaper models succeeding is the contract's own thesis - and spend a
-  frontier model on a reduced subset when you specifically want to check it.
+  Then inspect the host-reported identity and `iterations[].hostUsage`. This slice
+  records those values but makes no availability, cost, or effectiveness claim for
+  any named model.
 - **[Compare-EvalRuns.ps1](Compare-EvalRuns.ps1)** pairs the latest run per
   (label, host/arm/model) and reports, per task, the success / calls / tokens
-  delta with a verdict. The verdict is the design's regression budget (which also
-  absorbs LLM noise): a **success drop on any model**, **>15% token growth** on any
+  delta with a verdict. The verdict is a configured policy threshold: a **success
+  drop on any model**, **>15% token growth** on any
   task, or a run present on only one side is a **REGRESSION/REJECT** (exit 1);
-  higher success, fewer calls, or a **token drop beyond noise (>5%)** is an
-  improvement, and smaller token deltas stay neutral. The per-model rows are the
-  overfitting detector - a change that helps one model but regresses another is
-  rejected.
+  higher success, fewer calls, or a **token drop over 5%** is an improvement, and
+  smaller token deltas stay neutral. Schema-v3 inputs must carry verified exact
+  model identity, unique task summaries derived exactly from their iterations, and
+  matching iteration identities. A Copilot MCP run may use the host default with a
+  null requested model only when it retains one verified observed identity;
+  malformed or unverified matching results reject the comparison.
 - Drafting the revision (the design's "agent-drafted" step) is manual or a separate
   agent prompt; the machinery above is the deterministic score-and-compare it feeds.
 

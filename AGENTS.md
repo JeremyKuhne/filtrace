@@ -44,7 +44,7 @@ Do not use an installed global `filtrace` or the MCP server to profile this repo
 that can silently analyze with different code. For an A/B investigation, use one fixed
 locally built baseline CLI to analyze both arms.
 
-CI also runs eleven contract and evaluation checks that must stay green:
+CI also runs twelve contract and evaluation checks that must stay green:
 
 - `tools/Test-CliHelp.ps1 -Configuration Release` - every canonical command appears
   in top-level help, hidden preview aliases remain callable but absent, each help
@@ -71,6 +71,9 @@ CI also runs eleven contract and evaluation checks that must stay green:
   `git` applications, including missing tools and native failures.
 - `eval/Invoke-Eval.ps1 -Configuration Release` - canonical trace tasks keep
   their answers, call counts, and output budgets.
+- `tools/Test-AgentEval.ps1` - fake Copilot JSONL pins strict CLI/model/skill
+  evidence, isolated path/hash provenance, native process bounds, and neutral
+  A/A comparison without making an LLM call.
 - `tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation` - commons
   cores match the v0.14.0 artifacts, and their overlays, metadata, readability,
   and links are valid.
