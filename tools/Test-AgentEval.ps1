@@ -2140,13 +2140,15 @@ try {
     Assert-True ($LASTEXITCODE -eq 0) 'Validated schema-v2 records did not compare neutral.'
 
         foreach ($case in @(
-            'malformed', 'oversized-result', 'invalid-timestamp', 'empty-summary', 'duplicate-task', 'wrong-field-type',
+            'malformed', 'duplicate-root-member', 'oversized-result', 'invalid-timestamp',
+            'empty-summary', 'duplicate-task', 'wrong-field-type', 'unknown-root-member',
             'summary-success-mismatch', 'summary-median-mismatch', 'med-help-member-case', 'unknown-summary-member',
-            'missing-strict-expected-model',
+            'missing-strict-expected-model', 'unknown-model-member',
             'wrong-success-count', 'wrapped-schema-version', 'oversized-n', 'oversized-max-steps',
             'scalar-summary', 'scalar-iterations', 'scalar-observed-distinct',
             'scalar-observed-models', 'missing-input-identity', 'scalar-input-identity',
-            'malformed-input-hash', 'iteration-fixture-mismatch', 'strict-schema-v2')) {
+            'malformed-input-hash', 'iteration-fixture-mismatch', 'unknown-iteration-member',
+            'unknown-execution-member', 'unknown-skill-member', 'strict-schema-v2')) {
         $caseDirectory = Join-Path $temporaryRoot "comparison $case"
         [System.IO.Directory]::CreateDirectory($caseDirectory) | Out-Null
         foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
@@ -2155,6 +2157,19 @@ try {
         $casePath = Get-ChildItem -LiteralPath $caseDirectory -Filter '*-baseline-*.json' | Select-Object -First 1
         if ($case -eq 'malformed') {
             [System.IO.File]::WriteAllText($casePath.FullName, '{')
+        }
+        elseif ($case -eq 'duplicate-root-member') {
+            [string] $duplicateJson = [System.IO.File]::ReadAllText($casePath.FullName)
+            [string] $duplicateNeedle = '"schemaVersion": 3,'
+            Assert-True $duplicateJson.Contains($duplicateNeedle, [StringComparison]::Ordinal) `
+                'Duplicate-member mutation did not find schemaVersion.'
+            $duplicateJson = $duplicateJson.Replace(
+                $duplicateNeedle,
+                '"schemaVersion": 3,"schemaVersion": 3,')
+            [System.IO.File]::WriteAllText(
+                $casePath.FullName,
+                $duplicateJson,
+                [System.Text.UTF8Encoding]::new($false))
         }
         elseif ($case -eq 'oversized-result') {
             [System.IO.FileStream] $oversizedResultStream = [System.IO.File]::OpenWrite($casePath.FullName)
@@ -2168,6 +2183,9 @@ try {
                 'empty-summary' { $invalid.summary = @() }
                 'duplicate-task' { $invalid.summary = @($invalid.summary[0], $invalid.summary[0]) }
                 'wrong-field-type' { $invalid.summary[0].MedCalls = 'one' }
+                'unknown-root-member' {
+                    $invalid | Add-Member -NotePropertyName unexpected -NotePropertyValue $true
+                }
                 'summary-success-mismatch' { $invalid.summary[0].'Success%' = 0 }
                 'summary-median-mismatch' { $invalid.summary[0].MedCalls = [int]$invalid.summary[0].MedCalls + 1 }
                 'med-help-member-case' {
@@ -2179,6 +2197,9 @@ try {
                     $invalid.summary[0] | Add-Member -NotePropertyName UnexpectedMetric -NotePropertyValue 1
                 }
                 'missing-strict-expected-model' { $invalid.model.expected = $null }
+                'unknown-model-member' {
+                    $invalid.model | Add-Member -NotePropertyName unexpected -NotePropertyValue $true
+                }
                 'wrong-success-count' { $invalid.summary[0].SuccessCount = 0 }
                 'wrapped-schema-version' { $invalid.schemaVersion = 4294967299L }
                 'oversized-n' { $invalid.n = 1001 }
@@ -2191,6 +2212,15 @@ try {
                 'scalar-input-identity' { $invalid.inputIdentity = $invalid.inputIdentity[0] }
                 'malformed-input-hash' { $invalid.inputIdentity[0].taskSha256 = 'A' * 64 }
                 'iteration-fixture-mismatch' { $invalid.iterations[0].execution.fixture.sha256 = '0' * 64 }
+                'unknown-iteration-member' {
+                    $invalid.iterations[0] | Add-Member -NotePropertyName unexpected -NotePropertyValue $true
+                }
+                'unknown-execution-member' {
+                    $invalid.iterations[0].execution | Add-Member -NotePropertyName unexpected -NotePropertyValue $true
+                }
+                'unknown-skill-member' {
+                    $invalid.iterations[0].skill | Add-Member -NotePropertyName unexpected -NotePropertyValue $true
+                }
                 'strict-schema-v2' {
                     $invalid.schemaVersion = 2
                     $invalid.model = 'expected-model'

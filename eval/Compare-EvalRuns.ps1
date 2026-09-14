@@ -90,6 +90,209 @@ function Test-JsonArray($Value) {
   return $Value -is [object[]]
 }
 
+function Assert-ExactObjectMembers(
+  $Value,
+  [string[]] $RequiredMembers,
+  [string[]] $AllowedMembers,
+  [string] $Context) {
+  if (-not (Test-JsonObject $Value)) { throw "$Context is not an object." }
+  [string[]] $members = @($Value.PSObject.Properties | ForEach-Object { $_.Name })
+  if (@($RequiredMembers | Where-Object { $members -cnotcontains $_ }).Count -ne 0 -or
+    @($members | Where-Object { $AllowedMembers -cnotcontains $_ }).Count -ne 0) {
+    throw "$Context has malformed members."
+  }
+}
+
+function Assert-UniqueJsonMembers(
+  [System.Text.Json.JsonElement] $Element,
+  [string] $Context) {
+  if ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+    [System.Collections.Generic.HashSet[string]] $names =
+      [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($property in $Element.EnumerateObject()) {
+      if (-not $names.Add($property.Name)) {
+        throw "$Context repeats member '$($property.Name)'."
+      }
+      Assert-UniqueJsonMembers -Element $property.Value -Context "$Context.$($property.Name)"
+    }
+  }
+  elseif ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
+    foreach ($item in $Element.EnumerateArray()) {
+      Assert-UniqueJsonMembers -Element $item -Context "$Context[]"
+    }
+  }
+}
+
+function Assert-ResultEvidenceSchema($Payload, [string] $Path) {
+  foreach ($arrayField in @('summary', 'transport', 'inputIdentity', 'iterations', 'warnings')) {
+    if (-not (Test-JsonArray $Payload.$arrayField)) {
+      throw "Schema-v3 result '$Path' $arrayField is not an array."
+    }
+  }
+  foreach ($row in @($Payload.transport)) {
+    Assert-ExactObjectMembers `
+      -Value $row `
+      -RequiredMembers @('Task', 'MedText', 'MedStructured', 'MedWire', 'MedHostResult', 'Shape') `
+      -AllowedMembers @('Task', 'MedText', 'MedStructured', 'MedWire', 'MedHostResult', 'Shape') `
+      -Context "Schema-v3 result '$Path' transport row"
+  }
+  if ($null -ne $Payload.strictRunBudget) {
+    Assert-ExactObjectMembers $Payload.strictRunBudget @('projectedBytes', 'maxBytes') @('projectedBytes', 'maxBytes') `
+      "Schema-v3 result '$Path' strictRunBudget"
+  }
+
+  [string[]] $iterationMembers = @(
+    'task', 'iteration', 'success', 'calls', 'helpCalls', 'tokens', 'wallMs',
+    'textTokens', 'structuredTokens', 'wireTokens', 'hostResultTokens', 'resultShape',
+    'hostUsage', 'hostUsageFile', 'observedModel', 'observedModels', 'operations',
+    'attemptedOperations', 'execution', 'skill', 'answer', 'note', 'transcript')
+  foreach ($iteration in @($Payload.iterations)) {
+    Assert-ExactObjectMembers $iteration $iterationMembers $iterationMembers `
+      "Schema-v3 result '$Path' iteration"
+    foreach ($arrayField in @('observedModels', 'operations', 'attemptedOperations', 'transcript')) {
+      if (-not (Test-JsonArray $iteration.$arrayField)) {
+        throw "Schema-v3 result '$Path' iteration $arrayField is not an array."
+      }
+    }
+    if ($null -ne $iteration.hostUsage) {
+      Assert-ExactObjectMembers $iteration.hostUsage `
+        @('premiumRequests', 'totalApiDurationMs', 'sessionDurationMs') `
+        @('premiumRequests', 'totalApiDurationMs', 'sessionDurationMs', 'codeChanges') `
+        "Schema-v3 result '$Path' hostUsage"
+      if ($iteration.hostUsage.PSObject.Properties.Name -ccontains 'codeChanges') {
+        Assert-ExactObjectMembers $iteration.hostUsage.codeChanges `
+          @('filesModified', 'linesAdded', 'linesRemoved') `
+          @('filesModified', 'linesAdded', 'linesRemoved') `
+          "Schema-v3 result '$Path' hostUsage codeChanges"
+      }
+    }
+    if ($null -ne $iteration.hostUsageFile) {
+      Assert-ExactObjectMembers $iteration.hostUsageFile `
+        @('available', 'bytes', 'path', 'reason', 'sha256', 'value') `
+        @('available', 'bytes', 'path', 'reason', 'sha256', 'value') `
+        "Schema-v3 result '$Path' hostUsageFile"
+      if ($null -ne $iteration.hostUsageFile.value) {
+        Assert-ExactObjectMembers $iteration.hostUsageFile.value `
+          @('currentModel', 'tokenDetails', 'totalPremiumRequestCost', 'totalUserRequests') `
+          @('currentModel', 'tokenDetails', 'totalPremiumRequestCost', 'totalUserRequests') `
+          "Schema-v3 result '$Path' hostUsageFile value"
+        Assert-ExactObjectMembers $iteration.hostUsageFile.value.tokenDetails `
+          @('input', 'cache_read', 'cache_write', 'output') `
+          @('input', 'cache_read', 'cache_write', 'output') `
+          "Schema-v3 result '$Path' tokenDetails"
+        foreach ($tokenKind in @('input', 'cache_read', 'cache_write', 'output')) {
+          Assert-ExactObjectMembers $iteration.hostUsageFile.value.tokenDetails.$tokenKind `
+            @('tokenCount') @('tokenCount') "Schema-v3 result '$Path' tokenDetails.$tokenKind"
+        }
+      }
+    }
+
+    Assert-ExactObjectMembers $iteration.execution `
+      @('runId', 'workspace', 'capturedBytes', 'artifactBytes', 'hostRuntimeBytes',
+        'processExitCode', 'resultExitCode', 'hostOutput', 'cli', 'fixture', 'isolation', 'inputPolicy') `
+      @('runId', 'workspace', 'capturedBytes', 'artifactBytes', 'hostRuntimeBytes',
+        'processExitCode', 'resultExitCode', 'hostOutput', 'cli', 'fixture', 'isolation', 'inputPolicy') `
+      "Schema-v3 result '$Path' execution"
+    if ($null -ne $iteration.execution.hostOutput) {
+      Assert-ExactObjectMembers $iteration.execution.hostOutput `
+        @('retained', 'stdoutPath', 'stderrPath', 'diagnosticPath', 'stdoutBytes', 'stderrBytes', 'artifactBytes') `
+        @('retained', 'stdoutPath', 'stderrPath', 'diagnosticPath', 'stdoutBytes', 'stderrBytes', 'artifactBytes') `
+        "Schema-v3 result '$Path' hostOutput"
+    }
+    Assert-ExactObjectMembers $iteration.execution.cli `
+      @('sourcePath', 'sourceSha256', 'path', 'sha256', 'inventory') `
+      @('sourcePath', 'sourceSha256', 'path', 'sha256', 'inventory') `
+      "Schema-v3 result '$Path' CLI evidence"
+    if (-not (Test-JsonArray $iteration.execution.cli.inventory)) {
+      throw "Schema-v3 result '$Path' CLI inventory is not an array."
+    }
+    foreach ($file in @($iteration.execution.cli.inventory)) {
+      Assert-ExactObjectMembers $file `
+        @('sourcePath', 'path', 'relativePath', 'bytes', 'sha256') `
+        @('sourcePath', 'path', 'relativePath', 'bytes', 'sha256') `
+        "Schema-v3 result '$Path' CLI inventory entry"
+    }
+    Assert-ExactObjectMembers $iteration.execution.fixture @('path', 'sha256') @('path', 'sha256') `
+      "Schema-v3 result '$Path' fixture evidence"
+    [string[]] $isolationMembers = @(
+      'workspaceOutsideRepository', 'inheritedEnvironment', 'ownedEnvironment',
+      'noCustomInstructions', 'builtinMcpsDisabled', 'availableTools', 'excludedTools',
+      'shellDefaultDenied', 'writeDenied', 'urlDenied', 'readDenied',
+      'executionPolicyMaxCalls', 'executionPolicyCallCount', 'executionPolicyCommandHashes',
+      'executionPolicyMaxHelpCalls', 'executionPolicyHelpCallCount', 'executionPolicyHelpCommandHashes',
+      'executionPolicyMaxViewCalls', 'executionPolicyMaxViewBytes', 'executionPolicyViewRequests',
+      'hookConfigurationPath', 'dynamicArtifactMaxBytes', 'hostRuntimeMaxBytes',
+      'hostRuntimeMaxFileBytes', 'hostRuntimeMaxEntries', 'processTreeContained')
+    Assert-ExactObjectMembers $iteration.execution.isolation $isolationMembers $isolationMembers `
+      "Schema-v3 result '$Path' isolation evidence"
+    foreach ($arrayField in @(
+        'inheritedEnvironment', 'ownedEnvironment', 'availableTools', 'excludedTools',
+        'executionPolicyCommandHashes', 'executionPolicyHelpCommandHashes',
+        'executionPolicyViewRequests')) {
+      if (-not (Test-JsonArray $iteration.execution.isolation.$arrayField)) {
+        throw "Schema-v3 result '$Path' isolation $arrayField is not an array."
+      }
+    }
+    foreach ($viewRequest in @($iteration.execution.isolation.executionPolicyViewRequests)) {
+      Assert-ExactObjectMembers $viewRequest `
+        @('requestHash', 'arguments', 'requestedBytes') `
+        @('requestHash', 'arguments', 'requestedBytes') `
+        "Schema-v3 result '$Path' view request"
+      Assert-ExactObjectMembers $viewRequest.arguments @('path') @('path', 'view_range') `
+        "Schema-v3 result '$Path' view arguments"
+    }
+    [string[]] $inputPolicyMembers = @(
+      'fixtureTrackedAndClean', 'fixtureMaxBytes', 'cliMaxFiles', 'cliMaxEntries',
+      'cliMaxBytes', 'cliFiles', 'cliEntries', 'cliBytes', 'skillMaxFiles',
+      'skillMaxEntries', 'skillMaxBytes', 'skillMaxViewCalls', 'skillMaxRequestedBytes')
+    Assert-ExactObjectMembers $iteration.execution.inputPolicy $inputPolicyMembers $inputPolicyMembers `
+      "Schema-v3 result '$Path' inputPolicy"
+
+    [string[]] $skillMembers = @(
+      'provided', 'sourcePath', 'installedPath', 'sha256', 'sourceByteSha256',
+      'sourceTextSha256', 'sourceContextSha256', 'textNormalization', 'inventory',
+      'observed', 'observedSha256', 'observedTextSha256', 'verified', 'failure',
+      'evidenceCallIds', 'sourceBytes', 'sourceChars', 'sourceLineCount',
+      'sourceTerminalNewline', 'observedChars', 'returnedPayloadChars',
+      'terminalNewlineOmissions', 'requestedBytes', 'reads', 'discovery')
+    Assert-ExactObjectMembers $iteration.skill $skillMembers $skillMembers `
+      "Schema-v3 result '$Path' skill evidence"
+    foreach ($arrayField in @('inventory', 'evidenceCallIds', 'reads')) {
+      if (-not (Test-JsonArray $iteration.skill.$arrayField)) {
+        throw "Schema-v3 result '$Path' skill $arrayField is not an array."
+      }
+    }
+    if ($null -ne $iteration.skill.discovery) {
+      Assert-ExactObjectMembers $iteration.skill.discovery `
+        @('name', 'commandName', 'source', 'enabled', 'path') `
+        @('name', 'commandName', 'source', 'enabled', 'path', 'description', 'userInvocable') `
+        "Schema-v3 result '$Path' skill discovery"
+    }
+    foreach ($file in @($iteration.skill.inventory)) {
+      Assert-ExactObjectMembers $file @('path', 'sha256', 'bytes') @('path', 'sha256', 'bytes') `
+        "Schema-v3 result '$Path' skill inventory entry"
+    }
+    [string[]] $readMembers = @(
+      'callId', 'path', 'sourceBytes', 'sourceByteSha256', 'sourceTextSha256',
+      'sourceLineCount', 'requestHash', 'startLine', 'endLine', 'clampedEndLine',
+      'requestedBytes', 'contentChars', 'contentSha256', 'payloadChars', 'payloadSha256',
+      'logicalPayloadChars', 'logicalPayloadSha256', 'payloadStartOffset',
+      'payloadEndOffsetExclusive', 'payloadFirstLine', 'payloadLastLine', 'protocol',
+      'terminalNewlineOmitted', 'continuationLine', 'coverageContinuationLine', 'warnings')
+    foreach ($read in @($iteration.skill.reads)) {
+      Assert-ExactObjectMembers $read $readMembers $readMembers `
+        "Schema-v3 result '$Path' skill read"
+    }
+    [string[]] $transcriptMembers = @(
+      'callId', 'kind', 'operation', 'cmd', 'ok', 'info', 'textTokens',
+      'structuredTokens', 'wireTokens', 'hostResultTokens')
+    foreach ($entry in @($iteration.transcript)) {
+      Assert-ExactObjectMembers $entry $transcriptMembers $transcriptMembers `
+        "Schema-v3 result '$Path' transcript entry"
+    }
+  }
+}
+
 function Get-ResultTimestamp([string] $Json, [string] $Path) {
   [System.Text.Json.JsonDocument] $document = [System.Text.Json.JsonDocument]::Parse($Json)
   try {
@@ -147,6 +350,18 @@ function Assert-ResultPayload($Payload, [string] $Path) {
     throw "Result '$Path' has unsupported schemaVersion $schemaVersionValue."
   }
   [int] $schemaVersion = [int]$schemaVersionValue
+  [string[]] $allowedRootMembers = if ($schemaVersion -eq 3) {
+    @('schemaVersion', 'host', 'model', 'arm', 'label', 'n', 'maxSteps',
+      'inputIdentity', 'strictRunBudget', 'mcpDll', 'tokenAccounting', 'warnings',
+      'timestamp', 'summary', 'transport', 'iterations')
+  }
+  else {
+    @('schemaVersion', 'host', 'model', 'arm', 'label', 'strictRunBudget', 'mcpDll',
+      'tokenAccounting', 'warnings', 'timestamp', 'summary', 'transport')
+  }
+  if (@($rootMembers | Where-Object { $allowedRootMembers -cnotcontains $_ }).Count -ne 0) {
+    throw "Result '$Path' has an unknown root member."
+  }
   foreach ($member in @('host', 'arm', 'label')) {
     if ($Payload.$member -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.$member)) {
       throw "Result '$Path' has an invalid '$member'."
@@ -204,6 +419,11 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   }
   if (-not (Test-JsonObject $Payload.model)) { throw "Schema-v3 result '$Path' model is not an object." }
   [string[]] $modelMembers = @($Payload.model.PSObject.Properties.Name)
+  [string[]] $expectedModelMembers = @('requested', 'expected', 'observed', 'observedDistinct', 'verified')
+  if ($modelMembers.Count -ne $expectedModelMembers.Count -or
+    @($modelMembers | Where-Object { $expectedModelMembers -cnotcontains $_ }).Count -ne 0) {
+    throw "Schema-v3 result '$Path' model has malformed members."
+  }
   foreach ($member in @('requested', 'expected', 'observed', 'observedDistinct', 'verified')) {
     if ($modelMembers -cnotcontains $member) { throw "Schema-v3 result '$Path' model is missing '$member'." }
   }
@@ -357,6 +577,7 @@ function Assert-ResultPayload($Payload, [string] $Path) {
       }
     }
   }
+  Assert-ResultEvidenceSchema -Payload $Payload -Path $Path
 }
 
 function Get-LabelFilePattern([string] $Label) {
@@ -385,7 +606,12 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
     throw "Result '$path' exceeds $MaxResultBytes bytes."
   }
   [string] $json = Get-Content -LiteralPath $path -Raw
-  try { $payload = $json | ConvertFrom-Json }
+  try {
+    [System.Text.Json.JsonDocument] $document = [System.Text.Json.JsonDocument]::Parse($json)
+    try { Assert-UniqueJsonMembers -Element $document.RootElement -Context "Result '$path'" }
+    finally { $document.Dispose() }
+    $payload = $json | ConvertFrom-Json
+  }
   catch { throw "Unreadable matching result '$path': $($_.Exception.Message)" }
   [DateTimeOffset] $parsedTimestamp = Get-ResultTimestamp -Json $json -Path $path
   Assert-ResultPayload -Payload $payload -Path $path

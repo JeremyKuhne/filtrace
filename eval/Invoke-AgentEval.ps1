@@ -1791,21 +1791,27 @@ function Invoke-CopilotIteration {
                 ownedEnvironment = $context.isolation.ownedEnvironment
                 noCustomInstructions = [bool]($arm -eq 'cli')
                 builtinMcpsDisabled = [bool]($arm -in @('cli', 'cli-skill'))
-                availableTools = if ($arm -eq 'cli-skill') { @('powershell', 'skill', 'view') } elseif ($arm -eq 'cli') { @('powershell') } else { @() }
-                excludedTools = if ($arm -in @('cli', 'cli-skill')) { $excludedToolNames } else { @() }
+                availableTools = [string[]]@(
+                    if ($arm -eq 'cli-skill') { 'powershell', 'skill', 'view' }
+                    elseif ($arm -eq 'cli') { 'powershell' })
+                excludedTools = [string[]]@(
+                    if ($arm -in @('cli', 'cli-skill')) { $excludedToolNames })
                 shellDefaultDenied = [bool]($arm -in @('cli', 'cli-skill'))
                 writeDenied = [bool]($arm -in @('cli', 'cli-skill'))
                 urlDenied = [bool]($arm -in @('cli', 'cli-skill'))
                 readDenied = [bool]($arm -in @('cli', 'cli-skill'))
                 executionPolicyMaxCalls = if ($executionPolicy) { $executionPolicy.maxCalls } else { $null }
                 executionPolicyCallCount = if ($executionPolicyState) { $executionPolicyState.callCount } else { $null }
-                executionPolicyCommandHashes = if ($executionPolicyState) { $executionPolicyState.commandHashes } else { @() }
+                executionPolicyCommandHashes = [string[]]@(
+                    if ($executionPolicyState) { $executionPolicyState.commandHashes })
                 executionPolicyMaxHelpCalls = if ($executionPolicy) { $executionPolicy.maxHelpCalls } else { $null }
                 executionPolicyHelpCallCount = if ($executionPolicyState) { $executionPolicyState.helpCallCount } else { $null }
-                executionPolicyHelpCommandHashes = if ($executionPolicyState) { $executionPolicyState.helpCommandHashes } else { @() }
+                executionPolicyHelpCommandHashes = [string[]]@(
+                    if ($executionPolicyState) { $executionPolicyState.helpCommandHashes })
                 executionPolicyMaxViewCalls = if ($executionPolicy) { $executionPolicy.maxViewCalls } else { $null }
                 executionPolicyMaxViewBytes = if ($executionPolicy) { $executionPolicy.maxViewBytes } else { $null }
-                executionPolicyViewRequests = if ($executionPolicyState) { $executionPolicyState.viewRequests } else { @() }
+                executionPolicyViewRequests = [object[]]@(
+                    if ($executionPolicyState) { $executionPolicyState.viewRequests })
                 hookConfigurationPath = if ($executionPolicy) { $executionPolicy.hookConfigurationPath } else { $null }
                 dynamicArtifactMaxBytes = $MaxHostArtifactBytes
                 hostRuntimeMaxBytes = $processResult.hostRuntimeMaxBytes
@@ -2282,7 +2288,7 @@ function Invoke-EvalRun {
     $observedModel = if ($observedModels.Count -eq 1) { $observedModels[0] } else { $null }
     $reportModel = [ordered]@{
         requested = $RunModel
-        expected = $ExpectedModel
+        expected = if ([string]::IsNullOrWhiteSpace($ExpectedModel)) { $null } else { $ExpectedModel }
         observed = $observedModel
         observedDistinct = $observedModels
         verified = [bool]($observedModels.Count -eq 1 -and (-not $ExpectedModel -or
