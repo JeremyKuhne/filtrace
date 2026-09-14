@@ -267,6 +267,17 @@ if ($mode -ne 'missing-model') {
                 data = [ordered]@{ model = $variantModel }
             })
     }
+    if ($mode -in @('scalar-model-data', 'missing-model-value', 'non-string-model-value')) {
+        $invalidModelData = switch ($mode) {
+            'scalar-model-data' { 'expected-model' }
+            'missing-model-value' { [ordered]@{} }
+            'non-string-model-value' { [ordered]@{ model = 1 } }
+        }
+        $events.Add([ordered]@{
+                type = 'session.tools_updated'
+                data = $invalidModelData
+            })
+    }
 }
 
 if ($mode -in @('answer-before-analysis', 'answer-before-skill-context')) {

@@ -136,8 +136,11 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   if ($Payload.schemaVersion -isnot [long] -and $Payload.schemaVersion -isnot [int]) {
     throw "Result '$Path' has a non-integer schemaVersion."
   }
-  [int] $schemaVersion = [int]$Payload.schemaVersion
-  if ($schemaVersion -notin @(2, 3)) { throw "Result '$Path' has unsupported schemaVersion $schemaVersion." }
+  [long] $schemaVersionValue = [long]$Payload.schemaVersion
+  if ($schemaVersionValue -ne 2 -and $schemaVersionValue -ne 3) {
+    throw "Result '$Path' has unsupported schemaVersion $schemaVersionValue."
+  }
+  [int] $schemaVersion = [int]$schemaVersionValue
   foreach ($member in @('host', 'arm', 'label')) {
     if ($Payload.$member -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.$member)) {
       throw "Result '$Path' has an invalid '$member'."

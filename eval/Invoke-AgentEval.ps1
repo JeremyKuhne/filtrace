@@ -169,18 +169,21 @@ $ErrorActionPreference = 'Stop'
 $script:mcpConfigPath = $null
 trap { if ($script:mcpConfigPath -and (Test-Path $script:mcpConfigPath)) { Remove-Item $script:mcpConfigPath -Force -ErrorAction SilentlyContinue }; break }
 $root = Split-Path -Parent $PSScriptRoot
-$cliDll = Join-Path $root "src/Filtrace/bin/$Configuration/net10.0/filtrace.dll"
 $tasksDir = Join-Path $PSScriptRoot 'tasks'
 $mcpQaPath = Join-Path $PSScriptRoot 'mcp-qa.jsonl'
 $commandsFile = Join-Path $root 'src/Filtrace/Cli/TraceCommands.cs'
 if (-not $OutDir) { $OutDir = Join-Path $PSScriptRoot 'results' }
 
+. (Join-Path $root 'tools/Get-TokenEstimate.ps1')
+. (Join-Path $PSScriptRoot 'CopilotEval.Helpers.ps1')
+
+[string] $cliSourceDirectory = Get-AgentEvalCliOutputDirectory `
+    -Root $root `
+    -Configuration $Configuration
+$cliDll = Join-Path $cliSourceDirectory 'filtrace.dll'
 if (-not (Test-Path $cliDll)) {
     throw "CLI binary not found at '$cliDll'. Build first: dotnet build filtrace.slnx -c $Configuration."
 }
-
-. (Join-Path $root 'tools/Get-TokenEstimate.ps1')
-. (Join-Path $PSScriptRoot 'CopilotEval.Helpers.ps1')
 
 # Surface-neutral operation names, so a task can require the right *intent* even
 # after a tool is renamed or folded into another.
@@ -724,7 +727,9 @@ function Get-AgentEvalStrictRunProjection {
     )
 
     [string] $appHostName = if ([System.OperatingSystem]::IsWindows()) { 'filtrace.exe' } else { 'filtrace' }
-    [string] $cliSourceDirectory = Join-Path $root "src/Filtrace/bin/$Configuration/net10.0"
+    [string] $cliSourceDirectory = Get-AgentEvalCliOutputDirectory `
+        -Root $root `
+        -Configuration $Configuration
     if (-not (Test-Path -LiteralPath (Join-Path $cliSourceDirectory $appHostName) -PathType Leaf)) {
         throw "Current-checkout filtrace apphost was not built beneath '$cliSourceDirectory'."
     }
@@ -1148,6 +1153,12 @@ function Invoke-CopilotIteration {
         [System.Collections.Generic.List[string]]::new()
     [System.Collections.Generic.List[string]] $transcriptViewRequestHashes =
         [System.Collections.Generic.List[string]]::new()
+    [System.Collections.Generic.List[object]] $validatedSkillReads =
+        [System.Collections.Generic.List[object]]::new()
+    [long] $validatedSkillObservedChars = 0
+    [long] $validatedSkillPayloadChars = 0
+    [long] $validatedSkillRequestedBytes = 0
+    [int] $validatedSkillTerminalNewlineOmissions = 0
     [System.Collections.Generic.List[int]] $successfulAnalysisCompletionIndexes =
         [System.Collections.Generic.List[int]]::new()
     foreach ($s in $starts) {
@@ -1230,10 +1241,44 @@ function Invoke-CopilotIteration {
                         -ExecutionPolicy $executionPolicy
                     $viewRequest = Get-AgentEvalSkillViewRequest -Arguments $arguments -Source $viewSource
                     if (-not $completionSucceeded) { throw 'Skill view completion was not successful.' }
-                    [void](Get-AgentEvalSkillViewPayload `
+                        $viewPayload = Get-AgentEvalSkillViewPayload `
                             -Result $completionResult `
                             -Request $viewRequest `
-                            -Source $viewSource)
+                            -Source $viewSource
+                        $validatedSkillReads.Add([pscustomobject]@{
+                            callId = $callId
+                            path = $viewSource.path
+                            sourceBytes = $viewSource.bytes
+                            sourceByteSha256 = $viewSource.byteSha256
+                            sourceTextSha256 = $viewSource.textSha256
+                            sourceLineCount = $viewSource.lineCount
+                            requestHash = $viewRequest.hash
+                            startLine = $viewRequest.startLine
+                            endLine = $viewRequest.endLine
+                            clampedEndLine = $viewRequest.clampedEndLine
+                            requestedBytes = $viewRequest.requestedBytes
+                            contentChars = $viewPayload.content.Length
+                            contentSha256 = $viewPayload.contentSha256
+                            payloadChars = $viewPayload.payload.Length
+                            payloadSha256 = $viewPayload.payloadSha256
+                            logicalPayloadChars = $viewPayload.logicalPayload.Length
+                            logicalPayloadSha256 = $viewPayload.logicalPayloadSha256
+                            payloadStartOffset = $viewPayload.payloadStartOffset
+                            payloadEndOffsetExclusive = $viewPayload.payloadEndOffsetExclusive
+                            payloadFirstLine = $viewPayload.payloadFirstLine
+                            payloadLastLine = $viewPayload.payloadLastLine
+                            protocol = $viewPayload.protocol
+                            terminalNewlineOmitted = $viewPayload.terminalNewlineOmitted
+                            continuationLine = $viewPayload.continuationLine
+                            coverageContinuationLine = $viewPayload.coverageContinuationLine
+                            warnings = $viewPayload.warnings
+                        })
+                    $validatedSkillObservedChars += $viewPayload.logicalPayload.Length
+                    $validatedSkillPayloadChars += $viewPayload.payload.Length
+                    $validatedSkillRequestedBytes += $viewRequest.requestedBytes
+                    if ($viewPayload.terminalNewlineOmitted) {
+                        $validatedSkillTerminalNewlineOmissions++
+                    }
                     $evidenceKind = 'skill-read'
                     $commandName = 'view'
                     $operationName = 'view'
@@ -1316,11 +1361,11 @@ function Invoke-CopilotIteration {
         $skillEvidence.sourceChars = $completedSkillEvidence.sourceChars
         $skillEvidence.sourceLineCount = $completedSkillEvidence.sourceLineCount
         $skillEvidence.sourceTerminalNewline = $completedSkillEvidence.sourceTerminalNewline
-        $skillEvidence.observedChars = 0
-        $skillEvidence.returnedPayloadChars = 0
-        $skillEvidence.terminalNewlineOmissions = 0
-        $skillEvidence.requestedBytes = 0
-        $skillEvidence.reads = @()
+        $skillEvidence.observedChars = $validatedSkillObservedChars
+        $skillEvidence.returnedPayloadChars = $validatedSkillPayloadChars
+        $skillEvidence.terminalNewlineOmissions = $validatedSkillTerminalNewlineOmissions
+        $skillEvidence.requestedBytes = $validatedSkillRequestedBytes
+        $skillEvidence.reads = $validatedSkillReads.ToArray()
         $skillEvidence.discovery = $completedSkillEvidence.discovery
         if ($skillEvidence.verified) {
             [int] $skillStartEventIndex = -1
@@ -1387,13 +1432,26 @@ function Invoke-CopilotIteration {
     }
     $modelEvents = @($events | Where-Object {
         $_.PSObject.Properties.Name -ccontains 'type' -and
-        [string]::Equals([string]$_.type, 'session.tools_updated', [StringComparison]::Ordinal) -and
-        $_.PSObject.Properties.Name -ccontains 'data' -and $_.data -is [pscustomobject]
+        [string]::Equals([string]$_.type, 'session.tools_updated', [StringComparison]::Ordinal)
     })
-    $iterationObservedModels = @($modelEvents | Where-Object {
-        $_.data.PSObject.Properties.Name -ccontains 'model' -and
-        $_.data.model -is [string] -and -not [string]::IsNullOrWhiteSpace([string]$_.data.model)
-    } | ForEach-Object { [string]$_.data.model } | Sort-Object -CaseSensitive -Unique)
+    [System.Collections.Generic.List[string]] $modelValues =
+        [System.Collections.Generic.List[string]]::new()
+    foreach ($modelEvent in $modelEvents) {
+        [string[]] $modelEventMembers = @($modelEvent.PSObject.Properties.Name)
+        if ($modelEventMembers -cnotcontains 'data' -or $modelEvent.data -isnot [pscustomobject]) {
+            $evidenceValid = $false
+            continue
+        }
+        [string[]] $modelDataMembers = @(
+            $modelEvent.data.PSObject.Properties | ForEach-Object { $_.Name })
+        if ($modelDataMembers -cnotcontains 'model' -or $modelEvent.data.model -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$modelEvent.data.model)) {
+            $evidenceValid = $false
+            continue
+        }
+        $modelValues.Add([string]$modelEvent.data.model)
+    }
+    $iterationObservedModels = @($modelValues | Sort-Object -CaseSensitive -Unique)
     $m = if ($iterationObservedModels.Count -eq 1) { $iterationObservedModels[0] } else { $null }
     if ($m) { $script:CopilotActualModel = $m }
     $usage = if ($resultMembers -ccontains 'usage') { $result.usage } else { $null }

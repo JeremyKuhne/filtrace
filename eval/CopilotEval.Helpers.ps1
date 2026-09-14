@@ -654,6 +654,22 @@ function Assert-AgentEvalNoReparseAncestor([string] $Path) {
     Assert-AgentEvalNoReparsePoint -Path $current -Boundary ([System.IO.Path]::GetPathRoot($current))
 }
 
+function Get-AgentEvalCliOutputDirectory([string] $Root, [string] $Configuration) {
+    if ([string]::IsNullOrWhiteSpace($Configuration)) {
+        throw 'Eval build configuration was empty.'
+    }
+    [string] $buildRoot = [System.IO.Path]::GetFullPath((Join-Path $Root 'src/Filtrace/bin'))
+    [string] $outputDirectory = [System.IO.Path]::GetFullPath(
+        (Join-Path $buildRoot (Join-Path $Configuration 'net10.0')))
+    if (-not (Test-AgentEvalPathContained -Path $outputDirectory -Root $buildRoot)) {
+        throw "Eval build configuration '$Configuration' escaped '$buildRoot'."
+    }
+    if (Test-Path -LiteralPath $outputDirectory -PathType Container) {
+        Assert-AgentEvalNoReparsePoint -Path $outputDirectory -Boundary $Root
+    }
+    return $outputDirectory
+}
+
 function Assert-AgentEvalTrackedFixture([string] $Root, [string] $FixturePath) {
     $PSNativeCommandUseErrorActionPreference = $false
     if ($FixturePath.StartsWith('\\', [StringComparison]::Ordinal)) {
@@ -666,7 +682,7 @@ function Assert-AgentEvalTrackedFixture([string] $Root, [string] $FixturePath) {
         -not (Test-Path -LiteralPath $canonicalFixture -PathType Leaf)) {
         throw "Eval fixture '$FixturePath' must be a file beneath '$fixtureRoot'."
     }
-    Assert-AgentEvalNoReparsePoint -Path $canonicalFixture -Boundary $fixtureRoot
+    Assert-AgentEvalNoReparsePoint -Path $canonicalFixture -Boundary $Root
     [System.IO.FileInfo] $fixtureInfo = Get-Item -LiteralPath $canonicalFixture
     if ($fixtureInfo.Length -gt 512MB) { throw "Eval fixture '$FixturePath' exceeds 536870912 bytes." }
 
@@ -844,7 +860,9 @@ function New-CopilotEvalContext {
     [System.Collections.Generic.List[object]] $cliInventory = [System.Collections.Generic.List[object]]::new()
     if ($StrictCliArm) {
         [string] $appHostName = if ([System.OperatingSystem]::IsWindows()) { 'filtrace.exe' } else { 'filtrace' }
-        [string] $cliSourceDirectory = Join-Path $Root "src/Filtrace/bin/$Configuration/net10.0"
+        [string] $cliSourceDirectory = Get-AgentEvalCliOutputDirectory `
+            -Root $Root `
+            -Configuration $Configuration
         $cliSourcePath = Join-Path $cliSourceDirectory $appHostName
         if (-not (Test-Path -LiteralPath $cliSourcePath -PathType Leaf)) {
             throw "Current-checkout filtrace apphost not found at '$cliSourcePath'. Build src/Filtrace first."
@@ -895,6 +913,7 @@ function New-CopilotEvalContext {
     [string] $skillHash = $null
     if ($Arm -eq 'cli-skill') {
         [string] $skillSource = Join-Path $Root '.agents/skills/filtrace'
+        Assert-AgentEvalNoReparsePoint -Path $skillSource -Boundary $Root
         [string] $skillDestination = Join-Path $workspace '.agents/skills/filtrace'
         $boundedSkill = Get-AgentEvalFileInventory `
             -SourceDirectory $skillSource `

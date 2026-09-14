@@ -279,6 +279,49 @@ try {
 
     Assert-True (Test-AgentEvalPathContained -Path $root -Root $root) `
         'Repository-root equality was not treated as path containment.'
+    [bool] $configurationEscapeRejected = $false
+    try { [void](Get-AgentEvalCliOutputDirectory -Root $root -Configuration '..\..\outside') }
+    catch {
+        $configurationEscapeRejected = $_.Exception.Message.Contains('escaped', [StringComparison]::Ordinal)
+    }
+    Assert-True $configurationEscapeRejected 'Build configuration escaped the repository CLI output root.'
+    [bool] $runnerConfigurationEscapeRejected = $false
+    try { & $runner -Configuration '..\..\outside' }
+    catch {
+        $runnerConfigurationEscapeRejected = $_.Exception.Message.Contains('escaped', [StringComparison]::Ordinal)
+    }
+    Assert-True $runnerConfigurationEscapeRejected `
+        'The evaluator entry point accepted an escaping build configuration.'
+
+    [string] $sourceReparseRepository = Join-Path $temporaryRoot 'source reparse repository'
+    [string] $sourceReparseTarget = Join-Path $temporaryRoot 'source reparse target'
+    [System.IO.Directory]::CreateDirectory((Join-Path $sourceReparseTarget 'Filtrace/bin/Release/net10.0')) | Out-Null
+    [System.IO.Directory]::CreateDirectory($sourceReparseRepository) | Out-Null
+    $sourceLinkType = if ([System.OperatingSystem]::IsWindows()) { 'Junction' } else { 'SymbolicLink' }
+    New-Item -ItemType $sourceLinkType -Path (Join-Path $sourceReparseRepository 'src') -Target $sourceReparseTarget | Out-Null
+    [bool] $sourceReparseRejected = $false
+    try { [void](Get-AgentEvalCliOutputDirectory -Root $sourceReparseRepository -Configuration Release) }
+    catch {
+        $sourceReparseRejected = $_.Exception.Message.Contains('reparse point', [StringComparison]::Ordinal)
+    }
+    Assert-True $sourceReparseRejected 'Strict CLI source accepted a reparse ancestor.'
+
+    [string] $skillReparseRepository = Join-Path $temporaryRoot 'skill reparse repository'
+    [string] $skillReparseTarget = Join-Path $temporaryRoot 'skill reparse target'
+    [System.IO.Directory]::CreateDirectory((Join-Path $skillReparseTarget 'skills/filtrace')) | Out-Null
+    [System.IO.Directory]::CreateDirectory($skillReparseRepository) | Out-Null
+    New-Item -ItemType $sourceLinkType -Path (Join-Path $skillReparseRepository '.agents') -Target $skillReparseTarget | Out-Null
+    [bool] $skillReparseRejected = $false
+    try {
+        Assert-AgentEvalNoReparsePoint `
+            -Path (Join-Path $skillReparseRepository '.agents/skills/filtrace') `
+            -Boundary $skillReparseRepository
+    }
+    catch {
+        $skillReparseRejected = $_.Exception.Message.Contains('reparse point', [StringComparison]::Ordinal)
+    }
+    Assert-True $skillReparseRejected 'Strict skill source accepted a reparse ancestor.'
+
     [string] $instructionAncestor = Join-Path $temporaryRoot 'instruction ancestor'
     [string] $instructionWorkspace = Join-Path $instructionAncestor 'child/workspace'
     [System.IO.Directory]::CreateDirectory($instructionWorkspace) | Out-Null
@@ -1120,6 +1163,7 @@ try {
             'answer-only', 'answer-before-analysis', 'completion-before-start', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
             'decoy-command', 'missing-call-id', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
             'denied-unknown-tool', 'powershell-tool-case',
+            'scalar-model-data', 'missing-model-value', 'non-string-model-value',
             'string-success', 'mismatched-operation', 'unknown-cli-schema', 'fractional-cli-schema', 'scalar-cli-result',
             'event-data-member-case', 'tool-call-id-member-case', 'completion-result-member-case',
             'completion-success-member-case', 'answer-content-member-case',
@@ -1224,6 +1268,18 @@ try {
     Assert-True ($skillViewSuccess.iterations[0].success -eq $true -and
         @($skillViewSuccess.iterations[0].transcript | Where-Object { $_.kind -eq 'skill-read' }).Count -eq 1) `
         'An exact allowed related-file view did not remain verified.'
+    $skillViewEvidence = @($skillViewSuccess.iterations[0].skill.reads)
+    [string] $guidePath = Join-Path $root '.agents/skills/filtrace/references/guide.md'
+    [string] $expectedGuideText = [System.IO.File]::ReadAllText($guidePath)
+    Assert-True ($skillViewEvidence.Count -eq 1 -and
+        $skillViewEvidence[0].path.EndsWith('references\guide.md', [StringComparison]::OrdinalIgnoreCase) -and
+        $skillViewEvidence[0].contentSha256 -eq (Get-AgentEvalTextHash $expectedGuideText) -and
+        $skillViewEvidence[0].sourceByteSha256 -eq (Get-AgentEvalFileHash $guidePath) -and
+        $skillViewEvidence[0].requestedBytes -gt 0 -and
+        $skillViewSuccess.iterations[0].skill.requestedBytes -eq $skillViewEvidence[0].requestedBytes -and
+        $skillViewSuccess.iterations[0].skill.observedChars -eq $skillViewEvidence[0].logicalPayloadChars -and
+        $skillViewSuccess.iterations[0].skill.returnedPayloadChars -eq $skillViewEvidence[0].payloadChars) `
+        'A validated related-file view did not retain its source, request, and returned-content evidence.'
     $lockedSkillView = Invoke-FakeRun `
         -Name 'locked skill view file' `
         -Mode mutated-skill-view-file `
@@ -1856,7 +1912,7 @@ try {
             'malformed', 'invalid-timestamp', 'empty-summary', 'duplicate-task', 'wrong-field-type',
             'summary-success-mismatch', 'summary-median-mismatch', 'med-help-member-case',
             'missing-strict-expected-model',
-            'wrong-success-count', 'oversized-n', 'oversized-max-steps',
+            'wrong-success-count', 'wrapped-schema-version', 'oversized-n', 'oversized-max-steps',
             'scalar-summary', 'scalar-iterations', 'scalar-observed-distinct',
             'scalar-observed-models', 'strict-schema-v2')) {
         $caseDirectory = Join-Path $temporaryRoot "comparison $case"
@@ -1884,6 +1940,7 @@ try {
                 }
                 'missing-strict-expected-model' { $invalid.model.expected = $null }
                 'wrong-success-count' { $invalid.summary[0].SuccessCount = 0 }
+                'wrapped-schema-version' { $invalid.schemaVersion = 4294967299L }
                 'oversized-n' { $invalid.n = 1001 }
                 'oversized-max-steps' { $invalid.maxSteps = 65 }
                 'scalar-summary' { $invalid.summary = $invalid.summary[0] }

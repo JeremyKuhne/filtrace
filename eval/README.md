@@ -267,6 +267,10 @@ substring and required evidence passes; transcript review remains necessary),
 **calls** (filtrace invocations), **tokens** (the offline estimate of observed tool
 result payloads - not inferred model context), and **wall-time**, plus transcript,
 host usage, model evidence, execution paths/hashes, skill evidence, and warnings.
+Each accepted skill-file view retains its attested source byte/text hashes, exact
+request hash and range, requested bytes, returned-content and logical-payload hashes,
+character counts, line coverage, and truncation protocol; aggregate skill fields
+retain total requested and returned content.
 The graded answer event must follow every counted successful analysis completion
 and, for `cli-skill`, the verified injected skill context. Strict CLI transcript
 entries retain the parser's derived operation, including `report --kind` intent,
