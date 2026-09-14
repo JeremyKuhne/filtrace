@@ -1612,7 +1612,7 @@ if ($PSBoundParameters.ContainsKey('Models')) {
 }
 elseif ($AgentHost -eq 'copilot' -and -not $PSBoundParameters.ContainsKey('Model')) { $modelList.Add($null) }
 else { $modelList.Add($Model) }
-if ($modelList.Count -eq 0) { throw '-Models expanded to an empty list. Pass at least one model, e.g. -Models claude-opus-4.6.' }
+if ($modelList.Count -eq 0) { throw '-Models expanded to an empty list. Pass at least one model, e.g. -Models <model-id>.' }
 
 # Median over a small int list.
 function Get-Median([System.Collections.Generic.List[int]]$v) {

@@ -96,8 +96,7 @@ contract and the no-LLM gate.
   exercises the **MCP tool descriptions** the cli arm never touches, on the real
   production agent. It deliberately passes `--no-custom-instructions`, isolating
   the MCP contract from `AGENTS.md` and the filtrace skill. By default it uses
-  Copilot's own model (the result records the actual model, e.g.
-  `claude-opus-4.6`); pass `-Model` to pin one.
+  Copilot's own model and records the actual identity; pass `-Model` to pin one.
 - **`copilot` -> cli arm** is an experimental Windows-only EP1 evidence arm. It
   invokes a byte-verified owned copy of the current checkout's native apphost
   bundle, not a global `filtrace`. Before execution, an isolated per-run hook
@@ -396,9 +395,10 @@ The model self-corrected a wrong flag from the CLI's error text, which is why th
 two-step tasks took more than the canonical call count - exactly the agent
 overhead this arm is meant to measure.
 
-A `copilot` mcp-arm sample (model `claude-opus-4.6`, the CLI default) on the same
-`gc-report` task answered correctly in **1** `trace_gc` call - the agent selects
-the right tool straight from the MCP descriptions:
+A `copilot` mcp-arm sample using the CLI-default model on the same `gc-report`
+task answered correctly in **1** `trace_gc` call - the agent selects the right
+tool straight from the MCP descriptions. The exact model identity remains in the
+private evidence:
 
 | Task | Host / arm | Success | Calls | Tokens |
 |---|---|---|---|---|

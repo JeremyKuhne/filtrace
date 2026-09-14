@@ -9,15 +9,14 @@
 
 .DESCRIPTION
   The tuning loop (M5) changes a surface the live runner presents - an MCP tool
-  description/server instruction or CLI command/output behavior - and asks whether
-  the change helped without regressing. SKILL.md is not measured by the current
-  runner because its Copilot arm disables custom instructions and its Ollama arm
-  supplies a generated command protocol. The workflow is: score a baseline, edit
-  a measured surface, rebuild, score a candidate, then run this to compare:
+  description/server instruction, CLI command/output behavior, or discovered
+  project skill - and asks whether the change helped without regressing. Score a
+  baseline and candidate with the same host, arm, model, task set, and bounds so
+  only the measured surface changes, then run this to compare:
 
-    ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models claude-opus-4.6,gpt-5.2 -N 5 -Label baseline
-    # ... edit a [Description] in TraceTools.cs; dotnet build src/Filtrace.Mcp -c Release ...
-    ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Models claude-opus-4.6,gpt-5.2 -N 5 -Label candidate
+    ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Arm cli-skill -Model <model-id> -ExpectedModel <model-id> -Tasks <task-id> -N 5 -Label baseline
+    # ... edit the shipped skill, preserving every other run input ...
+    ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Arm cli-skill -Model <model-id> -ExpectedModel <model-id> -Tasks <task-id> -N 5 -Label candidate
     ./eval/Compare-EvalRuns.ps1 -Baseline baseline -Candidate candidate
 
   Runs are paired by full identity (host/arm/model), so the report shows whether a

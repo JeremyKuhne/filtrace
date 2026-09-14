@@ -234,6 +234,23 @@ function Assert-FakeParserFailureArtifacts {
 }
 
 try {
+    [System.Text.RegularExpressions.RegexOptions] $modelPatternOptions =
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor
+        [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
+    [regex] $hostedModelIdPattern = [regex]::new(
+        '(?<![A-Za-z0-9])(?:claude|gpt|gemini)-(?=[A-Za-z0-9.-]*[0-9])[A-Za-z0-9.-]+',
+        $modelPatternOptions)
+    [string[]] $publicModelSurfaces = @(
+        $runner
+        $compareRunner
+        (Join-Path $root 'eval/README.md')
+        (Join-Path $root 'docs/roadmap.md'))
+    foreach ($publicModelSurface in $publicModelSurfaces) {
+        [string] $publicModelText = [System.IO.File]::ReadAllText($publicModelSurface)
+        Assert-True (-not $hostedModelIdPattern.IsMatch($publicModelText)) `
+            "Public evaluator surface '$publicModelSurface' contains a concrete hosted-model identifier."
+    }
+
     Assert-True (Test-AgentEvalPathContained -Path $root -Root $root) `
         'Repository-root equality was not treated as path containment.'
     [string] $instructionAncestor = Join-Path $temporaryRoot 'instruction ancestor'
