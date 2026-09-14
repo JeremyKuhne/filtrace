@@ -110,9 +110,14 @@ contract and the no-LLM gate.
   optional integer `initial_wait` from 1 through 30; every other argument member is
   rejected. The successful completion
   must contain filtrace schema 17 and an operation matching the executed read-only
-  verb. The parser admits only explicitly recorded event type names with a basic
-  JSON object shape. Decoy text, extra commands, writes, unknown tools, unknown
-  event types, malformed events, and failed completions do not pass.
+  verb. Its result must also contain an operation-specific typed anchor such as
+  rank rows, callers, a report count, events, processes, or a tree root; an empty
+  result object is not successful evidence. The parser retains only explicitly
+  modeled evidence-bearing event types, rejects unknown or duplicate members and
+  malformed nested payloads before interpretation, and requires the sole `result`
+  event to be the final nonempty JSONL record. Known protocol chatter is discarded
+  rather than treated as evidence. Decoy text, extra commands, writes, unknown
+  tools, malformed events, post-result events, and failed completions do not pass.
 - **`copilot` -> cli-skill arm** uses the same host, explicit model, task prompt,
   and PowerShell access as the Copilot cli arm, but adds the native `skill` and
   bounded `view` tools and copies the exact shipped
@@ -292,6 +297,15 @@ Each accepted skill-file view retains its attested source byte/text hashes, exac
 request hash and range, requested bytes, returned-content and logical-payload hashes,
 character counts, line coverage, and truncation protocol; aggregate skill fields
 retain total requested and returned content.
+
+Schema-v3 labeled records also retain one arm-neutral input identity per task: the
+task file hash, matching MCP-QA row hash, primary fixture hash, and a deterministic
+closure hash over canonical file arguments plus captures referenced by manifests.
+`Compare-EvalRuns.ps1` requires those identities, model/host/arm, task set, iteration
+count, and call budget to match before calculating deltas. CLI and skill hashes are
+deliberately excluded from this identity because they are the surfaces an A/B run
+may change. Comparison tolerance must be a finite fraction from zero through one,
+and summary rows accept only the documented schema members.
 The graded answer event must follow every counted successful analysis completion
 and, for `cli-skill`, the verified injected skill context. Strict CLI transcript
 entries retain the parser's derived operation, including `report --kind` intent,

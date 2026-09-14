@@ -442,16 +442,25 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
                 arguments = $reportedSkillArguments
             }
         })
+    $skillCompletionData = [ordered]@{
+        toolCallId = 'skill-load'
+        success = $mode -ne 'failed-skill-load'
+    }
+    if ($skillCompletionData.success) {
+        $skillCompletionData.result = [ordered]@{
+            content = 'Skill "filtrace" loaded successfully. Follow the instructions in the skill context.'
+            detailedContent = "Skill loaded successfully ✅`n`n$skillBody"
+        }
+    }
+    else {
+        $skillCompletionData.error = [ordered]@{
+            code = 'failed'
+            message = 'Skill load failed.'
+        }
+    }
     $events.Add([ordered]@{
             type = 'tool.execution_complete'
-            data = [ordered]@{
-                toolCallId = 'skill-load'
-                success = $mode -ne 'failed-skill-load'
-                result = [ordered]@{
-                    content = 'Skill "filtrace" loaded successfully. Follow the instructions in the skill context.'
-                    detailedContent = "Skill loaded successfully ✅`n`n$skillBody"
-                }
-            }
+            data = $skillCompletionData
         })
     if ($mode -ne 'missing-skill-context') {
         $events.Add([ordered]@{
@@ -689,12 +698,12 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
             })
     }
     elseif ($mode -ne 'missing-completion') {
-    $events.Add([ordered]@{
-            type = 'tool.execution_complete'
-            data = [ordered]@{
-                toolCallId = $callId
-                success = if ($mode -eq 'string-success') { 'true' } else { $completionSucceeded }
-                result = if ($completionSucceeded) {
+        $completionData = [ordered]@{
+            toolCallId = $callId
+            success = if ($mode -eq 'string-success') { 'true' } else { $completionSucceeded }
+        }
+        if ($completionSucceeded) {
+            $completionData.result = @(
                     [string] $schemaVersion = if ($mode -eq 'unknown-cli-schema') {
                         '16'
                     }
@@ -704,7 +713,15 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
                     else {
                         '17'
                     }
-                    [string] $resultJson = if ($mode -eq 'scalar-cli-result') { '"forged"' } else { '{"gcCount":7}' }
+                    [string] $resultJson = if ($mode -eq 'scalar-cli-result') {
+                        '"forged"'
+                    }
+                    elseif ($mode -eq 'empty-cli-result') {
+                        '{}'
+                    }
+                    else {
+                        '{"gcCount":7}'
+                    }
                     [string] $json = "{`"schemaVersion`":$schemaVersion,`"context`":{`"operation`":`"$reportedOperation`"},`"result`":$resultJson}"
                     [string] $content = switch ($mode) {
                         'malformed-shell-wrapper' { "prefix`n$json`n<shellId: 0 completed with exit code 0>"; break }
@@ -713,10 +730,18 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
                     }
                     [string] $detailedContent = if ($mode -eq 'mismatched-shell-content') { "$content changed" } else { $content }
                     [ordered]@{ content = $content; detailedContent = $detailedContent }
-                }
-                else { 'filtrace failed' }
+                )[0]
+        }
+        else {
+            $completionData.error = [ordered]@{
+                code = 'failed'
+                message = 'Filtrace failed.'
             }
-        })
+        }
+        $events.Add([ordered]@{
+                type = 'tool.execution_complete'
+                data = $completionData
+            })
     }
     }
 }
@@ -772,6 +797,12 @@ if ($mode -in @('model-after-analysis', 'skill-discovery-after-invocation')) {
         $events.Insert($resultIndex, $movedEvent)
         $resultIndex++
     }
+}
+if ($mode -eq 'event-after-result') {
+    $events.Add([ordered]@{
+            type = 'assistant.idle'
+            data = [ordered]@{}
+        })
 }
 
     if ($mode -notin @('missing-usage-output', 'missing-all-usage')) {
@@ -847,7 +878,19 @@ foreach ($hostEvent in $events) {
         $mode = 'malformed-jsonl-emitted'
     }
     [string] $eventJson = [string]($hostEvent | ConvertTo-Json -Depth 8 -Compress)
-    if ($mode -eq 'event-data-member-case' -and $hostEvent.type -eq 'tool.execution_start' -and
+    if ($mode -eq 'event-root-extra-member' -and $hostEvent.type -eq 'tool.execution_start' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Substring(0, $eventJson.Length - 1) + ',"extra":true}'
+    }
+    elseif ($mode -eq 'duplicate-event-member' -and $hostEvent.type -eq 'tool.execution_start' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"toolCallId":"call-1"', '"toolCallId":"call-1","toolCallId":"call-1"')
+    }
+    elseif ($mode -eq 'event-data-extra-member' -and $hostEvent.type -eq 'tool.execution_start' -and
+        $hostEvent.data.toolCallId -eq 'call-1') {
+        $eventJson = $eventJson.Replace('"arguments":', '"extra":true,"arguments":')
+    }
+    elseif ($mode -eq 'event-data-member-case' -and $hostEvent.type -eq 'tool.execution_start' -and
         $hostEvent.data.toolCallId -eq 'call-1') {
         $eventJson = $eventJson.Replace('"data":', '"Data":')
     }

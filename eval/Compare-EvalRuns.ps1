@@ -60,6 +60,11 @@ $ErrorActionPreference = 'Stop'
 if ([string]::Equals($Baseline, $Candidate, [StringComparison]::Ordinal)) {
   throw 'Baseline and candidate labels must differ.'
 }
+if ([double]::IsNaN($TokenGrowthTolerance) -or
+  [double]::IsInfinity($TokenGrowthTolerance) -or
+  $TokenGrowthTolerance -lt 0 -or $TokenGrowthTolerance -gt 1) {
+  throw 'TokenGrowthTolerance must be a finite fraction from 0 through 1.'
+}
 if (-not $ResultsDir) { $ResultsDir = Join-Path $PSScriptRoot 'results' }
 if (-not (Test-Path $ResultsDir)) { throw "No results directory at '$ResultsDir'. Run Invoke-AgentEval.ps1 -Label first." }
 
@@ -154,6 +159,12 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   foreach ($row in $summary) {
     if (-not (Test-JsonObject $row)) { throw "Result '$Path' has a non-object summary row." }
     [string[]] $rowMembers = @($row.PSObject.Properties.Name)
+    [string[]] $allowedRowMembers = @(
+      'Task', 'Success%', 'MedCalls', 'MedTokens', 'MedMs',
+      'MedHelpCalls', 'SuccessCount')
+    if (@($rowMembers | Where-Object { $allowedRowMembers -cnotcontains $_ }).Count -ne 0) {
+      throw "Result '$Path' summary row has an unknown member."
+    }
     foreach ($member in @('Task', 'Success%', 'MedCalls', 'MedTokens', 'MedMs')) {
       if ($rowMembers -cnotcontains $member) { throw "Result '$Path' summary row is missing '$member'." }
     }
@@ -188,7 +199,7 @@ function Assert-ResultPayload($Payload, [string] $Path) {
     return
   }
 
-  foreach ($member in @('model', 'n', 'maxSteps', 'iterations')) {
+  foreach ($member in @('model', 'n', 'maxSteps', 'inputIdentity', 'iterations')) {
     if ($rootMembers -cnotcontains $member) { throw "Schema-v3 result '$Path' is missing '$member'." }
   }
   if (-not (Test-JsonObject $Payload.model)) { throw "Schema-v3 result '$Path' model is not an object." }
@@ -230,6 +241,36 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   if ($iterations.Count -ne ($tasks.Count * [int]$Payload.n)) {
     throw "Schema-v3 result '$Path' has an invalid iteration count."
   }
+  if (-not (Test-JsonArray $Payload.inputIdentity)) {
+    throw "Schema-v3 result '$Path' inputIdentity is not an array."
+  }
+  [object[]] $inputIdentity = $Payload.inputIdentity
+  if ($inputIdentity.Count -ne $tasks.Count) {
+    throw "Schema-v3 result '$Path' has an invalid input identity count."
+  }
+  [System.Collections.Generic.Dictionary[string, object]] $inputsByTask =
+    [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+  foreach ($input in $inputIdentity) {
+    if (-not (Test-JsonObject $input)) {
+      throw "Schema-v3 result '$Path' has a non-object input identity."
+    }
+    [string[]] $inputMembers = @($input.PSObject.Properties.Name)
+    [string[]] $expectedInputMembers = @(
+      'task', 'taskSha256', 'qaSha256', 'fixtureSha256', 'inputClosureSha256')
+    if ($inputMembers.Count -ne $expectedInputMembers.Count -or
+      @($inputMembers | Where-Object { $expectedInputMembers -cnotcontains $_ }).Count -ne 0 -or
+      $input.task -isnot [string] -or -not $tasks.Contains([string]$input.task)) {
+      throw "Schema-v3 result '$Path' has a malformed input identity."
+    }
+    foreach ($member in @('taskSha256', 'qaSha256', 'fixtureSha256', 'inputClosureSha256')) {
+      if ($input.$member -isnot [string] -or $input.$member -cnotmatch '^[0-9a-f]{64}$') {
+        throw "Schema-v3 result '$Path' has a malformed input identity hash."
+      }
+    }
+    if (-not $inputsByTask.TryAdd([string]$input.task, $input)) {
+      throw "Schema-v3 result '$Path' repeats input identity task '$($input.task)'."
+    }
+  }
   foreach ($row in $summary) {
     [string[]] $rowMembers = @($row.PSObject.Properties.Name)
     if ($rowMembers -cnotcontains 'MedHelpCalls' -or -not (Test-FiniteNumber $row.MedHelpCalls) -or
@@ -250,6 +291,19 @@ function Assert-ResultPayload($Payload, [string] $Path) {
       [long]$iteration.iteration -lt 1 -or [long]$iteration.iteration -gt [long]$Payload.n -or
       $iteration.success -isnot [bool]) {
       throw "Schema-v3 result '$Path' has an invalid iteration identity."
+    }
+    $taskInput = $inputsByTask[[string]$iteration.task]
+    if ($iterationMembers -cnotcontains 'execution' -or
+      -not (Test-JsonObject $iteration.execution) -or
+      @($iteration.execution.PSObject.Properties.Name) -cnotcontains 'fixture' -or
+      -not (Test-JsonObject $iteration.execution.fixture) -or
+      @($iteration.execution.fixture.PSObject.Properties.Name) -cnotcontains 'sha256' -or
+      $iteration.execution.fixture.sha256 -isnot [string] -or
+      -not [string]::Equals(
+        [string]$iteration.execution.fixture.sha256,
+        [string]$taskInput.fixtureSha256,
+        [StringComparison]::Ordinal)) {
+      throw "Schema-v3 result '$Path' iteration input identity does not match task '$($iteration.task)'."
     }
     [string] $iterationKey = "$($iteration.task)/$($iteration.iteration)"
     if (-not $iterationKeys.Add($iterationKey)) { throw "Schema-v3 result '$Path' repeats iteration '$iterationKey'." }
@@ -340,6 +394,20 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
     throw "Result '$path' filename label does not match payload label '$($payload.label)'."
   }
   [string] $model = if ([int]$payload.schemaVersion -eq 2) { [string]$payload.model } else { [string]$payload.model.observed }
+  [string] $inputIdentity = if ([int]$payload.schemaVersion -eq 3) {
+    [string[]] $canonicalInputs = @($payload.inputIdentity | ForEach-Object {
+        [string]([ordered]@{
+            task = $_.task
+            taskSha256 = $_.taskSha256
+            qaSha256 = $_.qaSha256
+            fixtureSha256 = $_.fixtureSha256
+            inputClosureSha256 = $_.inputClosureSha256
+          } | ConvertTo-Json -Compress)
+      })
+    [Array]::Sort($canonicalInputs, [StringComparer]::Ordinal)
+    [string](ConvertTo-Json -InputObject $canonicalInputs -Compress)
+  }
+  else { '' }
   [pscustomobject]@{
     key       = ('{0}/{1}/{2}' -f $payload.host, $payload.arm, $model)
     label     = [string]$payload.label
@@ -347,6 +415,7 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
     schemaVersion = [int]$payload.schemaVersion
     n         = if ([int]$payload.schemaVersion -eq 3) { [int]$payload.n } else { $null }
     maxSteps  = if ([int]$payload.schemaVersion -eq 3) { [int]$payload.maxSteps } else { $null }
+    inputIdentity = $inputIdentity
     summary   = $payload.summary
   }
 }
@@ -393,8 +462,9 @@ foreach ($run in $runs) {
     if (-not $b) { $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no baseline' }); $unpaired++; continue }
     if (-not $c) { $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no candidate' }); $unpaired++; continue }
     if ($b.schemaVersion -ne $c.schemaVersion -or
-      ($b.schemaVersion -eq 3 -and ($b.n -ne $c.n -or $b.maxSteps -ne $c.maxSteps))) {
-      $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'incompatible run bounds' })
+      ($b.schemaVersion -eq 3 -and ($b.n -ne $c.n -or $b.maxSteps -ne $c.maxSteps -or
+          -not [string]::Equals($b.inputIdentity, $c.inputIdentity, [StringComparison]::Ordinal)))) {
+      $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'incompatible run contract' })
       $unpaired++
       continue
     }

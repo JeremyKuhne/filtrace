@@ -471,12 +471,200 @@ function Measure-McpResultTokens {
     return [pscustomobject]@{ text = $text; structured = $structured; wire = $wire; hostResult = $hostResult; shape = $shape }
 }
 
+function Assert-AgentEvalEventObject(
+    $Value,
+    [string[]] $RequiredMembers,
+    [string[]] $AllowedMembers,
+    [string] $Context) {
+    if ($Value -isnot [pscustomobject]) { throw "Copilot host emitted malformed $Context." }
+    [string[]] $members = @(
+        $Value.PSObject.Properties | ForEach-Object { $_.Name })
+    if (@($RequiredMembers | Where-Object { $members -cnotcontains $_ }).Count -ne 0 -or
+        @($members | Where-Object { $AllowedMembers -cnotcontains $_ }).Count -ne 0) {
+        throw "Copilot host emitted malformed $Context members."
+    }
+}
+
+function Assert-AgentEvalEvidenceEvent($Record) {
+    [string[]] $eventMembers = @('type', 'data', 'id', 'parentId', 'timestamp', 'ephemeral')
+    if ([string]::Equals([string]$Record.type, 'result', [StringComparison]::Ordinal)) {
+        Assert-AgentEvalEventObject `
+            -Value $Record `
+            -RequiredMembers @('type', 'exitCode') `
+            -AllowedMembers @('type', 'exitCode', 'sessionId', 'timestamp', 'usage') `
+            -Context 'result event'
+        if (($Record.exitCode -isnot [int] -and $Record.exitCode -isnot [long]) -or
+            [long]$Record.exitCode -lt [int]::MinValue -or
+            [long]$Record.exitCode -gt [int]::MaxValue) {
+            throw 'Copilot host emitted a result event with an invalid exit code.'
+        }
+        if ($Record.PSObject.Properties.Name -ccontains 'usage') {
+            Assert-AgentEvalEventObject `
+                -Value $Record.usage `
+                -RequiredMembers @('premiumRequests', 'totalApiDurationMs', 'sessionDurationMs') `
+                -AllowedMembers @('premiumRequests', 'totalApiDurationMs', 'sessionDurationMs', 'codeChanges') `
+                -Context 'result usage'
+            if ($Record.usage.PSObject.Properties.Name -ccontains 'codeChanges') {
+                Assert-AgentEvalEventObject `
+                    -Value $Record.usage.codeChanges `
+                    -RequiredMembers @('filesModified', 'linesAdded', 'linesRemoved') `
+                    -AllowedMembers @('filesModified', 'linesAdded', 'linesRemoved') `
+                    -Context 'result codeChanges'
+                if ($Record.usage.codeChanges.filesModified -isnot [object[]]) {
+                    throw 'Copilot host emitted malformed result codeChanges files.'
+                }
+            }
+        }
+        return
+    }
+
+    Assert-AgentEvalEventObject `
+        -Value $Record `
+        -RequiredMembers @('type', 'data') `
+        -AllowedMembers $eventMembers `
+        -Context "'$($Record.type)' event"
+    switch ([string]$Record.type) {
+        'session.skills_loaded' {
+            Assert-AgentEvalEventObject $Record.data @('skills') @('skills') 'skill inventory data'
+            if ($Record.data.skills -isnot [object[]]) {
+                throw 'Copilot host emitted a non-array skill inventory.'
+            }
+            foreach ($skill in $Record.data.skills) {
+                Assert-AgentEvalEventObject `
+                    -Value $skill `
+                    -RequiredMembers @('name', 'commandName', 'source', 'enabled', 'path') `
+                    -AllowedMembers @('name', 'commandName', 'source', 'enabled', 'path', 'description', 'userInvocable') `
+                    -Context 'skill inventory entry'
+                if ($skill.name -isnot [string] -or $skill.commandName -isnot [string] -or
+                    $skill.source -isnot [string] -or $skill.enabled -isnot [bool] -or
+                    $skill.path -isnot [string]) {
+                    throw 'Copilot host emitted malformed skill inventory values.'
+                }
+            }
+        }
+        'session.tools_updated' {
+            Assert-AgentEvalEventObject $Record.data @('model') @('model') 'model identity data'
+            if ($Record.data.model -isnot [string] -or
+                [string]::IsNullOrWhiteSpace([string]$Record.data.model)) {
+                throw 'Copilot host emitted malformed model identity data.'
+            }
+        }
+        'model.model_call_started' {
+            Assert-AgentEvalEventObject `
+                -Value $Record.data `
+                -RequiredMembers @('model') `
+                -AllowedMembers @('model', 'provider', 'kind', 'modelInfo', 'previousResponseId', 'timestampMs', 'turn') `
+                -Context 'model-call data'
+            if ($Record.data.model -isnot [string]) {
+                throw 'Copilot host emitted malformed model-call identity.'
+            }
+        }
+        'model.message' {
+            Assert-AgentEvalEventObject `
+                -Value $Record.data `
+                -RequiredMembers @('message') `
+                -AllowedMembers @('message', 'chunkCount', 'chunkIndex', 'kind', 'modelCall', 'source', 'turn') `
+                -Context 'model message data'
+            Assert-AgentEvalEventObject `
+                -Value $Record.data.message `
+                -RequiredMembers @('role', 'content') `
+                -AllowedMembers @(
+                    'role', 'content', 'apiCallId', 'encrypted_content', 'outputTokens', 'phase',
+                    'reasoning_opaque', 'reasoning_text', 'refusal', 'responses_message_status',
+                    'serverTools', 'tool_calls', 'tool_call_id') `
+                -Context 'model message'
+            if ($Record.data.message.role -isnot [string] -or
+                ($null -ne $Record.data.message.content -and
+                    $Record.data.message.content -isnot [string])) {
+                throw 'Copilot host emitted malformed model message values.'
+            }
+        }
+        'assistant.message' {
+            Assert-AgentEvalEventObject `
+                -Value $Record.data `
+                -RequiredMembers @('content') `
+                -AllowedMembers @(
+                    'content', 'apiCallId', 'encryptedContent', 'interactionId', 'messageId',
+                    'model', 'phase', 'reasoningOpaque', 'reasoningText', 'rte', 'serverTools',
+                    'toolRequests', 'turnId') `
+                -Context 'assistant message data'
+            if ($Record.data.content -isnot [string]) {
+                throw 'Copilot host emitted non-string assistant content.'
+            }
+        }
+        'tool.execution_start' {
+            Assert-AgentEvalEventObject `
+                -Value $Record.data `
+                -RequiredMembers @('toolCallId', 'arguments') `
+                -AllowedMembers @(
+                    'toolCallId', 'arguments', 'toolName', 'mcpServerName', 'mcpToolName',
+                    'model', 'shellToolInfo', 'turnId') `
+                -Context 'tool start data'
+            [string[]] $toolStartMembers = @($Record.data.PSObject.Properties.Name)
+            [bool] $nativeTool = $toolStartMembers -ccontains 'toolName' -and
+                $Record.data.toolName -is [string]
+            [bool] $mcpTool = $toolStartMembers -ccontains 'mcpServerName' -and
+                $toolStartMembers -ccontains 'mcpToolName' -and
+                $Record.data.mcpServerName -is [string] -and
+                $Record.data.mcpToolName -is [string]
+            if ($Record.data.toolCallId -isnot [string] -or
+                [string]::IsNullOrWhiteSpace([string]$Record.data.toolCallId) -or
+                $Record.data.arguments -isnot [pscustomobject] -or
+                $nativeTool -eq $mcpTool) {
+                throw 'Copilot host emitted malformed tool start values.'
+            }
+        }
+        'tool.execution_complete' {
+            Assert-AgentEvalEventObject `
+                -Value $Record.data `
+                -RequiredMembers @('toolCallId', 'success') `
+                -AllowedMembers @(
+                    'toolCallId', 'success', 'result', 'error', 'interactionId', 'model',
+                    'rte', 'toolTelemetry', 'turnId') `
+                -Context 'tool completion data'
+            [bool] $hasResult = $Record.data.PSObject.Properties.Name -ccontains 'result'
+            [bool] $hasError = $Record.data.PSObject.Properties.Name -ccontains 'error'
+            if ($Record.data.toolCallId -isnot [string] -or
+                [string]::IsNullOrWhiteSpace([string]$Record.data.toolCallId) -or
+                $Record.data.success -isnot [bool] -or $hasResult -eq $hasError -or
+                ($hasResult -and $Record.data.result -isnot [pscustomobject]) -or
+                ($hasError -and $Record.data.error -isnot [pscustomobject]) -or
+                ($Record.data.success -and -not $hasResult) -or
+                (-not $Record.data.success -and -not $hasError)) {
+                throw 'Copilot host emitted malformed tool completion values.'
+            }
+        }
+    }
+}
+
+function Assert-AgentEvalUniqueJsonMembers(
+    [System.Text.Json.JsonElement] $Element,
+    [string] $Context) {
+    if ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+        [System.Collections.Generic.HashSet[string]] $names =
+            [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($property in $Element.EnumerateObject()) {
+            if (-not $names.Add($property.Name)) {
+                throw "Copilot host emitted duplicate '$($property.Name)' in $Context."
+            }
+            Assert-AgentEvalUniqueJsonMembers `
+                -Element $property.Value `
+                -Context "$Context.$($property.Name)"
+        }
+    }
+    elseif ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
+        foreach ($item in $Element.EnumerateArray()) {
+            Assert-AgentEvalUniqueJsonMembers -Element $item -Context "$Context[]"
+        }
+    }
+}
+
 function ConvertFrom-AgentEvalJsonLines([string[]] $Lines) {
     [System.Collections.Generic.List[object]] $events = [System.Collections.Generic.List[object]]::new()
     [System.Collections.Generic.HashSet[string]] $knownTypes =
         [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($knownType in @(
-        'session.start', 'session.info', 'session.managed_settings_resolved',
+        'session.start', 'session.info', 'session.warning', 'session.managed_settings_resolved',
         'session.mcp_servers_loaded', 'session.skills_loaded',
         'session.tools_updated', 'session.background_tasks_changed', 'session.usage_checkpoint',
         'session.shutdown', 'system.message', 'user.message', 'hook.start', 'hook.end',
@@ -489,9 +677,29 @@ function ConvertFrom-AgentEvalJsonLines([string[]] $Lines) {
         'tool.execution_start', 'tool.execution_partial_result', 'tool.execution_complete', 'result')) {
         [void]$knownTypes.Add($knownType)
     }
+    [System.Collections.Generic.HashSet[string]] $evidenceTypes =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($evidenceType in @(
+            'session.skills_loaded', 'session.tools_updated', 'model.model_call_started',
+            'model.message', 'assistant.message', 'tool.execution_start',
+            'tool.execution_complete', 'result')) {
+        [void]$evidenceTypes.Add($evidenceType)
+    }
+    [bool] $sawResult = $false
     foreach ($line in $Lines) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
-        try { $record = $line | ConvertFrom-Json }
+        if ($sawResult) { throw 'Copilot host emitted an event after the terminal result.' }
+        try {
+            [System.Text.Json.JsonDocument] $document =
+                [System.Text.Json.JsonDocument]::Parse($line)
+            try {
+                Assert-AgentEvalUniqueJsonMembers -Element $document.RootElement -Context 'JSONL event'
+            }
+            finally {
+                $document.Dispose()
+            }
+            $record = $line | ConvertFrom-Json
+        }
         catch { throw "Copilot host emitted malformed JSONL: $($_.Exception.Message)" }
         if ($record -isnot [pscustomobject]) {
             throw 'Copilot host emitted a non-object JSONL event.'
@@ -508,7 +716,13 @@ function ConvertFrom-AgentEvalJsonLines([string[]] $Lines) {
         if (-not $knownTypes.Contains([string]$record.type)) {
             throw "Copilot host emitted an unknown event type '$($record.type)'."
         }
-        $events.Add($record)
+        if ($evidenceTypes.Contains([string]$record.type)) {
+            Assert-AgentEvalEvidenceEvent $record
+            $events.Add($record)
+            if ([string]::Equals([string]$record.type, 'result', [StringComparison]::Ordinal)) {
+                $sawResult = $true
+            }
+        }
     }
     if ($events.Count -eq 0) { throw 'Copilot host emitted no JSONL events.' }
     return $events
@@ -666,7 +880,32 @@ function Test-AgentEvalCliResult($Result, [string] $ExpectedOperation) {
         $members -cnotcontains 'result' -or $payload.result -isnot [pscustomobject]) {
         return $false
     }
-    return $true
+    [string] $anchor = switch ($ExpectedOperation) {
+        'rank' { 'rows' }
+        'callers' { 'callers' }
+        'diskio' { 'files' }
+        'events' { 'events' }
+        'gc' { 'gcCount' }
+        'info' { 'analyses' }
+        'jit' { 'methodCount' }
+        'lifecycle' { 'invocations' }
+        'processes' { 'processes' }
+        'threadpool' { 'adjustmentCount' }
+        'timeline' { 'bucketCount' }
+        'tree' { 'root' }
+        default { return $false }
+    }
+    [string[]] $resultMembers = @(
+        $payload.result.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($resultMembers -cnotcontains $anchor) { return $false }
+    if ($ExpectedOperation -in @('rank', 'callers', 'diskio', 'events', 'lifecycle', 'processes')) {
+        return $payload.result.$anchor -is [object[]]
+    }
+    if ($ExpectedOperation -in @('gc', 'jit', 'threadpool', 'timeline')) {
+        return ($payload.result.$anchor -is [int] -or $payload.result.$anchor -is [long]) -and
+            [long]$payload.result.$anchor -ge 0
+    }
+    return $payload.result.$anchor -is [pscustomobject]
 }
 
 function Test-AgentEvalHostUsage($Usage) {
@@ -1583,12 +1822,80 @@ function Invoke-CopilotIteration {
 
 # --- Task selection -----------------------------------------------------------
 
+function Get-AgentEvalTaskInputClosureHash($Task, [string] $Root) {
+    [StringComparer] $pathComparer = if ([System.OperatingSystem]::IsWindows()) {
+        [StringComparer]::OrdinalIgnoreCase
+    }
+    else {
+        [StringComparer]::Ordinal
+    }
+    [System.Collections.Generic.HashSet[string]] $seen =
+        [System.Collections.Generic.HashSet[string]]::new($pathComparer)
+    [System.Collections.Generic.Queue[string]] $pending =
+        [System.Collections.Generic.Queue[string]]::new()
+    $pending.Enqueue([System.IO.Path]::GetFullPath((Join-Path $Root $Task.fixture)))
+    foreach ($step in @($Task.steps)) {
+        foreach ($argument in @($step.args)) {
+            if ($argument -isnot [string] -or
+                [string]::Equals([string]$argument, '{fixture}', [StringComparison]::Ordinal) -or
+                ([string]$argument).StartsWith('--', [StringComparison]::Ordinal)) {
+                continue
+            }
+            [string] $candidate = [System.IO.Path]::GetFullPath((Join-Path $Root ([string]$argument)))
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) { $pending.Enqueue($candidate) }
+        }
+    }
+
+    [System.Collections.Generic.List[object]] $files =
+        [System.Collections.Generic.List[object]]::new()
+    while ($pending.Count -gt 0) {
+        [string] $path = $pending.Dequeue()
+        if (-not $seen.Add($path)) { continue }
+        if (-not (Test-AgentEvalPathContained -Path $path -Root $Root) -or
+            -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Task '$($Task.id)' input '$path' escaped the repository or was missing."
+        }
+        Assert-AgentEvalNoReparsePoint -Path $path -Boundary $Root
+        $files.Add([pscustomobject]@{
+                path = [System.IO.Path]::GetRelativePath($Root, $path).Replace('\', '/')
+                sha256 = Get-AgentEvalFileHash $path
+            })
+
+        if (-not [string]::Equals(
+                [System.IO.Path]::GetFileName($path),
+                'manifest.json',
+                [StringComparison]::Ordinal)) {
+            continue
+        }
+        $manifest = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        foreach ($case in @($manifest.cases)) {
+            foreach ($property in @($case.PSObject.Properties | Where-Object {
+                        $_.Name -in @('trace', 'nettrace', 'etl', 'speedscope') -and
+                        $_.Value -is [string]
+                    })) {
+                [string] $referencedPath = [System.IO.Path]::GetFullPath(
+                    (Join-Path ([System.IO.Path]::GetDirectoryName($path)) ([string]$property.Value)))
+                $pending.Enqueue($referencedPath)
+            }
+        }
+    }
+    [string[]] $closureEntries = @($files | ForEach-Object {
+            [string]([ordered]@{ path = $_.path; sha256 = $_.sha256 } |
+                ConvertTo-Json -Compress)
+        })
+    [Array]::Sort($closureEntries, [StringComparer]::Ordinal)
+    [string] $closureJson = ConvertTo-Json -InputObject $closureEntries -Compress
+    return Get-AgentEvalTextHash $closureJson
+}
+
 $mcpQaById = @{}
+$mcpQaHashById = @{}
 foreach ($line in Get-Content -LiteralPath $mcpQaPath) {
     if ([string]::IsNullOrWhiteSpace($line)) { continue }
     $mcpQaTask = $line | ConvertFrom-Json
     if ($mcpQaById.ContainsKey($mcpQaTask.id)) { throw "Duplicate MCP QA task id '$($mcpQaTask.id)'." }
     $mcpQaById[$mcpQaTask.id] = $mcpQaTask
+    $mcpQaHashById[$mcpQaTask.id] = Get-AgentEvalTextHash $line
 }
 
 $allTaskFiles = Get-ChildItem -Path $tasksDir -Filter '*.json' | Sort-Object Name
@@ -1612,6 +1919,14 @@ foreach ($file in $allTaskFiles) {
         if ($qaMembers -contains 'maxCalls') { $qa.maxCalls } else { $null })
     $task | Add-Member -NotePropertyName maxResponseTokens -NotePropertyValue $(
         if ($qaMembers -contains 'maxResponseTokens') { $qa.maxResponseTokens } else { $null })
+    [string] $fixturePath = (Resolve-Path (Join-Path $root $task.fixture)).Path
+    $task | Add-Member -NotePropertyName inputIdentity -NotePropertyValue ([pscustomobject]@{
+            task = [string]$task.id
+            taskSha256 = Get-AgentEvalFileHash $file.FullName
+            qaSha256 = [string]$mcpQaHashById[$task.id]
+            fixtureSha256 = Get-AgentEvalFileHash $fixturePath
+            inputClosureSha256 = Get-AgentEvalTaskInputClosureHash -Task $task -Root $root
+        })
     $selected.Add($task)
 }
 if ($selected.Count -eq 0) { throw "No matching tasks (filter: $($Tasks -join ', '))." }
@@ -1985,6 +2300,7 @@ function Invoke-EvalRun {
         label         = $RunLabel
         n             = $N
         maxSteps      = $MaxSteps
+        inputIdentity = @($selected | ForEach-Object { $_.inputIdentity } | Sort-Object task)
         strictRunBudget = $strictRunProjection
         mcpDll        = $McpDll
         tokenAccounting = 'offline observed tool-result estimate; hostUsage is the result event; hostUsageFile is bounded host-reported token accounting'

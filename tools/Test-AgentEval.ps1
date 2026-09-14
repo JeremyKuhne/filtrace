@@ -273,18 +273,22 @@ function Assert-FakeParserFailureArtifacts {
         [Parameter(Mandatory)][string] $Name,
         [Parameter(Mandatory)][string] $Mode,
         [Parameter(Mandatory)][string] $ExpectedMessage,
-        [Parameter(Mandatory)][string] $ExpectedRawText
+        [Parameter(Mandatory)][string] $ExpectedRawText,
+        [ValidateSet('cli', 'cli-skill')][string] $Arm = 'cli'
     )
 
     [string] $outDirectory = Join-Path $temporaryRoot $Name
     [bool] $threw = $false
+    [string] $actualMessage = '<no exception>'
     try {
-        [void](Invoke-FakeRun -Name $Name -Mode $Mode -OutDir $outDirectory)
+        [void](Invoke-FakeRun -Name $Name -Mode $Mode -Arm $Arm -OutDir $outDirectory)
     }
     catch {
-        $threw = $_.Exception.Message.Contains($ExpectedMessage, [StringComparison]::Ordinal)
+        $actualMessage = $_.Exception.ToString()
+        $threw = $actualMessage.Contains($ExpectedMessage, [StringComparison]::Ordinal)
     }
-    Assert-True $threw "Fake parser case '$Name' did not fail with '$ExpectedMessage'."
+    Assert-True $threw `
+        "Fake parser case '$Name' did not fail with '$ExpectedMessage'. Actual: $actualMessage"
     Assert-True `
         (@(Get-ChildItem -LiteralPath $outDirectory -File -Filter '*.json').Count -eq 0) `
         "Fake parser case '$Name' published a result."
@@ -396,7 +400,9 @@ try {
         $runner, [ref]$runnerTokens, [ref]$runnerErrors)
     Assert-True ($runnerErrors.Count -eq 0) 'Invoke-AgentEval.ps1 did not parse for isolated function tests.'
     foreach ($functionName in @(
-            'ConvertFrom-AgentEvalJsonLines', 'Write-AgentEvalNewFile', 'Save-AgentEvalHostOutput',
+            'Assert-AgentEvalEventObject', 'Assert-AgentEvalEvidenceEvent',
+            'Assert-AgentEvalUniqueJsonMembers', 'ConvertFrom-AgentEvalJsonLines',
+            'Write-AgentEvalNewFile', 'Save-AgentEvalHostOutput',
             'ConvertTo-AgentEvalResultJson', 'Get-AgentEvalTaskExpectedOperations',
             'Split-ArgString', 'Get-AgentEvalMediatedOperation')) {
         $functionAst = $runnerAst.Find({
@@ -416,31 +422,63 @@ try {
         (Get-AgentEvalMediatedOperation 'rank <TRACE> --metric cpu') -ceq 'rank') `
         'Mediated CLI commands did not retain their actual operation intent.'
 
-    [string[]] $recordedEventTypes = @(
-        'assistant.idle', 'assistant.message', 'assistant.message_delta', 'assistant.message_start',
-        'assistant.reasoning',
-        'assistant.turn_end', 'assistant.turn_start', 'hook.end', 'hook.start', 'model.call_finished',
-        'model.call_start', 'model.captured_assignment_context', 'model.message', 'model.messages_snapshot',
-        'model.model_call_started', 'model.model_call_success', 'model.response', 'model.turn_ended',
-        'model.turn_started', 'result', 'session.info', 'session.managed_settings_resolved',
-        'session.mcp_servers_loaded', 'session.skills_loaded', 'session.shutdown',
-        'session.start', 'session.tools_updated',
-        'session.usage_checkpoint', 'system.message', 'tool.execution_complete',
-        'tool.execution_start', 'user.message')
-    [string[]] $recordedLines = @($recordedEventTypes | ForEach-Object {
-            if ($_ -eq 'result') {
-                [ordered]@{ type = $_; timestamp = 1L; sessionId = 'recorded'; exitCode = 0; usage = [ordered]@{} }
+    [string[]] $chatterEventTypes = @(
+        'assistant.idle', 'assistant.message_delta', 'assistant.message_start',
+        'assistant.reasoning', 'assistant.turn_end', 'assistant.turn_start',
+        'hook.end', 'hook.start', 'model.call_finished', 'model.call_start',
+        'model.captured_assignment_context', 'model.messages_snapshot',
+        'model.model_call_success', 'model.response', 'model.turn_ended',
+        'model.turn_started', 'session.background_tasks_changed', 'session.info',
+        'session.managed_settings_resolved', 'session.mcp_servers_loaded',
+        'session.shutdown', 'session.start', 'session.usage_checkpoint',
+        'session.warning', 'system.message', 'tool.execution_partial_result',
+        'user.message')
+    [string[]] $chatterLines = @($chatterEventTypes | ForEach-Object {
+            [string]([ordered]@{ type = $_; data = [ordered]@{} } |
+                ConvertTo-Json -Depth 4 -Compress)
+        })
+    $chatterLines += [string]([ordered]@{
+            type = 'result'
+            exitCode = 0
+            usage = [ordered]@{
+                premiumRequests = 1; totalApiDurationMs = 1; sessionDurationMs = 1
             }
-            else {
-                [ordered]@{
-                    type = $_; data = [ordered]@{}; ephemeral = $true
-                    id = 'recorded'; timestamp = 1L; parentId = $null
-                }
+        } | ConvertTo-Json -Depth 4 -Compress)
+    Assert-True (@(ConvertFrom-AgentEvalJsonLines $chatterLines).Count -eq 1) `
+        'The isolated JSONL parser retained known protocol chatter as evidence.'
+    [object[]] $evidenceRecords = @(
+        [ordered]@{ type = 'session.skills_loaded'; data = [ordered]@{ skills = @() } }
+        [ordered]@{ type = 'session.tools_updated'; data = [ordered]@{ model = 'expected-model' } }
+        [ordered]@{ type = 'model.model_call_started'; data = [ordered]@{ model = 'provider-model' } }
+        [ordered]@{
+            type = 'model.message'
+            data = [ordered]@{ message = [ordered]@{ role = 'assistant'; content = $null } }
+        }
+        [ordered]@{ type = 'assistant.message'; data = [ordered]@{ content = 'answer' } }
+        [ordered]@{
+            type = 'tool.execution_start'
+            data = [ordered]@{
+                toolCallId = 'call-1'; toolName = 'powershell'; arguments = [ordered]@{}
             }
-        } | ForEach-Object { $_ | ConvertTo-Json -Depth 4 -Compress })
-    $recordedEvents = @(ConvertFrom-AgentEvalJsonLines $recordedLines)
-    Assert-True ($recordedEvents.Count -eq $recordedEventTypes.Count) `
-        'The isolated JSONL parser did not accept every recorded event shape.'
+        }
+        [ordered]@{
+            type = 'tool.execution_complete'
+            data = [ordered]@{
+                toolCallId = 'call-1'; success = $true; result = [ordered]@{}
+            }
+        }
+        [ordered]@{
+            type = 'result'
+            exitCode = 0
+            usage = [ordered]@{
+                premiumRequests = 1; totalApiDurationMs = 1; sessionDurationMs = 1
+            }
+        })
+    [string[]] $evidenceLines = @($evidenceRecords | ForEach-Object {
+            [string]($_ | ConvertTo-Json -Depth 6 -Compress)
+        })
+    Assert-True (@(ConvertFrom-AgentEvalJsonLines $evidenceLines).Count -eq 8) `
+        'The isolated JSONL parser did not retain every exact evidence event.'
     [bool] $unknownRecordedEventRejected = $false
     try { [void](ConvertFrom-AgentEvalJsonLines @('{"type":"future.event","data":{}}')) }
     catch { $unknownRecordedEventRejected = $_.Exception.Message.Contains('unknown event type', [StringComparison]::Ordinal) }
@@ -1294,13 +1332,10 @@ try {
 
     foreach ($mode in @(
             'answer-only', 'answer-before-analysis', 'completion-before-start', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
-            'decoy-command', 'missing-call-id', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
+            'decoy-command', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
             'denied-unknown-tool', 'powershell-tool-case',
-            'scalar-model-data', 'missing-model-value', 'non-string-model-value', 'model-after-analysis',
-            'string-success', 'mismatched-operation', 'unknown-cli-schema', 'fractional-cli-schema', 'scalar-cli-result',
-            'event-data-member-case', 'tool-call-id-member-case', 'completion-result-member-case',
-            'completion-success-member-case', 'answer-content-member-case', 'non-string-answer-content',
-            'result-exit-code-member-case', 'model-member-case', 'malformed-shell-wrapper',
+            'model-after-analysis', 'mismatched-operation', 'unknown-cli-schema', 'fractional-cli-schema',
+            'scalar-cli-result', 'empty-cli-result', 'malformed-shell-wrapper',
             'nonzero-shell-wrapper', 'mismatched-shell-content', 'command-member-case',
             'description-member-case', 'mode-member-case', 'missing-command-argument',
             'missing-description-argument', 'invalid-command-type', 'invalid-mode-type', 'async-mode',
@@ -1335,6 +1370,33 @@ try {
         -Mode case-variant-event `
         -ExpectedMessage 'unknown event type' `
         -ExpectedRawText '"type":"RESULT"'
+    foreach ($parserCase in @(
+            [pscustomobject]@{ mode = 'event-root-extra-member'; raw = '"extra":true'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'duplicate-event-member'; raw = '"toolCallId":"call-1","toolCallId"'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'event-data-extra-member'; raw = '"extra":true'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'event-data-member-case'; raw = '"Data":'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'tool-call-id-member-case'; raw = '"ToolCallId":'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'completion-result-member-case'; raw = '"Result":'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'completion-success-member-case'; raw = '"Success":'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'answer-content-member-case'; raw = '"Content":'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'non-string-answer-content'; raw = '"content":7'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'result-exit-code-member-case'; raw = '"ExitCode":'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'model-member-case'; raw = '"Model":'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'scalar-model-data'; raw = '"data":"expected-model"'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'missing-model-value'; raw = '"data":{}'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'non-string-model-value'; raw = '"model":1'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'missing-call-id'; raw = '"toolCallId":""'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'string-success'; raw = '"success":"true"'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'event-after-result'; raw = '"type":"assistant.idle"'; arm = 'cli' }
+            [pscustomobject]@{ mode = 'scalar-skill-inventory'; raw = '"skills":{'; arm = 'cli-skill' }
+        )) {
+        Assert-FakeParserFailureArtifacts `
+            -Name "parser $($parserCase.mode)" `
+            -Mode $parserCase.mode `
+            -ExpectedMessage 'Copilot host emitted' `
+            -ExpectedRawText $parserCase.raw `
+            -Arm $parserCase.arm
+    }
     $lockedBundle = Invoke-FakeRun -Name 'locked bundle' -Mode mutated-bundle
     Assert-True ($lockedBundle.iterations[0].success -eq $true) `
         'The host could rewrite the owned CLI bundle before authorization.'
@@ -1427,7 +1489,7 @@ try {
             'missing-skill-read', 'missing-skill-discovery', 'wrong-skill-hash',
             'failed-skill-load', 'missing-skill-context', 'skill-extra-context',
             'skill-ledger-mismatch', 'skill-tool-case', 'skill-argument-name-case',
-            'skill-argument-value-case', 'scalar-skill-inventory', 'skill-discovery-name-case',
+            'skill-argument-value-case', 'skill-discovery-name-case',
             'skill-discovery-source-case', 'skill-context-role-case', 'skill-view-altered',
             'answer-before-skill-context', 'skill-context-before-completion',
             'skill-discovery-after-invocation')) {
@@ -1911,6 +1973,12 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $comparisonDirectory 'unrelated.json'), '{')
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $comparisonDirectory
     Assert-True ($LASTEXITCODE -eq 0) 'Identical fake records did not compare neutral.'
+    & $pwshPath -NoProfile -File $compareRunner `
+        -Baseline baseline `
+        -Candidate candidate `
+        -ResultsDir $comparisonDirectory `
+        -TokenGrowthTolerance ([double]::NaN)
+    Assert-True ($LASTEXITCODE -eq 1) 'A NaN token-growth tolerance was accepted.'
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate baseline -ResultsDir $comparisonDirectory
     Assert-True ($LASTEXITCODE -eq 1) 'A comparison using the same label for both sides was accepted.'
 
@@ -2008,6 +2076,21 @@ try {
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $maxStepsDirectory
     Assert-True ($LASTEXITCODE -eq 1) 'Runs with different maxSteps budgets were paired.'
 
+    $inputIdentityDirectory = Join-Path $temporaryRoot 'input identity comparison'
+    [System.IO.Directory]::CreateDirectory($inputIdentityDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $inputIdentityRecord = Read-TestResult $resultPath.FullName
+        if ($inputIdentityRecord.label -ceq 'candidate') {
+            $inputIdentityRecord.inputIdentity[0].inputClosureSha256 = '0' * 64
+        }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $inputIdentityDirectory $resultPath.Name),
+            (($inputIdentityRecord | ConvertTo-Json -Depth 32) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $inputIdentityDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'Runs with different task input closures were paired.'
+
     $roundedSuccessDirectory = Join-Path $temporaryRoot 'rounded success comparison'
     [System.IO.Directory]::CreateDirectory($roundedSuccessDirectory) | Out-Null
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
@@ -2046,6 +2129,7 @@ try {
         $legacy.model = 'expected-model'
         $legacy.PSObject.Properties.Remove('n')
         $legacy.PSObject.Properties.Remove('maxSteps')
+        $legacy.PSObject.Properties.Remove('inputIdentity')
         $legacy.PSObject.Properties.Remove('iterations')
         [System.IO.File]::WriteAllText(
             (Join-Path $legacyDirectory $resultPath.Name),
@@ -2057,11 +2141,12 @@ try {
 
         foreach ($case in @(
             'malformed', 'oversized-result', 'invalid-timestamp', 'empty-summary', 'duplicate-task', 'wrong-field-type',
-            'summary-success-mismatch', 'summary-median-mismatch', 'med-help-member-case',
+            'summary-success-mismatch', 'summary-median-mismatch', 'med-help-member-case', 'unknown-summary-member',
             'missing-strict-expected-model',
             'wrong-success-count', 'wrapped-schema-version', 'oversized-n', 'oversized-max-steps',
             'scalar-summary', 'scalar-iterations', 'scalar-observed-distinct',
-            'scalar-observed-models', 'strict-schema-v2')) {
+            'scalar-observed-models', 'missing-input-identity', 'scalar-input-identity',
+            'malformed-input-hash', 'iteration-fixture-mismatch', 'strict-schema-v2')) {
         $caseDirectory = Join-Path $temporaryRoot "comparison $case"
         [System.IO.Directory]::CreateDirectory($caseDirectory) | Out-Null
         foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
@@ -2090,6 +2175,9 @@ try {
                     $invalid.summary[0].PSObject.Properties.Remove('MedHelpCalls')
                     $invalid.summary[0] | Add-Member -NotePropertyName medhelpcalls -NotePropertyValue $medHelpCalls
                 }
+                'unknown-summary-member' {
+                    $invalid.summary[0] | Add-Member -NotePropertyName UnexpectedMetric -NotePropertyValue 1
+                }
                 'missing-strict-expected-model' { $invalid.model.expected = $null }
                 'wrong-success-count' { $invalid.summary[0].SuccessCount = 0 }
                 'wrapped-schema-version' { $invalid.schemaVersion = 4294967299L }
@@ -2099,11 +2187,16 @@ try {
                 'scalar-iterations' { $invalid.iterations = $invalid.iterations[0] }
                 'scalar-observed-distinct' { $invalid.model.observedDistinct = $invalid.model.observed }
                 'scalar-observed-models' { $invalid.iterations[0].observedModels = $invalid.iterations[0].observedModel }
+                'missing-input-identity' { $invalid.PSObject.Properties.Remove('inputIdentity') }
+                'scalar-input-identity' { $invalid.inputIdentity = $invalid.inputIdentity[0] }
+                'malformed-input-hash' { $invalid.inputIdentity[0].taskSha256 = 'A' * 64 }
+                'iteration-fixture-mismatch' { $invalid.iterations[0].execution.fixture.sha256 = '0' * 64 }
                 'strict-schema-v2' {
                     $invalid.schemaVersion = 2
                     $invalid.model = 'expected-model'
                     $invalid.PSObject.Properties.Remove('n')
                     $invalid.PSObject.Properties.Remove('maxSteps')
+                    $invalid.PSObject.Properties.Remove('inputIdentity')
                     $invalid.PSObject.Properties.Remove('iterations')
                 }
             }
