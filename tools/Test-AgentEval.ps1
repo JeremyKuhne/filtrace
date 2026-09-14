@@ -149,7 +149,7 @@ function Invoke-TestRawLedgerRequest(
             $writer.WriteLine($RequestText)
         }
         $responseTask = $reader.ReadLineAsync()
-        if (-not $responseTask.Wait(2000)) { throw 'Policy ledger did not bound its request read.' }
+        if (-not $responseTask.Wait(4000)) { throw 'Policy ledger did not bound its request read.' }
         return $responseTask.GetAwaiter().GetResult() | ConvertFrom-Json
     }
     finally {
@@ -163,6 +163,16 @@ function Invoke-TestLedgerRequest([string] $PipeName, $Request) {
     return Invoke-TestRawLedgerRequest `
         -PipeName $PipeName `
         -RequestText ($Request | ConvertTo-Json -Depth 6 -Compress)
+}
+
+function Close-TestLedgerConnection([string] $PipeName) {
+    [System.IO.Pipes.NamedPipeClientStream] $pipe =
+        [System.IO.Pipes.NamedPipeClientStream]::new(
+            '.',
+            $PipeName,
+            [System.IO.Pipes.PipeDirection]::InOut)
+    try { $pipe.Connect(2000) }
+    finally { $pipe.Dispose() }
 }
 
 function Invoke-FakeRun {
@@ -485,6 +495,39 @@ try {
         $mcpOnlyContext.workspace -eq $mcpOnlyRoot) `
         'MCP-only context creation still required or exposed a CLI apphost.'
 
+    [string] $builtCliDll = Join-Path $root 'src/Filtrace/bin/Release/net10.0/filtrace.dll'
+    [string] $hiddenCliDll = "$builtCliDll.$([Guid]::NewGuid().ToString('N')).hidden"
+    [string] $mcpDllPath = Join-Path $root 'src/Filtrace.Mcp/bin/Release/net10.0/Filtrace.Mcp.dll'
+    [string] $builtCliHash = Get-AgentEvalFileHash $builtCliDll
+    [string] $mcpOnlyRunOutput = Join-Path $temporaryRoot 'mcp only process output'
+    try {
+        Move-Item -LiteralPath $builtCliDll -Destination $hiddenCliDll
+        $env:FILTRACE_AGENT_EVAL_FAKE_MODE = 'mcp-success'
+        & $runner `
+            -AgentHost copilot `
+            -Arm mcp `
+            -Model expected-model `
+            -Tasks gc-report `
+            -N 1 `
+            -McpDll $mcpDllPath `
+            -OutDir $mcpOnlyRunOutput `
+            -CopilotPath $pwshPath `
+            -CopilotAdapterPath $fakeHost
+        [System.IO.FileInfo] $mcpOnlyResultPath =
+            Get-ChildItem -LiteralPath $mcpOnlyRunOutput -Filter '*.json' | Select-Object -First 1
+        $mcpOnlyResult = Get-Content -LiteralPath $mcpOnlyResultPath.FullName -Raw | ConvertFrom-Json
+        Assert-True ($mcpOnlyResult.iterations[0].success -eq $true) `
+            'MCP-only process run did not complete while the CLI DLL was absent.'
+    }
+    finally {
+        Remove-Item Env:FILTRACE_AGENT_EVAL_FAKE_MODE -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $hiddenCliDll -PathType Leaf) {
+            Move-Item -LiteralPath $hiddenCliDll -Destination $builtCliDll
+        }
+    }
+    Assert-True ((Get-AgentEvalFileHash $builtCliDll) -eq $builtCliHash) `
+        'MCP-only process probe did not restore the CLI DLL exactly.'
+
     [string] $fallbackRunDirectory = Join-Path $temporaryRoot 'output retention fallback'
     [string] $fallbackLogDirectory = Join-Path $fallbackRunDirectory 'logs'
     [System.IO.Directory]::CreateDirectory($fallbackLogDirectory) | Out-Null
@@ -721,23 +764,22 @@ try {
             "Policy hook accepted malformed policy '$policyMutation'."
     }
     $ledgerOwnershipProbe = New-TestExecutionPolicy -Name 'parent-owned ledger contract' -MaxCalls 1
-    $firstLedgerDecision = Invoke-TestPolicyHook `
-        -Hook $ledgerOwnershipProbe.preToolHook `
-        -SessionId $ledgerOwnershipProbe.context.runId `
-        -WorkingDirectory $ledgerOwnershipProbe.context.workspace `
-        -ToolName powershell `
-        -ToolArguments ([ordered]@{
-            command = $ledgerOwnershipProbe.command
-            description = 'Consume the sole analysis allowance'
-        })
-    Assert-True ($firstLedgerDecision.permissionDecision -eq 'allow') `
-        'Parent-owned ledger denied its first analysis allowance.'
+    Close-TestLedgerConnection -PipeName $ledgerOwnershipProbe.executionPolicy.ledgerPipeName
     $oversizedLedgerDecision = Invoke-TestRawLedgerRequest `
         -PipeName $ledgerOwnershipProbe.executionPolicy.ledgerPipeName `
         -RequestText ('x' * 65537) `
         -OmitTerminator
     Assert-True ($oversizedLedgerDecision.allowed -eq $false) `
         'Parent-owned ledger did not promptly deny an unterminated oversized request.'
+    [System.Diagnostics.Stopwatch] $stalledLedgerStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $stalledLedgerDecision = Invoke-TestRawLedgerRequest `
+        -PipeName $ledgerOwnershipProbe.executionPolicy.ledgerPipeName `
+        -RequestText 'x' `
+        -OmitTerminator
+    $stalledLedgerStopwatch.Stop()
+    Assert-True ($stalledLedgerDecision.allowed -eq $false -and
+        $stalledLedgerStopwatch.Elapsed.TotalSeconds -lt 4) `
+        'Parent-owned ledger did not bound a stalled unterminated request.'
     foreach ($hostileRequest in @(
             [ordered]@{ category = 'reset'; hash = ('0' * 64) }
             [ordered]@{ category = 'command'; hash = ('0' * 64); commandHashes = @() }
@@ -748,6 +790,37 @@ try {
         Assert-True ($hostileDecision.allowed -eq $false) `
             'Parent-owned ledger accepted a reset, overwrite, or case-variant request.'
     }
+    [object[]] $directBypassRequests = @(
+        [ordered]@{
+            category = 'command'
+            command = $ledgerOwnershipProbe.command.Replace("'gc'", "'jit'")
+        }
+        [ordered]@{ category = 'help'; command = $ledgerOwnershipProbe.command }
+        [ordered]@{
+            category = 'command'
+            command = "& '$($ledgerOwnershipProbe.context.cliPath)' '--help'"
+        })
+    foreach ($directBypassRequest in $directBypassRequests) {
+        $directBypassDecision = Invoke-TestLedgerRequest `
+            -PipeName $ledgerOwnershipProbe.executionPolicy.ledgerPipeName `
+            -Request $directBypassRequest
+        Assert-True ($directBypassDecision.allowed -eq $false) `
+            'A direct client consumed a mismatched or out-of-policy command allowance.'
+    }
+    $emptyLedgerState = Get-CopilotEvalExecutionPolicyState $ledgerOwnershipProbe.executionPolicy
+    Assert-True ($emptyLedgerState.callCount -eq 0 -and $emptyLedgerState.helpCallCount -eq 0) `
+        'A denied direct client request changed command or help capacity.'
+    $firstLedgerDecision = Invoke-TestPolicyHook `
+        -Hook $ledgerOwnershipProbe.preToolHook `
+        -SessionId $ledgerOwnershipProbe.context.runId `
+        -WorkingDirectory $ledgerOwnershipProbe.context.workspace `
+        -ToolName powershell `
+        -ToolArguments ([ordered]@{
+            command = $ledgerOwnershipProbe.command
+            description = 'Consume the sole analysis allowance'
+        })
+    Assert-True ($firstLedgerDecision.permissionDecision -eq 'allow') `
+        'Parent-owned ledger denied its first policy-valid analysis allowance.'
     $exhaustedLedgerDecision = Invoke-TestPolicyHook `
         -Hook $ledgerOwnershipProbe.preToolHook `
         -SessionId $ledgerOwnershipProbe.context.runId `
@@ -1004,6 +1077,14 @@ try {
 
     $viewProbe = New-TestExecutionPolicy -Name 'view policy hook contract' -MaxCalls 1 -WithSkill
     $viewSource = Get-AgentEvalSkillSource $viewProbe.context.skillPath
+    $directViewBypass = Invoke-TestLedgerRequest `
+        -PipeName $viewProbe.executionPolicy.ledgerPipeName `
+        -Request ([ordered]@{
+            category = 'view'
+            arguments = [ordered]@{ path = $viewProbe.context.fixturePath }
+        })
+    Assert-True ($directViewBypass.allowed -eq $false) `
+        'A direct client consumed a view allowance for a non-skill path.'
     $firstView = Invoke-TestPolicyHook `
         -Hook $viewProbe.preToolHook `
         -SessionId $viewProbe.context.runId `
@@ -1215,10 +1296,10 @@ try {
             'answer-only', 'answer-before-analysis', 'completion-before-start', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
             'decoy-command', 'missing-call-id', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
             'denied-unknown-tool', 'powershell-tool-case',
-            'scalar-model-data', 'missing-model-value', 'non-string-model-value',
+            'scalar-model-data', 'missing-model-value', 'non-string-model-value', 'model-after-analysis',
             'string-success', 'mismatched-operation', 'unknown-cli-schema', 'fractional-cli-schema', 'scalar-cli-result',
             'event-data-member-case', 'tool-call-id-member-case', 'completion-result-member-case',
-            'completion-success-member-case', 'answer-content-member-case',
+            'completion-success-member-case', 'answer-content-member-case', 'non-string-answer-content',
             'result-exit-code-member-case', 'model-member-case', 'malformed-shell-wrapper',
             'nonzero-shell-wrapper', 'mismatched-shell-content', 'command-member-case',
             'description-member-case', 'mode-member-case', 'missing-command-argument',
@@ -1348,7 +1429,8 @@ try {
             'skill-ledger-mismatch', 'skill-tool-case', 'skill-argument-name-case',
             'skill-argument-value-case', 'scalar-skill-inventory', 'skill-discovery-name-case',
             'skill-discovery-source-case', 'skill-context-role-case', 'skill-view-altered',
-            'answer-before-skill-context', 'skill-context-before-completion')) {
+            'answer-before-skill-context', 'skill-context-before-completion',
+            'skill-discovery-after-invocation')) {
         $negative = Invoke-FakeRun -Name "skill $mode" -Mode $mode -Arm cli-skill
         Assert-True ($negative.iterations[0].success -eq $false) "Fake skill mode '$mode' unexpectedly passed."
         if ($mode -eq 'missing-skill-read') {

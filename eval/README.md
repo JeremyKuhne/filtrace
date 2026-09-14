@@ -97,6 +97,8 @@ contract and the no-LLM gate.
   production agent. It deliberately passes `--no-custom-instructions`, isolating
   the MCP contract from `AGENTS.md` and the filtrace skill. By default it uses
   Copilot's own model and records the actual identity; pass `-Model` to pin one.
+  An explicit `McpDll` run does not resolve or require the separate Filtrace CLI
+  output.
 - **`copilot` -> cli arm** is an experimental Windows-only EP1 evidence arm. It
   invokes a byte-verified owned copy of the current checkout's native apphost
   bundle, not a global `filtrace`. Before execution, an isolated per-run hook
@@ -170,11 +172,16 @@ the same request and returned source bytes before accepting the read as evidence
 
 Before returning `permissionDecision: allow`, the hook consumes an allowance from
 a monotonic in-memory ledger owned by the evaluator process. The host can neither
-rewrite nor reset that state; direct clients can only consume capacity. Analysis
-hashes are capped at `min(MaxSteps, task.maxCalls)`, help hashes use a separate cap
-for the top level plus each task-derived command family, and bounded view requests
-share the same authoritative snapshot. A help lookup therefore cannot consume a
-one-call analysis budget. The retained
+rewrite nor reset that state. The parent ledger independently parses each exact
+command or view request against its immutable task policy and computes the retained
+hash and requested-byte count itself; a direct client cannot authorize a
+caller-supplied hash, relabel an analysis as help, or spend view capacity on another
+path. Analysis hashes are capped at `min(MaxSteps, task.maxCalls)`, help hashes use
+a separate cap for the top level plus each task-derived command family, and bounded
+view requests share the same authoritative snapshot. A help lookup therefore cannot
+consume a one-call analysis budget. Each pipe request is capped at 64 KiB and a
+two-second read, so a stalled client cannot hold the ledger through the hook's
+decision window. The retained
 Copilot CLI 1.0.82 nonce probe established that `preToolUse` runs first and that an
 explicit allow bypasses both `permissionRequest` and the normal shell deny. Missing,
 malformed, crashed, or timed-out hooks receive no explicit allow and therefore
@@ -192,6 +199,8 @@ CRLF to LF before injection, and its wrapper consumes the blank separator before
 the Markdown body; the complete normalized wrapper and body must match. Results
 keep the raw file SHA-256, decoded source hash, expected context hash, observed
 context hash, discovery metadata, and correlated skill call ID as separate evidence.
+The matching enabled project-skill inventory must occur before the native skill
+invocation; appending discovery metadata after use does not attest discovery.
 
 Before launch, the runner accepts only a tracked, HEAD-clean file beneath
 `tests/Filtrace.Core.Tests/Fixtures`, rejects UNC/reparse paths, and caps it at
@@ -230,7 +239,12 @@ identities must be nonempty and exactly equal using ordinal comparison. Missing,
 different-case, case-distinct multiple identities, or mismatched identity fails.
 Identity comes from the host's
 `session.tools_updated` current model; a provider's lower-level chunk model label is
-not substituted for it. The deterministic fake validates generated hook placement,
+not substituted for it. At least one valid identity event must precede the first
+model or tool call; a matching identity reported only after analysis does not attest
+the work. Exact identities remain in local result evidence so comparison can verify
+matched arms. The default `eval/results/` location is ignored and never committed;
+public PRs and documentation use role labels rather than those private identifiers.
+The deterministic fake validates generated hook placement,
 literal-command decisions, recorded input shape/order, malformed/unknown inputs,
 bounded description metadata, unsafe option rejection, exact concurrent cap
 consumption, no-hook fallback, strict shell-result extraction, launch arguments,

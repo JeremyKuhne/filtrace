@@ -43,8 +43,89 @@ param(
     [string[]] $DeniedTools,
     [Alias('max-ai-credits')]
     [int] $MaxAiCredits,
+    [Alias('allow-all')]
+    [switch] $AllowAll,
+    [Alias('additional-mcp-config')]
+    [string] $AdditionalMcpConfig,
     [string] $Model
 )
+
+$mode = if ($env:FILTRACE_AGENT_EVAL_FAKE_MODE) { $env:FILTRACE_AGENT_EVAL_FAKE_MODE } else { 'success' }
+if ($mode -eq 'mcp-success') {
+    if ($Prompt -notmatch 'trace at (.+?) and answer') {
+        throw 'Fake Copilot MCP host could not recover the fixture path from the prompt.'
+    }
+    if (-not $AllowAll -or -not $NoCustomInstructions -or -not $DisableBuiltinMcps -or
+        -not $NoRemoteExport -or -not $NoRemote -or -not $NoAutoUpdate -or
+        -not $NoBashEnvironment -or -not $NoAskUser -or $DisallowTempDirectory -or
+        $OutputFormat -ne 'json' -or $Model -ne 'expected-model' -or
+        [string]::IsNullOrWhiteSpace($SessionId) -or
+        [string]::IsNullOrWhiteSpace($UsageOutputFile) -or
+        [string]::IsNullOrWhiteSpace($LogDirectory) -or
+        -not $AdditionalMcpConfig.StartsWith('@', [StringComparison]::Ordinal) -or
+        -not (Test-Path -LiteralPath $AdditionalMcpConfig.Substring(1) -PathType Leaf)) {
+        throw 'Fake Copilot MCP host did not receive the required MCP-only contract.'
+    }
+    [object[]] $mcpEvents = @(
+        [ordered]@{
+            type = 'session.tools_updated'
+            data = [ordered]@{ model = 'expected-model' }
+        }
+        [ordered]@{
+            type = 'model.model_call_started'
+            data = [ordered]@{ model = 'provider-model'; provider = 'copilot' }
+        }
+        [ordered]@{
+            type = 'tool.execution_start'
+            data = [ordered]@{
+                toolCallId = 'mcp-call-1'
+                mcpServerName = 'filtrace'
+                mcpToolName = 'trace_gc'
+                arguments = [ordered]@{ trace_path = $Matches[1] }
+            }
+        }
+        [ordered]@{
+            type = 'tool.execution_complete'
+            data = [ordered]@{
+                toolCallId = 'mcp-call-1'
+                success = $true
+                result = [ordered]@{ content = '{"gcCount":7}' }
+            }
+        }
+        [ordered]@{
+            type = 'assistant.message'
+            data = [ordered]@{ content = 'There were 7 garbage collections.' }
+        }
+        [ordered]@{
+            type = 'result'
+            exitCode = 0
+            usage = [ordered]@{
+                premiumRequests = 1
+                totalApiDurationMs = 20
+                sessionDurationMs = 25
+            }
+        })
+    foreach ($mcpEvent in $mcpEvents) {
+        [string]($mcpEvent | ConvertTo-Json -Depth 8 -Compress)
+    }
+    $usageValue = [ordered]@{
+        totalPremiumRequestCost = 1
+        totalUserRequests = 1
+        tokenDetails = [ordered]@{
+            input = [ordered]@{ tokenCount = 20 }
+            cache_read = [ordered]@{ tokenCount = 5 }
+            cache_write = [ordered]@{ tokenCount = 15 }
+            output = [ordered]@{ tokenCount = 10 }
+        }
+        currentModel = 'expected-model'
+    }
+    [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($UsageOutputFile)) | Out-Null
+    [System.IO.File]::WriteAllText(
+        $UsageOutputFile,
+        [string]($usageValue | ConvertTo-Json -Depth 6),
+        [System.Text.UTF8Encoding]::new($false))
+    exit 0
+}
 
 if ($Prompt -notmatch 'trace at (.+?) and answer') {
     throw 'Fake Copilot host could not recover the fixture path from the prompt.'
@@ -104,7 +185,6 @@ function Invoke-FakePolicyHook($Hook, [string] $ToolName, $ToolArguments) {
     }
     return $hookOutput[0] | ConvertFrom-Json
 }
-$mode = if ($env:FILTRACE_AGENT_EVAL_FAKE_MODE) { $env:FILTRACE_AGENT_EVAL_FAKE_MODE } else { 'success' }
 $requiredSwitches = @(
     $DisableBuiltinMcps, $NoRemoteExport, $NoRemote,
     $NoAutoUpdate, $NoBashEnvironment, $NoAskUser, $DisallowTempDirectory)
@@ -280,10 +360,6 @@ $events.Add([ordered]@{
         type = 'model.messages_snapshot'
         data = [ordered]@{ messages = @() }
     })
-$events.Add([ordered]@{
-        type = 'model.model_call_started'
-    data = [ordered]@{ model = 'provider-model'; provider = 'copilot' }
-    })
 if ($mode -ne 'missing-model') {
     $events.Add([ordered]@{
             type = 'session.tools_updated'
@@ -308,6 +384,10 @@ if ($mode -ne 'missing-model') {
             })
     }
 }
+$events.Add([ordered]@{
+        type = 'model.model_call_started'
+        data = [ordered]@{ model = 'provider-model'; provider = 'copilot' }
+    })
 
 if ($mode -in @('answer-before-analysis', 'answer-before-skill-context')) {
     $events.Add([ordered]@{
@@ -644,7 +724,7 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
 if ($mode -notin @('answer-before-analysis', 'answer-before-skill-context')) {
     $events.Add([ordered]@{
             type = 'assistant.message'
-            data = [ordered]@{ content = $answer }
+            data = [ordered]@{ content = if ($mode -eq 'non-string-answer-content') { 7 } else { $answer } }
         })
 }
 if ($mode -eq 'unknown-event') {
@@ -665,6 +745,34 @@ if ($mode -ne 'missing-all-usage') {
     }
 }
 $events.Add($resultEvent)
+
+if ($mode -in @('model-after-analysis', 'skill-discovery-after-invocation')) {
+    [string] $eventType = if ($mode -eq 'model-after-analysis') {
+        'session.tools_updated'
+    }
+    else {
+        'session.skills_loaded'
+    }
+    [System.Collections.Generic.List[object]] $movedEvents = [System.Collections.Generic.List[object]]::new()
+    for ($eventIndex = $events.Count - 1; $eventIndex -ge 0; $eventIndex--) {
+        if ([string]::Equals([string]$events[$eventIndex].type, $eventType, [StringComparison]::Ordinal)) {
+            $movedEvents.Insert(0, $events[$eventIndex])
+            $events.RemoveAt($eventIndex)
+        }
+    }
+    [int] $resultIndex = -1
+    for ($eventIndex = 0; $eventIndex -lt $events.Count; $eventIndex++) {
+        if ([string]::Equals([string]$events[$eventIndex].type, 'result', [StringComparison]::Ordinal)) {
+            $resultIndex = $eventIndex
+            break
+        }
+    }
+    if ($movedEvents.Count -eq 0 -or $resultIndex -lt 0) { throw "Fake host could not reorder '$eventType'." }
+    foreach ($movedEvent in $movedEvents) {
+        $events.Insert($resultIndex, $movedEvent)
+        $resultIndex++
+    }
+}
 
     if ($mode -notin @('missing-usage-output', 'missing-all-usage')) {
         [string] $usageJson = if ($mode -eq 'malformed-usage-output') {

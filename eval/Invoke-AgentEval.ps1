@@ -177,12 +177,17 @@ if (-not $OutDir) { $OutDir = Join-Path $PSScriptRoot 'results' }
 . (Join-Path $root 'tools/Get-TokenEstimate.ps1')
 . (Join-Path $PSScriptRoot 'CopilotEval.Helpers.ps1')
 
-[string] $cliSourceDirectory = Get-AgentEvalCliOutputDirectory `
-    -Root $root `
-    -Configuration $Configuration
-$cliDll = Join-Path $cliSourceDirectory 'filtrace.dll'
-if (-not (Test-Path $cliDll)) {
-    throw "CLI binary not found at '$cliDll'. Build first: dotnet build filtrace.slnx -c $Configuration."
+if (-not $Arm) { $Arm = if ($AgentHost -eq 'ollama') { 'cli' } else { 'mcp' } }
+[string] $arm = $Arm
+[string] $cliDll = $null
+if ($AgentHost -eq 'ollama') {
+    [string] $cliSourceDirectory = Get-AgentEvalCliOutputDirectory `
+        -Root $root `
+        -Configuration $Configuration
+    $cliDll = Join-Path $cliSourceDirectory 'filtrace.dll'
+    if (-not (Test-Path $cliDll)) {
+        throw "CLI binary not found at '$cliDll'. Build first: dotnet build filtrace.slnx -c $Configuration."
+    }
 }
 
 # Surface-neutral operation names, so a task can require the right *intent* even
@@ -1023,6 +1028,9 @@ function Invoke-CopilotIteration {
     $answerEvent = $null
     [int] $answerEventIndex = -1
     [int] $skillContextEventIndex = -1
+    [int] $firstModelOrToolCallEventIndex = [int]::MaxValue
+    [System.Collections.Generic.List[object]] $modelEvents = [System.Collections.Generic.List[object]]::new()
+    [System.Collections.Generic.List[int]] $modelEventIndexes = [System.Collections.Generic.List[int]]::new()
     [System.Collections.Generic.Dictionary[string, int]] $startEventIndexes =
         [System.Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
     [System.Collections.Generic.Dictionary[string, int]] $completionEventIndexes =
@@ -1031,8 +1039,20 @@ function Invoke-CopilotIteration {
         $event = $events[$eventIndex]
         [string[]] $eventMembers = @($event.PSObject.Properties.Name)
         if ($eventMembers -ccontains 'type' -and
+            ([string]::Equals([string]$event.type, 'model.model_call_started', [StringComparison]::Ordinal) -or
+                [string]::Equals([string]$event.type, 'tool.execution_start', [StringComparison]::Ordinal))) {
+            $firstModelOrToolCallEventIndex = [Math]::Min($firstModelOrToolCallEventIndex, $eventIndex)
+        }
+        if ($eventMembers -ccontains 'type' -and
+            [string]::Equals([string]$event.type, 'session.tools_updated', [StringComparison]::Ordinal)) {
+            $modelEvents.Add($event)
+            $modelEventIndexes.Add($eventIndex)
+        }
+        if ($eventMembers -ccontains 'type' -and
             [string]::Equals([string]$event.type, 'assistant.message', [StringComparison]::Ordinal) -and
-            $eventMembers -ccontains 'data' -and $event.data -is [pscustomobject]) {
+            $eventMembers -ccontains 'data' -and $event.data -is [pscustomobject] -and
+            $event.data.PSObject.Properties.Name -ccontains 'content' -and
+            $event.data.content -is [string]) {
             $answerEvent = $event
             $answerEventIndex = $eventIndex
         }
@@ -1388,6 +1408,8 @@ function Invoke-CopilotIteration {
                     [string]$completedSkillEvidence.toolCallId, [ref]$skillStartEventIndex) -or
                 -not $completionEventIndexes.TryGetValue(
                     [string]$completedSkillEvidence.toolCallId, [ref]$skillCompletionEventIndex) -or
+                [int]$completedSkillEvidence.discoveryEventIndex -lt 0 -or
+                [int]$completedSkillEvidence.discoveryEventIndex -ge $skillStartEventIndex -or
                 $skillStartEventIndex -ge $skillCompletionEventIndex -or
                 $skillCompletionEventIndex -ge $skillContextEventIndex) {
                 $evidenceValid = $false
@@ -1444,13 +1466,11 @@ function Invoke-CopilotIteration {
     else {
         $null
     }
-    $modelEvents = @($events | Where-Object {
-        $_.PSObject.Properties.Name -ccontains 'type' -and
-        [string]::Equals([string]$_.type, 'session.tools_updated', [StringComparison]::Ordinal)
-    })
     [System.Collections.Generic.List[string]] $modelValues =
         [System.Collections.Generic.List[string]]::new()
-    foreach ($modelEvent in $modelEvents) {
+    [bool] $modelObservedBeforeFirstCall = $false
+    for ($modelEventIndex = 0; $modelEventIndex -lt $modelEvents.Count; $modelEventIndex++) {
+        $modelEvent = $modelEvents[$modelEventIndex]
         [string[]] $modelEventMembers = @($modelEvent.PSObject.Properties.Name)
         if ($modelEventMembers -cnotcontains 'data' -or $modelEvent.data -isnot [pscustomobject]) {
             $evidenceValid = $false
@@ -1464,7 +1484,11 @@ function Invoke-CopilotIteration {
             continue
         }
         $modelValues.Add([string]$modelEvent.data.model)
+        if ($modelEventIndexes[$modelEventIndex] -lt $firstModelOrToolCallEventIndex) {
+            $modelObservedBeforeFirstCall = $true
+        }
     }
+    if (-not $modelObservedBeforeFirstCall) { $evidenceValid = $false }
     $iterationObservedModels = @($modelValues | Sort-Object -CaseSensitive -Unique)
     $m = if ($iterationObservedModels.Count -eq 1) { $iterationObservedModels[0] } else { $null }
     if ($m) { $script:CopilotActualModel = $m }
@@ -1594,8 +1618,6 @@ if ($selected.Count -eq 0) { throw "No matching tasks (filter: $($Tasks -join ',
 
 # Per-host preflight (once). Copilot is agentic (it drives the trace_* tools itself
 # over the MCP arm); ollama is the mediated cli ReAct loop.
-if (-not $Arm) { $Arm = if ($AgentHost -eq 'ollama') { 'cli' } else { 'mcp' } }
-$arm = $Arm
 if ($AgentHost -eq 'ollama' -and $arm -ne 'cli') {
     throw "Host 'ollama' supports only -Arm cli."
 }

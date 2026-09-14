@@ -493,16 +493,16 @@ function Assert-LiteralCommand($Arguments, $Policy) {
 function Invoke-PolicyLedgerConsume(
     $Policy,
     [string] $Category,
-    [string] $Hash,
-    $Arguments,
-    [long] $RequestedBytes) {
+    [string] $Command,
+    $Arguments) {
     $request = [ordered]@{
         category = $Category
-        hash = $Hash
     }
     if ([string]::Equals($Category, 'view', [StringComparison]::Ordinal)) {
         $request.arguments = $Arguments
-        $request.requestedBytes = $RequestedBytes
+    }
+    else {
+        $request.command = $Command
     }
     [System.IO.Pipes.NamedPipeClientStream] $pipe =
         [System.IO.Pipes.NamedPipeClientStream]::new(
@@ -589,21 +589,16 @@ try {
         Invoke-PolicyLedgerConsume `
             -Policy $policy `
             -Category view `
-            -Hash $viewRequest.requestHash `
-            -Arguments $viewRequest.arguments `
-            -RequestedBytes $viewRequest.requestedBytes
+            -Command $null `
+            -Arguments $viewRequest.arguments
     }
     elseif ([string]::Equals($toolName, 'powershell', [StringComparison]::Ordinal)) {
         $literalCommand = Assert-LiteralCommand -Arguments $toolArguments -Policy $policy
-        [byte[]] $commandBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$literalCommand.command)
-        [string] $commandHash =
-            [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($commandBytes)).ToLowerInvariant()
         Invoke-PolicyLedgerConsume `
             -Policy $policy `
             -Category $(if ($literalCommand.isHelp) { 'help' } else { 'command' }) `
-            -Hash $commandHash `
-            -Arguments $null `
-            -RequestedBytes 0
+            -Command $literalCommand.command `
+            -Arguments $null
     }
     else {
         throw "Tool '$toolName' was outside policy."

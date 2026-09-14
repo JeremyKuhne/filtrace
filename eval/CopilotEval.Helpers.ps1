@@ -135,8 +135,11 @@ function Initialize-AgentEvalPolicyLedgerType {
     Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
+using System.Management.Automation.Language;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -145,6 +148,27 @@ namespace Filtrace.AgentEval
 {
     public sealed class PolicyLedgerServer : IDisposable
     {
+        private sealed class CommandFamily
+        {
+            public string Verb { get; init; }
+            public int MaxPositionals { get; init; }
+            public Dictionary<string, OptionRule> Options { get; init; }
+        }
+
+        private sealed class OptionRule
+        {
+            public string Kind { get; init; }
+            public HashSet<string> Values { get; init; }
+            public decimal Minimum { get; init; }
+            public decimal Maximum { get; init; }
+        }
+
+        private sealed class ViewFile
+        {
+            public int LineCount { get; init; }
+            public string Sha256 { get; init; }
+        }
+
         private sealed class ViewRequest
         {
             public string Hash { get; init; }
@@ -157,6 +181,10 @@ namespace Filtrace.AgentEval
         private readonly int _maxHelpCalls;
         private readonly int _maxViewCalls;
         private readonly long _maxViewBytes;
+        private readonly string _cliPath;
+        private readonly string _fixturePath;
+        private readonly Dictionary<string, CommandFamily> _commandFamilies;
+        private readonly Dictionary<string, ViewFile> _viewFiles;
         private readonly List<string> _commandHashes = new List<string>();
         private readonly List<string> _helpCommandHashes = new List<string>();
         private readonly List<ViewRequest> _viewRequests = new List<ViewRequest>();
@@ -169,12 +197,20 @@ namespace Filtrace.AgentEval
 
         public PolicyLedgerServer(
             string pipeName,
+            string policyJson,
             int maxCalls,
             int maxHelpCalls,
             int maxViewCalls,
             long maxViewBytes)
         {
             PipeName = pipeName ?? throw new ArgumentNullException(nameof(pipeName));
+            using JsonDocument policyDocument = JsonDocument.Parse(
+                policyJson ?? throw new ArgumentNullException(nameof(policyJson)));
+            JsonElement policy = policyDocument.RootElement;
+            _cliPath = policy.GetProperty("cliPath").GetString();
+            _fixturePath = policy.GetProperty("fixturePath").GetString();
+            _commandFamilies = ParseCommandFamilies(policy.GetProperty("commandFamilies"));
+            _viewFiles = ParseViewFiles(policy.GetProperty("viewFiles"));
             _maxCalls = maxCalls;
             _maxHelpCalls = maxHelpCalls;
             _maxViewCalls = maxViewCalls;
@@ -231,7 +267,8 @@ namespace Filtrace.AgentEval
                         PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                     lock (_gate) { _activePipe = pipe; }
                     pipe.WaitForConnectionAsync(_cancellation.Token).GetAwaiter().GetResult();
-                    Handle(pipe);
+                    try { Handle(pipe); }
+                    catch (IOException) when (!_cancellation.IsCancellationRequested) { }
                 }
                 catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
                 {
@@ -262,7 +299,11 @@ namespace Filtrace.AgentEval
         private void Handle(NamedPipeServerStream pipe)
         {
             string line;
-            try { line = ReadBoundedUtf8Line(pipe, 65536); }
+            using CancellationTokenSource requestCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(_cancellation.Token);
+            requestCancellation.CancelAfter(TimeSpan.FromSeconds(2));
+            try { line = ReadBoundedUtf8Line(pipe, 65536, requestCancellation.Token); }
+            catch (OperationCanceledException) { line = null; }
             catch (DecoderFallbackException) { line = null; }
             using StreamWriter writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, true) { AutoFlush = true };
             bool allowed = false;
@@ -272,17 +313,24 @@ namespace Filtrace.AgentEval
                 catch (JsonException) { allowed = false; }
                 catch (InvalidOperationException) { allowed = false; }
                 catch (OverflowException) { allowed = false; }
+                catch (ArgumentException) { allowed = false; }
+                catch (IOException) { allowed = false; }
+                catch (UnauthorizedAccessException) { allowed = false; }
             }
             writer.WriteLine(allowed ? "{\"allowed\":true}" : "{\"allowed\":false}");
         }
 
-        private static string ReadBoundedUtf8Line(Stream stream, int maxBytes)
+        private static string ReadBoundedUtf8Line(
+            Stream stream,
+            int maxBytes,
+            CancellationToken cancellationToken)
         {
             using MemoryStream line = new MemoryStream();
             byte[] buffer = new byte[4096];
             while (true)
             {
-                int bytesRead = stream.Read(buffer, 0, buffer.Length);
+                int bytesRead = stream.ReadAsync(
+                    buffer.AsMemory(0, buffer.Length), cancellationToken).AsTask().GetAwaiter().GetResult();
                 if (bytesRead == 0) { break; }
                 int terminator = bytesRead;
                 for (int index = 0; index < bytesRead; index++)
@@ -306,9 +354,8 @@ namespace Filtrace.AgentEval
             JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) { return false; }
             string category = null;
-            string hash = null;
+            string command = null;
             JsonElement arguments = default;
-            long requestedBytes = 0;
             int memberCount = 0;
             foreach (JsonProperty property in root.EnumerateObject())
             {
@@ -318,61 +365,308 @@ namespace Filtrace.AgentEval
                     case "category" when property.Value.ValueKind == JsonValueKind.String:
                         category = property.Value.GetString();
                         break;
-                    case "hash" when property.Value.ValueKind == JsonValueKind.String:
-                        hash = property.Value.GetString();
+                    case "command" when property.Value.ValueKind == JsonValueKind.String:
+                        command = property.Value.GetString();
                         break;
                     case "arguments" when property.Value.ValueKind == JsonValueKind.Object:
                         arguments = property.Value.Clone();
-                        break;
-                    case "requestedBytes" when property.Value.TryGetInt64(out long value):
-                        requestedBytes = value;
                         break;
                     default:
                         return false;
                 }
             }
-            if (!IsLowerHexHash(hash)) { return false; }
+            string hash = null;
+            ViewRequest viewRequest = null;
+            if ((string.Equals(category, "command", StringComparison.Ordinal) ||
+                string.Equals(category, "help", StringComparison.Ordinal)) && memberCount == 2)
+            {
+                hash = ValidateCommand(command, string.Equals(category, "help", StringComparison.Ordinal));
+                if (hash == null) { return false; }
+            }
+            else if (string.Equals(category, "view", StringComparison.Ordinal) && memberCount == 2)
+            {
+                viewRequest = ValidateView(arguments);
+                if (viewRequest == null) { return false; }
+            }
+            else
+            {
+                return false;
+            }
             lock (_gate)
             {
                 ThrowIfUnavailable();
-                if (string.Equals(category, "command", StringComparison.Ordinal) && memberCount == 2)
+                if (string.Equals(category, "command", StringComparison.Ordinal))
                 {
                     if (_commandHashes.Count >= _maxCalls) { return false; }
                     _commandHashes.Add(hash);
                     return true;
                 }
-                if (string.Equals(category, "help", StringComparison.Ordinal) && memberCount == 2)
+                if (string.Equals(category, "help", StringComparison.Ordinal))
                 {
                     if (_helpCommandHashes.Count >= _maxHelpCalls) { return false; }
                     _helpCommandHashes.Add(hash);
                     return true;
                 }
-                if (string.Equals(category, "view", StringComparison.Ordinal) && memberCount == 4 &&
-                    arguments.ValueKind == JsonValueKind.Object && requestedBytes >= 0 &&
-                    requestedBytes <= _maxViewBytes - _viewBytes && _viewRequests.Count < _maxViewCalls)
+                if (viewRequest != null && viewRequest.RequestedBytes <= _maxViewBytes - _viewBytes &&
+                    _viewRequests.Count < _maxViewCalls)
                 {
-                    _viewRequests.Add(new ViewRequest
-                    {
-                        Hash = hash,
-                        Arguments = arguments,
-                        RequestedBytes = requestedBytes
-                    });
-                    _viewBytes += requestedBytes;
+                    _viewRequests.Add(viewRequest);
+                    _viewBytes += viewRequest.RequestedBytes;
                     return true;
                 }
                 return false;
             }
         }
 
-        private static bool IsLowerHexHash(string value)
+        private string ValidateCommand(string commandText, bool expectedHelp)
         {
-            if (value == null || value.Length != 64) { return false; }
+            if (string.IsNullOrWhiteSpace(commandText) || commandText.Length > 8192) { return null; }
+            ScriptBlockAst ast = Parser.ParseInput(commandText, out Token[] tokens, out ParseError[] errors);
+            if (errors.Length != 0 || ast.EndBlock == null || !ast.EndBlock.Unnamed ||
+                ast.EndBlock.Statements.Count != 1 || ast.EndBlock.Traps != null ||
+                ast.BeginBlock != null || ast.ProcessBlock != null || ast.CleanBlock != null ||
+                ast.DynamicParamBlock != null || ast.ParamBlock != null ||
+                ast.ScriptRequirements != null || ast.UsingStatements.Count != 0 ||
+                ast.Attributes.Count != 0) { return null; }
+            if (!(ast.EndBlock.Statements[0] is PipelineAst pipeline) ||
+                pipeline.PipelineElements.Count != 1 ||
+                !(pipeline.PipelineElements[0] is CommandAst command) ||
+                command.InvocationOperator != TokenKind.Ampersand || command.Redirections.Count != 0)
+            {
+                return null;
+            }
+            List<string> values = new List<string>();
+            foreach (CommandElementAst element in command.CommandElements)
+            {
+                if (!(element is StringConstantExpressionAst literal) ||
+                    literal.StringConstantType != StringConstantType.SingleQuoted)
+                {
+                    return null;
+                }
+                values.Add(literal.Value);
+            }
+            if (values.Count < 2 || values.Count > 32 ||
+                !string.Equals(values[0], _cliPath, StringComparison.Ordinal)) { return null; }
+
+            bool isHelp = false;
+            if (values.Count == 2 && string.Equals(values[1], "--help", StringComparison.Ordinal))
+            {
+                isHelp = true;
+            }
+            else if (values.Count == 3 && string.Equals(values[2], "--help", StringComparison.Ordinal) &&
+                _commandFamilies.ContainsKey(values[1]))
+            {
+                isHelp = true;
+            }
+            if (isHelp != expectedHelp) { return null; }
+            if (isHelp) { return HashText(commandText); }
+            if (values.Count < 5 || !string.Equals(values[2], _fixturePath, StringComparison.Ordinal) ||
+                !string.Equals(values[values.Count - 2], "--format", StringComparison.Ordinal) ||
+                !string.Equals(values[values.Count - 1], "json", StringComparison.Ordinal) ||
+                !_commandFamilies.TryGetValue(values[1], out CommandFamily family))
+            {
+                return null;
+            }
+            HashSet<string> seenOptions = new HashSet<string>(StringComparer.Ordinal);
+            int positionals = 0;
+            for (int index = 3; index < values.Count - 2; index++)
+            {
+                string value = values[index];
+                if (value.StartsWith("--", StringComparison.Ordinal))
+                {
+                    if (!family.Options.TryGetValue(value, out OptionRule option) || !seenOptions.Add(value))
+                    {
+                        return null;
+                    }
+                    if (string.Equals(option.Kind, "switch", StringComparison.Ordinal)) { continue; }
+                    index++;
+                    if (index >= values.Count - 2 || !ValidateOptionValue(values[index], option)) { return null; }
+                }
+                else
+                {
+                    positionals++;
+                    if (positionals > family.MaxPositionals || !IsTextValue(value)) { return null; }
+                }
+            }
+            return HashText(commandText);
+        }
+
+        private static bool ValidateOptionValue(string value, OptionRule option)
+        {
+            switch (option.Kind)
+            {
+                case "enum":
+                    return option.Values.Contains(value);
+                case "integer":
+                    return long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out long integer) &&
+                        integer >= option.Minimum && integer <= option.Maximum;
+                case "decimal":
+                    return decimal.TryParse(value, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out decimal number) &&
+                        number >= option.Minimum && number <= option.Maximum;
+                case "text":
+                    return IsTextValue(value);
+                default:
+                    return false;
+            }
+        }
+
+        private ViewRequest ValidateView(JsonElement arguments)
+        {
+            if (arguments.ValueKind != JsonValueKind.Object) { return null; }
+            string path = null;
+            bool explicitRange = false;
+            long startLine = 1;
+            long endLine = -1;
+            int memberCount = 0;
+            foreach (JsonProperty property in arguments.EnumerateObject())
+            {
+                memberCount++;
+                if (string.Equals(property.Name, "path", StringComparison.Ordinal) &&
+                    property.Value.ValueKind == JsonValueKind.String)
+                {
+                    path = property.Value.GetString();
+                }
+                else if (string.Equals(property.Name, "view_range", StringComparison.Ordinal) &&
+                    property.Value.ValueKind == JsonValueKind.Array)
+                {
+                    explicitRange = true;
+                    JsonElement.ArrayEnumerator range = property.Value.EnumerateArray();
+                    if (!range.MoveNext() || !range.Current.TryGetInt64(out startLine) ||
+                        !range.MoveNext() || !range.Current.TryGetInt64(out endLine) || range.MoveNext())
+                    {
+                        return null;
+                    }
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            if (memberCount < 1 || memberCount > 2 || path == null ||
+                !Path.IsPathFullyQualified(path)) { return null; }
+            string canonicalPath = Path.GetFullPath(path);
+            if (!_viewFiles.TryGetValue(canonicalPath, out ViewFile viewFile)) { return null; }
+            byte[] bytes = File.ReadAllBytes(canonicalPath);
+            if (!string.Equals(HashBytes(bytes), viewFile.Sha256, StringComparison.Ordinal)) { return null; }
+            int preambleLength = bytes.Length >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf ? 3 : 0;
+            string text = new UTF8Encoding(false, true).GetString(bytes, preambleLength, bytes.Length - preambleLength);
+            List<int> lineStarts = new List<int>();
+            if (text.Length > 0)
+            {
+                lineStarts.Add(0);
+                for (int index = 0; index < text.Length - 1; index++)
+                {
+                    if (text[index] == '\n') { lineStarts.Add(index + 1); }
+                }
+            }
+            if (lineStarts.Count != viewFile.LineCount || startLine < 1 || startLine > int.MaxValue ||
+                endLine < -1 || endLine > (long)viewFile.LineCount + 512 ||
+                viewFile.LineCount < 1 || startLine > viewFile.LineCount ||
+                (endLine != -1 && endLine < startLine))
+            {
+                return null;
+            }
+            int boundedStartLine = (int)startLine;
+            int boundedEndLine = endLine == -1 ? viewFile.LineCount : Math.Min((int)endLine, viewFile.LineCount);
+            int startOffset = lineStarts[boundedStartLine - 1];
+            int endOffset = boundedEndLine == viewFile.LineCount ? text.Length : lineStarts[boundedEndLine];
+            long requestedBytes = Encoding.UTF8.GetByteCount(text.Substring(startOffset, endOffset - startOffset));
+            return new ViewRequest
+            {
+                Hash = GetViewHash(path, explicitRange, boundedStartLine, (int)endLine),
+                Arguments = arguments.Clone(),
+                RequestedBytes = requestedBytes
+            };
+        }
+
+        private static bool IsTextValue(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Length > 256 ||
+                value.StartsWith("--", StringComparison.Ordinal)) { return false; }
             foreach (char character in value)
             {
-                if (!((character >= '0' && character <= '9') ||
-                    (character >= 'a' && character <= 'f'))) { return false; }
+                if (char.IsControl(character)) { return false; }
             }
             return true;
+        }
+
+        public static string GetViewHash(
+            string path,
+            bool explicitRange,
+            int startLine,
+            int endLine)
+        {
+            return HashText(string.Concat(
+                path.Length.ToString(CultureInfo.InvariantCulture), ":", path,
+                explicitRange ? ":range:" : ":all:",
+                startLine.ToString(CultureInfo.InvariantCulture), ":",
+                endLine.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        private static string HashText(string value)
+        {
+            return HashBytes(Encoding.UTF8.GetBytes(value));
+        }
+
+        private static string HashBytes(byte[] value)
+        {
+            return Convert.ToHexString(SHA256.HashData(value)).ToLowerInvariant();
+        }
+
+        private static Dictionary<string, CommandFamily> ParseCommandFamilies(JsonElement families)
+        {
+            Dictionary<string, CommandFamily> parsed = new Dictionary<string, CommandFamily>(StringComparer.Ordinal);
+            foreach (JsonElement familyElement in families.EnumerateArray())
+            {
+                string verb = familyElement.GetProperty("verb").GetString();
+                Dictionary<string, OptionRule> options = new Dictionary<string, OptionRule>(StringComparer.Ordinal);
+                foreach (JsonElement optionElement in familyElement.GetProperty("options").EnumerateArray())
+                {
+                    string name = optionElement.GetProperty("name").GetString();
+                    string kind = optionElement.GetProperty("kind").GetString();
+                    HashSet<string> values = new HashSet<string>(StringComparer.Ordinal);
+                    if (string.Equals(kind, "enum", StringComparison.Ordinal))
+                    {
+                        foreach (JsonElement value in optionElement.GetProperty("values").EnumerateArray())
+                        {
+                            values.Add(value.GetString());
+                        }
+                    }
+                    decimal minimum = optionElement.TryGetProperty("minimum", out JsonElement minimumElement)
+                        ? minimumElement.GetDecimal() : 0;
+                    decimal maximum = optionElement.TryGetProperty("maximum", out JsonElement maximumElement)
+                        ? maximumElement.GetDecimal() : 0;
+                    if (!options.TryAdd(name, new OptionRule
+                    {
+                        Kind = kind,
+                        Values = values,
+                        Minimum = minimum,
+                        Maximum = maximum
+                    })) { throw new InvalidDataException("Duplicate command option policy."); }
+                }
+                if (!parsed.TryAdd(verb, new CommandFamily
+                {
+                    Verb = verb,
+                    MaxPositionals = familyElement.GetProperty("maxPositionals").GetInt32(),
+                    Options = options
+                })) { throw new InvalidDataException("Duplicate command family policy."); }
+            }
+            return parsed;
+        }
+
+        private static Dictionary<string, ViewFile> ParseViewFiles(JsonElement viewFiles)
+        {
+            Dictionary<string, ViewFile> parsed = new Dictionary<string, ViewFile>(StringComparer.Ordinal);
+            foreach (JsonElement viewFile in viewFiles.EnumerateArray())
+            {
+                string path = Path.GetFullPath(viewFile.GetProperty("path").GetString());
+                if (!parsed.TryAdd(path, new ViewFile
+                {
+                    LineCount = viewFile.GetProperty("lineCount").GetInt32(),
+                    Sha256 = viewFile.GetProperty("sha256").GetString()
+                })) { throw new InvalidDataException("Duplicate view file policy."); }
+            }
+            return parsed;
         }
 
         private void ThrowIfUnavailable()
@@ -499,10 +793,14 @@ function Get-AgentEvalSkillViewRequest($Arguments, $Source) {
     }
     $canonicalArguments = [ordered]@{ path = [string]$Arguments.path }
     if ($explicitRange) { $canonicalArguments.view_range = @($startLine, $endLine) }
-    [string] $canonicalJson = $canonicalArguments | ConvertTo-Json -Depth 3 -Compress
     [string] $requestedText = $Source.text.Substring($startOffset, $endOffset - $startOffset)
+    Initialize-AgentEvalPolicyLedgerType
     return [pscustomobject]@{
-        hash = Get-AgentEvalTextHash $canonicalJson
+        hash = [Filtrace.AgentEval.PolicyLedgerServer]::GetViewHash(
+            [string]$Arguments.path,
+            $explicitRange,
+            $startLine,
+            $endLine)
         path = [string]$Arguments.path
         explicitRange = $explicitRange
         startLine = $startLine
@@ -732,16 +1030,27 @@ function Complete-AgentEvalDiscoveredSkillEvidence {
     $source = Get-AgentEvalSkillSource $SourcePath
     $failure = $null
     $discovery = $null
+    [int] $discoveryEventIndex = -1
     $toolCallId = $null
     $observedText = $null
     $expectedBody = $null
     try {
-        $skillEvents = @($Events | Where-Object {
-            [string]::Equals([string]$_.type, 'session.skills_loaded', [StringComparison]::Ordinal) -and
-            $_.data.PSObject.Properties.Name -ccontains 'skills'
-            })
+        [System.Collections.Generic.List[object]] $skillEvents = [System.Collections.Generic.List[object]]::new()
+        [System.Collections.Generic.List[int]] $skillEventIndexes = [System.Collections.Generic.List[int]]::new()
+        for ($eventIndex = 0; $eventIndex -lt $Events.Count; $eventIndex++) {
+            if ([string]::Equals(
+                    [string]$Events[$eventIndex].type,
+                    'session.skills_loaded',
+                    [StringComparison]::Ordinal)) {
+                $skillEvents.Add($Events[$eventIndex])
+                $skillEventIndexes.Add($eventIndex)
+            }
+        }
         if ($skillEvents.Count -ne 1) { throw 'Host did not report exactly one skill inventory.' }
-        if ($skillEvents[0].data.skills -isnot [object[]]) {
+        $discoveryEventIndex = $skillEventIndexes[0]
+        if ($skillEvents[0].data -isnot [pscustomobject] -or
+            $skillEvents[0].data.PSObject.Properties.Name -cnotcontains 'skills' -or
+            $skillEvents[0].data.skills -isnot [object[]]) {
             throw 'Host skill inventory was not an array.'
         }
         $matches = @($skillEvents[0].data.skills | Where-Object {
@@ -835,6 +1144,7 @@ function Complete-AgentEvalDiscoveredSkillEvidence {
         sourceLineCount = $source.lineCount
         sourceTerminalNewline = $source.terminalNewline
         discovery = $discovery
+        discoveryEventIndex = $discoveryEventIndex
         toolCallId = $toolCallId
     }
 }
@@ -1411,9 +1721,10 @@ function Initialize-CopilotEvalExecutionPolicy {
         maxViewBytes = 64MB
         commandFamilies = $commandFamilies
     }
+    [string] $policyJson = $policy | ConvertTo-Json -Depth 8
     [System.IO.File]::WriteAllText(
         $policyPath,
-        ($policy | ConvertTo-Json -Depth 8),
+        $policyJson,
         [System.Text.UTF8Encoding]::new($false))
     Add-AgentEvalGeneratedImmutableFile -Context $Context -Path $policyPath
     [string] $policySha256 = Get-AgentEvalFileHash $policyPath
@@ -1449,6 +1760,7 @@ function Initialize-CopilotEvalExecutionPolicy {
     Initialize-AgentEvalPolicyLedgerType
     $ledger = [Filtrace.AgentEval.PolicyLedgerServer]::new(
         $ledgerPipeName,
+        $policyJson,
         $effectiveMaxCalls,
         $maxHelpCalls,
         4,
