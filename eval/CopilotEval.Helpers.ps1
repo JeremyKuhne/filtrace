@@ -357,8 +357,10 @@ namespace Filtrace.AgentEval
             string command = null;
             JsonElement arguments = default;
             int memberCount = 0;
+            HashSet<string> rootMembers = new HashSet<string>(StringComparer.Ordinal);
             foreach (JsonProperty property in root.EnumerateObject())
             {
+                if (!rootMembers.Add(property.Name)) { return false; }
                 memberCount++;
                 switch (property.Name)
                 {
@@ -518,8 +520,10 @@ namespace Filtrace.AgentEval
             long startLine = 1;
             long endLine = -1;
             int memberCount = 0;
+            HashSet<string> argumentMembers = new HashSet<string>(StringComparer.Ordinal);
             foreach (JsonProperty property in arguments.EnumerateObject())
             {
+                if (!argumentMembers.Add(property.Name)) { return null; }
                 memberCount++;
                 if (string.Equals(property.Name, "path", StringComparison.Ordinal) &&
                     property.Value.ValueKind == JsonValueKind.String)
@@ -2039,14 +2043,42 @@ function Get-AgentEvalHostUsageFile($Context) {
         $file.Length -gt 1MB) {
         throw 'Copilot usage output was not a bounded ordinary file.'
     }
-    try { $value = [System.IO.File]::ReadAllText($path) | ConvertFrom-Json }
+    try {
+        [string] $usageJson = [System.IO.File]::ReadAllText($path)
+        [System.Text.Json.JsonDocument] $usageDocument =
+            [System.Text.Json.JsonDocument]::Parse($usageJson)
+        try {
+            [System.Collections.Generic.Stack[System.Text.Json.JsonElement]] $pending =
+                [System.Collections.Generic.Stack[System.Text.Json.JsonElement]]::new()
+            $pending.Push($usageDocument.RootElement)
+            while ($pending.Count -gt 0) {
+                [System.Text.Json.JsonElement] $element = $pending.Pop()
+                if ($element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+                    [System.Collections.Generic.HashSet[string]] $names =
+                        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+                    foreach ($property in $element.EnumerateObject()) {
+                        if (-not $names.Add($property.Name)) { throw 'Duplicate usage member.' }
+                        $pending.Push($property.Value)
+                    }
+                }
+                elseif ($element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
+                    foreach ($item in $element.EnumerateArray()) { $pending.Push($item) }
+                }
+            }
+        }
+        finally { $usageDocument.Dispose() }
+        $value = $usageJson | ConvertFrom-Json
+    }
     catch { throw 'Copilot usage output was malformed.' }
     if ($null -eq $value -or $value -is [string] -or $value -is [ValueType]) {
         throw 'Copilot usage output was not an object.'
     }
     [string[]] $usageMembers = @($value.PSObject.Properties | ForEach-Object { $_.Name })
-    foreach ($member in @('totalPremiumRequestCost', 'totalUserRequests', 'tokenDetails', 'currentModel')) {
-        if ($usageMembers -cnotcontains $member) { throw 'Copilot usage output schema was malformed.' }
+    [string[]] $expectedUsageMembers = @(
+        'totalPremiumRequestCost', 'totalUserRequests', 'tokenDetails', 'currentModel')
+    if ($usageMembers.Count -ne $expectedUsageMembers.Count -or
+        @($usageMembers | Where-Object { $expectedUsageMembers -cnotcontains $_ }).Count -ne 0) {
+        throw 'Copilot usage output schema was malformed.'
     }
     [bool] $premiumCostValid = $value.totalPremiumRequestCost -is [byte] -or
         $value.totalPremiumRequestCost -is [sbyte] -or
@@ -2071,6 +2103,11 @@ function Get-AgentEvalHostUsageFile($Context) {
         throw 'Copilot usage output schema was malformed.'
     }
     [string[]] $tokenDetailMembers = @($value.tokenDetails.PSObject.Properties | ForEach-Object { $_.Name })
+    [string[]] $expectedTokenDetailMembers = @('input', 'cache_read', 'cache_write', 'output')
+    if ($tokenDetailMembers.Count -ne $expectedTokenDetailMembers.Count -or
+        @($tokenDetailMembers | Where-Object { $expectedTokenDetailMembers -cnotcontains $_ }).Count -ne 0) {
+        throw 'Copilot usage output schema was malformed.'
+    }
     foreach ($tokenKind in @('input', 'cache_read', 'cache_write', 'output')) {
         if ($tokenDetailMembers -cnotcontains $tokenKind) { throw 'Copilot usage output schema was malformed.' }
         $tokenDetail = $value.tokenDetails.$tokenKind
@@ -2078,7 +2115,7 @@ function Get-AgentEvalHostUsageFile($Context) {
             throw 'Copilot usage output schema was malformed.'
         }
         [string[]] $tokenMembers = @($tokenDetail.PSObject.Properties | ForEach-Object { $_.Name })
-        if ($tokenMembers -cnotcontains 'tokenCount' -or
+        if ($tokenMembers.Count -ne 1 -or $tokenMembers -cnotcontains 'tokenCount' -or
             ($tokenDetail.tokenCount -isnot [int] -and $tokenDetail.tokenCount -isnot [long]) -or
             [long]$tokenDetail.tokenCount -lt 0) {
             throw 'Copilot usage output schema was malformed.'

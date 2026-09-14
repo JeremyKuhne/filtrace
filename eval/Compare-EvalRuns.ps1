@@ -129,18 +129,58 @@ function Assert-ResultEvidenceSchema($Payload, [string] $Path) {
       throw "Schema-v3 result '$Path' $arrayField is not an array."
     }
   }
+  [System.Collections.Generic.HashSet[string]] $summaryTasks =
+    [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach ($row in @($Payload.summary)) { [void]$summaryTasks.Add([string]$row.Task) }
+  [System.Collections.Generic.HashSet[string]] $transportTasks =
+    [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
   foreach ($row in @($Payload.transport)) {
     Assert-ExactObjectMembers `
       -Value $row `
       -RequiredMembers @('Task', 'MedText', 'MedStructured', 'MedWire', 'MedHostResult', 'Shape') `
       -AllowedMembers @('Task', 'MedText', 'MedStructured', 'MedWire', 'MedHostResult', 'Shape') `
       -Context "Schema-v3 result '$Path' transport row"
+    if ($row.Task -isnot [string] -or -not $summaryTasks.Contains([string]$row.Task) -or
+      -not $transportTasks.Add([string]$row.Task) -or $row.Shape -isnot [string]) {
+      throw "Schema-v3 result '$Path' has an invalid transport identity."
+    }
+    foreach ($member in @('MedText', 'MedStructured', 'MedWire', 'MedHostResult')) {
+      if (($row.$member -isnot [int] -and $row.$member -isnot [long]) -or
+        [long]$row.$member -lt 0 -or [long]$row.$member -gt [int]::MaxValue) {
+        throw "Schema-v3 result '$Path' has an invalid transport '$member' value."
+      }
+    }
+  }
+  [bool] $strictCopilotArm = [string]::Equals(
+    [string]$Payload.host, 'copilot', [StringComparison]::Ordinal) -and
+    ([string]::Equals([string]$Payload.arm, 'cli', [StringComparison]::Ordinal) -or
+      [string]::Equals([string]$Payload.arm, 'cli-skill', [StringComparison]::Ordinal))
+  if ($strictCopilotArm -ne ($null -ne $Payload.strictRunBudget)) {
+    throw "Schema-v3 result '$Path' has an invalid strictRunBudget presence."
   }
   if ($null -ne $Payload.strictRunBudget) {
     Assert-ExactObjectMembers $Payload.strictRunBudget @('projectedBytes', 'maxBytes') @('projectedBytes', 'maxBytes') `
       "Schema-v3 result '$Path' strictRunBudget"
+    if (($Payload.strictRunBudget.projectedBytes -isnot [int] -and
+        $Payload.strictRunBudget.projectedBytes -isnot [long]) -or
+      ($Payload.strictRunBudget.maxBytes -isnot [int] -and
+        $Payload.strictRunBudget.maxBytes -isnot [long]) -or
+      [long]$Payload.strictRunBudget.projectedBytes -lt 0 -or
+      [long]$Payload.strictRunBudget.maxBytes -lt 1 -or
+      [long]$Payload.strictRunBudget.projectedBytes -gt [long]$Payload.strictRunBudget.maxBytes) {
+      throw "Schema-v3 result '$Path' has invalid strictRunBudget values."
+    }
+  }
+  if (($null -ne $Payload.mcpDll -and
+      ($Payload.mcpDll -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.mcpDll))) -or
+    $Payload.tokenAccounting -isnot [string] -or
+    [string]::IsNullOrWhiteSpace([string]$Payload.tokenAccounting) -or
+    @($Payload.warnings | Where-Object { $_ -isnot [string] }).Count -ne 0) {
+    throw "Schema-v3 result '$Path' has invalid root evidence values."
   }
 
+  [bool] $copilotRecord = [string]::Equals(
+    [string]$Payload.host, 'copilot', [StringComparison]::Ordinal)
   [string[]] $iterationMembers = @(
     'task', 'iteration', 'success', 'calls', 'helpCalls', 'tokens', 'wallMs',
     'textTokens', 'structuredTokens', 'wireTokens', 'hostResultTokens', 'resultShape',
@@ -153,6 +193,19 @@ function Assert-ResultEvidenceSchema($Payload, [string] $Path) {
       if (-not (Test-JsonArray $iteration.$arrayField)) {
         throw "Schema-v3 result '$Path' iteration $arrayField is not an array."
       }
+    }
+    if (-not $copilotRecord) {
+      if ($null -ne $iteration.hostUsage -or $null -ne $iteration.hostUsageFile -or
+        $null -ne $iteration.execution -or $null -ne $iteration.skill) {
+        throw "Schema-v3 result '$Path' has unexpected mediated-host evidence."
+      }
+      [string[]] $mediatedTranscriptMembers = @(
+        'kind', 'operation', 'cmd', 'ok', 'textTokens', 'info')
+      foreach ($entry in @($iteration.transcript)) {
+        Assert-ExactObjectMembers $entry $mediatedTranscriptMembers $mediatedTranscriptMembers `
+          "Schema-v3 result '$Path' mediated transcript entry"
+      }
+      continue
     }
     if ($null -ne $iteration.hostUsage) {
       Assert-ExactObjectMembers $iteration.hostUsage `
@@ -362,6 +415,11 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   if (@($rootMembers | Where-Object { $allowedRootMembers -cnotcontains $_ }).Count -ne 0) {
     throw "Result '$Path' has an unknown root member."
   }
+  if ($schemaVersion -eq 3 -and
+    ($rootMembers.Count -ne $allowedRootMembers.Count -or
+      @($allowedRootMembers | Where-Object { $rootMembers -cnotcontains $_ }).Count -ne 0)) {
+    throw "Schema-v3 result '$Path' is missing a required root member."
+  }
   foreach ($member in @('host', 'arm', 'label')) {
     if ($Payload.$member -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.$member)) {
       throw "Result '$Path' has an invalid '$member'."
@@ -513,17 +571,19 @@ function Assert-ResultPayload($Payload, [string] $Path) {
       throw "Schema-v3 result '$Path' has an invalid iteration identity."
     }
     $taskInput = $inputsByTask[[string]$iteration.task]
-    if ($iterationMembers -cnotcontains 'execution' -or
-      -not (Test-JsonObject $iteration.execution) -or
-      @($iteration.execution.PSObject.Properties.Name) -cnotcontains 'fixture' -or
-      -not (Test-JsonObject $iteration.execution.fixture) -or
-      @($iteration.execution.fixture.PSObject.Properties.Name) -cnotcontains 'sha256' -or
-      $iteration.execution.fixture.sha256 -isnot [string] -or
-      -not [string]::Equals(
-        [string]$iteration.execution.fixture.sha256,
-        [string]$taskInput.fixtureSha256,
-        [StringComparison]::Ordinal)) {
-      throw "Schema-v3 result '$Path' iteration input identity does not match task '$($iteration.task)'."
+    if ([string]::Equals([string]$Payload.host, 'copilot', [StringComparison]::Ordinal)) {
+      if ($iterationMembers -cnotcontains 'execution' -or
+        -not (Test-JsonObject $iteration.execution) -or
+        @($iteration.execution.PSObject.Properties.Name) -cnotcontains 'fixture' -or
+        -not (Test-JsonObject $iteration.execution.fixture) -or
+        @($iteration.execution.fixture.PSObject.Properties.Name) -cnotcontains 'sha256' -or
+        $iteration.execution.fixture.sha256 -isnot [string] -or
+        -not [string]::Equals(
+          [string]$iteration.execution.fixture.sha256,
+          [string]$taskInput.fixtureSha256,
+          [StringComparison]::Ordinal)) {
+        throw "Schema-v3 result '$Path' iteration input identity does not match task '$($iteration.task)'."
+      }
     }
     [string] $iterationKey = "$($iteration.task)/$($iteration.iteration)"
     if (-not $iterationKeys.Add($iterationKey)) { throw "Schema-v3 result '$Path' repeats iteration '$iterationKey'." }

@@ -174,6 +174,9 @@ timeout, sandbox, output, symbol/network, and native-symbol options, are rejecte
 For `view`, the hook requires one exact path from the copied skill inventory and an
 optional bounded two-integer line range. The post-run parser independently validates
 the same request and returned source bytes before accepting the read as evidence.
+The raw hook envelope and string-valued `toolArgs` are parsed for duplicate members
+before PowerShell object coercion. The parent ledger independently applies the same
+rule to its request envelope and nested view arguments.
 
 Before returning `permissionDecision: allow`, the hook consumes an allowance from
 a monotonic in-memory ledger owned by the evaluator process. The host can neither
@@ -234,6 +237,8 @@ artifact/runtime bytes, and the input manifests are retained in each successful
 iteration record. The wall-time deadline and periodic artifact/runtime scans
 continue after redirected streams close; a host process that remains alive is
 stopped at the configured deadline.
+The separately requested usage JSON is capped at 1 MiB and rejects duplicate or
+unknown members throughout its usage and token-count objects before retention.
 If timeout, output, artifact, or launch enforcement throws before normal retention,
 the runner writes at most 8 KiB of captured stdout/stderr prefixes under an
 evaluator-owned sibling `failures/<run-id>` directory before rethrowing. This
@@ -305,7 +310,10 @@ closure hash over canonical file arguments plus captures referenced by manifests
 count, and call budget to match before calculating deltas. CLI and skill hashes are
 deliberately excluded from this identity because they are the surfaces an A/B run
 may change. Comparison tolerance must be a finite fraction from zero through one,
-and summary rows accept only the documented schema members.
+and raw duplicate members are rejected before conversion. Schema-v3 records require
+their complete root evidence, nonnegative integer transport metrics, and exact
+host-specific nested object and array shapes; summary rows accept only the documented
+schema members.
 The graded answer event must follow every counted successful analysis completion
 and, for `cli-skill`, the verified injected skill context. Strict CLI transcript
 entries retain the parser's derived operation, including `report --kind` intent,

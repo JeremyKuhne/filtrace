@@ -2308,7 +2308,7 @@ function Invoke-EvalRun {
         maxSteps      = $MaxSteps
         inputIdentity = @($selected | ForEach-Object { $_.inputIdentity } | Sort-Object task)
         strictRunBudget = $strictRunProjection
-        mcpDll        = $McpDll
+        mcpDll        = if ([string]::IsNullOrWhiteSpace($McpDll)) { $null } else { $McpDll }
         tokenAccounting = 'offline observed tool-result estimate; hostUsage is the result event; hostUsageFile is bounded host-reported token accounting'
         warnings      = @($iterRecords | ForEach-Object { $_.note } | Where-Object { $_ } | Sort-Object -Unique)
         timestamp     = (Get-Date).ToString('o')

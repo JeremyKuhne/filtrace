@@ -683,6 +683,10 @@ try {
         -Name 'malformed usage output' `
         -Mode malformed-usage-output `
         -ExpectedMessage 'Copilot usage output was malformed.'
+    Assert-FakeRunThrows `
+        -Name 'duplicate usage output' `
+        -Mode duplicate-usage-output `
+        -ExpectedMessage 'Copilot usage output was malformed.'
     foreach ($mode in @(
             'empty-usage-output', 'usage-missing-token-details', 'usage-missing-token-count',
             'usage-missing-premium', 'usage-wrong-type', 'usage-negative-token')) {
@@ -876,6 +880,33 @@ try {
         -Hook $policyProbe.preToolHook `
         -RawInput '{'
     Assert-True ($malformedInput.permissionDecision -eq 'deny') 'Malformed hook input was not denied.'
+    [string] $validToolArgumentsJson = [string]($validArguments | ConvertTo-Json -Compress)
+    [string] $duplicateToolArgumentsJson = $validToolArgumentsJson.Replace(
+        '"command":',
+        '"command":"duplicate","command":')
+    $duplicateToolArgumentsDecision = Invoke-TestPolicyHook `
+        -Hook $policyProbe.preToolHook `
+        -SessionId $policySessionId `
+        -WorkingDirectory $policyWorkspace `
+        -ToolName powershell `
+        -ToolArguments $duplicateToolArgumentsJson
+    Assert-True ($duplicateToolArgumentsDecision.permissionDecision -eq 'deny') `
+        'Duplicate string-valued tool arguments were normalized and allowed.'
+    [string] $validHookInputJson = [string]([ordered]@{
+            sessionId = $policySessionId
+            timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+            cwd = $policyWorkspace
+            toolName = 'powershell'
+            toolArgs = $validArguments
+        } | ConvertTo-Json -Depth 8 -Compress)
+    [string] $duplicateHookInputJson = $validHookInputJson.Replace(
+        '"toolName":"powershell"',
+        '"toolName":"view","toolName":"powershell"')
+    $duplicateHookInput = Invoke-TestPolicyHook `
+        -Hook $policyProbe.preToolHook `
+        -RawInput $duplicateHookInputJson
+    Assert-True ($duplicateHookInput.permissionDecision -eq 'deny') `
+        'Duplicate hook envelope members were normalized and allowed.'
     [string] $caseVariantInputJson = [string]([ordered]@{
             SessionId = $policySessionId
             timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -1115,6 +1146,30 @@ try {
 
     $viewProbe = New-TestExecutionPolicy -Name 'view policy hook contract' -MaxCalls 1 -WithSkill
     $viewSource = Get-AgentEvalSkillSource $viewProbe.context.skillPath
+    [string] $duplicateViewRequest = [string]([ordered]@{
+            category = 'view'
+            arguments = [ordered]@{ path = $viewProbe.context.skillPath }
+        } | ConvertTo-Json -Compress)
+    $duplicateViewRequest = $duplicateViewRequest.Replace(
+        '"path":',
+        '"path":"duplicate","path":')
+    $duplicateViewDecision = Invoke-TestRawLedgerRequest `
+        -PipeName $viewProbe.executionPolicy.ledgerPipeName `
+        -RequestText $duplicateViewRequest
+    Assert-True ($duplicateViewDecision.allowed -eq $false) `
+        'Parent ledger accepted duplicate view argument members.'
+    [string] $duplicateLedgerRoot = [string]([ordered]@{
+            category = 'command'
+            command = $viewProbe.command
+        } | ConvertTo-Json -Compress)
+    $duplicateLedgerRoot = $duplicateLedgerRoot.Replace(
+        '"category":"command"',
+        '"category":"help","category":"command"')
+    $duplicateLedgerRootDecision = Invoke-TestRawLedgerRequest `
+        -PipeName $viewProbe.executionPolicy.ledgerPipeName `
+        -RequestText $duplicateLedgerRoot
+    Assert-True ($duplicateLedgerRootDecision.allowed -eq $false) `
+        'Parent ledger accepted duplicate request members.'
     $directViewBypass = Invoke-TestLedgerRequest `
         -PipeName $viewProbe.executionPolicy.ledgerPipeName `
         -Request ([ordered]@{
@@ -2020,6 +2075,7 @@ try {
         $defaultMcp.arm = 'mcp'
         $defaultMcp.model.requested = $null
         $defaultMcp.model.expected = $null
+        $defaultMcp.strictRunBudget = $null
         [System.IO.File]::WriteAllText(
             (Join-Path $defaultMcpDirectory $resultPath.Name),
             (($defaultMcp | ConvertTo-Json -Depth 20) + "`n"),
@@ -2027,6 +2083,40 @@ try {
     }
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $defaultMcpDirectory
     Assert-True ($LASTEXITCODE -eq 0) 'Verified default-model Copilot MCP records did not compare neutral.'
+
+    $mediatedV3Directory = Join-Path $temporaryRoot 'mediated schema-v3 comparison'
+    [System.IO.Directory]::CreateDirectory($mediatedV3Directory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $mediatedV3 = Read-TestResult $resultPath.FullName
+        $mediatedV3.host = 'ollama'
+        $mediatedV3.arm = 'cli'
+        $mediatedV3.model.expected = $null
+        $mediatedV3.strictRunBudget = $null
+        $mediatedV3.mcpDll = $null
+        $mediatedV3.transport = @()
+        foreach ($iteration in @($mediatedV3.iterations)) {
+            $iteration.hostUsage = $null
+            $iteration.hostUsageFile = $null
+            $iteration.execution = $null
+            $iteration.skill = $null
+            $iteration.transcript = @($iteration.transcript | ForEach-Object {
+                    [pscustomobject]@{
+                        kind = $_.kind
+                        operation = $_.operation
+                        cmd = $_.cmd
+                        ok = $_.ok
+                        textTokens = $_.textTokens
+                        info = $_.info
+                    }
+                })
+        }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $mediatedV3Directory $resultPath.Name),
+            (($mediatedV3 | ConvertTo-Json -Depth 32) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $mediatedV3Directory
+    Assert-True ($LASTEXITCODE -eq 0) 'Validated mediated-host schema-v3 records did not compare neutral.'
 
     $legacyV3Directory = Join-Path $temporaryRoot 'legacy schema-v3 comparison'
     [System.IO.Directory]::CreateDirectory($legacyV3Directory) | Out-Null
@@ -2142,7 +2232,10 @@ try {
         foreach ($case in @(
             'malformed', 'duplicate-root-member', 'oversized-result', 'invalid-timestamp',
             'empty-summary', 'duplicate-task', 'wrong-field-type', 'unknown-root-member',
+            'missing-token-accounting', 'missing-mcp-dll', 'missing-strict-run-budget',
+            'wrong-token-accounting-type', 'wrong-mcp-dll-type', 'scalar-warnings',
             'summary-success-mismatch', 'summary-median-mismatch', 'med-help-member-case', 'unknown-summary-member',
+            'wrong-transport-type', 'negative-transport', 'unknown-transport-task',
             'missing-strict-expected-model', 'unknown-model-member',
             'wrong-success-count', 'wrapped-schema-version', 'oversized-n', 'oversized-max-steps',
             'scalar-summary', 'scalar-iterations', 'scalar-observed-distinct',
@@ -2186,6 +2279,12 @@ try {
                 'unknown-root-member' {
                     $invalid | Add-Member -NotePropertyName unexpected -NotePropertyValue $true
                 }
+                'missing-token-accounting' { $invalid.PSObject.Properties.Remove('tokenAccounting') }
+                'missing-mcp-dll' { $invalid.PSObject.Properties.Remove('mcpDll') }
+                'missing-strict-run-budget' { $invalid.PSObject.Properties.Remove('strictRunBudget') }
+                'wrong-token-accounting-type' { $invalid.tokenAccounting = @{} }
+                'wrong-mcp-dll-type' { $invalid.mcpDll = @{} }
+                'scalar-warnings' { $invalid.warnings = 'warning' }
                 'summary-success-mismatch' { $invalid.summary[0].'Success%' = 0 }
                 'summary-median-mismatch' { $invalid.summary[0].MedCalls = [int]$invalid.summary[0].MedCalls + 1 }
                 'med-help-member-case' {
@@ -2196,6 +2295,9 @@ try {
                 'unknown-summary-member' {
                     $invalid.summary[0] | Add-Member -NotePropertyName UnexpectedMetric -NotePropertyValue 1
                 }
+                'wrong-transport-type' { $invalid.transport[0].MedText = 'one' }
+                'negative-transport' { $invalid.transport[0].MedWire = -1 }
+                'unknown-transport-task' { $invalid.transport[0].Task = 'other-task' }
                 'missing-strict-expected-model' { $invalid.model.expected = $null }
                 'unknown-model-member' {
                     $invalid.model | Add-Member -NotePropertyName unexpected -NotePropertyValue $true

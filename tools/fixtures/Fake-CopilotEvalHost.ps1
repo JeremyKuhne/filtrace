@@ -834,6 +834,11 @@ if ($mode -eq 'event-after-result') {
             }
             [string]($usageValue | ConvertTo-Json -Depth 6)
         }
+        if ($mode -eq 'duplicate-usage-output') {
+            $usageJson = $usageJson.Replace(
+                '"currentModel":',
+                '"currentModel":"duplicate","currentModel":')
+        }
         [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($UsageOutputFile)) | Out-Null
         [System.IO.File]::WriteAllText($UsageOutputFile, $usageJson, [System.Text.UTF8Encoding]::new($false))
     }

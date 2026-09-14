@@ -37,7 +37,7 @@ function Read-BoundedText([System.IO.TextReader] $Reader, [int] $MaxCharacters) 
 
 function Get-ObjectMemberNames($Value) {
     if ($null -eq $Value) { return @() }
-    return @($Value.PSObject.Properties.Name)
+    return @($Value.PSObject.Properties | ForEach-Object { $_.Name })
 }
 
 function Assert-ExactObjectMembers($Value, [string[]] $ExpectedMembers, [string] $Message) {
@@ -50,6 +50,35 @@ function Assert-ExactObjectMembers($Value, [string[]] $ExpectedMembers, [string]
         @($members | Where-Object { -not $expected.Contains($_) }).Count -ne 0) {
         throw $Message
     }
+}
+
+function Assert-UniqueJsonMembers(
+    [System.Text.Json.JsonElement] $Element,
+    [string] $Context) {
+    if ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+        [System.Collections.Generic.HashSet[string]] $names =
+            [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($property in $Element.EnumerateObject()) {
+            if (-not $names.Add($property.Name)) { throw "$Context contained a duplicate member." }
+            Assert-UniqueJsonMembers -Element $property.Value -Context $Context
+        }
+    }
+    elseif ($Element.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
+        foreach ($item in $Element.EnumerateArray()) {
+            Assert-UniqueJsonMembers -Element $item -Context $Context
+        }
+    }
+}
+
+function ConvertFrom-ExactJson([string] $Json, [string] $Message) {
+    try {
+        [System.Text.Json.JsonDocument] $document =
+            [System.Text.Json.JsonDocument]::Parse($Json)
+        try { Assert-UniqueJsonMembers -Element $document.RootElement -Context $Message }
+        finally { $document.Dispose() }
+        return $Json | ConvertFrom-Json
+    }
+    catch { throw $Message }
 }
 
 function Assert-PolicyShape($Policy) {
@@ -155,8 +184,7 @@ function Assert-PolicyShape($Policy) {
 function ConvertFrom-ToolArguments($Value) {
     if ($Value -is [string]) {
         if ($Value.Length -gt 16384) { throw 'Tool arguments exceeded their character limit.' }
-        try { return $Value | ConvertFrom-Json }
-        catch { throw 'Tool arguments were not valid JSON.' }
+        return ConvertFrom-ExactJson -Json $Value -Message 'Tool arguments were not valid exact JSON.'
     }
     if ($null -eq $Value -or $Value -is [ValueType]) { throw 'Tool arguments were not an object.' }
     return $Value
@@ -552,8 +580,7 @@ try {
     Assert-PolicyShape $policy
 
     [string] $inputText = Read-BoundedText -Reader ([Console]::In) -MaxCharacters 65536
-    try { $inputObject = $inputText | ConvertFrom-Json }
-    catch { throw 'Hook input was not valid JSON.' }
+    $inputObject = ConvertFrom-ExactJson -Json $inputText -Message 'Hook input was not valid exact JSON.'
     [string[]] $inputMembers = @(Get-ObjectMemberNames $inputObject)
     [System.Collections.Generic.HashSet[string]] $expectedInputMembers =
         [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
