@@ -228,7 +228,7 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   }
   foreach ($row in $summary) {
     [string[]] $rowMembers = @($row.PSObject.Properties.Name)
-    if ($rowMembers -notcontains 'MedHelpCalls' -or -not (Test-FiniteNumber $row.MedHelpCalls) -or
+    if ($rowMembers -cnotcontains 'MedHelpCalls' -or -not (Test-FiniteNumber $row.MedHelpCalls) -or
       [double]$row.MedHelpCalls -lt 0 -or [double]$row.MedHelpCalls -gt [int]::MaxValue -or
       [double]$row.MedHelpCalls -ne [math]::Truncate([double]$row.MedHelpCalls)) {
       throw "Schema-v3 result '$Path' has an invalid 'MedHelpCalls' value."

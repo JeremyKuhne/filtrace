@@ -1854,7 +1854,8 @@ try {
 
         foreach ($case in @(
             'malformed', 'invalid-timestamp', 'empty-summary', 'duplicate-task', 'wrong-field-type',
-            'summary-success-mismatch', 'summary-median-mismatch', 'missing-strict-expected-model',
+            'summary-success-mismatch', 'summary-median-mismatch', 'med-help-member-case',
+            'missing-strict-expected-model',
             'wrong-success-count', 'oversized-n', 'oversized-max-steps',
             'scalar-summary', 'scalar-iterations', 'scalar-observed-distinct',
             'scalar-observed-models', 'strict-schema-v2')) {
@@ -1876,6 +1877,11 @@ try {
                 'wrong-field-type' { $invalid.summary[0].MedCalls = 'one' }
                 'summary-success-mismatch' { $invalid.summary[0].'Success%' = 0 }
                 'summary-median-mismatch' { $invalid.summary[0].MedCalls = [int]$invalid.summary[0].MedCalls + 1 }
+                'med-help-member-case' {
+                    $medHelpCalls = $invalid.summary[0].MedHelpCalls
+                    $invalid.summary[0].PSObject.Properties.Remove('MedHelpCalls')
+                    $invalid.summary[0] | Add-Member -NotePropertyName medhelpcalls -NotePropertyValue $medHelpCalls
+                }
                 'missing-strict-expected-model' { $invalid.model.expected = $null }
                 'wrong-success-count' { $invalid.summary[0].SuccessCount = 0 }
                 'oversized-n' { $invalid.n = 1001 }
