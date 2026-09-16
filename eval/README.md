@@ -393,7 +393,7 @@ Both returned `MyApp.Inner` at 16 ms / 64% self weight and `MyApp.Work` as its
 Each arm reported one premium request. The skill arm's discovery, invocation, and
 context hashes verified. This single pair proves protocol and accounting readiness;
 it does not establish an efficacy advantage. The prepared next evidence is four
-balanced pairs on a frozen ready-capture task with transcript-level grading.
+balanced pairs on a frozen ready-capture task with arm-masked answer grading.
 
 Substring matching removes thousands separators from digit runs on both sides
 first, so a task can pin `4309` and an answer that says "4,309" still matches.

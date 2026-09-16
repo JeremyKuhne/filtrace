@@ -2143,6 +2143,13 @@ try {
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
         $legacyV3 = Read-TestResult $resultPath.FullName
         $legacyV3.summary[0].PSObject.Properties.Remove('SuccessCount')
+        $legacyV3.PSObject.Properties.Remove('configuration')
+        $legacyV3.PSObject.Properties.Remove('authorizationSha256')
+        foreach ($iteration in @($legacyV3.iterations)) {
+            $iteration.execution.PSObject.Properties.Remove('nativeTimeoutSeconds')
+            $iteration.execution.PSObject.Properties.Remove('hostOutputMaxBytes')
+            $iteration.execution.isolation.PSObject.Properties.Remove('maxAiCredits')
+        }
         [System.IO.File]::WriteAllText(
             (Join-Path $legacyV3Directory $resultPath.Name),
             (($legacyV3 | ConvertTo-Json -Depth 20) + "`n"),
@@ -2185,6 +2192,50 @@ try {
     }
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $maxStepsDirectory
     Assert-True ($LASTEXITCODE -eq 1) 'Runs with different maxSteps budgets were paired.'
+
+    $configurationDirectory = Join-Path $temporaryRoot 'configuration comparison'
+    [System.IO.Directory]::CreateDirectory($configurationDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $configurationRecord = Read-TestResult $resultPath.FullName
+        if ($configurationRecord.label -ceq 'candidate') { $configurationRecord.configuration = 'Debug' }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $configurationDirectory $resultPath.Name),
+            (($configurationRecord | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $configurationDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'Runs with different build configurations were paired.'
+
+    $authorizationDirectory = Join-Path $temporaryRoot 'authorization comparison'
+    [System.IO.Directory]::CreateDirectory($authorizationDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $authorizationRecord = Read-TestResult $resultPath.FullName
+        $authorizationRecord.authorizationSha256 = if ($authorizationRecord.label -ceq 'baseline') { '0' * 64 } else { '1' * 64 }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $authorizationDirectory $resultPath.Name),
+            (($authorizationRecord | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $authorizationDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'Runs with different authorization hashes were paired.'
+
+    $authorizationPresenceDirectory = Join-Path $temporaryRoot 'authorization presence comparison'
+    [System.IO.Directory]::CreateDirectory($authorizationPresenceDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $authorizationPresenceRecord = Read-TestResult $resultPath.FullName
+        if ($authorizationPresenceRecord.label -ceq 'baseline') {
+            $authorizationPresenceRecord.PSObject.Properties.Remove('authorizationSha256')
+        }
+        else {
+            $authorizationPresenceRecord.authorizationSha256 = '0' * 64
+        }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $authorizationPresenceDirectory $resultPath.Name),
+            (($authorizationPresenceRecord | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $authorizationPresenceDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'A hash-bound run was paired with a run lacking authorization evidence.'
 
     $inputIdentityDirectory = Join-Path $temporaryRoot 'input identity comparison'
     [System.IO.Directory]::CreateDirectory($inputIdentityDirectory) | Out-Null

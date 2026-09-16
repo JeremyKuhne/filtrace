@@ -19,7 +19,7 @@
     ./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Arm cli-skill -Model <model-id> -ExpectedModel <model-id> -Tasks <task-id> -N 5 -Label candidate
     ./eval/Compare-EvalRuns.ps1 -Baseline baseline -Candidate candidate
 
-  Runs are paired by full identity (host/arm/model), so the report shows whether a
+  Runs are paired by full identity (host/arm/model/configuration), so the report shows whether a
   change that helps one model regresses another - a paired descriptive signal a second
   host would otherwise provide - and runs from different hosts/arms (whose token
   and call counts are not comparable) never pair silently. The verdict is the
@@ -248,8 +248,7 @@ function Assert-ResultEvidenceSchema($Payload, [string] $Path) {
     }
 
     Assert-ExactObjectMembers $iteration.execution `
-      @('runId', 'workspace', 'nativeTimeoutSeconds', 'hostOutputMaxBytes',
-        'capturedBytes', 'artifactBytes', 'hostRuntimeBytes',
+      @('runId', 'workspace', 'capturedBytes', 'artifactBytes', 'hostRuntimeBytes',
         'processExitCode', 'resultExitCode', 'hostOutput', 'cli', 'fixture', 'isolation', 'inputPolicy') `
       @('runId', 'workspace', 'nativeTimeoutSeconds', 'hostOutputMaxBytes',
         'capturedBytes', 'artifactBytes', 'hostRuntimeBytes',
@@ -284,9 +283,9 @@ function Assert-ResultEvidenceSchema($Payload, [string] $Path) {
       'executionPolicyMaxHelpCalls', 'executionPolicyHelpCallCount', 'executionPolicyHelpCommandHashes',
       'executionPolicyMaxViewCalls', 'executionPolicyMaxViewBytes', 'executionPolicyViewRequests',
       'hookConfigurationPath', 'dynamicArtifactMaxBytes', 'hostRuntimeMaxBytes',
-      'hostRuntimeMaxFileBytes', 'hostRuntimeMaxEntries', 'processTreeContained',
-      'maxAiCredits')
-    Assert-ExactObjectMembers $iteration.execution.isolation $isolationMembers $isolationMembers `
+      'hostRuntimeMaxFileBytes', 'hostRuntimeMaxEntries', 'processTreeContained')
+    [string[]] $allowedIsolationMembers = @($isolationMembers + 'maxAiCredits')
+    Assert-ExactObjectMembers $iteration.execution.isolation $isolationMembers $allowedIsolationMembers `
       "Schema-v3 result '$Path' isolation evidence"
     foreach ($arrayField in @(
         'inheritedEnvironment', 'ownedEnvironment', 'availableTools', 'excludedTools',
@@ -426,8 +425,12 @@ function Assert-ResultPayload($Payload, [string] $Path) {
     throw "Result '$Path' has an unknown root member."
   }
   if ($schemaVersion -eq 3 -and
-    ($rootMembers.Count -ne $allowedRootMembers.Count -or
-      @($allowedRootMembers | Where-Object { $rootMembers -cnotcontains $_ }).Count -ne 0)) {
+    @(@(
+        'schemaVersion', 'host', 'model', 'arm', 'label', 'n', 'maxSteps',
+        'inputIdentity', 'strictRunBudget', 'mcpDll', 'tokenAccounting', 'warnings',
+        'timestamp', 'summary', 'transport', 'iterations') | Where-Object {
+          $rootMembers -cnotcontains $_
+        }).Count -ne 0) {
     throw "Schema-v3 result '$Path' is missing a required root member."
   }
   if ($schemaVersion -eq 3 -and $null -ne $Payload.authorizationSha256 -and
@@ -440,7 +443,7 @@ function Assert-ResultPayload($Payload, [string] $Path) {
       throw "Result '$Path' has an invalid '$member'."
     }
   }
-  if ($schemaVersion -eq 3 -and
+  if ($schemaVersion -eq 3 -and $rootMembers -ccontains 'configuration' -and
     ($Payload.configuration -isnot [string] -or
       [string]::IsNullOrWhiteSpace([string]$Payload.configuration))) {
     throw "Schema-v3 result '$Path' has an invalid 'configuration'."
@@ -718,6 +721,19 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
     throw "Result '$path' filename label does not match payload label '$($payload.label)'."
   }
   [string] $model = if ([int]$payload.schemaVersion -eq 2) { [string]$payload.model } else { [string]$payload.model.observed }
+  [string] $configuration = if (
+    [int]$payload.schemaVersion -eq 3 -and
+    $payload.PSObject.Properties.Name -ccontains 'configuration') {
+    [string]$payload.configuration
+  }
+  else { 'unrecorded' }
+  [string] $authorizationSha256 = if (
+    [int]$payload.schemaVersion -eq 3 -and
+    $payload.PSObject.Properties.Name -ccontains 'authorizationSha256' -and
+    $null -ne $payload.authorizationSha256) {
+    [string]$payload.authorizationSha256
+  }
+  else { '' }
   [string] $inputIdentity = if ([int]$payload.schemaVersion -eq 3) {
     [string[]] $canonicalInputs = @($payload.inputIdentity | ForEach-Object {
         [string]([ordered]@{
@@ -733,18 +749,19 @@ $all = Get-ChildItem -LiteralPath $ResultsDir -File -Filter '*.json' | Where-Obj
   }
   else { '' }
   [pscustomobject]@{
-    key       = ('{0}/{1}/{2}' -f $payload.host, $payload.arm, $model)
+    key       = ('{0}/{1}/{2}/{3}' -f $payload.host, $payload.arm, $model, $configuration)
     label     = [string]$payload.label
     timestamp = $parsedTimestamp
     schemaVersion = [int]$payload.schemaVersion
     n         = if ([int]$payload.schemaVersion -eq 3) { [int]$payload.n } else { $null }
     maxSteps  = if ([int]$payload.schemaVersion -eq 3) { [int]$payload.maxSteps } else { $null }
+    authorizationSha256 = $authorizationSha256
     inputIdentity = $inputIdentity
     summary   = $payload.summary
   }
 }
 
-# The latest payload per (label, run) where run = host/arm/model.
+# The latest payload per (label, run) where run = host/arm/model/configuration.
 function Get-LatestRun([string]$Label) {
   [System.Collections.Generic.Dictionary[string, object]] $latest =
     [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
@@ -777,7 +794,7 @@ $regressions = 0
 $improvements = 0
 $unpaired = 0
 
-# Pair on the full run identity (host/arm/model) so runs from different hosts or
+# Pair on the full run identity (host/arm/model/configuration) so runs from different hosts or
 # arms - whose token/call counts are not comparable - never pair silently.
 $runs = @(@($base.key) + @($cand.key) | Sort-Object -CaseSensitive -Unique)
 foreach ($run in $runs) {
@@ -787,6 +804,8 @@ foreach ($run in $runs) {
     if (-not $c) { $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'no candidate' }); $unpaired++; continue }
     if ($b.schemaVersion -ne $c.schemaVersion -or
       ($b.schemaVersion -eq 3 -and ($b.n -ne $c.n -or $b.maxSteps -ne $c.maxSteps -or
+          -not [string]::Equals(
+            $b.authorizationSha256, $c.authorizationSha256, [StringComparison]::Ordinal) -or
           -not [string]::Equals($b.inputIdentity, $c.inputIdentity, [StringComparison]::Ordinal)))) {
       $rows.Add([pscustomobject]@{ Run = $run; Task = '(all)'; Success = '-'; Calls = '-'; Tokens = '-'; Verdict = 'incompatible run contract' })
       $unpaired++
