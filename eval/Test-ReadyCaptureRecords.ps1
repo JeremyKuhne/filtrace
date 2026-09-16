@@ -1244,6 +1244,7 @@ function Invoke-SelfTest {
         Remove-Item -LiteralPath $boundsRoot -Recurse -Force
 
         $protocolValue = [System.IO.File]::ReadAllText($ProtocolPath) | ConvertFrom-Json -Depth 100
+        [string] $protocolId = [string]$protocolValue.protocolId
         [string] $protocolHash = Get-CanonicalTextHash $ProtocolPath
         [string] $zeroHash = '0' * 64
         $task = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot ([string]$protocolValue.inputs.taskPath))) |
@@ -1261,7 +1262,7 @@ function Invoke-SelfTest {
         [System.Collections.Generic.List[string]] $resultHashes = [System.Collections.Generic.List[string]]::new()
 
         $checkpoint = [ordered]@{
-            schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'private-checkpoint'
+            schemaVersion = 1; protocolId = $protocolId; recordType = 'private-checkpoint'
             state = 'prepared-not-authorized'; measuredExecutionAuthorized = $false
             protocolSha256 = $protocolHash; sourceRepository = 'https://github.com/JeremyKuhne/filtrace.git'
             mergeCommit = '1' * 40; mergeTree = '2' * 40; buildCommand = 'dotnet build filtrace.slnx -c Release'
@@ -1274,7 +1275,7 @@ function Invoke-SelfTest {
         }
         Write-JsonFile (Join-Path $root 'checkpoint.json') $checkpoint
         $authorization = [ordered]@{
-            schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'private-authorization'
+            schemaVersion = 1; protocolId = $protocolId; recordType = 'private-authorization'
             measuredExecutionAuthorized = $true; protocolSha256 = $protocolHash
             maximumHostSessions = 8; maximumHostAiCredits = 240
             terminalAction = 'stop-after-ready-capture-report'
@@ -1296,7 +1297,7 @@ function Invoke-SelfTest {
             [string] $firstBlindId = '{0:x32}' -f (100 + ($pairNumber * 2))
             [string] $secondBlindId = '{0:x32}' -f (101 + ($pairNumber * 2))
             $packet = [ordered]@{
-                schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'blinded-packet'
+                schemaVersion = 1; protocolId = $protocolId; recordType = 'blinded-packet'
                 protocolSha256 = $protocolHash; packetId = $packetId
                 answers = @(
                     [ordered]@{
@@ -1313,7 +1314,7 @@ function Invoke-SelfTest {
             $noAnswerCriterion = [ordered]@{ pass = $false; evidence = 'no final answer' }
             $firstCriterion = if ($pairNumber -eq 1) { $noAnswerCriterion } else { $criterion }
             $grade = [ordered]@{
-                schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'blinded-grade'
+                schemaVersion = 1; protocolId = $protocolId; recordType = 'blinded-grade'
                 protocolSha256 = $protocolHash; packetId = $packetId; packetSha256 = $packetHash
                 gradeNonce = '{0:x32}' -f (200 + $pairNumber); graderRole = 'user'
                 grades = @(
@@ -1455,7 +1456,7 @@ function Invoke-SelfTest {
                 })
             }
             $map = [ordered]@{
-                schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'private-arm-map'
+                schemaVersion = 1; protocolId = $protocolId; recordType = 'private-arm-map'
                 protocolSha256 = $protocolHash; pair = $pairNumber; packetId = $packetId
                 packetSha256 = $packetHash; gradeSha256 = $gradeHash; entries = @($entries)
             }
@@ -1478,7 +1479,7 @@ function Invoke-SelfTest {
             })
         [string] $reportQuality = Get-QualityAggregate -Pairs $pairReports
         $report = [ordered]@{
-            schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'final-report'
+            schemaVersion = 1; protocolId = $protocolId; recordType = 'final-report'
             protocolSha256 = $protocolHash; terminalDisposition = 'descriptive-complete'; validPairs = 4
             terminalReason = 'four-valid-pairs'
             hostSessions = 8; hostAiCredits = 8; authorizationSha256 = $authorizationHash
@@ -1649,7 +1650,7 @@ function Invoke-SelfTest {
             Write-JsonFile $invalidResultPath $invalidResultValue
             [string] $invalidResultHash = Get-RawHash $invalidResultPath
             $incompleteReport = [ordered]@{
-                schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'final-report'
+                schemaVersion = 1; protocolId = $protocolId; recordType = 'final-report'
                 protocolSha256 = $protocolHash; terminalDisposition = 'incomplete-evidence-integrity'
                 terminalReason = 'evidence:self-test invalid session'
                 validPairs = 0; hostSessions = 1; hostAiCredits = 1

@@ -107,7 +107,7 @@ contract and the no-LLM gate.
   and a final `--format json`. The JSONL parser independently requires a correlated
   `powershell` start/completion pair with the same shape. It accepts the required
   `command` and `description` members, optional literal `mode: "sync"`, and an
-  optional integer `initial_wait` from 1 through 30; every other argument member is
+  optional integer `initial_wait` from 1 through 120; every other argument member is
   rejected. The successful completion
   must contain filtrace schema 17 and an operation matching the executed read-only
   verb. Its result must also contain an operation-specific typed anchor such as
@@ -239,8 +239,11 @@ continue after redirected streams close; a host process that remains alive is
 stopped at the configured deadline.
 JSONL event objects and the Filtrace JSON document embedded in a successful shell
 completion reject recursive duplicate members before PowerShell object conversion.
-The separately requested usage JSON is capped at 1 MiB and rejects duplicate or
-unknown members throughout its usage and token-count objects before retention.
+The separately requested usage JSON is capped at 1 MiB and rejects duplicate
+members recursively. It requires and validates premium cost, request count,
+current model, and the exact token-count structure, while accepting additive root telemetry.
+Only those four required fields are projected into the stable result schema; the
+complete raw usage file and its hash remain retained.
 If timeout, output, artifact, or launch enforcement throws before normal retention,
 the runner writes at most 8 KiB of captured stdout/stderr prefixes under an
 evaluator-owned sibling `failures/<run-id>` directory before rethrowing. This
@@ -271,9 +274,18 @@ fail clearly; do not copy credentials or weaken isolation.
 
 ### EP1 ready-capture protocol
 
-The prepared [ready-capture protocol](protocols/ep1-ready-capture-v1.json) binds a
-held-out scope/attribution task, exact public input hashes, evaluator-only expected
-facts, balanced four-pair order, eight maximum host sessions, and a 240-credit
+The v1 measured attempt stopped after its first session with zero valid pairs. Its
+usage file contained additive root telemetry that the frozen parser rejected, and
+an otherwise permitted `rank` request carried `initial_wait: 120` beyond the frozen
+30-second metadata ceiling. The result is operational evidence only, not evidence
+for or against skill efficacy.
+
+The prepared [v2 ready-capture protocol](protocols/ep1-ready-capture-v2.json)
+accepts bounded duplicate-free additive root usage telemetry while persisting only
+the four required accounting fields, and accepts `initial_wait` through 120 seconds
+without changing the independent 600-second process deadline. It otherwise binds
+the same held-out scope/attribution task, exact public input hashes, evaluator-only
+expected facts, balanced four-pair order, eight maximum host sessions, and a 240-credit
 ceiling. It reports descriptive arm and paired values without a winner label, uses
 no automatic replacement pair, and stops for a user decision. After each pair, a
 reviewer grades the two exact final answers under randomized opaque identifiers,

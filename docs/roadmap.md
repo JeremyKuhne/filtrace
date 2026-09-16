@@ -5,12 +5,13 @@ schedule and completion status. Cross-repository coordination may reorder work, 
 the change must be reflected here before it makes a Filtrace item active. Private
 coordination records are supplemental evidence, not required to interpret this plan.
 
-**Status:** EP1 preflight is complete. No execution mode, measured arm, or
-implementation work is active. This change prepares a bounded ready-capture
-protocol for review; the protocol cannot authorize its own execution.
+**Status:** EP1 preflight is complete. The v1 measured attempt ended incomplete
+after one started session and zero valid pairs. No execution mode, measured arm,
+or implementation work is active. This change prepares a bounded v2 repair for
+review; the protocol cannot authorize its own execution.
 
-**Last verified:** 2026-09-14 against `main` at `ecf8335` and the merged
-cross-repository checkpoint.
+**Last verified:** 2026-09-16 against `main` at `6a2ecf5` and the retained v1
+incomplete report.
 
 Completed sections remain only where their measured decisions constrain future
 work. Git history and release tags record what landed; durable lessons live in
@@ -65,8 +66,8 @@ true.
 | When | Items | Why now |
 | --- | --- | --- |
 | Done | VN0-VN4, VC2, SC8, SC11, SC13, LT1, EP1 preflight | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, command provenance, decisive-query replay, repository-local activation, and bounded evaluator preflight are implemented. |
-| Current checkpoint | No active execution | The prior continuous authorization ended with Filtrace PR #132 and plan synchronization. Protocol preparation and measured execution are separate authorization boundaries. |
-| Next only with explicit authorization | EP1 ready-capture protocol | Review and freeze [the prepared protocol](../eval/protocols/ep1-ready-capture-v1.json), then separately authorize at most four balanced pairs / eight host sessions within its 240-credit ceiling. Report descriptive evidence and stop; do not claim a winner. |
+| Current checkpoint | No active execution | The v1 authorization terminated after one invalid session. It produced zero valid pairs and no efficacy result. Protocol repair, checkpointing, and measured execution remain separate authorization boundaries. |
+| Next only with explicit authorization | EP1 ready-capture v2 protocol | Review and freeze [the prepared v2 protocol](../eval/protocols/ep1-ready-capture-v2.json), then separately authorize at most four balanced pairs / eight host sessions within its 240-credit ceiling. Report descriptive evidence and stop; do not claim a winner. |
 | Later only after an accepted result and separate authorization | EP1 full-loop case, PP02 evidence gaps, PP10 adoption | The ready-capture result returns for a decision before any full-loop, measurement expansion, adoption work, MCP arm, or implementation begins. |
 | Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the named public scenario and gate recorded here; these are not the current default implementation queue. |
 | Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the remaining-outcomes table below; production implementation follows only for a kept candidate. |
@@ -95,7 +96,7 @@ gates.
 VC4-VC8, VC1, general harness hardening, and speculative parallel implementations
 are outside the current finish line unless a required scenario promotes them.
 
-### EP1 preflight - complete; measured protocol - prepared, not authorized
+### EP1 preflight complete; v1 incomplete; v2 prepared, not authorized
 
 The deterministic fake-host contract fails closed for wrong or missing model,
 skill, tool, result, and usage evidence. Copilot CLI 1.0.82 discovered the owned
@@ -111,6 +112,15 @@ This N=1 pair establishes protocol and accounting readiness, not a skill advanta
 The retained identities and full token counts are in
 [eval/README.md](../eval/README.md#ep1-preflight-checkpoint).
 
+The v1 measured attempt exposed a preflight coverage gap: the retained Copilot
+usage output already had additive root telemetry, while the fake host exercised
+only the four accounting fields persisted by the evaluator. The frozen parser
+therefore rejected the first measured session. The same session also showed that
+Copilot may emit `initial_wait: 120`; one task-permitted `rank` shape was denied by
+the prior 30-second metadata bound. The session and its raw one-credit usage remain
+retained, but protocol accounting was unavailable, the second arm did not start,
+and zero valid pairs means there is no efficacy result.
+
 Filtrace PR #132 merged the evaluator as `ecf8335`; its merge tree matches the
 reviewed head. The prepared ready-capture protocol binds the held-out
 `scope-preserving-drill` task, evaluator-only expected facts, unique run homes and
@@ -124,6 +134,12 @@ measured outcomes; malformed or missing evidence stops the experiment without
 replacement. Protocol preparation does not authorize execution; after review and
 merge, its exact hash is recorded privately and a new execution authorization is
 still required.
+
+The v2 repair accepts bounded duplicate-free additive usage-root telemetry while
+persisting the same four validated accounting fields, and raises only the optional
+PowerShell `initial_wait` metadata ceiling to 120 seconds. It does not broaden the
+command family, verbs, options, paths, output format, call budget, process deadline,
+sample, task, fixture, arms, grading, replacement policy, or credit ceiling.
 
 ---
 

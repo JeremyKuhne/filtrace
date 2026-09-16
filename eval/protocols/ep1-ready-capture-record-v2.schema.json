@@ -1,0 +1,653 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:filtrace:ep1-ready-capture-record-v2",
+  "title": "Filtrace EP1 ready-capture records",
+  "oneOf": [
+    { "$ref": "#/definitions/blindedPacket" },
+    { "$ref": "#/definitions/blindedGrade" },
+    { "$ref": "#/definitions/privateArmMap" },
+    { "$ref": "#/definitions/privateCheckpoint" },
+    { "$ref": "#/definitions/privateAuthorization" },
+    { "$ref": "#/definitions/finalReport" }
+  ],
+  "definitions": {
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "evidence"],
+      "properties": {
+        "pass": { "type": "boolean" },
+        "evidence": { "type": "string", "minLength": 1 }
+      }
+    },
+    "blindedPacket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "protocolSha256",
+        "packetId",
+        "answers"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v2" },
+        "recordType": { "const": "blinded-packet" },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "packetId": { "$ref": "#/definitions/opaqueId" },
+        "answers": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["blindId", "answerAvailable", "answer"],
+            "properties": {
+              "blindId": { "$ref": "#/definitions/opaqueId" },
+              "answerAvailable": { "type": "boolean" },
+              "answer": { "type": ["string", "null"] }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": { "answerAvailable": { "const": true } },
+                  "required": ["answerAvailable"]
+                },
+                "then": {
+                  "properties": { "answer": { "type": "string", "minLength": 1 } }
+                }
+              },
+              {
+                "if": {
+                  "properties": { "answerAvailable": { "const": false } },
+                  "required": ["answerAvailable"]
+                },
+                "then": {
+                  "properties": { "answer": { "type": "null" } }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "blindedGrade": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "protocolSha256",
+        "packetId",
+        "packetSha256",
+        "gradeNonce",
+        "graderRole",
+        "grades"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v2" },
+        "recordType": { "const": "blinded-grade" },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "packetId": { "$ref": "#/definitions/opaqueId" },
+        "packetSha256": { "$ref": "#/definitions/hash" },
+        "gradeNonce": { "$ref": "#/definitions/opaqueId" },
+        "graderRole": {
+          "type": "string",
+          "enum": ["user", "independent-reviewer"]
+        },
+        "grades": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["blindId", "criteria", "falseConfidence"],
+            "properties": {
+              "blindId": { "$ref": "#/definitions/opaqueId" },
+              "criteria": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "scope",
+                  "attribution-restraint",
+                  "evidence-quality",
+                  "scope-preserving-drill",
+                  "unsupported-claim"
+                ],
+                "properties": {
+                  "scope": { "$ref": "#/definitions/criterion" },
+                  "attribution-restraint": { "$ref": "#/definitions/criterion" },
+                  "evidence-quality": { "$ref": "#/definitions/criterion" },
+                  "scope-preserving-drill": { "$ref": "#/definitions/criterion" },
+                  "unsupported-claim": { "$ref": "#/definitions/criterion" }
+                }
+              },
+              "falseConfidence": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["triggered", "evidence"],
+                "properties": {
+                  "triggered": { "type": "boolean" },
+                  "evidence": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "privateArmMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "protocolSha256",
+        "pair",
+        "packetId",
+        "packetSha256",
+        "gradeSha256",
+        "entries"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v2" },
+        "recordType": { "const": "private-arm-map" },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "pair": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "packetId": { "$ref": "#/definitions/opaqueId" },
+        "packetSha256": { "$ref": "#/definitions/hash" },
+        "gradeSha256": { "$ref": "#/definitions/hash" },
+        "entries": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "allOf": [
+            { "contains": { "type": "object", "properties": { "arm": { "const": "cli-skill" } }, "required": ["arm"] } },
+            { "contains": { "type": "object", "properties": { "arm": { "const": "cli" } }, "required": ["arm"] } },
+            { "contains": { "type": "object", "properties": { "position": { "const": "first" } }, "required": ["position"] } },
+            { "contains": { "type": "object", "properties": { "position": { "const": "second" } }, "required": ["position"] } }
+          ],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["blindId", "arm", "position", "resultSha256"],
+            "properties": {
+              "blindId": { "$ref": "#/definitions/opaqueId" },
+              "arm": { "type": "string", "enum": ["cli-skill", "cli"] },
+              "position": { "type": "string", "enum": ["first", "second"] },
+              "resultSha256": { "$ref": "#/definitions/hash" }
+            }
+          }
+        }
+      }
+    },
+    "privateCheckpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "state",
+        "measuredExecutionAuthorized",
+        "protocolSha256",
+        "sourceRepository",
+        "mergeCommit",
+        "mergeTree",
+        "buildCommand",
+        "sdkVersion",
+        "osDescription",
+        "architecture",
+        "cliBundleManifestSha256",
+        "skillManifestSha256",
+        "evaluatorClosureSha256",
+        "hostExecutableSha256",
+        "hostExecutablePath",
+        "hostVersion",
+        "modelIdentity",
+        "taskSha256",
+        "qaLineSha256",
+        "fixtureSha256",
+        "inputClosureSha256"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v2" },
+        "recordType": { "const": "private-checkpoint" },
+        "state": { "const": "prepared-not-authorized" },
+        "measuredExecutionAuthorized": { "const": false },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "sourceRepository": { "const": "https://github.com/JeremyKuhne/filtrace.git" },
+        "mergeCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "mergeTree": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "buildCommand": { "const": "dotnet build filtrace.slnx -c Release" },
+        "sdkVersion": { "type": "string", "minLength": 1 },
+        "osDescription": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "enum": ["x64", "arm64"] },
+        "cliBundleManifestSha256": { "$ref": "#/definitions/hash" },
+        "skillManifestSha256": { "$ref": "#/definitions/hash" },
+        "evaluatorClosureSha256": { "$ref": "#/definitions/hash" },
+        "hostExecutableSha256": { "$ref": "#/definitions/hash" },
+        "hostExecutablePath": { "type": "string", "minLength": 1 },
+        "hostVersion": { "type": "string", "minLength": 1 },
+        "modelIdentity": { "type": "string", "minLength": 1 },
+        "taskSha256": { "$ref": "#/definitions/hash" },
+        "qaLineSha256": { "$ref": "#/definitions/hash" },
+        "fixtureSha256": { "$ref": "#/definitions/hash" },
+        "inputClosureSha256": { "$ref": "#/definitions/hash" }
+      }
+    },
+    "privateAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "measuredExecutionAuthorized",
+        "protocolSha256",
+        "maximumHostSessions",
+        "maximumHostAiCredits",
+        "terminalAction",
+        "authorizedAt",
+        "authorizationEvidence"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v2" },
+        "recordType": { "const": "private-authorization" },
+        "measuredExecutionAuthorized": { "const": true },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "maximumHostSessions": { "const": 8 },
+        "maximumHostAiCredits": { "const": 240 },
+        "terminalAction": { "const": "stop-after-ready-capture-report" },
+        "authorizedAt": { "type": "string", "format": "date-time" },
+        "authorizationEvidence": { "type": "string", "minLength": 1 }
+      }
+    },
+    "dimensionState": {
+      "type": "string",
+      "enum": [
+        "skill-lower",
+        "practically-equivalent",
+        "skill-higher",
+        "mixed",
+        "order-sensitive",
+        "unavailable"
+      ]
+    },
+    "qualityState": {
+      "type": "string",
+      "enum": [
+        "same-observed-quality",
+        "skill-higher-observed-quality",
+        "skill-lower-observed-quality",
+        "mixed-observed-quality",
+        "order-sensitive",
+        "unavailable"
+      ]
+    },
+    "inputIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task",
+        "taskSha256",
+        "qaSha256",
+        "fixtureSha256",
+        "inputClosureSha256"
+      ],
+      "properties": {
+        "task": { "const": "scope-preserving-drill" },
+        "taskSha256": { "$ref": "#/definitions/hash" },
+        "qaSha256": { "$ref": "#/definitions/hash" },
+        "fixtureSha256": { "$ref": "#/definitions/hash" },
+        "inputClosureSha256": { "$ref": "#/definitions/hash" }
+      }
+    },
+    "answerCriteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "attribution-restraint",
+        "evidence-quality",
+        "scope-preserving-drill",
+        "unsupported-claim"
+      ],
+      "properties": {
+        "scope": { "$ref": "#/definitions/criterion" },
+        "attribution-restraint": { "$ref": "#/definitions/criterion" },
+        "evidence-quality": { "$ref": "#/definitions/criterion" },
+        "scope-preserving-drill": { "$ref": "#/definitions/criterion" },
+        "unsupported-claim": { "$ref": "#/definitions/criterion" }
+      }
+    },
+    "metricSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["median", "minimum", "maximum"],
+      "properties": {
+        "median": { "type": "number", "minimum": 0 },
+        "minimum": { "type": "number", "minimum": 0 },
+        "maximum": { "type": "number", "minimum": 0 }
+      }
+    },
+    "metricSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analysisCalls",
+        "helpCalls",
+        "resultTokens",
+        "wallMs",
+        "hostAiCredits"
+      ],
+      "properties": {
+        "analysisCalls": { "$ref": "#/definitions/metricSummary" },
+        "helpCalls": { "$ref": "#/definitions/metricSummary" },
+        "resultTokens": { "$ref": "#/definitions/metricSummary" },
+        "wallMs": { "$ref": "#/definitions/metricSummary" },
+        "hostAiCredits": { "$ref": "#/definitions/metricSummary" }
+      }
+    },
+    "deltaSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analysisCalls",
+        "helpCalls",
+        "resultTokens",
+        "wallMs",
+        "hostAiCredits"
+      ],
+      "properties": {
+        "analysisCalls": { "type": "number" },
+        "helpCalls": { "type": "number" },
+        "resultTokens": { "type": "number" },
+        "wallMs": { "type": "number" },
+        "hostAiCredits": { "type": "number" }
+      }
+    },
+    "sessionReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pair",
+        "position",
+        "arm",
+        "resultSha256",
+        "authorizationSha256",
+        "success",
+        "answerAvailable",
+        "falseConfidence",
+        "calls",
+        "helpCalls",
+        "tokens",
+        "wallMs",
+        "hostAiCredits",
+        "hostUsage",
+        "hostUsageFile",
+        "answerCriteria",
+        "transcript",
+        "inputIdentity"
+      ],
+      "properties": {
+        "pair": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "position": { "type": "string", "enum": ["first", "second"] },
+        "arm": { "type": "string", "enum": ["cli-skill", "cli"] },
+        "resultSha256": { "$ref": "#/definitions/hash" },
+        "authorizationSha256": { "$ref": "#/definitions/hash" },
+        "success": { "type": "boolean" },
+        "answerAvailable": { "type": "boolean" },
+        "falseConfidence": { "type": "boolean" },
+        "calls": { "type": "integer", "minimum": 0 },
+        "helpCalls": { "type": "integer", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 },
+        "wallMs": { "type": "integer", "minimum": 0 },
+        "hostAiCredits": { "type": "number", "minimum": 0, "maximum": 30 },
+        "hostUsage": { "type": ["object", "null"] },
+        "hostUsageFile": { "type": "object" },
+        "answerCriteria": { "$ref": "#/definitions/answerCriteria" },
+        "transcript": { "type": "array", "items": { "type": "object" } },
+        "inputIdentity": { "$ref": "#/definitions/inputIdentity" }
+      }
+    },
+    "invalidSessionReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pair",
+        "position",
+        "arm",
+        "resultSha256",
+        "authorizationSha256",
+        "reason",
+        "hostAiCredits"
+      ],
+      "properties": {
+        "pair": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "position": { "type": "string", "enum": ["first", "second"] },
+        "arm": { "type": "string", "enum": ["cli-skill", "cli"] },
+        "resultSha256": { "$ref": "#/definitions/hash" },
+        "authorizationSha256": { "$ref": "#/definitions/hash" },
+        "reason": { "type": "string", "minLength": 1 },
+        "hostAiCredits": {
+          "type": ["number", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "armSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arm",
+        "sessionCount",
+        "qualityPassCount",
+        "noAnswerCount",
+        "falseConfidenceCount",
+        "metrics"
+      ],
+      "properties": {
+        "arm": { "type": "string", "enum": ["cli-skill", "cli"] },
+        "sessionCount": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "qualityPassCount": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "noAnswerCount": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "falseConfidenceCount": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "metrics": { "$ref": "#/definitions/metricSet" }
+      }
+    },
+    "pairedDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pair", "firstArm", "qualityState", "deltas"],
+      "properties": {
+        "pair": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "firstArm": { "type": "string", "enum": ["cli-skill", "cli"] },
+        "qualityState": { "$ref": "#/definitions/qualityState" },
+        "deltas": { "$ref": "#/definitions/deltaSet" }
+      }
+    },
+    "orderSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["firstArm", "pairCount", "qualityState", "medianDeltas"],
+      "properties": {
+        "firstArm": { "type": "string", "enum": ["cli-skill", "cli"] },
+        "pairCount": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "qualityState": { "$ref": "#/definitions/qualityState" },
+        "medianDeltas": { "$ref": "#/definitions/deltaSet" }
+      }
+    },
+    "finalReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "protocolSha256",
+        "terminalDisposition",
+        "terminalReason",
+        "validPairs",
+        "hostSessions",
+        "hostAiCredits",
+        "authorizationSha256",
+        "sessionResultSha256",
+        "gradeSha256",
+        "sessions",
+        "invalidSessions",
+        "armSummaries",
+        "pairedDeltas",
+        "orderSummaries",
+        "qualityState",
+        "costStates",
+        "nextAction"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v2" },
+        "recordType": { "const": "final-report" },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "terminalDisposition": {
+          "type": "string",
+          "enum": [
+            "descriptive-complete",
+            "incomplete-precondition",
+            "incomplete-evidence-integrity",
+            "incomplete-budget",
+            "stopped-by-user"
+          ]
+        },
+        "terminalReason": { "type": "string", "minLength": 1 },
+        "validPairs": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "hostSessions": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "hostAiCredits": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "authorizationSha256": {
+          "oneOf": [
+            { "$ref": "#/definitions/hash" },
+            { "type": "null" }
+          ]
+        },
+        "sessionResultSha256": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/hash" }
+        },
+        "gradeSha256": {
+          "type": "array",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/hash" }
+        },
+        "sessions": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/definitions/sessionReport" }
+        },
+        "invalidSessions": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/definitions/invalidSessionReport" }
+        },
+        "armSummaries": {
+          "type": "array",
+          "maxItems": 2,
+          "items": { "$ref": "#/definitions/armSummary" }
+        },
+        "pairedDeltas": {
+          "type": "array",
+          "maxItems": 4,
+          "items": { "$ref": "#/definitions/pairedDelta" }
+        },
+        "orderSummaries": {
+          "type": "array",
+          "maxItems": 2,
+          "items": { "$ref": "#/definitions/orderSummary" }
+        },
+        "qualityState": { "$ref": "#/definitions/qualityState" },
+        "costStates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "analysisCalls",
+            "helpCalls",
+            "resultTokens",
+            "wallMs",
+            "hostAiCredits"
+          ],
+          "properties": {
+            "analysisCalls": { "$ref": "#/definitions/dimensionState" },
+            "helpCalls": { "$ref": "#/definitions/dimensionState" },
+            "resultTokens": { "$ref": "#/definitions/dimensionState" },
+            "wallMs": { "$ref": "#/definitions/dimensionState" },
+            "hostAiCredits": { "$ref": "#/definitions/dimensionState" }
+          }
+        },
+        "nextAction": { "const": "stop-and-return-to-user" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "terminalDisposition": { "const": "descriptive-complete" } },
+            "required": ["terminalDisposition"]
+          },
+          "then": {
+            "properties": {
+              "validPairs": { "const": 4 },
+              "hostSessions": { "const": 8 },
+              "hostAiCredits": { "type": "number", "maximum": 240 },
+              "authorizationSha256": { "$ref": "#/definitions/hash" },
+              "sessionResultSha256": { "minItems": 8, "maxItems": 8 },
+              "gradeSha256": { "minItems": 4, "maxItems": 4 },
+              "sessions": { "minItems": 8, "maxItems": 8 },
+              "invalidSessions": { "maxItems": 0 },
+              "armSummaries": { "minItems": 2, "maxItems": 2 },
+              "pairedDeltas": { "minItems": 4, "maxItems": 4 },
+              "orderSummaries": { "minItems": 2, "maxItems": 2 }
+            }
+          },
+          "else": {
+            "properties": {
+              "armSummaries": { "maxItems": 0 },
+              "pairedDeltas": { "maxItems": 0 },
+              "orderSummaries": { "maxItems": 0 },
+              "qualityState": { "const": "unavailable" },
+              "authorizationSha256": {},
+              "costStates": {
+                "properties": {
+                  "analysisCalls": { "const": "unavailable" },
+                  "helpCalls": { "const": "unavailable" },
+                  "resultTokens": { "const": "unavailable" },
+                  "wallMs": { "const": "unavailable" },
+                  "hostAiCredits": { "const": "unavailable" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

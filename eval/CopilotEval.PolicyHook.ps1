@@ -419,7 +419,7 @@ function Assert-LiteralCommand($Arguments, $Policy) {
     }
     if ($actualArgumentMembers.Contains('initial_wait') -and
         (($Arguments.initial_wait -isnot [int] -and $Arguments.initial_wait -isnot [long]) -or
-        [long]$Arguments.initial_wait -lt 1 -or [long]$Arguments.initial_wait -gt 30)) {
+        [long]$Arguments.initial_wait -lt 1 -or [long]$Arguments.initial_wait -gt 120)) {
         throw 'PowerShell initial wait was outside policy.'
     }
 

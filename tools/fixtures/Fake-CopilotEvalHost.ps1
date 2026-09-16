@@ -598,7 +598,7 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
     }
     if ($mode -notin @('legacy-tool-arguments', 'recorded-policy-denial')) {
         $toolArguments.mode = 'sync'
-        $toolArguments.initial_wait = 30
+        $toolArguments.initial_wait = 120
     }
     switch ($mode) {
         'command-member-case' {
@@ -629,7 +629,7 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
         'repl-mode' { $toolArguments.mode = 'repl' }
         'invalid-initial-wait-type' { $toolArguments.initial_wait = '30' }
         'zero-initial-wait' { $toolArguments.initial_wait = 0 }
-        'unbounded-initial-wait' { $toolArguments.initial_wait = 31 }
+        'unbounded-initial-wait' { $toolArguments.initial_wait = 121 }
         'shell-sandbox-flag' { $toolArguments.sandbox = $true }
     }
     [string[]] $invalidToolArgumentModes = @(
@@ -843,6 +843,42 @@ if ($mode -eq 'event-after-result') {
                     currentModel = $reportedModel
                 }
             switch ($mode) {
+                'additive-usage-output' {
+                    $usageValue.totalNanoAiu = 23866360000
+                    $usageValue.totalApiDurationMs = 58942
+                    $usageValue.sessionStartTime = '2026-09-16T20:49:35.353Z'
+                    $usageValue.codeChanges = [ordered]@{
+                        linesAdded = 0
+                        linesRemoved = 0
+                        filesModifiedCount = 0
+                        filesModified = @()
+                    }
+                    $usageValue.modelMetrics = [ordered]@{
+                        $reportedModel = [ordered]@{
+                            requests = [ordered]@{ count = 12; cost = 1 }
+                            usage = [ordered]@{
+                                inputTokens = 175789
+                                outputTokens = 3672
+                                cacheReadTokens = 155149
+                                cacheWriteTokens = 20604
+                                reasoningTokens = 1753
+                            }
+                            cacheExpiresAt = '2026-09-16T21:20:57.898Z'
+                            totalNanoAiu = 23866360000
+                            tokenDetails = $usageValue.tokenDetails
+                        }
+                    }
+                    $usageValue.agentMetrics = [ordered]@{
+                        main = [ordered]@{
+                            totalApiDurationMs = 58942
+                            totalNanoAiu = 23866360000
+                            modelMetrics = $usageValue.modelMetrics
+                        }
+                    }
+                    $usageValue.lastCallInputTokens = 20607
+                    $usageValue.lastCallOutputTokens = 583
+                }
+                'oversized-additive-usage-output' { $usageValue.additionalTelemetry = 'x' * 1MB }
                 'usage-missing-token-details' { [void]$usageValue.Remove('tokenDetails') }
                 'usage-missing-token-count' { [void]$usageValue.tokenDetails.output.Remove('tokenCount') }
                 'usage-missing-premium' { [void]$usageValue.Remove('totalPremiumRequestCost') }
@@ -856,6 +892,11 @@ if ($mode -eq 'event-after-result') {
             $usageJson = $usageJson.Replace(
                 '"currentModel":',
                 '"currentModel":"duplicate","currentModel":')
+        }
+        elseif ($mode -eq 'case-confusable-usage-output') {
+            $usageJson = $usageJson.Replace(
+                '"currentModel":',
+                '"CurrentModel":"confusable","currentModel":')
         }
         [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($UsageOutputFile)) | Out-Null
         [System.IO.File]::WriteAllText($UsageOutputFile, $usageJson, [System.Text.UTF8Encoding]::new($false))

@@ -656,7 +656,7 @@ try {
         [System.Text.Encoding]::UTF8)
     Assert-True ($successRawStdout.Contains('"session.skills_loaded"', [StringComparison]::Ordinal)) `
         'Successful fake run did not retain the modern skills event.'
-    Assert-True ($successRawStdout.Contains('"initial_wait":30', [StringComparison]::Ordinal)) `
+    Assert-True ($successRawStdout.Contains('"initial_wait":120', [StringComparison]::Ordinal)) `
         'Successful fake run did not retain the modern PowerShell metadata.'
     Assert-True (@($success.model.observedDistinct) -notcontains 'provider-model') `
         'Provider-level model metadata was used as strict host identity.'
@@ -681,6 +681,21 @@ try {
         $success.iterations[0].hostUsageFile.value.tokenDetails.cache_write.tokenCount -eq 15 -and
         $success.iterations[0].hostUsageFile.value.tokenDetails.output.tokenCount -eq 10) `
         'Detailed host token accounting was not retained from the usage output file.'
+    $additiveUsage = Invoke-FakeRun -Name 'additive usage output' -Mode additive-usage-output
+    [string[]] $projectedUsageMembers = @(
+        $additiveUsage.iterations[0].hostUsageFile.value.PSObject.Properties.Name)
+    [string] $additiveUsageJson = [System.IO.File]::ReadAllText(
+        $additiveUsage.iterations[0].hostUsageFile.path)
+    Assert-True ($additiveUsage.iterations[0].success -eq $true -and
+        $projectedUsageMembers.Count -eq 4 -and
+        $projectedUsageMembers -ccontains 'totalPremiumRequestCost' -and
+        $projectedUsageMembers -ccontains 'totalUserRequests' -and
+        $projectedUsageMembers -ccontains 'tokenDetails' -and
+        $projectedUsageMembers -ccontains 'currentModel' -and
+        $projectedUsageMembers -cnotcontains 'totalNanoAiu' -and
+        $additiveUsageJson.Contains('"totalNanoAiu"', [StringComparison]::Ordinal) -and
+        $additiveUsageJson.Contains('"agentMetrics"', [StringComparison]::Ordinal)) `
+        'Additive host telemetry was not accepted raw and projected to stable accounting fields.'
     $fractionalPremiumUsage = Invoke-FakeRun `
         -Name 'fractional premium usage' `
         -Mode fractional-premium-usage
@@ -706,6 +721,14 @@ try {
         -Name 'duplicate usage output' `
         -Mode duplicate-usage-output `
         -ExpectedMessage 'Copilot usage output was malformed.'
+    Assert-FakeRunThrows `
+        -Name 'case-confusable usage output' `
+        -Mode case-confusable-usage-output `
+        -ExpectedMessage 'Copilot usage output was malformed.'
+    Assert-FakeRunThrows `
+        -Name 'oversized additive usage output' `
+        -Mode oversized-additive-usage-output `
+        -ExpectedMessage 'Copilot usage output was not a bounded ordinary file.'
     foreach ($mode in @(
             'empty-usage-output', 'usage-missing-token-details', 'usage-missing-token-count',
             'usage-missing-premium', 'usage-wrong-type', 'usage-negative-token')) {
@@ -1011,7 +1034,7 @@ try {
         [ordered]@{ command = $policyProbe.command; description = 'String wait'; initial_wait = '30' }
         [ordered]@{ command = $policyProbe.command; description = 'Boolean wait'; initial_wait = $true }
         [ordered]@{ command = $policyProbe.command; description = 'Zero wait'; initial_wait = 0 }
-        [ordered]@{ command = $policyProbe.command; description = 'Unbounded wait'; initial_wait = 31 }
+        [ordered]@{ command = $policyProbe.command; description = 'Unbounded wait'; initial_wait = 121 }
         [ordered]@{ command = $policyProbe.command; description = 'Env'; env = @{} }
         [ordered]@{ command = $policyProbe.command; description = 'Environment'; environment = @{} }
         [ordered]@{ command = $policyProbe.command; description = 'Input'; input = 'value' }
@@ -1049,7 +1072,7 @@ try {
         command = $policyProbe.command
         description = 'Inspect trace metadata'
         mode = 'sync'
-        initial_wait = 30
+        initial_wait = 120
     }
     $thirdPreTool = Invoke-TestPolicyHook `
         -Hook $policyProbe.preToolHook `
