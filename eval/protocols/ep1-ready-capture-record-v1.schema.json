@@ -393,6 +393,7 @@
         "position",
         "arm",
         "resultSha256",
+        "authorizationSha256",
         "success",
         "answerAvailable",
         "falseConfidence",
@@ -412,6 +413,7 @@
         "position": { "type": "string", "enum": ["first", "second"] },
         "arm": { "type": "string", "enum": ["cli-skill", "cli"] },
         "resultSha256": { "$ref": "#/definitions/hash" },
+        "authorizationSha256": { "$ref": "#/definitions/hash" },
         "success": { "type": "boolean" },
         "answerAvailable": { "type": "boolean" },
         "falseConfidence": { "type": "boolean" },
@@ -435,6 +437,7 @@
         "position",
         "arm",
         "resultSha256",
+        "authorizationSha256",
         "reason",
         "hostAiCredits"
       ],
@@ -443,6 +446,7 @@
         "position": { "type": "string", "enum": ["first", "second"] },
         "arm": { "type": "string", "enum": ["cli-skill", "cli"] },
         "resultSha256": { "$ref": "#/definitions/hash" },
+        "authorizationSha256": { "$ref": "#/definitions/hash" },
         "reason": { "type": "string", "minLength": 1 },
         "hostAiCredits": {
           "type": ["number", "null"],
@@ -502,6 +506,7 @@
         "recordType",
         "protocolSha256",
         "terminalDisposition",
+        "terminalReason",
         "validPairs",
         "hostSessions",
         "hostAiCredits",
@@ -532,6 +537,7 @@
             "stopped-by-user"
           ]
         },
+        "terminalReason": { "type": "string", "minLength": 1 },
         "validPairs": { "type": "integer", "minimum": 0, "maximum": 4 },
         "hostSessions": { "type": "integer", "minimum": 0, "maximum": 8 },
         "hostAiCredits": {

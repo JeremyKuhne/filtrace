@@ -595,6 +595,10 @@ try {
     Assert-True ($success.model.observed -eq 'expected-model') 'The observed model was not retained.'
     Assert-True ($success.model.verified -eq $true) 'The observed model was not verified.'
     Assert-True ($success.iterations[0].success -eq $true) "Grounded CLI iteration failed: $($success.iterations[0].note)"
+    Assert-True ($success.iterations[0].hostUsage.sessionDurationMs -eq 25 -and
+        $success.iterations[0].wallMs -gt 100 -and
+        $success.iterations[0].wallMs -ne $success.iterations[0].hostUsage.sessionDurationMs) `
+        'Primary wallMs did not remain on the evaluator-owned monotonic process clock.'
     $filtraceEntry = @($success.iterations[0].transcript | Where-Object { $_.kind -eq 'filtrace' })
     Assert-True ($filtraceEntry.Count -eq 1 -and $filtraceEntry[0].ok) 'Matched successful tool completion was not retained.'
     Assert-True ($success.iterations[0].execution.workspace.Contains(' ', [StringComparison]::Ordinal)) 'Owned workspace did not preserve its spaced path.'
@@ -2233,8 +2237,10 @@ try {
         $legacy.schemaVersion = 2
         $legacy.arm = 'mcp'
         $legacy.model = 'expected-model'
+        $legacy.PSObject.Properties.Remove('configuration')
         $legacy.PSObject.Properties.Remove('n')
         $legacy.PSObject.Properties.Remove('maxSteps')
+        $legacy.PSObject.Properties.Remove('authorizationSha256')
         $legacy.PSObject.Properties.Remove('inputIdentity')
         $legacy.PSObject.Properties.Remove('iterations')
         [System.IO.File]::WriteAllText(

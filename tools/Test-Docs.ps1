@@ -252,6 +252,12 @@ else {
         [void](Assert-ExactDocObjectMembers $protocol.bounds @(
                 'nativeTimeoutSecondsPerSession', 'maxHostOutputBytesPerSession',
                 'maxHostArtifactBytesPerSession', 'maxProjectedRetainedBytesPerInvocation',
+            'maxArtifactFiles', 'maxArtifactRecordBytes', 'maxArtifactSetBytes',
+            'maxHostRuntimeBytesPerSession', 'maxHostRuntimeFileBytes',
+            'maxHostRuntimeEntries', 'maxFixtureBytes', 'maxCliFiles',
+            'maxCliEntries', 'maxCliBytes', 'maxSkillFiles',
+            'maxSkillEntries', 'maxSkillBytes', 'maxSkillViewCalls',
+            'maxSkillRequestedBytes',
                 'maxAiCreditsPerSession', 'maximumHostSessions',
                 'maximumHostAiCredits', 'stopOnInvalidSession') 'Prepared EP1 bounds')
         [void](Assert-ExactDocObjectMembers $protocol.validity @(
@@ -504,6 +510,21 @@ else {
             $protocol.bounds.maxHostOutputBytesPerSession -ne 10485760 -or
             $protocol.bounds.maxHostArtifactBytesPerSession -ne 16777216 -or
             $protocol.bounds.maxProjectedRetainedBytesPerInvocation -ne 2147483648 -or
+            $protocol.bounds.maxArtifactFiles -ne 32 -or
+            $protocol.bounds.maxArtifactRecordBytes -ne 268435456 -or
+            $protocol.bounds.maxArtifactSetBytes -ne 2147483648 -or
+            $protocol.bounds.maxHostRuntimeBytesPerSession -ne 268435456 -or
+            $protocol.bounds.maxHostRuntimeFileBytes -ne 134217728 -or
+            $protocol.bounds.maxHostRuntimeEntries -ne 1024 -or
+            $protocol.bounds.maxFixtureBytes -ne 536870912 -or
+            $protocol.bounds.maxCliFiles -ne 256 -or
+            $protocol.bounds.maxCliEntries -ne 512 -or
+            $protocol.bounds.maxCliBytes -ne 536870912 -or
+            $protocol.bounds.maxSkillFiles -ne 64 -or
+            $protocol.bounds.maxSkillEntries -ne 128 -or
+            $protocol.bounds.maxSkillBytes -ne 16777216 -or
+            $protocol.bounds.maxSkillViewCalls -ne 4 -or
+            $protocol.bounds.maxSkillRequestedBytes -ne 67108864 -or
             $protocol.bounds.maxAiCreditsPerSession -ne 30 -or
             $protocol.bounds.stopOnInvalidSession -ne $true -or
             $protocol.sample.invalidSessionPolicy -cne
@@ -514,6 +535,7 @@ else {
             $protocol.execution.commandTemplate -cnotmatch '^-?\.?/eval/Invoke-AgentEval\.ps1 ' -or
             $protocol.execution.commandTemplate -notmatch '-Model <private-model-id>' -or
             $protocol.execution.commandTemplate -notmatch '-ExpectedModel <private-model-id>' -or
+            $protocol.execution.commandTemplate -notmatch '-AuthorizationSha256 <private-auth-sha256>' -or
             $protocol.execution.commandTemplate -notmatch '-Tasks scope-preserving-drill' -or
             $protocol.execution.commandTemplate -notmatch '-N 1' -or
             $protocol.execution.commandTemplate -notmatch '-Label ep1-rc-p<pair>-<position>-<arm>' -or
@@ -742,6 +764,7 @@ else {
                 recordType = 'final-report'
                 protocolSha256 = $zeroHash
                 terminalDisposition = 'incomplete-precondition'
+                terminalReason = 'precondition:self-test'
                 validPairs = 0
                 hostSessions = 0
                 hostAiCredits = 0

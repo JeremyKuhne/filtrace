@@ -60,6 +60,9 @@ function Get-EvaluatorClosureHash($Protocol, [string] $ProtocolFile) {
         'eval/Compare-EvalRuns.ps1'
         'eval/CopilotEval.Helpers.ps1'
         'eval/CopilotEval.PolicyHook.ps1'
+        'eval/Get-OperationName.ps1'
+        'tools/Get-TokenEstimate.ps1'
+        'src/Filtrace/Cli/TraceCommands.cs'
         [string]$Protocol.inputs.taskPath
         [string]$Protocol.inputs.qaPath)
     [string[]] $entries = @($relativePaths | Sort-Object -CaseSensitive -Unique | ForEach-Object {
@@ -281,6 +284,54 @@ function Get-CostState([object[]] $Pairs, [string] $Member, [double] $Equivalenc
     return 'skill-higher'
 }
 
+function Get-ResultCreditEvidence($Result) {
+    if (@($Result.iterations).Count -ne 1) {
+        return [pscustomobject]@{ available = $false; value = $null }
+    }
+    $iteration = $Result.iterations[0]
+    if ($iteration.PSObject.Properties.Name -cnotcontains 'hostUsageFile' -or
+        $null -eq $iteration.hostUsageFile -or
+        -not $iteration.hostUsageFile.available -or
+        $null -eq $iteration.hostUsageFile.value -or
+        $iteration.hostUsageFile.value.PSObject.Properties.Name -cnotcontains 'totalPremiumRequestCost') {
+        return [pscustomobject]@{ available = $false; value = $null }
+    }
+    $rawValue = $iteration.hostUsageFile.value.totalPremiumRequestCost
+    if ($rawValue -isnot [byte] -and $rawValue -isnot [sbyte] -and
+        $rawValue -isnot [short] -and $rawValue -isnot [ushort] -and
+        $rawValue -isnot [int] -and $rawValue -isnot [uint] -and
+        $rawValue -isnot [long] -and $rawValue -isnot [ulong] -and
+        $rawValue -isnot [float] -and $rawValue -isnot [double] -and
+        $rawValue -isnot [decimal]) {
+        return [pscustomobject]@{ available = $false; value = $null }
+    }
+    [double] $value = [double]$rawValue
+    if ([double]::IsNaN($value) -or [double]::IsInfinity($value) -or $value -lt 0) {
+        return [pscustomobject]@{ available = $false; value = $null }
+    }
+    return [pscustomobject]@{ available = $true; value = $value }
+}
+
+function Assert-ArtifactBounds(
+    [System.IO.FileInfo[]] $Files,
+    [int] $MaximumFiles,
+    [long] $MaximumRecordBytes,
+    [long] $MaximumTotalBytes) {
+    if ($Files.Count -gt $MaximumFiles) {
+        throw "Ready-capture artifact count exceeds $MaximumFiles."
+    }
+    [long] $totalBytes = 0
+    foreach ($file in $Files) {
+        if ($file.Length -gt $MaximumRecordBytes) {
+            throw "Ready-capture artifact '$($file.FullName)' exceeds $MaximumRecordBytes bytes."
+        }
+        if ($file.Length -gt ($MaximumTotalBytes - $totalBytes)) {
+            throw "Ready-capture artifact set exceeds $MaximumTotalBytes bytes."
+        }
+        $totalBytes += $file.Length
+    }
+}
+
 function Test-ArtifactSet(
     [string] $Directory,
     [string] $Protocol,
@@ -293,8 +344,20 @@ function Test-ArtifactSet(
     }
     $protocolValue = [System.IO.File]::ReadAllText($Protocol) | ConvertFrom-Json -Depth 100
     [string] $protocolHash = Get-CanonicalTextHash $Protocol
-    [object[]] $records = @(Get-ChildItem -LiteralPath $Directory -File -Filter '*.json' |
-        Sort-Object Name | ForEach-Object { Read-Record $_.FullName })
+    if (-not [string]::Equals(
+            (Get-CanonicalTextHash $Schema),
+            [string]$protocolValue.records.schemaSha256,
+            [StringComparison]::Ordinal)) {
+        throw 'The supplied ready-capture schema does not match the frozen protocol.'
+    }
+    [System.IO.FileInfo[]] $artifactFiles = @(Get-ChildItem -LiteralPath $Directory -File -Filter '*.json' |
+        Sort-Object Name)
+    Assert-ArtifactBounds `
+        -Files $artifactFiles `
+        -MaximumFiles ([int]$protocolValue.bounds.maxArtifactFiles) `
+        -MaximumRecordBytes ([long]$protocolValue.bounds.maxArtifactRecordBytes) `
+        -MaximumTotalBytes ([long]$protocolValue.bounds.maxArtifactSetBytes)
+    [object[]] $records = @($artifactFiles | ForEach-Object { Read-Record $_.FullName })
     [object[]] $packets = @($records | Where-Object RecordType -eq 'blinded-packet')
     [object[]] $grades = @($records | Where-Object RecordType -eq 'blinded-grade')
     [object[]] $maps = @($records | Where-Object RecordType -eq 'private-arm-map')
@@ -363,12 +426,27 @@ function Test-ArtifactSet(
         throw 'Ready-capture checkpoint identities do not match the frozen protocol and host.'
     }
     if ($ValidateSessionSchema) {
-        [string] $head = (& git -C $repositoryRoot rev-parse HEAD).Trim()
-        [string] $tree = (& git -C $repositoryRoot rev-parse 'HEAD^{tree}').Trim()
-        if ($LASTEXITCODE -ne 0 -or
+        [string] $head = (& git -C $repositoryRoot rev-parse HEAD | Out-String).Trim()
+        [int] $headExitCode = $LASTEXITCODE
+        [string] $tree = (& git -C $repositoryRoot rev-parse 'HEAD^{tree}' | Out-String).Trim()
+        [int] $treeExitCode = $LASTEXITCODE
+        [string] $status = (& git -C $repositoryRoot status --porcelain | Out-String).Trim()
+        [int] $statusExitCode = $LASTEXITCODE
+        [string] $sdkVersion = (& dotnet --version | Out-String).Trim()
+        [int] $sdkExitCode = $LASTEXITCODE
+        [string] $osDescription = [Runtime.InteropServices.RuntimeInformation]::OSDescription
+        [string] $architecture = [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
+        [string] $hostVersion = (& ([string]$checkpoint.hostExecutablePath) --version 2>&1 | Out-String).Trim()
+        [int] $hostExitCode = $LASTEXITCODE
+        if ($headExitCode -ne 0 -or $treeExitCode -ne 0 -or $statusExitCode -ne 0 -or
+            $sdkExitCode -ne 0 -or $hostExitCode -ne 0 -or
             -not [string]::Equals([string]$checkpoint.mergeCommit, $head, [StringComparison]::Ordinal) -or
             -not [string]::Equals([string]$checkpoint.mergeTree, $tree, [StringComparison]::Ordinal) -or
-            -not [string]::IsNullOrEmpty((& git -C $repositoryRoot status --porcelain | Out-String).Trim())) {
+            -not [string]::Equals([string]$checkpoint.sdkVersion, $sdkVersion, [StringComparison]::Ordinal) -or
+            -not [string]::Equals([string]$checkpoint.osDescription, $osDescription, [StringComparison]::Ordinal) -or
+            -not [string]::Equals([string]$checkpoint.architecture, $architecture, [StringComparison]::Ordinal) -or
+            -not [string]::Equals([string]$checkpoint.hostVersion, $hostVersion, [StringComparison]::Ordinal) -or
+            -not [string]::IsNullOrEmpty($status)) {
             throw 'Ready-capture validation requires the exact clean checkpointed source revision.'
         }
     }
@@ -480,7 +558,24 @@ function Test-ArtifactSet(
             }
             $inputIdentity = $result.inputIdentity[0]
             $iteration = $result.iterations[0]
+            $isolation = $iteration.execution.isolation
+            $inputPolicy = $iteration.execution.inputPolicy
+            [string[]] $expectedAvailableTools = if ([string]::Equals(
+                    [string]$entry.arm, 'cli-skill', [StringComparison]::Ordinal)) {
+                @('powershell', 'skill', 'view')
+            }
+            else { @('powershell') }
+            [string[]] $knownTools = @(
+                'powershell', 'read_powershell', 'stop_powershell', 'list_powershell',
+                'apply_patch', 'view', 'web_fetch', 'fetch_copilot_cli_documentation',
+                'skill', 'sql', 'session_store_sql', 'read_agent', 'list_agents',
+                'write_agent', 'rg', 'glob', 'task')
+            [string[]] $expectedExcludedTools = @($knownTools | Where-Object {
+                    $expectedAvailableTools -cnotcontains $_
+                })
             if (-not [string]::Equals([string]$result.host, 'copilot', [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$result.configuration, [string]$protocolValue.arms.common.configuration, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$result.authorizationSha256, [string]$authorizations[0].Hash, [StringComparison]::Ordinal) -or
                 -not $result.model.verified -or
                 -not [string]::Equals([string]$result.model.observed, [string]$checkpoint.modelIdentity, [StringComparison]::Ordinal) -or
                 -not [string]::Equals([string]$result.model.expected, [string]$checkpoint.modelIdentity, [StringComparison]::Ordinal) -or
@@ -492,13 +587,54 @@ function Test-ArtifactSet(
                 -not [string]::Equals([string]$iteration.execution.fixture.sha256, [string]$protocolValue.inputs.fixtureSha256, [StringComparison]::Ordinal) -or
                 [int]$iteration.execution.processExitCode -ne 0 -or
                 [int]$iteration.execution.resultExitCode -ne 0 -or
+                [int]$iteration.execution.nativeTimeoutSeconds -ne [int]$protocolValue.bounds.nativeTimeoutSecondsPerSession -or
+                [long]$iteration.execution.hostOutputMaxBytes -ne [long]$protocolValue.bounds.maxHostOutputBytesPerSession -or
                 -not $iteration.hostUsageFile.available -or
+                [int]$result.maxSteps -ne [int]$protocolValue.arms.common.maxSteps -or
+                [long]$result.strictRunBudget.maxBytes -ne [long]$protocolValue.bounds.maxProjectedRetainedBytesPerInvocation -or
+                [long]$result.strictRunBudget.projectedBytes -gt [long]$result.strictRunBudget.maxBytes -or
+                [long]$iteration.execution.capturedBytes -gt [long]$protocolValue.bounds.maxHostOutputBytesPerSession -or
+                [long]$iteration.execution.artifactBytes -gt [long]$protocolValue.bounds.maxHostArtifactBytesPerSession -or
+                [long]$iteration.execution.hostRuntimeBytes -gt [long]$protocolValue.bounds.maxHostRuntimeBytesPerSession -or
+                [long]$isolation.dynamicArtifactMaxBytes -ne [long]$protocolValue.bounds.maxHostArtifactBytesPerSession -or
+                [long]$isolation.hostRuntimeMaxBytes -ne [long]$protocolValue.bounds.maxHostRuntimeBytesPerSession -or
+                [long]$isolation.hostRuntimeMaxFileBytes -ne [long]$protocolValue.bounds.maxHostRuntimeFileBytes -or
+                [int]$isolation.hostRuntimeMaxEntries -ne [int]$protocolValue.bounds.maxHostRuntimeEntries -or
+                [double]$isolation.maxAiCredits -ne [double]$protocolValue.bounds.maxAiCreditsPerSession -or
+                -not $isolation.workspaceOutsideRepository -or -not $isolation.builtinMcpsDisabled -or
+                -not $isolation.shellDefaultDenied -or -not $isolation.writeDenied -or
+                -not $isolation.urlDenied -or -not $isolation.readDenied -or
+                -not $isolation.processTreeContained -or
+                [bool]$isolation.noCustomInstructions -ne
+                    [string]::Equals([string]$entry.arm, 'cli', [StringComparison]::Ordinal) -or
+                [int]$isolation.executionPolicyMaxCalls -ne [int]$protocolValue.arms.common.maxSteps -or
+                [int]$isolation.executionPolicyCallCount -gt [int]$isolation.executionPolicyMaxCalls -or
+                [int]$isolation.executionPolicyMaxViewCalls -ne [int]$protocolValue.bounds.maxSkillViewCalls -or
+                [long]$isolation.executionPolicyMaxViewBytes -ne [long]$protocolValue.bounds.maxSkillRequestedBytes -or
+                [long]$inputPolicy.fixtureMaxBytes -ne [long]$protocolValue.bounds.maxFixtureBytes -or
+                [int]$inputPolicy.cliMaxFiles -ne [int]$protocolValue.bounds.maxCliFiles -or
+                [int]$inputPolicy.cliMaxEntries -ne [int]$protocolValue.bounds.maxCliEntries -or
+                [long]$inputPolicy.cliMaxBytes -ne [long]$protocolValue.bounds.maxCliBytes -or
+                [int]$inputPolicy.skillMaxFiles -ne [int]$protocolValue.bounds.maxSkillFiles -or
+                [int]$inputPolicy.skillMaxEntries -ne [int]$protocolValue.bounds.maxSkillEntries -or
+                [long]$inputPolicy.skillMaxBytes -ne [long]$protocolValue.bounds.maxSkillBytes -or
+                [int]$inputPolicy.skillMaxViewCalls -ne [int]$protocolValue.bounds.maxSkillViewCalls -or
+                [long]$inputPolicy.skillMaxRequestedBytes -ne [long]$protocolValue.bounds.maxSkillRequestedBytes -or
                 -not [string]::Equals(
                     (Get-ManifestHash @($iteration.execution.cli.inventory)),
                     [string]$checkpoint.cliBundleManifestSha256,
                     [StringComparison]::Ordinal)) {
                 throw "Ready-capture pair '$($map.pair)' session identity or machine evidence does not match the checkpoint."
             }
+            Assert-EqualSet @($isolation.availableTools) $expectedAvailableTools `
+                "Ready-capture pair '$($map.pair)' available tools"
+            Assert-EqualSet @($isolation.excludedTools) $expectedExcludedTools `
+                "Ready-capture pair '$($map.pair)' excluded tools"
+            Assert-EqualSet @($isolation.inheritedEnvironment) @(Get-AgentEvalAllowedEnvironmentNames) `
+                "Ready-capture pair '$($map.pair)' inherited environment"
+            Assert-EqualSet @($isolation.ownedEnvironment) @(
+                'HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'APPDATA', 'LOCALAPPDATA', 'COPILOT_HOME') `
+                "Ready-capture pair '$($map.pair)' owned environment"
             if ([string]::Equals([string]$entry.arm, 'cli-skill', [StringComparison]::Ordinal)) {
                 if (-not $iteration.skill.provided -or -not $iteration.skill.observed -or
                     -not $iteration.skill.verified -or $null -eq $iteration.skill.discovery -or
@@ -584,6 +720,7 @@ function Test-ArtifactSet(
             [double] $credits = [double]$iteration.hostUsageFile.value.totalPremiumRequestCost
             $creditTotal += $credits
             if ([bool]$session.success -ne [bool]$iteration.success -or
+                -not [string]::Equals([string]$session.authorizationSha256, $authorizationHash, [StringComparison]::Ordinal) -or
                 [bool]$session.answerAvailable -ne $answerAvailable -or
                 [bool]$session.answerAvailable -ne [bool]$packetAnswer.answerAvailable -or
                 -not [string]::Equals([string]$packetAnswer.answer, [string]$iteration.answer, [StringComparison]::Ordinal) -or
@@ -633,7 +770,13 @@ function Test-ArtifactSet(
             $expectedPair = $protocolValue.sample.pairs[[int]$invalidSession.pair - 1]
             [string] $expectedArm = [string]$expectedPair.PSObject.Properties[
                 [string]$invalidSession.position].Value
+            $creditEvidence = if ($matchingResults.Count -eq 1) {
+                Get-ResultCreditEvidence $matchingResults[0].Value
+            }
+            else { [pscustomobject]@{ available = $false; value = $null } }
             if ($matchingResults.Count -ne 1 -or
+                -not [string]::Equals([string]$invalidSession.authorizationSha256, $authorizationHash, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$matchingResults[0].Value.authorizationSha256, $authorizationHash, [StringComparison]::Ordinal) -or
                 -not [string]::Equals(
                     [string]$invalidSession.arm,
                     $expectedArm,
@@ -645,15 +788,65 @@ function Test-ArtifactSet(
                 -not [string]::Equals(
                     [string]$matchingResults[0].Value.label,
                     "ep1-rc-p$($invalidSession.pair)-$($invalidSession.position)-$($invalidSession.arm)",
-                    [StringComparison]::Ordinal)) {
+                    [StringComparison]::Ordinal) -or
+                ($creditEvidence.available -and
+                    ($null -eq $invalidSession.hostAiCredits -or
+                        [double]$invalidSession.hostAiCredits -ne [double]$creditEvidence.value)) -or
+                (-not $creditEvidence.available -and $null -ne $invalidSession.hostAiCredits)) {
                 throw 'Ready-capture invalid-session evidence does not match the frozen schedule.'
             }
-            if ($null -ne $invalidSession.hostAiCredits) {
-                $creditTotal += [double]$invalidSession.hostAiCredits
+            if ($creditEvidence.available) {
+                $creditTotal += [double]$creditEvidence.value
             }
         }
-        if ($null -ne $report.hostAiCredits -and [double]$report.hostAiCredits -ne $creditTotal) {
+        [bool] $allCreditsAvailable = @($report.invalidSessions | Where-Object {
+                $null -eq $_.hostAiCredits
+            }).Count -eq 0
+        if (($allCreditsAvailable -and
+                ($null -eq $report.hostAiCredits -or [double]$report.hostAiCredits -ne $creditTotal)) -or
+            (-not $allCreditsAvailable -and $null -ne $report.hostAiCredits)) {
             throw 'Ready-capture final-report host AI credits do not match retained usage evidence.'
+        }
+
+        switch ([string]$report.terminalDisposition) {
+            'descriptive-complete' {
+                if (-not [string]::Equals(
+                        [string]$report.terminalReason,
+                        'four-valid-pairs',
+                        [StringComparison]::Ordinal)) {
+                    throw 'A descriptive-complete report must record the four-valid-pairs reason.'
+                }
+            }
+            'incomplete-precondition' {
+                if (-not ([string]$report.terminalReason).StartsWith('precondition:', [StringComparison]::Ordinal) -or
+                    $results.Count -ne 0 -or $maps.Count -ne 0 -or @($report.invalidSessions).Count -ne 0) {
+                    throw 'A precondition disposition cannot contain started session evidence.'
+                }
+            }
+            'incomplete-evidence-integrity' {
+                if (-not ([string]$report.terminalReason).StartsWith('evidence:', [StringComparison]::Ordinal) -or
+                    @($report.invalidSessions).Count -eq 0 -or
+                    @($report.invalidSessions | Where-Object {
+                            -not ([string]$_.reason).StartsWith('evidence:', [StringComparison]::Ordinal)
+                        }).Count -ne 0) {
+                    throw 'An evidence-integrity disposition requires only evidence-class invalid sessions.'
+                }
+            }
+            'incomplete-budget' {
+                if (-not ([string]$report.terminalReason).StartsWith('budget:', [StringComparison]::Ordinal) -or
+                    @($report.invalidSessions).Count -eq 0 -or
+                    @($report.invalidSessions | Where-Object {
+                            -not ([string]$_.reason).StartsWith('budget:', [StringComparison]::Ordinal)
+                        }).Count -ne 0) {
+                    throw 'A budget disposition requires only budget-class invalid sessions.'
+                }
+            }
+            'stopped-by-user' {
+                if (-not ([string]$report.terminalReason).StartsWith('user:', [StringComparison]::Ordinal) -or
+                    @($report.invalidSessions).Count -ne 0 -or $results.Count -ne $referencedResultHashes.Count) {
+                    throw 'A user-stopped disposition cannot conceal invalid session evidence.'
+                }
+            }
         }
 
         if (-not [string]::Equals(
@@ -777,6 +970,23 @@ function Invoke-SelfTest {
     [string] $root = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace ep1 record contract $([Guid]::NewGuid().ToString('N'))"
     [System.IO.Directory]::CreateDirectory($root) | Out-Null
     try {
+        [string] $boundsRoot = Join-Path $root 'bounds'
+        [System.IO.Directory]::CreateDirectory($boundsRoot) | Out-Null
+        [System.IO.File]::WriteAllBytes((Join-Path $boundsRoot 'first.json'), [byte[]]::new(4))
+        [System.IO.File]::WriteAllBytes((Join-Path $boundsRoot 'second.json'), [byte[]]::new(6))
+        [System.IO.FileInfo[]] $boundFiles = @(Get-ChildItem -LiteralPath $boundsRoot -File)
+        Assert-ArtifactBounds $boundFiles 2 6 10
+        foreach ($limits in @(
+                [pscustomobject]@{ files = 1; record = 6; total = 10 },
+                [pscustomobject]@{ files = 2; record = 5; total = 10 },
+                [pscustomobject]@{ files = 2; record = 6; total = 9 })) {
+            [bool] $rejected = $false
+            try { Assert-ArtifactBounds $boundFiles $limits.files $limits.record $limits.total }
+            catch { $rejected = $true }
+            if (-not $rejected) { throw 'Ready-capture artifact bound mutation unexpectedly passed.' }
+        }
+        Remove-Item -LiteralPath $boundsRoot -Recurse -Force
+
         $protocolValue = [System.IO.File]::ReadAllText($ProtocolPath) | ConvertFrom-Json -Depth 100
         [string] $protocolHash = Get-CanonicalTextHash $ProtocolPath
         [string] $zeroHash = '0' * 64
@@ -817,6 +1027,13 @@ function Invoke-SelfTest {
         [string] $authorizationPath = Join-Path $root 'authorization.json'
         Write-JsonFile $authorizationPath $authorization
         [string] $authorizationHash = Get-RawHash $authorizationPath
+        [string[]] $ownedEnvironment = @(
+            'HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'APPDATA', 'LOCALAPPDATA', 'COPILOT_HOME')
+        [string[]] $knownTools = @(
+            'powershell', 'read_powershell', 'stop_powershell', 'list_powershell',
+            'apply_patch', 'view', 'web_fetch', 'fetch_copilot_cli_documentation',
+            'skill', 'sql', 'session_store_sql', 'read_agent', 'list_agents',
+            'write_agent', 'rg', 'glob', 'task')
 
         foreach ($pair in 1..4) {
             [string] $packetId = '{0:x32}' -f $pair
@@ -881,16 +1098,62 @@ function Invoke-SelfTest {
                     [string]$armPosition.arm, 'cli-skill', [StringComparison]::Ordinal)
                 [object[]] $sessionSkillInventory = [object[]]::new(0)
                 if ($withSkill) { $sessionSkillInventory = @($skillInventory) }
+                [string[]] $availableTools = if ($withSkill) {
+                    @('powershell', 'skill', 'view')
+                }
+                else { @('powershell') }
+                [string[]] $excludedTools = @($knownTools | Where-Object {
+                        $availableTools -cnotcontains $_
+                    })
                 $iteration = [ordered]@{
                     task = 'scope-preserving-drill'; iteration = 1; success = [bool]$answerRecord.answerAvailable; calls = 1; helpCalls = 0
                     tokens = 100; wallMs = 1000; hostUsage = [ordered]@{ premiumRequests = 1 }
                     hostUsageFile = [ordered]@{ available = $true; value = [ordered]@{ totalPremiumRequestCost = 1 } }
                     answer = $answerRecord.answer; transcript = @([ordered]@{ kind = 'filtrace' })
                     execution = [ordered]@{
+                        nativeTimeoutSeconds = 600
+                        hostOutputMaxBytes = 10485760
+                        capturedBytes = 1
+                        artifactBytes = 1
+                        hostRuntimeBytes = 1
                         processExitCode = 0
                         resultExitCode = 0
                         fixture = [ordered]@{ sha256 = $protocolValue.inputs.fixtureSha256 }
                         cli = [ordered]@{ inventory = $cliInventory }
+                        isolation = [ordered]@{
+                            workspaceOutsideRepository = $true
+                            inheritedEnvironment = @(Get-AgentEvalAllowedEnvironmentNames)
+                            ownedEnvironment = $ownedEnvironment
+                            noCustomInstructions = -not $withSkill
+                            builtinMcpsDisabled = $true
+                            availableTools = $availableTools
+                            excludedTools = $excludedTools
+                            shellDefaultDenied = $true
+                            writeDenied = $true
+                            urlDenied = $true
+                            readDenied = $true
+                            executionPolicyMaxCalls = 6
+                            executionPolicyCallCount = 1
+                            executionPolicyMaxViewCalls = 4
+                            executionPolicyMaxViewBytes = 67108864
+                            dynamicArtifactMaxBytes = 16777216
+                            hostRuntimeMaxBytes = 268435456
+                            hostRuntimeMaxFileBytes = 134217728
+                            hostRuntimeMaxEntries = 1024
+                            processTreeContained = $true
+                            maxAiCredits = 30
+                        }
+                        inputPolicy = [ordered]@{
+                            fixtureMaxBytes = 536870912
+                            cliMaxFiles = 256
+                            cliMaxEntries = 512
+                            cliMaxBytes = 536870912
+                            skillMaxFiles = 64
+                            skillMaxEntries = 128
+                            skillMaxBytes = 16777216
+                            skillMaxViewCalls = 4
+                            skillMaxRequestedBytes = 67108864
+                        }
                     }
                     skill = [ordered]@{
                         provided = $withSkill
@@ -906,6 +1169,8 @@ function Invoke-SelfTest {
                 $result = [ordered]@{
                     schemaVersion = 3
                     host = 'copilot'
+                    configuration = 'Release'
+                    authorizationSha256 = $authorizationHash
                     model = [ordered]@{
                         expected = 'private-model'
                         observed = 'private-model'
@@ -914,6 +1179,8 @@ function Invoke-SelfTest {
                     arm = $armPosition.arm
                     label = "ep1-rc-p$pair-$($armPosition.position)-$($armPosition.arm)"
                     n = 1
+                    maxSteps = 6
+                    strictRunBudget = [ordered]@{ projectedBytes = 1; maxBytes = 2147483648 }
                     inputIdentity = @($inputIdentity)
                     iterations = @($iteration)
                 }
@@ -924,6 +1191,7 @@ function Invoke-SelfTest {
                 [void]$entries.Add([ordered]@{ blindId = $armPosition.blindId; arm = $armPosition.arm; position = $armPosition.position; resultSha256 = $resultHash })
                 [void]$sessions.Add([ordered]@{
                     pair = $pair; position = $armPosition.position; arm = $armPosition.arm; resultSha256 = $resultHash
+                    authorizationSha256 = $authorizationHash
                     success = [bool]$iteration.success; answerAvailable = [bool]$answerRecord.answerAvailable; falseConfidence = $false; calls = 1; helpCalls = 0
                     tokens = 100; wallMs = 1000; hostAiCredits = 1; hostUsage = $iteration.hostUsage
                     hostUsageFile = $iteration.hostUsageFile; answerCriteria = $gradeRecord.criteria
@@ -956,6 +1224,7 @@ function Invoke-SelfTest {
         $report = [ordered]@{
             schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'final-report'
             protocolSha256 = $protocolHash; terminalDisposition = 'descriptive-complete'; validPairs = 4
+            terminalReason = 'four-valid-pairs'
             hostSessions = 8; hostAiCredits = 8; authorizationSha256 = $authorizationHash
             sessionResultSha256 = @($resultHashes)
             gradeSha256 = @($gradeHashes); sessions = @($sessions)
@@ -997,12 +1266,14 @@ function Invoke-SelfTest {
             $incompleteReport = [ordered]@{
                 schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'final-report'
                 protocolSha256 = $protocolHash; terminalDisposition = 'incomplete-evidence-integrity'
+                terminalReason = 'evidence:self-test invalid session'
                 validPairs = 0; hostSessions = 1; hostAiCredits = 1
                 authorizationSha256 = $authorizationHash
                 sessionResultSha256 = @($invalidResultHash); gradeSha256 = @(); sessions = @()
                 invalidSessions = @([ordered]@{
                         pair = 1; position = 'first'; arm = 'cli-skill'
-                        resultSha256 = $invalidResultHash; reason = 'self-test invalid evidence'
+                        resultSha256 = $invalidResultHash; authorizationSha256 = $authorizationHash
+                        reason = 'evidence:self-test invalid evidence'
                         hostAiCredits = 1
                     })
                 armSummaries = @(); pairedDeltas = @(); orderSummaries = @()
@@ -1012,6 +1283,23 @@ function Invoke-SelfTest {
             }
             Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $incompleteReport
             [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final')
+
+            $invalidCreditsReport = ($incompleteReport | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $invalidCreditsReport.invalidSessions[0].hostAiCredits = 0
+            Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $invalidCreditsReport
+            [bool] $invalidCreditsRejected = $false
+            try { [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final') }
+            catch { $invalidCreditsRejected = $true }
+            if (-not $invalidCreditsRejected) { throw 'Ready-capture invalid-session credit mutation unexpectedly passed.' }
+
+            $invalidDispositionReport = ($incompleteReport | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $invalidDispositionReport.terminalDisposition = 'stopped-by-user'
+            $invalidDispositionReport.terminalReason = 'user:self-test'
+            Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $invalidDispositionReport
+            [bool] $invalidDispositionRejected = $false
+            try { [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final') }
+            catch { $invalidDispositionRejected = $true }
+            if (-not $invalidDispositionRejected) { throw 'Ready-capture terminal-disposition mutation unexpectedly passed.' }
         }
         finally {
             Remove-Item -LiteralPath $incompleteRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -1049,6 +1337,20 @@ function Invoke-SelfTest {
             finally {
                 Remove-Item -LiteralPath $copy -Recurse -Force -ErrorAction SilentlyContinue
             }
+        }
+        [string] $alternateSchema = "$root-alternate-schema.json"
+        try {
+            [System.IO.File]::WriteAllText(
+                $alternateSchema,
+                ([System.IO.File]::ReadAllText($SchemaPath) + "`n"),
+                [Text.UTF8Encoding]::new($false))
+            [bool] $alternateSchemaRejected = $false
+            try { [void](Test-ArtifactSet $root $ProtocolPath $alternateSchema $true $false 'Final') }
+            catch { $alternateSchemaRejected = $true }
+            if (-not $alternateSchemaRejected) { throw 'Ready-capture alternate-schema mutation unexpectedly passed.' }
+        }
+        finally {
+            Remove-Item -LiteralPath $alternateSchema -Force -ErrorAction SilentlyContinue
         }
         Write-Host 'Ready-capture record contract passed.'
     }

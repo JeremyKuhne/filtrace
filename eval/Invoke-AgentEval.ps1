@@ -142,6 +142,7 @@ param(
     [string]$Arm,
     [string]$Model = 'gpt-oss:20b',
     [string]$ExpectedModel,
+    [ValidatePattern('^[0-9a-f]{64}$')][string]$AuthorizationSha256,
     [string[]]$Models,
     [string[]]$Tasks,
     [ValidateRange(1, 1000)]
@@ -1780,6 +1781,8 @@ function Invoke-CopilotIteration {
         execution = [pscustomobject]@{
             runId = $context.runId
             workspace = $context.workspace
+            nativeTimeoutSeconds = $NativeTimeoutSeconds
+            hostOutputMaxBytes = $MaxHostOutputBytes
             capturedBytes = $processResult.capturedBytes
             artifactBytes = $processResult.artifactBytes
             hostRuntimeBytes = $processResult.hostRuntimeBytes
@@ -1827,6 +1830,7 @@ function Invoke-CopilotIteration {
                 hostRuntimeMaxFileBytes = $processResult.hostRuntimeMaxFileBytes
                 hostRuntimeMaxEntries = $processResult.hostRuntimeMaxEntries
                 processTreeContained = $processResult.processTreeContained
+                maxAiCredits = 30
             }
             inputPolicy = $context.inputPolicy
         }
@@ -2244,11 +2248,13 @@ function Invoke-EvalRun {
     $payload = [ordered]@{
         schemaVersion = 3
         host          = $AgentHost
+        configuration = $Configuration
         model         = $reportModel
         arm           = $arm
         label         = $RunLabel
         n             = $N
         maxSteps      = $MaxSteps
+        authorizationSha256 = if ([string]::IsNullOrWhiteSpace($AuthorizationSha256)) { $null } else { $AuthorizationSha256 }
         inputIdentity = @($selected | ForEach-Object { $_.inputIdentity } | Sort-Object task)
         strictRunBudget = $strictRunProjection
         mcpDll        = if ([string]::IsNullOrWhiteSpace($McpDll)) { $null } else { $McpDll }

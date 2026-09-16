@@ -248,9 +248,11 @@ function Assert-ResultEvidenceSchema($Payload, [string] $Path) {
     }
 
     Assert-ExactObjectMembers $iteration.execution `
-      @('runId', 'workspace', 'capturedBytes', 'artifactBytes', 'hostRuntimeBytes',
+      @('runId', 'workspace', 'nativeTimeoutSeconds', 'hostOutputMaxBytes',
+        'capturedBytes', 'artifactBytes', 'hostRuntimeBytes',
         'processExitCode', 'resultExitCode', 'hostOutput', 'cli', 'fixture', 'isolation', 'inputPolicy') `
-      @('runId', 'workspace', 'capturedBytes', 'artifactBytes', 'hostRuntimeBytes',
+      @('runId', 'workspace', 'nativeTimeoutSeconds', 'hostOutputMaxBytes',
+        'capturedBytes', 'artifactBytes', 'hostRuntimeBytes',
         'processExitCode', 'resultExitCode', 'hostOutput', 'cli', 'fixture', 'isolation', 'inputPolicy') `
       "Schema-v3 result '$Path' execution"
     if ($null -ne $iteration.execution.hostOutput) {
@@ -282,7 +284,8 @@ function Assert-ResultEvidenceSchema($Payload, [string] $Path) {
       'executionPolicyMaxHelpCalls', 'executionPolicyHelpCallCount', 'executionPolicyHelpCommandHashes',
       'executionPolicyMaxViewCalls', 'executionPolicyMaxViewBytes', 'executionPolicyViewRequests',
       'hookConfigurationPath', 'dynamicArtifactMaxBytes', 'hostRuntimeMaxBytes',
-      'hostRuntimeMaxFileBytes', 'hostRuntimeMaxEntries', 'processTreeContained')
+      'hostRuntimeMaxFileBytes', 'hostRuntimeMaxEntries', 'processTreeContained',
+      'maxAiCredits')
     Assert-ExactObjectMembers $iteration.execution.isolation $isolationMembers $isolationMembers `
       "Schema-v3 result '$Path' isolation evidence"
     foreach ($arrayField in @(
@@ -411,8 +414,8 @@ function Assert-ResultPayload($Payload, [string] $Path) {
   }
   [int] $schemaVersion = [int]$schemaVersionValue
   [string[]] $allowedRootMembers = if ($schemaVersion -eq 3) {
-    @('schemaVersion', 'host', 'model', 'arm', 'label', 'n', 'maxSteps',
-      'inputIdentity', 'strictRunBudget', 'mcpDll', 'tokenAccounting', 'warnings',
+    @('schemaVersion', 'host', 'configuration', 'model', 'arm', 'label', 'n', 'maxSteps',
+      'authorizationSha256', 'inputIdentity', 'strictRunBudget', 'mcpDll', 'tokenAccounting', 'warnings',
       'timestamp', 'summary', 'transport', 'iterations')
   }
   else {
@@ -427,10 +430,20 @@ function Assert-ResultPayload($Payload, [string] $Path) {
       @($allowedRootMembers | Where-Object { $rootMembers -cnotcontains $_ }).Count -ne 0)) {
     throw "Schema-v3 result '$Path' is missing a required root member."
   }
+  if ($schemaVersion -eq 3 -and $null -ne $Payload.authorizationSha256 -and
+    ($Payload.authorizationSha256 -isnot [string] -or
+      [string]$Payload.authorizationSha256 -cnotmatch '^[0-9a-f]{64}$')) {
+    throw "Schema-v3 result '$Path' has an invalid authorization hash."
+  }
   foreach ($member in @('host', 'arm', 'label')) {
     if ($Payload.$member -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Payload.$member)) {
       throw "Result '$Path' has an invalid '$member'."
     }
+  }
+  if ($schemaVersion -eq 3 -and
+    ($Payload.configuration -isnot [string] -or
+      [string]::IsNullOrWhiteSpace([string]$Payload.configuration))) {
+    throw "Schema-v3 result '$Path' has an invalid 'configuration'."
   }
   if (-not (Test-JsonArray $Payload.summary)) { throw "Result '$Path' summary is not an array." }
   [object[]] $summary = $Payload.summary
