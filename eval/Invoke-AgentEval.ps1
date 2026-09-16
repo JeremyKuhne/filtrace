@@ -142,6 +142,7 @@ param(
     [string]$Arm,
     [string]$Model = 'gpt-oss:20b',
     [string]$ExpectedModel,
+    [ValidatePattern('^[0-9a-f]{64}$')][string]$AuthorizationSha256,
     [string[]]$Models,
     [string[]]$Tasks,
     [ValidateRange(1, 1000)]
@@ -1761,12 +1762,9 @@ function Invoke-CopilotIteration {
     elseif (-not $evidenceValid) { $note = 'copilot transcript evidence was malformed or included an unexpected tool attempt' }
     elseif (-not $hasUsageEvidence) { $note = 'copilot host reported no valid usage evidence' }
     elseif ($filtraceCalls -eq 0) { $note = 'no local filtrace tool call' }
-    $wallMs = if ($usageValid -and $usage.sessionDurationMs) {
-        [int]$usage.sessionDurationMs
-    }
-    else {
-        [int]$processResult.wallMs
-    }
+    # Keep the primary elapsed value on the evaluator-owned monotonic clock.
+    # Host-reported session/API durations remain available under hostUsage.
+    $wallMs = [int]$processResult.wallMs
     return [pscustomobject]@{
         answer = $answer; calls = $filtraceCalls; helpCalls = $helpCalls; tokens = $tokens
         textTokens = $textTokens; structuredTokens = $structuredTokens; wireTokens = $wireTokens
@@ -1783,6 +1781,8 @@ function Invoke-CopilotIteration {
         execution = [pscustomobject]@{
             runId = $context.runId
             workspace = $context.workspace
+            nativeTimeoutSeconds = $NativeTimeoutSeconds
+            hostOutputMaxBytes = $MaxHostOutputBytes
             capturedBytes = $processResult.capturedBytes
             artifactBytes = $processResult.artifactBytes
             hostRuntimeBytes = $processResult.hostRuntimeBytes
@@ -1830,6 +1830,7 @@ function Invoke-CopilotIteration {
                 hostRuntimeMaxFileBytes = $processResult.hostRuntimeMaxFileBytes
                 hostRuntimeMaxEntries = $processResult.hostRuntimeMaxEntries
                 processTreeContained = $processResult.processTreeContained
+                maxAiCredits = 30
             }
             inputPolicy = $context.inputPolicy
         }
@@ -1839,72 +1840,6 @@ function Invoke-CopilotIteration {
 }
 
 # --- Task selection -----------------------------------------------------------
-
-function Get-AgentEvalTaskInputClosureHash($Task, [string] $Root) {
-    [StringComparer] $pathComparer = if ([System.OperatingSystem]::IsWindows()) {
-        [StringComparer]::OrdinalIgnoreCase
-    }
-    else {
-        [StringComparer]::Ordinal
-    }
-    [System.Collections.Generic.HashSet[string]] $seen =
-        [System.Collections.Generic.HashSet[string]]::new($pathComparer)
-    [System.Collections.Generic.Queue[string]] $pending =
-        [System.Collections.Generic.Queue[string]]::new()
-    $pending.Enqueue([System.IO.Path]::GetFullPath((Join-Path $Root $Task.fixture)))
-    foreach ($step in @($Task.steps)) {
-        foreach ($argument in @($step.args)) {
-            if ($argument -isnot [string] -or
-                [string]::Equals([string]$argument, '{fixture}', [StringComparison]::Ordinal) -or
-                ([string]$argument).StartsWith('--', [StringComparison]::Ordinal)) {
-                continue
-            }
-            [string] $candidate = [System.IO.Path]::GetFullPath((Join-Path $Root ([string]$argument)))
-            if (Test-Path -LiteralPath $candidate -PathType Leaf) { $pending.Enqueue($candidate) }
-        }
-    }
-
-    [System.Collections.Generic.List[object]] $files =
-        [System.Collections.Generic.List[object]]::new()
-    while ($pending.Count -gt 0) {
-        [string] $path = $pending.Dequeue()
-        if (-not $seen.Add($path)) { continue }
-        if (-not (Test-AgentEvalPathContained -Path $path -Root $Root) -or
-            -not (Test-Path -LiteralPath $path -PathType Leaf)) {
-            throw "Task '$($Task.id)' input '$path' escaped the repository or was missing."
-        }
-        Assert-AgentEvalNoReparsePoint -Path $path -Boundary $Root
-        $files.Add([pscustomobject]@{
-                path = [System.IO.Path]::GetRelativePath($Root, $path).Replace('\', '/')
-                sha256 = Get-AgentEvalFileHash $path
-            })
-
-        if (-not [string]::Equals(
-                [System.IO.Path]::GetFileName($path),
-                'manifest.json',
-                [StringComparison]::Ordinal)) {
-            continue
-        }
-        $manifest = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-        foreach ($case in @($manifest.cases)) {
-            foreach ($property in @($case.PSObject.Properties | Where-Object {
-                        $_.Name -in @('trace', 'nettrace', 'etl', 'speedscope') -and
-                        $_.Value -is [string]
-                    })) {
-                [string] $referencedPath = [System.IO.Path]::GetFullPath(
-                    (Join-Path ([System.IO.Path]::GetDirectoryName($path)) ([string]$property.Value)))
-                $pending.Enqueue($referencedPath)
-            }
-        }
-    }
-    [string[]] $closureEntries = @($files | ForEach-Object {
-            [string]([ordered]@{ path = $_.path; sha256 = $_.sha256 } |
-                ConvertTo-Json -Compress)
-        })
-    [Array]::Sort($closureEntries, [StringComparer]::Ordinal)
-    [string] $closureJson = ConvertTo-Json -InputObject $closureEntries -Compress
-    return Get-AgentEvalTextHash $closureJson
-}
 
 $mcpQaById = @{}
 $mcpQaHashById = @{}
@@ -1940,7 +1875,7 @@ foreach ($file in $allTaskFiles) {
     [string] $fixturePath = (Resolve-Path (Join-Path $root $task.fixture)).Path
     $task | Add-Member -NotePropertyName inputIdentity -NotePropertyValue ([pscustomobject]@{
             task = [string]$task.id
-            taskSha256 = Get-AgentEvalFileHash $file.FullName
+            taskSha256 = Get-AgentEvalCanonicalTextFileHash $file.FullName
             qaSha256 = [string]$mcpQaHashById[$task.id]
             fixtureSha256 = Get-AgentEvalFileHash $fixturePath
             inputClosureSha256 = Get-AgentEvalTaskInputClosureHash -Task $task -Root $root
@@ -2313,11 +2248,13 @@ function Invoke-EvalRun {
     $payload = [ordered]@{
         schemaVersion = 3
         host          = $AgentHost
+        configuration = $Configuration
         model         = $reportModel
         arm           = $arm
         label         = $RunLabel
         n             = $N
         maxSteps      = $MaxSteps
+        authorizationSha256 = if ([string]::IsNullOrWhiteSpace($AuthorizationSha256)) { $null } else { $AuthorizationSha256 }
         inputIdentity = @($selected | ForEach-Object { $_.inputIdentity } | Sort-Object task)
         strictRunBudget = $strictRunProjection
         mcpDll        = if ([string]::IsNullOrWhiteSpace($McpDll)) { $null } else { $McpDll }

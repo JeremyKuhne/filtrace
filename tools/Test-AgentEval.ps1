@@ -590,11 +590,15 @@ try {
     Assert-True ((Get-Item -LiteralPath $fallbackResult.diagnosticPath).Length -le 24) `
         'Fallback output diagnostic exceeded the remaining artifact budget.'
 
-    $success = Invoke-FakeRun -Name 'cli success' -Mode success
+    $success = Invoke-FakeRun -Name 'cli success' -Mode delayed-success
     Assert-True ($success.arm -eq 'cli') "Expected cli arm, got '$($success.arm)'."
     Assert-True ($success.model.observed -eq 'expected-model') 'The observed model was not retained.'
     Assert-True ($success.model.verified -eq $true) 'The observed model was not verified.'
     Assert-True ($success.iterations[0].success -eq $true) "Grounded CLI iteration failed: $($success.iterations[0].note)"
+    Assert-True ($success.iterations[0].hostUsage.sessionDurationMs -eq 25 -and
+        $success.iterations[0].wallMs -ge 200 -and
+        $success.iterations[0].wallMs -ne $success.iterations[0].hostUsage.sessionDurationMs) `
+        'Primary wallMs did not remain on the evaluator-owned monotonic process clock.'
     $filtraceEntry = @($success.iterations[0].transcript | Where-Object { $_.kind -eq 'filtrace' })
     Assert-True ($filtraceEntry.Count -eq 1 -and $filtraceEntry[0].ok) 'Matched successful tool completion was not retained.'
     Assert-True ($success.iterations[0].execution.workspace.Contains(' ', [StringComparison]::Ordinal)) 'Owned workspace did not preserve its spaced path.'
@@ -656,6 +660,21 @@ try {
         'Successful fake run did not retain the modern PowerShell metadata.'
     Assert-True (@($success.model.observedDistinct) -notcontains 'provider-model') `
         'Provider-level model metadata was used as strict host identity.'
+    [void](Invoke-FakeRun -Name 'schema validation success' -Mode success -Label validation)
+    [string] $successResultPath = @(Get-ChildItem -LiteralPath (Join-Path $temporaryRoot 'schema validation success') -File -Filter '*.json' |
+        Sort-Object LastWriteTimeUtc | Select-Object -Last 1).FullName
+    & $compareRunner -ValidateResultPath $successResultPath | Out-Null
+    [string] $gcTaskPath = Join-Path $root 'eval/tasks/04-gc-report.json'
+    Assert-True ($success.inputIdentity[0].taskSha256 -eq
+        (Get-AgentEvalCanonicalTextFileHash $gcTaskPath)) `
+        'The retained task identity did not use canonical text hashing.'
+    [string] $lfTextPath = Join-Path $temporaryRoot 'canonical-lf.txt'
+    [string] $crlfTextPath = Join-Path $temporaryRoot 'canonical-crlf.txt'
+    [System.IO.File]::WriteAllText($lfTextPath, "first`nsecond`n", [Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText($crlfTextPath, "first`r`nsecond`r`n", [Text.UTF8Encoding]::new($false))
+    Assert-True ((Get-AgentEvalCanonicalTextFileHash $lfTextPath) -eq
+        (Get-AgentEvalCanonicalTextFileHash $crlfTextPath)) `
+        'Canonical text hashing changed across LF and CRLF inputs.'
     Assert-True ($success.iterations[0].hostUsageFile.available -eq $true -and
         $success.iterations[0].hostUsageFile.value.tokenDetails.input.tokenCount -eq 20 -and
         $success.iterations[0].hostUsageFile.value.tokenDetails.cache_read.tokenCount -eq 5 -and
@@ -2124,6 +2143,13 @@ try {
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
         $legacyV3 = Read-TestResult $resultPath.FullName
         $legacyV3.summary[0].PSObject.Properties.Remove('SuccessCount')
+        $legacyV3.PSObject.Properties.Remove('configuration')
+        $legacyV3.PSObject.Properties.Remove('authorizationSha256')
+        foreach ($iteration in @($legacyV3.iterations)) {
+            $iteration.execution.PSObject.Properties.Remove('nativeTimeoutSeconds')
+            $iteration.execution.PSObject.Properties.Remove('hostOutputMaxBytes')
+            $iteration.execution.isolation.PSObject.Properties.Remove('maxAiCredits')
+        }
         [System.IO.File]::WriteAllText(
             (Join-Path $legacyV3Directory $resultPath.Name),
             (($legacyV3 | ConvertTo-Json -Depth 20) + "`n"),
@@ -2166,6 +2192,50 @@ try {
     }
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $maxStepsDirectory
     Assert-True ($LASTEXITCODE -eq 1) 'Runs with different maxSteps budgets were paired.'
+
+    $configurationDirectory = Join-Path $temporaryRoot 'configuration comparison'
+    [System.IO.Directory]::CreateDirectory($configurationDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $configurationRecord = Read-TestResult $resultPath.FullName
+        if ($configurationRecord.label -ceq 'candidate') { $configurationRecord.configuration = 'Debug' }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $configurationDirectory $resultPath.Name),
+            (($configurationRecord | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $configurationDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'Runs with different build configurations were paired.'
+
+    $authorizationDirectory = Join-Path $temporaryRoot 'authorization comparison'
+    [System.IO.Directory]::CreateDirectory($authorizationDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $authorizationRecord = Read-TestResult $resultPath.FullName
+        $authorizationRecord.authorizationSha256 = if ($authorizationRecord.label -ceq 'baseline') { '0' * 64 } else { '1' * 64 }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $authorizationDirectory $resultPath.Name),
+            (($authorizationRecord | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $authorizationDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'Runs with different authorization hashes were paired.'
+
+    $authorizationPresenceDirectory = Join-Path $temporaryRoot 'authorization presence comparison'
+    [System.IO.Directory]::CreateDirectory($authorizationPresenceDirectory) | Out-Null
+    foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json' | Where-Object { $_.Name -ne 'unrelated.json' }) {
+        $authorizationPresenceRecord = Read-TestResult $resultPath.FullName
+        if ($authorizationPresenceRecord.label -ceq 'baseline') {
+            $authorizationPresenceRecord.PSObject.Properties.Remove('authorizationSha256')
+        }
+        else {
+            $authorizationPresenceRecord.authorizationSha256 = '0' * 64
+        }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $authorizationPresenceDirectory $resultPath.Name),
+            (($authorizationPresenceRecord | ConvertTo-Json -Depth 20) + "`n"),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $authorizationPresenceDirectory
+    Assert-True ($LASTEXITCODE -eq 1) 'A hash-bound run was paired with a run lacking authorization evidence.'
 
     $inputIdentityDirectory = Join-Path $temporaryRoot 'input identity comparison'
     [System.IO.Directory]::CreateDirectory($inputIdentityDirectory) | Out-Null
@@ -2218,8 +2288,10 @@ try {
         $legacy.schemaVersion = 2
         $legacy.arm = 'mcp'
         $legacy.model = 'expected-model'
+        $legacy.PSObject.Properties.Remove('configuration')
         $legacy.PSObject.Properties.Remove('n')
         $legacy.PSObject.Properties.Remove('maxSteps')
+        $legacy.PSObject.Properties.Remove('authorizationSha256')
         $legacy.PSObject.Properties.Remove('inputIdentity')
         $legacy.PSObject.Properties.Remove('iterations')
         [System.IO.File]::WriteAllText(

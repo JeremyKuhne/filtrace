@@ -5,12 +5,12 @@ schedule and completion status. Cross-repository coordination may reorder work, 
 the change must be reflected here before it makes a Filtrace item active. Private
 coordination records are supplemental evidence, not required to interpret this plan.
 
-**Status:** Current public plan and conditional backlog. The priorities and
-remaining-outcomes tables below state what is active, next, conditional, complete,
-or outside the current finish line.
+**Status:** EP1 preflight is complete. No execution mode, measured arm, or
+implementation work is active. This change prepares a bounded ready-capture
+protocol for review; the protocol cannot authorize its own execution.
 
-**Last verified:** 2026-09-13 against `main` at `d46f39c` and the coordinated
-cross-repository priorities updated 2026-09-12.
+**Last verified:** 2026-09-14 against `main` at `ecf8335` and the merged
+cross-repository checkpoint.
 
 Completed sections remain only where their measured decisions constrain future
 work. Git history and release tags record what landed; durable lessons live in
@@ -64,9 +64,10 @@ true.
 
 | When | Items | Why now |
 | --- | --- | --- |
-| Done | VN0-VN4, VC2, SC8, SC11, SC13, LT1 | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, command provenance, decisive-query replay, and repository-local activation are implemented. |
-| Active coordinated work | EP1 ready-capture comparison | Run three alternating CLI-plus-skill / CLI-only pairs with the frozen preflight contract and transcript-level grading. Do not infer efficacy from the completed one-pair smoke. |
-| Next when scheduled | EP1 full-loop pair, PP02 evidence gaps, PP10 adoption | Run one matched development-loop pair after accepting the ready-capture result. Complete other evidence or adoption work when that result selects it. |
+| Done | VN0-VN4, VC2, SC8, SC11, SC13, LT1, EP1 preflight | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, command provenance, decisive-query replay, repository-local activation, and bounded evaluator preflight are implemented. |
+| Current checkpoint | No active execution | The prior continuous authorization ended with Filtrace PR #132 and plan synchronization. Protocol preparation and measured execution are separate authorization boundaries. |
+| Next only with explicit authorization | EP1 ready-capture protocol | Review and freeze [the prepared protocol](../eval/protocols/ep1-ready-capture-v1.json), then separately authorize at most four balanced pairs / eight host sessions within its 240-credit ceiling. Report descriptive evidence and stop; do not claim a winner. |
+| Later only after an accepted result and separate authorization | EP1 full-loop case, PP02 evidence gaps, PP10 adoption | The ready-capture result returns for a decision before any full-loop, measurement expansion, adoption work, MCP arm, or implementation begins. |
 | Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the named public scenario and gate recorded here; these are not the current default implementation queue. |
 | Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the remaining-outcomes table below; production implementation follows only for a kept candidate. |
 | Dependency opportunities | TE-P1..TE-P5 | First demonstrate a Filtrace scenario, material cost, and compatible ownership/lifetime contract against the selected dependency. They are not Filtrace-only changes and do not justify speculative upstream work. |
@@ -84,17 +85,17 @@ gates.
 
 | Area | Remaining outcome | Kind |
 | --- | --- | --- |
-| Active cross-repository work | Compare CLI plus genuinely discovered skill against CLI-only on one ready-capture task. Keep model, host, CLI, fixture, prompt, and analysis command policy fixed; the skill arm necessarily adds native skill discovery and bounded reads of its attested files. | Agent workflow evidence |
-| PP02 / Track D evidence | Recheck the durable corpus and complete an exact baseline-versus-baseline default-job reconstruction. Add provider-rich, negative-control, repeated-query, disposal/eviction, and bounded-concurrency evidence only as a selected comparison needs it. Reach a kept, rejected, or explicitly blocked disposition for each scheduled LP item; inconclusive experiments do not close one. | Harness and evidence |
+| Next authorized outcome | Compare CLI plus genuinely discovered skill against CLI-only on the held-out scope/attribution task under the reviewed, hash-frozen protocol. Keep model, host, CLI, fixture, prompt, and non-skill policy fixed; report raw evidence and stop without automatic routing. | Agent workflow evidence |
+| PP02 / Track D evidence | No work is active. Add provider-rich, negative-control, repeated-query, disposal/eviction, or bounded-concurrency evidence only when a separately authorized comparison needs it. | Harness and evidence |
 | PP09 workflow | Evaluate SC10 manifest-addressed lifecycle first. Implement ambiguity, routing, or hint improvements only from a reproduced agent failure; VC3 remains optional. | Conditional Filtrace implementation |
 | PP10 adoption | Decide whether and how FastTrace becomes a product dependency; complete required native host evidence or explicitly narrow the claim, and resolve default DIA/native-symbol distribution. | Validation and product decision |
-| PP11 efficacy | After the ready-capture comparison is accepted, run one matched full development-loop pair with a frozen task and grader. Do not revive the five-arm evaluator matrix first. | End-to-end evidence |
+| PP11 efficacy | A full development-loop case requires an accepted ready-capture result plus a separate protocol and authorization. Do not revive the five-arm evaluator matrix first. | End-to-end evidence |
 | PP12 closeout | Finish the replacement assessment, Filtrace executive overview, scenario disposition, and closeout record from retained evidence. | Documentation and decision |
 
 VC4-VC8, VC1, general harness hardening, and speculative parallel implementations
 are outside the current finish line unless a required scenario promotes them.
 
-### EP1 preflight - complete
+### EP1 preflight - complete; measured protocol - prepared, not authorized
 
 The deterministic fake-host contract fails closed for wrong or missing model,
 skill, tool, result, and usage evidence. Copilot CLI 1.0.82 discovered the owned
@@ -109,6 +110,20 @@ Both reported one premium request and complete host usage files.
 This N=1 pair establishes protocol and accounting readiness, not a skill advantage.
 The retained identities and full token counts are in
 [eval/README.md](../eval/README.md#ep1-preflight-checkpoint).
+
+Filtrace PR #132 merged the evaluator as `ecf8335`; its merge tree matches the
+reviewed head. The prepared ready-capture protocol binds the held-out
+`scope-preserving-drill` task, evaluator-only expected facts, unique run homes and
+workspaces, balanced order, four valid pairs, eight maximum sessions, 240 maximum
+host AI credits, and zero automatic replacement pairs. It reports raw sessions,
+paired deltas, arm medians/ranges, and order sensitivity without an overall winner
+classification. After each pair, the exact final answers are graded under opaque,
+randomized identifiers before the arm map is revealed; runner success and semantic
+answer grading remain separate evidence. No answer and wrong answers remain valid
+measured outcomes; malformed or missing evidence stops the experiment without
+replacement. Protocol preparation does not authorize execution; after review and
+merge, its exact hash is recorded privately and a new execution authorization is
+still required.
 
 ---
 
@@ -1371,7 +1386,7 @@ selected contracts; active changes must not silently reopen them.
 ## Current routing
 
 Follow the priorities and remaining-outcomes tables on this page. As of the
-2026-09-13 preflight checkpoint, the immediate work is three alternating EP1
-ready-capture pairs with transcript-level grading. Do not start another broad
-FastTrace sweep, general harness campaign, SC10, or VC3 experiment in parallel.
-Promote one only when the accepted EP1 evidence identifies it as the next owner.
+2026-09-14 checkpoint, no execution mode is active. The prepared EP1 protocol and
+this roadmap must merge and be hash-checkpointed before the user separately
+authorizes any measured session. Do not start a broad FastTrace sweep, general
+harness campaign, SC10, VC3, MCP arm, full-loop case, or implementation in parallel.
