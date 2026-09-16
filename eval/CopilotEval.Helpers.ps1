@@ -12,6 +12,11 @@ function Get-AgentEvalTextHash([string] $Text) {
     return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 }
 
+function Get-AgentEvalCanonicalTextFileHash([string] $Path) {
+    [string] $text = [System.IO.File]::ReadAllText($Path).Replace("`r`n", "`n").Replace("`r", "`n")
+    return Get-AgentEvalTextHash $text
+}
+
 function Initialize-AgentEvalWindowsJobObjectType {
     if ($null -ne ('Filtrace.AgentEval.WindowsJobObject' -as [type])) { return }
     Add-Type -TypeDefinition @'

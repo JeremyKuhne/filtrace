@@ -119,11 +119,11 @@ host AI credits, and zero automatic replacement pairs. It reports raw sessions,
 paired deltas, arm medians/ranges, and order sensitivity without an overall winner
 classification. After each pair, the exact final answers are graded under opaque,
 randomized identifiers before the arm map is revealed; runner success and semantic
-answer grading remain separate evidence. Wrong answers remain valid measured
-outcomes; malformed or missing evidence stops the experiment without replacement.
-Protocol preparation does not authorize execution; after review and merge, its
-exact hash is recorded privately and a new execution authorization is still
-required.
+answer grading remain separate evidence. No answer and wrong answers remain valid
+measured outcomes; malformed or missing evidence stops the experiment without
+replacement. Protocol preparation does not authorize execution; after review and
+merge, its exact hash is recorded privately and a new execution authorization is
+still required.
 
 ---
 

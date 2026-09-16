@@ -262,8 +262,8 @@ else {
             'grader', 'rubric', 'freeze', 'unblinding', 'qualityFailure',
             'integrityFailure', 'limitation') 'Prepared EP1 adjudication')
         [void](Assert-ExactDocObjectMembers $protocol.records @(
-            'schemaPath', 'schemaSha256', 'recordTypes', 'semanticChecks',
-            'validation') 'Prepared EP1 records')
+            'schemaPath', 'schemaSha256', 'validatorPath', 'recordTypes',
+            'semanticChecks', 'validation') 'Prepared EP1 records')
         [void](Assert-ExactDocObjectMembers $protocol.measurement @(
             'primaryDimensions', 'observationalDimensions', 'clock',
             'practicalEquivalence', 'classification') 'Prepared EP1 measurement')
@@ -276,6 +276,7 @@ else {
             'hostAiCreditsAbsolute', 'relativeDelta') 'Prepared EP1 equivalence')
         [void](Assert-ExactDocObjectMembers $protocol.measurement.classification @(
             'deltaOrientation', 'qualityStates', 'costStates',
+            'qualityComparison', 'costComparison',
             'orderSensitive', 'aggregation', 'overall') 'Prepared EP1 classification')
         [void](Assert-ExactDocObjectMembers $protocol.dispositions @(
             'session', 'pair', 'terminal', 'blockerReproducibility',
@@ -550,7 +551,7 @@ else {
             $protocol.adjudication.randomization -cne
                 'generate-packet-and-blind-ids-with-System.Security.Cryptography.RandomNumberGenerator-16-bytes-each-and-sort-packet-answers-by-blind-id-ordinal' -or
             $protocol.adjudication.packet -cne
-                'exact-final-answer-text-only-randomized-within-pair-under-opaque-blind-ids' -or
+                'explicit-answer-availability-plus-exact-final-answer-text-or-null-randomized-within-pair-under-opaque-blind-ids' -or
             @($protocol.adjudication.hiddenFields).Count -ne $expectedHiddenFields.Count -or
             @(for ($index = 0; $index -lt $expectedHiddenFields.Count; $index++) {
                     if ([string]$protocol.adjudication.hiddenFields[$index] -cne
@@ -559,13 +560,13 @@ else {
             $protocol.adjudication.grader -cne
                 'user-or-independent-reviewer-without-the-private-arm-map' -or
             $protocol.adjudication.rubric -cne
-                'grade-each-answer-criterion-pass-fail-with-an-exact-answer-quote-and-record-one-false-confidence-boolean' -or
+                'grade-each-answer-criterion-pass-fail-with-an-exact-answer-quote-or-no-final-answer-marker-and-record-one-false-confidence-boolean' -or
             $protocol.adjudication.freeze -cne
                 'serialize-and-sha256-the-pair-grade-record-before-revealing-the-arm-map' -or
             $protocol.adjudication.unblinding -cne
                 'reveal-pair-position-and-arm-only-after-both-session-grades-are-frozen' -or
             $protocol.adjudication.qualityFailure -cne
-                'a-failed-criterion-or-false-confidence-is-a-valid-measured-quality-outcome-not-an-invalid-session' -or
+                'no-final-answer-a-failed-criterion-or-false-confidence-is-a-valid-measured-quality-outcome-not-an-invalid-session' -or
             $protocol.adjudication.integrityFailure -cne
                 'missing-or-malformed-session-packet-grade-or-freeze-evidence-stops-incomplete-before-the-next-pair' -or
             $protocol.adjudication.limitation -cne
@@ -584,12 +585,27 @@ else {
                     if ([string]$protocol.records.recordTypes[$index] -cne
                         $recordTypes[$index]) { $index }
                 }).Count -ne 0 -or
-            @($protocol.records.semanticChecks).Count -ne 5 -or
+            @($protocol.records.semanticChecks).Count -ne 7 -or
             $protocol.records.validation -cne
-                'json-schema-plus-tools-Test-Docs-semantic-probes-before-freeze-and-every-report') {
+                'run-validator-against-the-retained-artifact-directory-before-each-grade-freeze-unblinding-and-final-report') {
             Add-Failure 'Prepared EP1 record schema contract has drifted.'
         }
         else {
+            [string] $recordValidatorPath = Join-Path $root ([string]$protocol.records.validatorPath)
+            if (-not (Test-Path -LiteralPath $recordValidatorPath -PathType Leaf)) {
+                Add-Failure 'Prepared EP1 record validator is missing.'
+            }
+            else {
+                try {
+                    & $recordValidatorPath `
+                        -ProtocolPath $protocolPath `
+                        -SchemaPath $recordSchemaPath `
+                        -SelfTest
+                }
+                catch {
+                    Add-Failure "Prepared EP1 record validator failed: $($_.Exception.Message)"
+                }
+            }
             [string] $zeroHash = '0' * 64
             [string] $packetId = '1' * 32
             [string] $firstBlindId = '2' * 32
@@ -602,8 +618,16 @@ else {
                 protocolSha256 = $zeroHash
                 packetId = $packetId
                 answers = @(
-                    [ordered]@{ blindId = $firstBlindId; answer = 'first answer' },
-                    [ordered]@{ blindId = $secondBlindId; answer = 'second answer' })
+                    [ordered]@{
+                        blindId = $firstBlindId
+                        answerAvailable = $true
+                        answer = 'first answer'
+                    },
+                    [ordered]@{
+                        blindId = $secondBlindId
+                        answerAvailable = $true
+                        answer = 'second answer'
+                    })
             }
             $gradeProbe = [ordered]@{
                 schemaVersion = 1
@@ -690,19 +714,23 @@ else {
                 protocolId = 'ep1-ready-capture-v1'
                 recordType = 'final-report'
                 protocolSha256 = $zeroHash
-                terminalDisposition = 'descriptive-complete'
-                validPairs = 4
-                hostSessions = 8
-                hostAiCredits = 8
-                sessionResultSha256 = @(1..8 | ForEach-Object { '{0:x64}' -f $_ })
-                gradeSha256 = @(9..12 | ForEach-Object { '{0:x64}' -f $_ })
-                qualityState = 'same-observed-quality'
+                terminalDisposition = 'incomplete-precondition'
+                validPairs = 0
+                hostSessions = 0
+                hostAiCredits = 0
+                sessionResultSha256 = @()
+                gradeSha256 = @()
+                sessions = @()
+                armSummaries = @()
+                pairedDeltas = @()
+                orderSummaries = @()
+                qualityState = 'unavailable'
                 costStates = [ordered]@{
-                    analysisCalls = 'practically-equivalent'
-                    helpCalls = 'practically-equivalent'
-                    resultTokens = 'practically-equivalent'
-                    wallMs = 'practically-equivalent'
-                    hostAiCredits = 'practically-equivalent'
+                    analysisCalls = 'unavailable'
+                    helpCalls = 'unavailable'
+                    resultTokens = 'unavailable'
+                    wallMs = 'unavailable'
+                    hostAiCredits = 'unavailable'
                 }
                 nextAction = 'stop-and-return-to-user'
             }
@@ -711,9 +739,17 @@ else {
                     Add-Failure "Prepared EP1 schema rejected valid '$($probe.recordType)' probe."
                 }
             }
+            $noAnswerPacket = ($packetProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $noAnswerPacket.answers[0].answerAvailable = $false
+            $noAnswerPacket.answers[0].answer = $null
+            if (-not (Test-DocJsonSchema $noAnswerPacket $recordSchemaPath)) {
+                Add-Failure 'Prepared EP1 schema rejected a valid no-answer packet.'
+            }
 
             $invalidPacket = ($packetProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
             $invalidPacket | Add-Member -NotePropertyName arm -NotePropertyValue 'cli'
+            $invalidAnswerPacket = ($packetProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $invalidAnswerPacket.answers[0].answerAvailable = $false
             $invalidGrade = ($gradeProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
             $invalidGrade.grades[0].criteria.PSObject.Properties.Remove('scope')
             $invalidArmMap = ($armMapProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
@@ -721,9 +757,9 @@ else {
             $invalidCheckpoint = ($checkpointProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
             $invalidCheckpoint.measuredExecutionAuthorized = $true
             $invalidReport = ($reportProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
-            $invalidReport.validPairs = 3
+            $invalidReport.terminalDisposition = 'descriptive-complete'
             foreach ($probe in @(
-                    $invalidPacket, $invalidGrade, $invalidArmMap,
+                    $invalidPacket, $invalidAnswerPacket, $invalidGrade, $invalidArmMap,
                     $invalidCheckpoint, $invalidReport)) {
                 if (Test-DocJsonSchema $probe $recordSchemaPath) {
                     Add-Failure "Prepared EP1 schema accepted malformed '$($probe.recordType)' probe."
@@ -751,12 +787,16 @@ else {
                 'cli-skill-minus-cli' -or
             @($protocol.measurement.classification.qualityStates).Count -ne 6 -or
             @($protocol.measurement.classification.costStates).Count -ne 6 -or
+            $protocol.measurement.classification.qualityComparison -cne
+                'per-pair-compare-seven-good-state-bits-answer-available-plus-five-criterion-passes-plus-not-false-confidence;same-if-identical;skill-higher-if-skill-is-no-worse-in-all-and-better-in-at-least-one;skill-lower-inverse;mixed-otherwise;aggregate-order-sensitive-if-non-same-directions-track-first-arm-in-both-orientations;otherwise-same-if-all-same,higher-or-lower-if-only-that-direction-plus-same,mixed-otherwise' -or
+            $protocol.measurement.classification.costComparison -cne
+                'per-dimension-compute-four-skill-minus-cli-paired-deltas;calls-help-and-credits-equivalent-only-at-zero;tokens-and-wall-equivalent-within-five-percent-of-cli,with-both-zero-equivalent-and-other-zero-baselines-unavailable;order-sensitive-if-orientation-subgroup-medians-have-opposite-non-equivalent-signs;mixed-if-pairs-have-both-non-equivalent-signs;otherwise-classify-the-median-paired-delta' -or
             $protocol.measurement.classification.overall -cne
                 'no-winner-score-or-significance-claim') {
             Add-Failure 'Prepared EP1 measurement and classification contract has drifted.'
         }
         if ($protocol.dispositions.session.validQualityFail -cne
-                'machine-evidence-valid-and-any-criterion-fails-or-false-confidence-triggers' -or
+            'machine-evidence-valid-and-no-final-answer-any-criterion-fails-or-false-confidence-triggers' -or
             $protocol.dispositions.pair.valid -cne
                 'both-sessions-have-valid-evidence-and-schema-valid-grades-frozen-before-unblinding-regardless-of-quality' -or
             @($protocol.dispositions.terminal.PSObject.Properties).Count -ne 5 -or
@@ -767,9 +807,10 @@ else {
             Add-Failure 'Prepared EP1 terminal disposition contract has drifted.'
         }
         foreach ($requiredField in @(
-                'success', 'falseConfidence', 'calls', 'helpCalls', 'tokens',
-                'wallMs', 'hostUsage', 'answerCriteria', 'transcript',
-                'inputIdentity', 'pair', 'position')) {
+            'resultSha256', 'success', 'answerAvailable', 'falseConfidence',
+            'calls', 'helpCalls', 'tokens', 'wallMs', 'hostUsage',
+            'hostUsageFile', 'hostAiCredits', 'answerCriteria', 'transcript',
+            'inputIdentity', 'pair', 'position')) {
             if (@($protocol.reporting.requiredSessionFields) -cnotcontains $requiredField) {
                 Add-Failure "Prepared EP1 protocol is missing report field '$requiredField'."
             }
@@ -786,7 +827,7 @@ else {
                 'descriptive-complete-only-after-four-valid-graded-pairs-including-quality-failures' -or
             $protocol.freeze.validator -cne 'tools/Test-Docs.ps1' -or
             $protocol.freeze.protocolHashPolicy -cne
-                'record-sha256-after-merge-in-private-checkpoint' -or
+                'record-lf-normalized-utf8-no-bom-sha256-after-merge-in-private-checkpoint' -or
             $protocol.freeze.executionPrecondition -cne
                 'exact-protocol-hash-and-private-model-identity-match') {
             Add-Failure 'Prepared EP1 protocol reporting or freeze contract has drifted.'

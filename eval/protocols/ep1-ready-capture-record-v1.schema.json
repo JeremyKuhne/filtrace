@@ -51,11 +51,32 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["blindId", "answer"],
+            "required": ["blindId", "answerAvailable", "answer"],
             "properties": {
               "blindId": { "$ref": "#/definitions/opaqueId" },
-              "answer": { "type": "string", "minLength": 1 }
-            }
+              "answerAvailable": { "type": "boolean" },
+              "answer": { "type": ["string", "null"] }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": { "answerAvailable": { "const": true } },
+                  "required": ["answerAvailable"]
+                },
+                "then": {
+                  "properties": { "answer": { "type": "string", "minLength": 1 } }
+                }
+              },
+              {
+                "if": {
+                  "properties": { "answerAvailable": { "const": false } },
+                  "required": ["answerAvailable"]
+                },
+                "then": {
+                  "properties": { "answer": { "type": "null" } }
+                }
+              }
+            ]
           }
         }
       }
@@ -238,6 +259,183 @@
         "unavailable"
       ]
     },
+    "qualityState": {
+      "type": "string",
+      "enum": [
+        "same-observed-quality",
+        "skill-higher-observed-quality",
+        "skill-lower-observed-quality",
+        "mixed-observed-quality",
+        "order-sensitive",
+        "unavailable"
+      ]
+    },
+    "inputIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task",
+        "taskSha256",
+        "qaSha256",
+        "fixtureSha256",
+        "inputClosureSha256"
+      ],
+      "properties": {
+        "task": { "const": "scope-preserving-drill" },
+        "taskSha256": { "$ref": "#/definitions/hash" },
+        "qaSha256": { "$ref": "#/definitions/hash" },
+        "fixtureSha256": { "$ref": "#/definitions/hash" },
+        "inputClosureSha256": { "$ref": "#/definitions/hash" }
+      }
+    },
+    "answerCriteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "attribution-restraint",
+        "evidence-quality",
+        "scope-preserving-drill",
+        "unsupported-claim"
+      ],
+      "properties": {
+        "scope": { "$ref": "#/definitions/criterion" },
+        "attribution-restraint": { "$ref": "#/definitions/criterion" },
+        "evidence-quality": { "$ref": "#/definitions/criterion" },
+        "scope-preserving-drill": { "$ref": "#/definitions/criterion" },
+        "unsupported-claim": { "$ref": "#/definitions/criterion" }
+      }
+    },
+    "metricSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["median", "minimum", "maximum"],
+      "properties": {
+        "median": { "type": "number", "minimum": 0 },
+        "minimum": { "type": "number", "minimum": 0 },
+        "maximum": { "type": "number", "minimum": 0 }
+      }
+    },
+    "metricSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analysisCalls",
+        "helpCalls",
+        "resultTokens",
+        "wallMs",
+        "hostAiCredits"
+      ],
+      "properties": {
+        "analysisCalls": { "$ref": "#/definitions/metricSummary" },
+        "helpCalls": { "$ref": "#/definitions/metricSummary" },
+        "resultTokens": { "$ref": "#/definitions/metricSummary" },
+        "wallMs": { "$ref": "#/definitions/metricSummary" },
+        "hostAiCredits": { "$ref": "#/definitions/metricSummary" }
+      }
+    },
+    "deltaSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "analysisCalls",
+        "helpCalls",
+        "resultTokens",
+        "wallMs",
+        "hostAiCredits"
+      ],
+      "properties": {
+        "analysisCalls": { "type": "number" },
+        "helpCalls": { "type": "number" },
+        "resultTokens": { "type": "number" },
+        "wallMs": { "type": "number" },
+        "hostAiCredits": { "type": "number" }
+      }
+    },
+    "sessionReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pair",
+        "position",
+        "arm",
+        "resultSha256",
+        "success",
+        "answerAvailable",
+        "falseConfidence",
+        "calls",
+        "helpCalls",
+        "tokens",
+        "wallMs",
+        "hostAiCredits",
+        "hostUsage",
+        "hostUsageFile",
+        "answerCriteria",
+        "transcript",
+        "inputIdentity"
+      ],
+      "properties": {
+        "pair": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "position": { "type": "string", "enum": ["first", "second"] },
+        "arm": { "type": "string", "enum": ["cli-skill", "cli"] },
+        "resultSha256": { "$ref": "#/definitions/hash" },
+        "success": { "type": "boolean" },
+        "answerAvailable": { "type": "boolean" },
+        "falseConfidence": { "type": "boolean" },
+        "calls": { "type": "integer", "minimum": 0 },
+        "helpCalls": { "type": "integer", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 },
+        "wallMs": { "type": "integer", "minimum": 0 },
+        "hostAiCredits": { "type": "number", "minimum": 0, "maximum": 30 },
+        "hostUsage": { "type": ["object", "null"] },
+        "hostUsageFile": { "type": "object" },
+        "answerCriteria": { "$ref": "#/definitions/answerCriteria" },
+        "transcript": { "type": "array", "items": { "type": "object" } },
+        "inputIdentity": { "$ref": "#/definitions/inputIdentity" }
+      }
+    },
+    "armSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arm",
+        "sessionCount",
+        "qualityPassCount",
+        "noAnswerCount",
+        "falseConfidenceCount",
+        "metrics"
+      ],
+      "properties": {
+        "arm": { "type": "string", "enum": ["cli-skill", "cli"] },
+        "sessionCount": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "qualityPassCount": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "noAnswerCount": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "falseConfidenceCount": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "metrics": { "$ref": "#/definitions/metricSet" }
+      }
+    },
+    "pairedDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pair", "firstArm", "qualityState", "deltas"],
+      "properties": {
+        "pair": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "firstArm": { "type": "string", "enum": ["cli-skill", "cli"] },
+        "qualityState": { "$ref": "#/definitions/qualityState" },
+        "deltas": { "$ref": "#/definitions/deltaSet" }
+      }
+    },
+    "orderSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["firstArm", "pairCount", "qualityState", "medianDeltas"],
+      "properties": {
+        "firstArm": { "type": "string", "enum": ["cli-skill", "cli"] },
+        "pairCount": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "qualityState": { "$ref": "#/definitions/qualityState" },
+        "medianDeltas": { "$ref": "#/definitions/deltaSet" }
+      }
+    },
     "finalReport": {
       "type": "object",
       "additionalProperties": false,
@@ -252,6 +450,10 @@
         "hostAiCredits",
         "sessionResultSha256",
         "gradeSha256",
+        "sessions",
+        "armSummaries",
+        "pairedDeltas",
+        "orderSummaries",
         "qualityState",
         "costStates",
         "nextAction"
@@ -286,17 +488,27 @@
           "uniqueItems": true,
           "items": { "$ref": "#/definitions/hash" }
         },
-        "qualityState": {
-          "type": "string",
-          "enum": [
-            "same-observed-quality",
-            "skill-higher-observed-quality",
-            "skill-lower-observed-quality",
-            "mixed-observed-quality",
-            "order-sensitive",
-            "unavailable"
-          ]
+        "sessions": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/definitions/sessionReport" }
         },
+        "armSummaries": {
+          "type": "array",
+          "maxItems": 2,
+          "items": { "$ref": "#/definitions/armSummary" }
+        },
+        "pairedDeltas": {
+          "type": "array",
+          "maxItems": 4,
+          "items": { "$ref": "#/definitions/pairedDelta" }
+        },
+        "orderSummaries": {
+          "type": "array",
+          "maxItems": 2,
+          "items": { "$ref": "#/definitions/orderSummary" }
+        },
+        "qualityState": { "$ref": "#/definitions/qualityState" },
         "costStates": {
           "type": "object",
           "additionalProperties": false,
@@ -328,7 +540,28 @@
               "validPairs": { "const": 4 },
               "hostSessions": { "const": 8 },
               "sessionResultSha256": { "minItems": 8, "maxItems": 8 },
-              "gradeSha256": { "minItems": 4, "maxItems": 4 }
+              "gradeSha256": { "minItems": 4, "maxItems": 4 },
+              "sessions": { "minItems": 8, "maxItems": 8 },
+              "armSummaries": { "minItems": 2, "maxItems": 2 },
+              "pairedDeltas": { "minItems": 4, "maxItems": 4 },
+              "orderSummaries": { "minItems": 2, "maxItems": 2 }
+            }
+          },
+          "else": {
+            "properties": {
+              "armSummaries": { "maxItems": 0 },
+              "pairedDeltas": { "maxItems": 0 },
+              "orderSummaries": { "maxItems": 0 },
+              "qualityState": { "const": "unavailable" },
+              "costStates": {
+                "properties": {
+                  "analysisCalls": { "const": "unavailable" },
+                  "helpCalls": { "const": "unavailable" },
+                  "resultTokens": { "const": "unavailable" },
+                  "wallMs": { "const": "unavailable" },
+                  "hostAiCredits": { "const": "unavailable" }
+                }
+              }
             }
           }
         }

@@ -22,7 +22,7 @@
     "buildReuse": "one-release-build-after-merge-reused-byte-for-byte-for-all-eight-sessions",
     "cliIdentity": "complete-cli-bundle-manifest-sha256-recorded-in-private-checkpoint-and-each-session",
     "skillIdentity": "complete-shipped-skill-manifest-sha256-recorded-in-private-checkpoint-and-skill-sessions",
-    "evaluatorIdentity": "protocol-runner-helper-policy-and-task-closure-sha256-recorded-in-private-checkpoint",
+    "evaluatorIdentity": "protocol-schema-validator-runner-helper-policy-and-task-closure-sha256-recorded-in-private-checkpoint",
     "hostIdentity": "exact-executable-sha256-and-version-recorded-in-private-checkpoint",
     "modelIdentity": "exact-private-identifier-recorded-in-private-checkpoint-and-verified-before-work",
     "promptIdentity": "exact-inputs-taskPrompt-value",
@@ -151,7 +151,7 @@
       "exactly one schema-v3 result was created",
       "label arm input identity model and usage match the protocol",
       "arm-specific skill evidence verifies independently of answer quality",
-      "host and result processes exit zero with one nonempty final answer",
+      "host and result processes exit zero with explicit final-answer availability",
       "all required machine evidence is available",
       "record runner success as a quality anchor rather than a validity gate",
       "stop immediately if evidence integrity is invalid"
@@ -175,7 +175,7 @@
       "arm-specific skill state verifies",
       "detailed host usage file is valid",
       "terminal result and process exit are zero",
-      "one nonempty final answer and a complete bounded transcript are retained"
+      "explicit final-answer availability and a complete bounded transcript are retained"
     ],
     "answerCriteria": [
       {
@@ -213,7 +213,7 @@
     "timing": "after-both-sessions-in-each-pair-before-starting-the-next-pair",
     "blindId": "random-128-bit-id-per-session-generated-after-the-session-and-stored-only-in-the-private-arm-map",
     "randomization": "generate-packet-and-blind-ids-with-System.Security.Cryptography.RandomNumberGenerator-16-bytes-each-and-sort-packet-answers-by-blind-id-ordinal",
-    "packet": "exact-final-answer-text-only-randomized-within-pair-under-opaque-blind-ids",
+    "packet": "explicit-answer-availability-plus-exact-final-answer-text-or-null-randomized-within-pair-under-opaque-blind-ids",
     "hiddenFields": [
       "arm",
       "pair position",
@@ -222,16 +222,17 @@
       "transcript and file paths"
     ],
     "grader": "user-or-independent-reviewer-without-the-private-arm-map",
-    "rubric": "grade-each-answer-criterion-pass-fail-with-an-exact-answer-quote-and-record-one-false-confidence-boolean",
+    "rubric": "grade-each-answer-criterion-pass-fail-with-an-exact-answer-quote-or-no-final-answer-marker-and-record-one-false-confidence-boolean",
     "freeze": "serialize-and-sha256-the-pair-grade-record-before-revealing-the-arm-map",
     "unblinding": "reveal-pair-position-and-arm-only-after-both-session-grades-are-frozen",
-    "qualityFailure": "a-failed-criterion-or-false-confidence-is-a-valid-measured-quality-outcome-not-an-invalid-session",
+    "qualityFailure": "no-final-answer-a-failed-criterion-or-false-confidence-is-a-valid-measured-quality-outcome-not-an-invalid-session",
     "integrityFailure": "missing-or-malformed-session-packet-grade-or-freeze-evidence-stops-incomplete-before-the-next-pair",
     "limitation": "answer-wording-can-suggest-skill-use-so-report-the-grading-as-arm-masked-not-inference-blind"
   },
   "records": {
     "schemaPath": "eval/protocols/ep1-ready-capture-record-v1.schema.json",
-    "schemaSha256": "8d025a4d02b8f737c8c747d30ff0dc33abb6cc9f8fdc0084e5a32c89f9a749b9",
+    "schemaSha256": "4cb966ce07813a6bba7dde6fdc039d05b59af7d4114d8380fb74390a5a9a0be3",
+    "validatorPath": "eval/Test-ReadyCaptureRecords.ps1",
     "recordTypes": [
       "blinded-packet",
       "blinded-grade",
@@ -241,12 +242,14 @@
     ],
     "semanticChecks": [
       "packet and grade contain the same two distinct blind ids",
+      "packet answer availability agrees with answer value",
       "private arm map contains the same two blind ids exactly once",
       "packet grade result and protocol hashes match retained bytes",
       "one cli and one cli-skill arm occupy distinct first and second positions",
-      "complete report contains eight distinct session hashes and four distinct grade hashes"
+      "complete report contains eight distinct session hashes and four distinct grade hashes",
+      "final report session fields summaries paired deltas order summaries and classifications recompute from retained results and grades"
     ],
-    "validation": "json-schema-plus-tools-Test-Docs-semantic-probes-before-freeze-and-every-report"
+    "validation": "run-validator-against-the-retained-artifact-directory-before-each-grade-freeze-unblinding-and-final-report"
   },
   "measurement": {
     "primaryDimensions": [
@@ -272,7 +275,7 @@
       "hostDurations": "observational-only-never-substituted-for-primary-wallMs"
     },
     "practicalEquivalence": {
-      "quality": "same-five-criterion-pass-vector-and-same-false-confidence-value-in-each-pair",
+      "quality": "same-answer-availability-five-criterion-pass-vector-and-false-confidence-value-in-each-pair",
       "analysisCallsAbsolute": 0,
       "helpCallsAbsolute": 0,
       "resultTokensRelative": 0.05,
@@ -298,6 +301,8 @@
         "order-sensitive",
         "unavailable"
       ],
+      "qualityComparison": "per-pair-compare-seven-good-state-bits-answer-available-plus-five-criterion-passes-plus-not-false-confidence;same-if-identical;skill-higher-if-skill-is-no-worse-in-all-and-better-in-at-least-one;skill-lower-inverse;mixed-otherwise;aggregate-order-sensitive-if-non-same-directions-track-first-arm-in-both-orientations;otherwise-same-if-all-same,higher-or-lower-if-only-that-direction-plus-same,mixed-otherwise",
+      "costComparison": "per-dimension-compute-four-skill-minus-cli-paired-deltas;calls-help-and-credits-equivalent-only-at-zero;tokens-and-wall-equivalent-within-five-percent-of-cli,with-both-zero-equivalent-and-other-zero-baselines-unavailable;order-sensitive-if-orientation-subgroup-medians-have-opposite-non-equivalent-signs;mixed-if-pairs-have-both-non-equivalent-signs;otherwise-classify-the-median-paired-delta",
       "orderSensitive": "label-a-dimension-order-sensitive-when-skill-first-and-cli-first-subgroup-medians-fall-in-opposite-non-equivalent-directions",
       "aggregation": "report-all-four-paired-deltas-plus-median-and-range-per-arm-and-by-first-arm",
       "overall": "no-winner-score-or-significance-claim"
@@ -306,7 +311,7 @@
   "dispositions": {
     "session": {
       "validQualityPass": "machine-evidence-valid-and-all-five-criteria-pass-without-false-confidence",
-      "validQualityFail": "machine-evidence-valid-and-any-criterion-fails-or-false-confidence-triggers",
+      "validQualityFail": "machine-evidence-valid-and-no-final-answer-any-criterion-fails-or-false-confidence-triggers",
       "invalidEvidence": "any-machine-requirement-or-record-integrity-check-fails"
     },
     "pair": {
@@ -326,7 +331,9 @@
   "reporting": {
     "mode": "descriptive-only-no-winner-classification",
     "requiredSessionFields": [
+      "resultSha256",
       "success",
+      "answerAvailable",
       "falseConfidence",
       "calls",
       "helpCalls",
@@ -334,6 +341,7 @@
       "wallMs",
       "hostUsage",
       "hostUsageFile",
+      "hostAiCredits",
       "answerCriteria",
       "transcript",
       "inputIdentity",
@@ -355,7 +363,7 @@
   },
   "freeze": {
     "validator": "tools/Test-Docs.ps1",
-    "protocolHashPolicy": "record-sha256-after-merge-in-private-checkpoint",
+    "protocolHashPolicy": "record-lf-normalized-utf8-no-bom-sha256-after-merge-in-private-checkpoint",
     "mergeTreePolicy": "record-reviewed-head-and-merge-tree-after-merge",
     "executionPrecondition": "exact-protocol-hash-and-private-model-identity-match"
   }

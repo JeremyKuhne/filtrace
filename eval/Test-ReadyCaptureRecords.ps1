@@ -1,0 +1,749 @@
+#!/usr/bin/env pwsh
+#Requires -Version 7.2
+# Copyright (c) 2025 Jeremy W Kuhne
+# SPDX-License-Identifier: MIT
+# See LICENSE file in the project root for full license information
+
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][string] $ProtocolPath,
+    [Parameter(Mandatory)][string] $SchemaPath,
+    [string] $ArtifactDirectory,
+    [switch] $RequireComplete,
+    [switch] $SelfTest
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+function Get-RawHash([string] $Path) {
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-CanonicalTextHash([string] $Path) {
+    [string] $text = [System.IO.File]::ReadAllText($Path).Replace("`r`n", "`n").Replace("`r", "`n")
+    [byte[]] $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
+    return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+}
+
+function Read-Record([string] $Path) {
+    [string] $raw = [System.IO.File]::ReadAllText($Path)
+    [Text.Json.JsonDocument] $document = [Text.Json.JsonDocument]::Parse($raw)
+    try {
+        [System.Collections.Generic.Stack[Text.Json.JsonElement]] $pending =
+            [System.Collections.Generic.Stack[Text.Json.JsonElement]]::new()
+        $pending.Push($document.RootElement)
+        while ($pending.Count -gt 0) {
+            [Text.Json.JsonElement] $element = $pending.Pop()
+            if ($element.ValueKind -eq [Text.Json.JsonValueKind]::Object) {
+                [System.Collections.Generic.HashSet[string]] $names =
+                    [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+                foreach ($property in $element.EnumerateObject()) {
+                    if (-not $names.Add($property.Name)) {
+                        throw "Record '$Path' repeats member '$($property.Name)'."
+                    }
+                    $pending.Push($property.Value)
+                }
+            }
+            elseif ($element.ValueKind -eq [Text.Json.JsonValueKind]::Array) {
+                foreach ($item in $element.EnumerateArray()) { $pending.Push($item) }
+            }
+        }
+    }
+    finally {
+        $document.Dispose()
+    }
+
+    $value = $raw | ConvertFrom-Json -Depth 100
+    return [pscustomobject]@{
+        Path = $Path
+        Hash = Get-RawHash $Path
+        Value = $value
+        RecordType = if ($value.PSObject.Properties.Name -ccontains 'recordType') {
+            [string]$value.recordType
+        }
+        elseif ($value.PSObject.Properties.Name -ccontains 'schemaVersion' -and
+            $value.schemaVersion -eq 3) {
+            'session-result'
+        }
+        else {
+            throw "Record '$Path' has no recognized record type."
+        }
+    }
+}
+
+function Assert-EqualSet([object[]] $Left, [object[]] $Right, [string] $Context) {
+    [string[]] $leftValues = @($Left | ForEach-Object { [string]$_ } | Sort-Object -CaseSensitive -Unique)
+    [string[]] $rightValues = @($Right | ForEach-Object { [string]$_ } | Sort-Object -CaseSensitive -Unique)
+    if ($leftValues.Count -ne $rightValues.Count) { throw "$Context differs." }
+    for ($index = 0; $index -lt $leftValues.Count; $index++) {
+        if (-not [string]::Equals($leftValues[$index], $rightValues[$index], [StringComparison]::Ordinal)) {
+            throw "$Context differs."
+        }
+    }
+}
+
+function Assert-Schema($Record, [string] $Schema) {
+    [string] $json = $Record.Value | ConvertTo-Json -Depth 100 -Compress
+    $schemaErrors = @()
+    [bool] $valid = $json | Test-Json -SchemaFile $Schema -ErrorVariable schemaErrors `
+        -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    if (-not $valid) {
+        [string] $detail = @($schemaErrors | ForEach-Object { $_.Exception.Message }) -join ' '
+        throw "Record '$($Record.Path)' does not match the ready-capture schema. $detail"
+    }
+}
+
+function Test-JsonEqual($Left, $Right) {
+    [Text.Json.Nodes.JsonNode] $leftNode = [Text.Json.Nodes.JsonNode]::Parse(
+        ($Left | ConvertTo-Json -Depth 100 -Compress))
+    [Text.Json.Nodes.JsonNode] $rightNode = [Text.Json.Nodes.JsonNode]::Parse(
+        ($Right | ConvertTo-Json -Depth 100 -Compress))
+    return [Text.Json.Nodes.JsonNode]::DeepEquals($leftNode, $rightNode)
+}
+
+function Get-Median([double[]] $Values) {
+    [double[]] $sorted = @($Values | Sort-Object)
+    if ($sorted.Count -eq 0) { throw 'Cannot compute a median over no values.' }
+    if (($sorted.Count % 2) -eq 1) { return $sorted[[int][Math]::Floor($sorted.Count / 2)] }
+    return ($sorted[($sorted.Count / 2) - 1] + $sorted[$sorted.Count / 2]) / 2.0
+}
+
+function Assert-MetricSummary($Summary, [double[]] $Values, [string] $Context) {
+    if ([double]$Summary.median -ne (Get-Median $Values) -or
+        [double]$Summary.minimum -ne ($Values | Measure-Object -Minimum).Minimum -or
+        [double]$Summary.maximum -ne ($Values | Measure-Object -Maximum).Maximum) {
+        throw "$Context does not match retained session values."
+    }
+}
+
+function New-MetricSummary([double[]] $Values) {
+    return [ordered]@{
+        median = Get-Median $Values
+        minimum = ($Values | Measure-Object -Minimum).Minimum
+        maximum = ($Values | Measure-Object -Maximum).Maximum
+    }
+}
+
+function Test-QualityPass($Session) {
+    [object[]] $criteria = if ($Session.answerCriteria -is [System.Collections.IDictionary]) {
+        @($Session.answerCriteria.Values)
+    }
+    else {
+        @($Session.answerCriteria.PSObject.Properties.Value)
+    }
+    return [bool]$Session.answerAvailable -and -not [bool]$Session.falseConfidence -and
+        @($criteria | Where-Object { -not $_.pass }).Count -eq 0
+}
+
+function New-ArmSummary([object[]] $Sessions, [string] $Arm) {
+    [object[]] $armSessions = @($Sessions | Where-Object arm -eq $Arm)
+    return [ordered]@{
+        arm = $Arm
+        sessionCount = $armSessions.Count
+        qualityPassCount = @($armSessions | Where-Object { Test-QualityPass $_ }).Count
+        noAnswerCount = @($armSessions | Where-Object { -not $_.answerAvailable }).Count
+        falseConfidenceCount = @($armSessions | Where-Object falseConfidence).Count
+        metrics = [ordered]@{
+            analysisCalls = New-MetricSummary @($armSessions | ForEach-Object { [double]$_.calls })
+            helpCalls = New-MetricSummary @($armSessions | ForEach-Object { [double]$_.helpCalls })
+            resultTokens = New-MetricSummary @($armSessions | ForEach-Object { [double]$_.tokens })
+            wallMs = New-MetricSummary @($armSessions | ForEach-Object { [double]$_.wallMs })
+            hostAiCredits = New-MetricSummary @($armSessions | ForEach-Object { [double]$_.hostAiCredits })
+        }
+    }
+}
+
+function Get-QualityBits($Session) {
+    return @(
+        [bool]$Session.answerAvailable,
+        [bool]$Session.answerCriteria.scope.pass,
+        [bool]$Session.answerCriteria.'attribution-restraint'.pass,
+        [bool]$Session.answerCriteria.'evidence-quality'.pass,
+        [bool]$Session.answerCriteria.'scope-preserving-drill'.pass,
+        [bool]$Session.answerCriteria.'unsupported-claim'.pass,
+        -not [bool]$Session.falseConfidence)
+}
+
+function Get-PairedQualityState($SkillSession, $CliSession) {
+    [bool[]] $skill = Get-QualityBits $SkillSession
+    [bool[]] $cli = Get-QualityBits $CliSession
+    [bool] $skillNoWorse = $true
+    [bool] $cliNoWorse = $true
+    [bool] $skillBetter = $false
+    [bool] $cliBetter = $false
+    for ($index = 0; $index -lt $skill.Count; $index++) {
+        if ($cli[$index] -and -not $skill[$index]) { $skillNoWorse = $false; $cliBetter = $true }
+        if ($skill[$index] -and -not $cli[$index]) { $cliNoWorse = $false; $skillBetter = $true }
+    }
+    if ($skillNoWorse -and $cliNoWorse) { return 'same-observed-quality' }
+    if ($skillNoWorse -and $skillBetter) { return 'skill-higher-observed-quality' }
+    if ($cliNoWorse -and $cliBetter) { return 'skill-lower-observed-quality' }
+    return 'mixed-observed-quality'
+}
+
+function Get-QualityAggregate([object[]] $Pairs) {
+    [string[]] $states = @($Pairs | ForEach-Object { [string]$_.qualityState })
+    if (@($states | Where-Object { $_ -eq 'same-observed-quality' }).Count -eq $states.Count) {
+        return 'same-observed-quality'
+    }
+    if (@($states | Where-Object { $_ -notin @('same-observed-quality', 'skill-higher-observed-quality') }).Count -eq 0) {
+        return 'skill-higher-observed-quality'
+    }
+    if (@($states | Where-Object { $_ -notin @('same-observed-quality', 'skill-lower-observed-quality') }).Count -eq 0) {
+        return 'skill-lower-observed-quality'
+    }
+    return 'mixed-observed-quality'
+}
+
+function Get-CostState([object[]] $Pairs, [string] $Member, [double] $Equivalence, [bool] $Relative) {
+    [string] $sessionMember = switch ($Member) {
+        'analysisCalls' { 'calls' }
+        'resultTokens' { 'tokens' }
+        default { $Member }
+    }
+    [System.Collections.Generic.List[object]] $normalized = [System.Collections.Generic.List[object]]::new()
+    foreach ($pair in $Pairs) {
+        [double] $delta = [double]$pair.deltas.$Member
+        [double] $cli = [double]$pair.cli.$sessionMember
+        if ($Relative) {
+            if ($cli -eq 0) {
+                if ($delta -eq 0) { [void]$normalized.Add([pscustomobject]@{ pair = $pair; value = 0.0 }) }
+                else { return 'unavailable' }
+            }
+            else { [void]$normalized.Add([pscustomobject]@{ pair = $pair; value = $delta / $cli }) }
+        }
+        else { [void]$normalized.Add([pscustomobject]@{ pair = $pair; value = $delta }) }
+    }
+    [double] $skillFirstMedian = Get-Median @($normalized | Where-Object { $_.pair.firstArm -eq 'cli-skill' } | ForEach-Object value)
+    [double] $cliFirstMedian = Get-Median @($normalized | Where-Object { $_.pair.firstArm -eq 'cli' } | ForEach-Object value)
+    if ([Math]::Abs($skillFirstMedian) -gt $Equivalence -and
+        [Math]::Abs($cliFirstMedian) -gt $Equivalence -and
+        [Math]::Sign($skillFirstMedian) -ne [Math]::Sign($cliFirstMedian)) {
+        return 'order-sensitive'
+    }
+    [bool] $hasLower = @($normalized | Where-Object { $_.value -lt -$Equivalence }).Count -gt 0
+    [bool] $hasHigher = @($normalized | Where-Object { $_.value -gt $Equivalence }).Count -gt 0
+    if ($hasLower -and $hasHigher) { return 'mixed' }
+    [double] $median = Get-Median @($normalized | ForEach-Object value)
+    if ([Math]::Abs($median) -le $Equivalence) { return 'practically-equivalent' }
+    if ($median -lt 0) { return 'skill-lower' }
+    return 'skill-higher'
+}
+
+function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Schema, [bool] $Complete) {
+    if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
+        throw "Ready-capture artifact directory '$Directory' does not exist."
+    }
+    [string] $protocolHash = Get-CanonicalTextHash $Protocol
+    [object[]] $records = @(Get-ChildItem -LiteralPath $Directory -File -Filter '*.json' |
+        Sort-Object Name | ForEach-Object { Read-Record $_.FullName })
+    [object[]] $packets = @($records | Where-Object RecordType -eq 'blinded-packet')
+    [object[]] $grades = @($records | Where-Object RecordType -eq 'blinded-grade')
+    [object[]] $maps = @($records | Where-Object RecordType -eq 'private-arm-map')
+    [object[]] $checkpoints = @($records | Where-Object RecordType -eq 'private-checkpoint')
+    [object[]] $reports = @($records | Where-Object RecordType -eq 'final-report')
+    [object[]] $results = @($records | Where-Object RecordType -eq 'session-result')
+
+    foreach ($record in @($packets + $grades + $maps + $checkpoints + $reports)) {
+        Assert-Schema $record $Schema
+        if (-not [string]::Equals(
+                [string]$record.Value.protocolSha256,
+                $protocolHash,
+                [StringComparison]::Ordinal)) {
+            throw "Record '$($record.Path)' does not match the retained protocol hash."
+        }
+    }
+
+    if ($packets.Count -ne $grades.Count -or $packets.Count -ne $maps.Count) {
+        throw 'Ready-capture packet, grade, and arm-map counts differ.'
+    }
+    if ($checkpoints.Count -ne 1) { throw 'Ready-capture evidence must contain one private checkpoint.' }
+    if ($reports.Count -gt 1) { throw 'Ready-capture evidence contains multiple final reports.' }
+    if ($Complete -and
+        ($packets.Count -ne 4 -or $grades.Count -ne 4 -or $maps.Count -ne 4 -or
+            $results.Count -ne 8 -or $reports.Count -ne 1)) {
+        throw 'Complete ready-capture evidence must contain four pairs and eight session results.'
+    }
+    if ($Complete -and
+        -not [string]::Equals(
+            [string]$reports[0].Value.terminalDisposition,
+            'descriptive-complete',
+            [StringComparison]::Ordinal)) {
+        throw 'Complete ready-capture evidence must use the descriptive-complete disposition.'
+    }
+
+    [System.Collections.Generic.HashSet[string]] $seenPacketIds =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    [System.Collections.Generic.HashSet[int]] $seenPairs = [System.Collections.Generic.HashSet[int]]::new()
+    [System.Collections.Generic.HashSet[string]] $referencedResultHashes =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+
+    foreach ($mapRecord in $maps) {
+        $map = $mapRecord.Value
+        if (-not $seenPairs.Add([int]$map.pair)) { throw "Ready-capture pair '$($map.pair)' is repeated." }
+        [object[]] $matchingPackets = @($packets | Where-Object {
+                [string]::Equals([string]$_.Value.packetId, [string]$map.packetId, [StringComparison]::Ordinal)
+            })
+        [object[]] $matchingGrades = @($grades | Where-Object {
+                [string]::Equals([string]$_.Value.packetId, [string]$map.packetId, [StringComparison]::Ordinal)
+            })
+        if ($matchingPackets.Count -ne 1 -or $matchingGrades.Count -ne 1 -or
+            -not $seenPacketIds.Add([string]$map.packetId)) {
+            throw "Ready-capture pair '$($map.pair)' does not have one unique packet and grade."
+        }
+        $packetRecord = $matchingPackets[0]
+        $gradeRecord = $matchingGrades[0]
+        if (-not [string]::Equals([string]$gradeRecord.Value.packetSha256, $packetRecord.Hash, [StringComparison]::Ordinal) -or
+            -not [string]::Equals([string]$map.packetSha256, $packetRecord.Hash, [StringComparison]::Ordinal) -or
+            -not [string]::Equals([string]$map.gradeSha256, $gradeRecord.Hash, [StringComparison]::Ordinal)) {
+            throw "Ready-capture pair '$($map.pair)' has a packet or grade hash mismatch."
+        }
+
+        [string[]] $packetBlindIds = @($packetRecord.Value.answers | ForEach-Object { [string]$_.blindId })
+        [string[]] $gradeBlindIds = @($gradeRecord.Value.grades | ForEach-Object { [string]$_.blindId })
+        [string[]] $mapBlindIds = @($map.entries | ForEach-Object { [string]$_.blindId })
+        if (@($packetBlindIds | Sort-Object -Unique).Count -ne 2) {
+            throw "Ready-capture pair '$($map.pair)' repeats a packet blind id."
+        }
+        Assert-EqualSet $packetBlindIds $gradeBlindIds "Ready-capture pair '$($map.pair)' grade blind ids"
+        Assert-EqualSet $packetBlindIds $mapBlindIds "Ready-capture pair '$($map.pair)' arm-map blind ids"
+
+        foreach ($answer in $packetRecord.Value.answers) {
+            [bool] $available = [bool]$answer.answerAvailable
+            if ($available -ne (-not [string]::IsNullOrWhiteSpace([string]$answer.answer))) {
+                throw "Ready-capture pair '$($map.pair)' has inconsistent answer availability."
+            }
+        }
+
+        foreach ($entry in $map.entries) {
+            if (-not $referencedResultHashes.Add([string]$entry.resultSha256)) {
+                throw "Ready-capture result hash '$($entry.resultSha256)' is reused."
+            }
+            [object[]] $matchingResults = @($results | Where-Object {
+                    [string]::Equals([string]$_.Hash, [string]$entry.resultSha256, [StringComparison]::Ordinal)
+                })
+            if ($matchingResults.Count -ne 1) {
+                throw "Ready-capture pair '$($map.pair)' does not reference one retained session result."
+            }
+            $result = $matchingResults[0].Value
+            if ($result.schemaVersion -ne 3 -or $result.n -ne 1 -or
+                -not [string]::Equals([string]$result.arm, [string]$entry.arm, [StringComparison]::Ordinal) -or
+                @($result.iterations).Count -ne 1 -or @($result.inputIdentity).Count -ne 1) {
+                throw "Ready-capture pair '$($map.pair)' references a malformed session result."
+            }
+        }
+    }
+    Assert-EqualSet @($referencedResultHashes) @($results | ForEach-Object Hash) `
+        'Ready-capture retained session-result hashes'
+
+    if ($reports.Count -eq 1) {
+        $report = $reports[0].Value
+        Assert-EqualSet @($report.sessionResultSha256) @($results | ForEach-Object Hash) `
+            'Ready-capture final-report session hashes'
+        Assert-EqualSet @($report.gradeSha256) @($grades | ForEach-Object Hash) `
+            'Ready-capture final-report grade hashes'
+        Assert-EqualSet @($report.sessions | ForEach-Object { $_.resultSha256 }) @($results | ForEach-Object Hash) `
+            'Ready-capture final-report session rows'
+        if ([int]$report.hostSessions -ne $results.Count -or
+            [int]$report.validPairs -ne $maps.Count) {
+            throw 'Ready-capture final-report counts do not match retained evidence.'
+        }
+        [double] $creditTotal = 0
+        for ($sessionIndex = 0; $sessionIndex -lt @($report.sessions).Count; $sessionIndex++) {
+            $session = $report.sessions[$sessionIndex]
+            [int] $expectedPair = [int][Math]::Floor($sessionIndex / 2) + 1
+            [string] $expectedPosition = if (($sessionIndex % 2) -eq 0) { 'first' } else { 'second' }
+            if ([int]$session.pair -ne $expectedPair -or
+                -not [string]::Equals([string]$session.position, $expectedPosition, [StringComparison]::Ordinal)) {
+                throw 'Ready-capture final-report sessions are not in frozen pair/position order.'
+            }
+            [object[]] $matchingMaps = @($maps | Where-Object { [int]$_.Value.pair -eq [int]$session.pair })
+            if ($matchingMaps.Count -ne 1 -or
+                @($matchingMaps[0].Value.entries | Where-Object {
+                        [string]::Equals([string]$_.resultSha256, [string]$session.resultSha256, [StringComparison]::Ordinal) -and
+                        [string]::Equals([string]$_.arm, [string]$session.arm, [StringComparison]::Ordinal) -and
+                        [string]::Equals([string]$_.position, [string]$session.position, [StringComparison]::Ordinal)
+                    }).Count -ne 1) {
+                throw 'Ready-capture final-report session rows do not match the private arm maps.'
+            }
+            $mapEntry = @($matchingMaps[0].Value.entries | Where-Object {
+                    [string]::Equals([string]$_.resultSha256, [string]$session.resultSha256, [StringComparison]::Ordinal)
+                })[0]
+            $packetRecord = @($packets | Where-Object {
+                    [string]::Equals([string]$_.Value.packetId, [string]$matchingMaps[0].Value.packetId, [StringComparison]::Ordinal)
+                })[0]
+            $gradeRecord = @($grades | Where-Object {
+                    [string]::Equals([string]$_.Value.packetId, [string]$matchingMaps[0].Value.packetId, [StringComparison]::Ordinal)
+                })[0]
+            $packetAnswer = @($packetRecord.Value.answers | Where-Object {
+                    [string]::Equals([string]$_.blindId, [string]$mapEntry.blindId, [StringComparison]::Ordinal)
+                })[0]
+            $grade = @($gradeRecord.Value.grades | Where-Object {
+                    [string]::Equals([string]$_.blindId, [string]$mapEntry.blindId, [StringComparison]::Ordinal)
+                })[0]
+            $resultRecord = @($results | Where-Object {
+                    [string]::Equals([string]$_.Hash, [string]$session.resultSha256, [StringComparison]::Ordinal)
+                })[0]
+            $iteration = $resultRecord.Value.iterations[0]
+            [bool] $answerAvailable = -not [string]::IsNullOrWhiteSpace([string]$iteration.answer)
+            [double] $credits = [double]$iteration.hostUsageFile.value.totalPremiumRequestCost
+            $creditTotal += $credits
+            if ([bool]$session.success -ne [bool]$iteration.success -or
+                [bool]$session.answerAvailable -ne $answerAvailable -or
+                [bool]$session.answerAvailable -ne [bool]$packetAnswer.answerAvailable -or
+                -not [string]::Equals([string]$packetAnswer.answer, [string]$iteration.answer, [StringComparison]::Ordinal) -or
+                [bool]$session.falseConfidence -ne [bool]$grade.falseConfidence.triggered -or
+                [int]$session.calls -ne [int]$iteration.calls -or
+                [int]$session.helpCalls -ne [int]$iteration.helpCalls -or
+                [int]$session.tokens -ne [int]$iteration.tokens -or
+                [int]$session.wallMs -ne [int]$iteration.wallMs -or
+                [double]$session.hostAiCredits -ne $credits -or
+                -not (Test-JsonEqual $session.hostUsage $iteration.hostUsage) -or
+                -not (Test-JsonEqual $session.hostUsageFile $iteration.hostUsageFile) -or
+                -not (Test-JsonEqual $session.answerCriteria $grade.criteria) -or
+                -not (Test-JsonEqual $session.transcript $iteration.transcript) -or
+                -not (Test-JsonEqual $session.inputIdentity $resultRecord.Value.inputIdentity[0])) {
+                throw 'Ready-capture final-report session evidence does not match its retained result and grade.'
+            }
+            if (-not $answerAvailable) {
+                if (@($grade.criteria.PSObject.Properties.Value | Where-Object {
+                            $_.pass -or -not [string]::Equals(
+                                [string]$_.evidence, 'no final answer', [StringComparison]::Ordinal)
+                        }).Count -ne 0 -or
+                    $grade.falseConfidence.triggered -or
+                    -not [string]::Equals(
+                        [string]$grade.falseConfidence.evidence, 'none', [StringComparison]::Ordinal)) {
+                    throw 'Ready-capture no-answer grade does not use the frozen no-answer rubric.'
+                }
+            }
+            else {
+                if (@($grade.criteria.PSObject.Properties.Value | Where-Object {
+                            -not ([string]$iteration.answer).Contains(
+                                [string]$_.evidence, [StringComparison]::Ordinal)
+                        }).Count -ne 0 -or
+                    ($grade.falseConfidence.triggered -and
+                        -not ([string]$iteration.answer).Contains(
+                            [string]$grade.falseConfidence.evidence, [StringComparison]::Ordinal)) -or
+                    (-not $grade.falseConfidence.triggered -and
+                        -not [string]::Equals(
+                            [string]$grade.falseConfidence.evidence, 'none', [StringComparison]::Ordinal))) {
+                    throw 'Ready-capture grade evidence is not grounded in the retained answer.'
+                }
+            }
+        }
+        if ([double]$report.hostAiCredits -ne $creditTotal) {
+            throw 'Ready-capture final-report host AI credits do not match retained usage evidence.'
+        }
+
+        if (-not [string]::Equals(
+                [string]$report.terminalDisposition,
+                'descriptive-complete',
+                [StringComparison]::Ordinal)) {
+            if (@($report.armSummaries).Count -ne 0 -or
+                @($report.pairedDeltas).Count -ne 0 -or
+                @($report.orderSummaries).Count -ne 0 -or
+                -not [string]::Equals([string]$report.qualityState, 'unavailable', [StringComparison]::Ordinal) -or
+                @($report.costStates.PSObject.Properties.Value | Where-Object {
+                        -not [string]::Equals([string]$_, 'unavailable', [StringComparison]::Ordinal)
+                    }).Count -ne 0) {
+                throw 'Incomplete ready-capture reports must leave aggregate classifications unavailable.'
+            }
+        }
+        else {
+            foreach ($arm in @('cli-skill', 'cli')) {
+            [object[]] $armSessions = @($report.sessions | Where-Object arm -eq $arm)
+            [object[]] $summaries = @($report.armSummaries | Where-Object arm -eq $arm)
+            if ($summaries.Count -ne 1 -or [int]$summaries[0].sessionCount -ne $armSessions.Count -or
+                [int]$summaries[0].qualityPassCount -ne @($armSessions | Where-Object {
+                        $_.answerAvailable -and -not $_.falseConfidence -and
+                        @($_.answerCriteria.PSObject.Properties.Value | Where-Object { -not $_.pass }).Count -eq 0
+                    }).Count -or
+                [int]$summaries[0].noAnswerCount -ne @($armSessions | Where-Object { -not $_.answerAvailable }).Count -or
+                [int]$summaries[0].falseConfidenceCount -ne @($armSessions | Where-Object falseConfidence).Count) {
+                throw "Ready-capture final-report '$arm' summary counts do not match session evidence."
+            }
+            Assert-MetricSummary $summaries[0].metrics.analysisCalls @($armSessions | ForEach-Object { [double]$_.calls }) "$arm analysis calls"
+            Assert-MetricSummary $summaries[0].metrics.helpCalls @($armSessions | ForEach-Object { [double]$_.helpCalls }) "$arm help calls"
+            Assert-MetricSummary $summaries[0].metrics.resultTokens @($armSessions | ForEach-Object { [double]$_.tokens }) "$arm result tokens"
+            Assert-MetricSummary $summaries[0].metrics.wallMs @($armSessions | ForEach-Object { [double]$_.wallMs }) "$arm wall time"
+            Assert-MetricSummary $summaries[0].metrics.hostAiCredits @($armSessions | ForEach-Object { [double]$_.hostAiCredits }) "$arm host AI credits"
+        }
+
+        [System.Collections.Generic.List[object]] $computedPairs = [System.Collections.Generic.List[object]]::new()
+        foreach ($pairNumber in 1..$maps.Count) {
+            [object[]] $pairRows = @($report.sessions | Where-Object { [int]$_.pair -eq $pairNumber })
+            [object[]] $reportedPairs = @($report.pairedDeltas | Where-Object { [int]$_.pair -eq $pairNumber })
+            if ($pairRows.Count -ne 2 -or $reportedPairs.Count -ne 1) {
+                throw "Ready-capture final-report pair '$pairNumber' is not represented exactly once."
+            }
+            $skill = @($pairRows | Where-Object arm -eq 'cli-skill')[0]
+            $cli = @($pairRows | Where-Object arm -eq 'cli')[0]
+            $computed = [pscustomobject]@{
+                pair = $pairNumber
+                firstArm = @($pairRows | Where-Object position -eq 'first')[0].arm
+                qualityState = Get-PairedQualityState $skill $cli
+                skill = $skill
+                cli = $cli
+                deltas = [pscustomobject]@{
+                    analysisCalls = [double]$skill.calls - [double]$cli.calls
+                    helpCalls = [double]$skill.helpCalls - [double]$cli.helpCalls
+                    resultTokens = [double]$skill.tokens - [double]$cli.tokens
+                    wallMs = [double]$skill.wallMs - [double]$cli.wallMs
+                    hostAiCredits = [double]$skill.hostAiCredits - [double]$cli.hostAiCredits
+                }
+            }
+            [void]$computedPairs.Add($computed)
+            if (-not [string]::Equals([string]$reportedPairs[0].firstArm, [string]$computed.firstArm, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$reportedPairs[0].qualityState, [string]$computed.qualityState, [StringComparison]::Ordinal) -or
+                -not (Test-JsonEqual $reportedPairs[0].deltas $computed.deltas)) {
+                throw "Ready-capture final-report pair '$pairNumber' deltas do not match retained sessions."
+            }
+        }
+
+        [string] $qualityState = Get-QualityAggregate -Pairs @($computedPairs)
+        [object[]] $skillFirst = @($computedPairs | Where-Object firstArm -eq 'cli-skill')
+        [object[]] $cliFirst = @($computedPairs | Where-Object firstArm -eq 'cli')
+        [string] $skillFirstQuality = Get-QualityAggregate -Pairs $skillFirst
+        [string] $cliFirstQuality = Get-QualityAggregate -Pairs $cliFirst
+        if (($skillFirstQuality -eq 'skill-higher-observed-quality' -and $cliFirstQuality -eq 'skill-lower-observed-quality') -or
+            ($skillFirstQuality -eq 'skill-lower-observed-quality' -and $cliFirstQuality -eq 'skill-higher-observed-quality')) {
+            $qualityState = 'order-sensitive'
+        }
+        if (-not [string]::Equals([string]$report.qualityState, $qualityState, [StringComparison]::Ordinal)) {
+            throw 'Ready-capture final-report quality classification does not match retained grades.'
+        }
+        foreach ($firstArm in @('cli-skill', 'cli')) {
+            [object[]] $group = @($computedPairs | Where-Object firstArm -eq $firstArm)
+            [object[]] $summaries = @($report.orderSummaries | Where-Object firstArm -eq $firstArm)
+            if ($summaries.Count -ne 1 -or [int]$summaries[0].pairCount -ne $group.Count -or
+                -not [string]::Equals([string]$summaries[0].qualityState, (Get-QualityAggregate -Pairs $group), [StringComparison]::Ordinal)) {
+                throw "Ready-capture final-report '$firstArm' order summary is invalid."
+            }
+            foreach ($member in @('analysisCalls', 'helpCalls', 'resultTokens', 'wallMs', 'hostAiCredits')) {
+                if ([double]$summaries[0].medianDeltas.$member -ne
+                    (Get-Median @($group | ForEach-Object { [double]$_.deltas.$member }))) {
+                    throw "Ready-capture final-report '$firstArm' order delta '$member' is invalid."
+                }
+            }
+        }
+        $expectedCostStates = [ordered]@{
+            analysisCalls = Get-CostState -Pairs @($computedPairs) -Member analysisCalls -Equivalence 0 -Relative $false
+            helpCalls = Get-CostState -Pairs @($computedPairs) -Member helpCalls -Equivalence 0 -Relative $false
+            resultTokens = Get-CostState -Pairs @($computedPairs) -Member resultTokens -Equivalence 0.05 -Relative $true
+            wallMs = Get-CostState -Pairs @($computedPairs) -Member wallMs -Equivalence 0.05 -Relative $true
+            hostAiCredits = Get-CostState -Pairs @($computedPairs) -Member hostAiCredits -Equivalence 0 -Relative $false
+        }
+            if (-not (Test-JsonEqual $report.costStates $expectedCostStates)) {
+                throw 'Ready-capture final-report cost classification does not match retained sessions.'
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        pairs = $maps.Count
+        sessions = $results.Count
+        reports = $reports.Count
+        protocolSha256 = $protocolHash
+    }
+}
+
+function Write-JsonFile([string] $Path, $Value) {
+    [string] $json = $Value | ConvertTo-Json -Depth 100
+    [System.IO.File]::WriteAllText($Path, "$json`n", [Text.UTF8Encoding]::new($false))
+}
+
+function Invoke-SelfTest {
+    [string] $root = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace ep1 record contract $([Guid]::NewGuid().ToString('N'))"
+    [System.IO.Directory]::CreateDirectory($root) | Out-Null
+    try {
+        [string] $protocolHash = Get-CanonicalTextHash $ProtocolPath
+        [string] $zeroHash = '0' * 64
+        [System.Collections.Generic.List[object]] $maps = [System.Collections.Generic.List[object]]::new()
+        [System.Collections.Generic.List[object]] $sessions = [System.Collections.Generic.List[object]]::new()
+        [System.Collections.Generic.List[string]] $gradeHashes = [System.Collections.Generic.List[string]]::new()
+        [System.Collections.Generic.List[string]] $resultHashes = [System.Collections.Generic.List[string]]::new()
+
+        $checkpoint = [ordered]@{
+            schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'private-checkpoint'
+            state = 'prepared-not-authorized'; measuredExecutionAuthorized = $false
+            protocolSha256 = $protocolHash; sourceRepository = 'https://github.com/JeremyKuhne/filtrace.git'
+            mergeCommit = '1' * 40; mergeTree = '2' * 40; buildCommand = 'dotnet build filtrace.slnx -c Release'
+            sdkVersion = '10.0.100'; osDescription = 'self-test'; architecture = 'x64'
+            cliBundleManifestSha256 = '3' * 64; skillManifestSha256 = '4' * 64
+            evaluatorClosureSha256 = '5' * 64; hostExecutableSha256 = '6' * 64
+            hostVersion = '1.0.0'; modelIdentity = 'private-model'; taskSha256 = '7' * 64
+            qaLineSha256 = '8' * 64; fixtureSha256 = '9' * 64
+        }
+        Write-JsonFile (Join-Path $root 'checkpoint.json') $checkpoint
+
+        foreach ($pair in 1..4) {
+            [string] $packetId = '{0:x32}' -f $pair
+            [string] $firstBlindId = '{0:x32}' -f (100 + ($pair * 2))
+            [string] $secondBlindId = '{0:x32}' -f (101 + ($pair * 2))
+            $packet = [ordered]@{
+                schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'blinded-packet'
+                protocolSha256 = $protocolHash; packetId = $packetId
+                answers = @(
+                    [ordered]@{
+                        blindId = $firstBlindId
+                        answerAvailable = $pair -ne 1
+                        answer = if ($pair -eq 1) { $null } else { 'first answer' }
+                    },
+                    [ordered]@{ blindId = $secondBlindId; answerAvailable = $true; answer = 'second answer' })
+            }
+            [string] $packetPath = Join-Path $root "pair-$pair-packet.json"
+            Write-JsonFile $packetPath $packet
+            [string] $packetHash = Get-RawHash $packetPath
+            $criterion = [ordered]@{ pass = $true; evidence = 'answer' }
+            $noAnswerCriterion = [ordered]@{ pass = $false; evidence = 'no final answer' }
+            $firstCriterion = if ($pair -eq 1) { $noAnswerCriterion } else { $criterion }
+            $grade = [ordered]@{
+                schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'blinded-grade'
+                protocolSha256 = $protocolHash; packetId = $packetId; packetSha256 = $packetHash
+                gradeNonce = '{0:x32}' -f (200 + $pair); graderRole = 'user'
+                grades = @(
+                    [ordered]@{
+                        blindId = $firstBlindId
+                        criteria = [ordered]@{ scope = $firstCriterion; 'attribution-restraint' = $firstCriterion; 'evidence-quality' = $firstCriterion; 'scope-preserving-drill' = $firstCriterion; 'unsupported-claim' = $firstCriterion }
+                        falseConfidence = [ordered]@{ triggered = $false; evidence = 'none' }
+                    },
+                    [ordered]@{
+                        blindId = $secondBlindId
+                        criteria = [ordered]@{ scope = $criterion; 'attribution-restraint' = $criterion; 'evidence-quality' = $criterion; 'scope-preserving-drill' = $criterion; 'unsupported-claim' = $criterion }
+                        falseConfidence = [ordered]@{ triggered = $false; evidence = 'none' }
+                    })
+            }
+            [string] $gradePath = Join-Path $root "pair-$pair-grade.json"
+            Write-JsonFile $gradePath $grade
+            [string] $gradeHash = Get-RawHash $gradePath
+            [void]$gradeHashes.Add($gradeHash)
+
+            [object[]] $armPositions = if ($pair -in @(1, 4)) {
+                @([pscustomobject]@{ arm = 'cli-skill'; position = 'first'; blindId = $firstBlindId }, [pscustomobject]@{ arm = 'cli'; position = 'second'; blindId = $secondBlindId })
+            }
+            else {
+                @([pscustomobject]@{ arm = 'cli'; position = 'first'; blindId = $firstBlindId }, [pscustomobject]@{ arm = 'cli-skill'; position = 'second'; blindId = $secondBlindId })
+            }
+            [System.Collections.Generic.List[object]] $entries = [System.Collections.Generic.List[object]]::new()
+            foreach ($armPosition in $armPositions) {
+                $answerRecord = @($packet.answers | Where-Object blindId -eq $armPosition.blindId)[0]
+                $gradeRecord = @($grade.grades | Where-Object blindId -eq $armPosition.blindId)[0]
+                $inputIdentity = [ordered]@{ task = 'scope-preserving-drill'; taskSha256 = 'a' * 64; qaSha256 = 'b' * 64; fixtureSha256 = 'c' * 64; inputClosureSha256 = 'd' * 64 }
+                $iteration = [ordered]@{
+                    task = 'scope-preserving-drill'; iteration = 1; success = [bool]$answerRecord.answerAvailable; calls = 1; helpCalls = 0
+                    tokens = 100; wallMs = 1000; hostUsage = [ordered]@{ premiumRequests = 1 }
+                    hostUsageFile = [ordered]@{ available = $true; value = [ordered]@{ totalPremiumRequestCost = 1 } }
+                    answer = $answerRecord.answer; transcript = @([ordered]@{ kind = 'filtrace' })
+                }
+                $result = [ordered]@{
+                    schemaVersion = 3
+                    arm = $armPosition.arm
+                    label = "ep1-rc-p$pair-$($armPosition.position)-$($armPosition.arm)"
+                    n = 1
+                    inputIdentity = @($inputIdentity)
+                    iterations = @($iteration)
+                }
+                [string] $resultPath = Join-Path $root "pair-$pair-$($armPosition.position)-result.json"
+                Write-JsonFile $resultPath $result
+                [string] $resultHash = Get-RawHash $resultPath
+                [void]$resultHashes.Add($resultHash)
+                [void]$entries.Add([ordered]@{ blindId = $armPosition.blindId; arm = $armPosition.arm; position = $armPosition.position; resultSha256 = $resultHash })
+                [void]$sessions.Add([ordered]@{
+                    pair = $pair; position = $armPosition.position; arm = $armPosition.arm; resultSha256 = $resultHash
+                    success = [bool]$iteration.success; answerAvailable = [bool]$answerRecord.answerAvailable; falseConfidence = $false; calls = 1; helpCalls = 0
+                    tokens = 100; wallMs = 1000; hostAiCredits = 1; hostUsage = $iteration.hostUsage
+                    hostUsageFile = $iteration.hostUsageFile; answerCriteria = $gradeRecord.criteria
+                    transcript = $iteration.transcript; inputIdentity = $inputIdentity
+                })
+            }
+            $map = [ordered]@{
+                schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'private-arm-map'
+                protocolSha256 = $protocolHash; pair = $pair; packetId = $packetId
+                packetSha256 = $packetHash; gradeSha256 = $gradeHash; entries = @($entries)
+            }
+            Write-JsonFile (Join-Path $root "pair-$pair-map.json") $map
+            [void]$maps.Add($map)
+        }
+
+        $zeroDeltas = [ordered]@{ analysisCalls = 0; helpCalls = 0; resultTokens = 0; wallMs = 0; hostAiCredits = 0 }
+        [object[]] $pairReports = @(1..4 | ForEach-Object {
+                [int] $pairNumber = $_
+                [object[]] $pairSessions = @($sessions | Where-Object { $_.pair -eq $pairNumber })
+                [ordered]@{
+                    pair = $pairNumber
+                    firstArm = @($pairSessions | Where-Object position -eq 'first')[0].arm
+                    qualityState = Get-PairedQualityState `
+                        -SkillSession @($pairSessions | Where-Object arm -eq 'cli-skill')[0] `
+                        -CliSession @($pairSessions | Where-Object arm -eq 'cli')[0]
+                    deltas = $zeroDeltas
+                }
+            })
+        [string] $reportQuality = Get-QualityAggregate -Pairs $pairReports
+        $report = [ordered]@{
+            schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'final-report'
+            protocolSha256 = $protocolHash; terminalDisposition = 'descriptive-complete'; validPairs = 4
+            hostSessions = 8; hostAiCredits = 8; sessionResultSha256 = @($resultHashes)
+            gradeSha256 = @($gradeHashes); sessions = @($sessions)
+            armSummaries = @(
+                (New-ArmSummary -Sessions @($sessions) -Arm 'cli-skill'),
+                (New-ArmSummary -Sessions @($sessions) -Arm 'cli'))
+            pairedDeltas = $pairReports
+            orderSummaries = @(
+                [ordered]@{ firstArm = 'cli-skill'; pairCount = 2; qualityState = 'skill-lower-observed-quality'; medianDeltas = $zeroDeltas },
+                [ordered]@{ firstArm = 'cli'; pairCount = 2; qualityState = 'same-observed-quality'; medianDeltas = $zeroDeltas })
+            qualityState = $reportQuality
+            costStates = [ordered]@{ analysisCalls = 'practically-equivalent'; helpCalls = 'practically-equivalent'; resultTokens = 'practically-equivalent'; wallMs = 'practically-equivalent'; hostAiCredits = 'practically-equivalent' }
+            nextAction = 'stop-and-return-to-user'
+        }
+        Write-JsonFile (Join-Path $root 'final-report.json') $report
+        $result = Test-ArtifactSet $root $ProtocolPath $SchemaPath $true
+        if ($result.pairs -ne 4 -or $result.sessions -ne 8) { throw 'Ready-capture self-test did not validate the complete artifact set.' }
+
+        $mutations = @(
+            @{ Name = 'grade blind ids'; File = 'pair-1-grade.json'; Change = { param($v) $v.grades[1].blindId = 'f' * 32 } },
+            @{ Name = 'answer availability'; File = 'pair-1-packet.json'; Change = { param($v) $v.answers[0].answerAvailable = $true } },
+            @{ Name = 'arm-map blind ids'; File = 'pair-1-map.json'; Change = { param($v) $v.entries[1].blindId = 'e' * 32 } },
+            @{ Name = 'protocol hash'; File = 'checkpoint.json'; Change = { param($v) $v.protocolSha256 = $zeroHash } },
+            @{ Name = 'packet hash'; File = 'pair-1-map.json'; Change = { param($v) $v.packetSha256 = $zeroHash } },
+            @{ Name = 'grade hash'; File = 'pair-1-map.json'; Change = { param($v) $v.gradeSha256 = $zeroHash } },
+            @{ Name = 'result hash'; File = 'pair-1-map.json'; Change = { param($v) $v.entries[0].resultSha256 = $zeroHash } },
+            @{ Name = 'arm balance'; File = 'pair-1-map.json'; Change = { param($v) $v.entries[1].arm = 'cli-skill' } },
+            @{ Name = 'report hashes'; File = 'final-report.json'; Change = { param($v) $v.sessionResultSha256 = @($v.sessionResultSha256 | Select-Object -First 7) } },
+            @{ Name = 'report session'; File = 'final-report.json'; Change = { param($v) $v.sessions[0].tokens++ } },
+            @{ Name = 'report aggregate'; File = 'final-report.json'; Change = { param($v) $v.armSummaries[0].metrics.resultTokens.median++ } }
+        )
+        foreach ($mutation in $mutations) {
+            [string] $copy = Join-Path ([System.IO.Path]::GetDirectoryName($root)) "$(Split-Path $root -Leaf)-$($mutation.Name)"
+            Copy-Item -LiteralPath $root -Destination $copy -Recurse
+            try {
+                [string] $path = Join-Path $copy $mutation.File
+                $value = [System.IO.File]::ReadAllText($path) | ConvertFrom-Json -Depth 100
+                & $mutation.Change $value
+                Write-JsonFile $path $value
+                [bool] $rejected = $false
+                try { [void](Test-ArtifactSet $copy $ProtocolPath $SchemaPath $true) }
+                catch { $rejected = $true }
+                if (-not $rejected) { throw "Ready-capture mutation '$($mutation.Name)' unexpectedly passed." }
+            }
+            finally {
+                Remove-Item -LiteralPath $copy -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Write-Host 'Ready-capture record contract passed.'
+    }
+    finally {
+        Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if ($SelfTest) {
+    Invoke-SelfTest
+}
+else {
+    if ([string]::IsNullOrWhiteSpace($ArtifactDirectory)) {
+        throw '-ArtifactDirectory is required unless -SelfTest is specified.'
+    }
+    $validated = Test-ArtifactSet $ArtifactDirectory $ProtocolPath $SchemaPath $RequireComplete
+    Write-Host "Ready-capture records validated: $($validated.pairs) pair(s), $($validated.sessions) session(s), $($validated.reports) report(s)."
+}

@@ -656,6 +656,17 @@ try {
         'Successful fake run did not retain the modern PowerShell metadata.'
     Assert-True (@($success.model.observedDistinct) -notcontains 'provider-model') `
         'Provider-level model metadata was used as strict host identity.'
+    [string] $gcTaskPath = Join-Path $root 'eval/tasks/04-gc-report.json'
+    Assert-True ($success.inputIdentity[0].taskSha256 -eq
+        (Get-AgentEvalCanonicalTextFileHash $gcTaskPath)) `
+        'The retained task identity did not use canonical text hashing.'
+    [string] $lfTextPath = Join-Path $temporaryRoot 'canonical-lf.txt'
+    [string] $crlfTextPath = Join-Path $temporaryRoot 'canonical-crlf.txt'
+    [System.IO.File]::WriteAllText($lfTextPath, "first`nsecond`n", [Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText($crlfTextPath, "first`r`nsecond`r`n", [Text.UTF8Encoding]::new($false))
+    Assert-True ((Get-AgentEvalCanonicalTextFileHash $lfTextPath) -eq
+        (Get-AgentEvalCanonicalTextFileHash $crlfTextPath)) `
+        'Canonical text hashing changed across LF and CRLF inputs.'
     Assert-True ($success.iterations[0].hostUsageFile.available -eq $true -and
         $success.iterations[0].hostUsageFile.value.tokenDetails.input.tokenCount -eq 20 -and
         $success.iterations[0].hostUsageFile.value.tokenDetails.cache_read.tokenCount -eq 5 -and

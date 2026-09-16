@@ -1937,7 +1937,7 @@ foreach ($file in $allTaskFiles) {
     [string] $fixturePath = (Resolve-Path (Join-Path $root $task.fixture)).Path
     $task | Add-Member -NotePropertyName inputIdentity -NotePropertyValue ([pscustomobject]@{
             task = [string]$task.id
-            taskSha256 = Get-AgentEvalFileHash $file.FullName
+            taskSha256 = Get-AgentEvalCanonicalTextFileHash $file.FullName
             qaSha256 = [string]$mcpQaHashById[$task.id]
             fixtureSha256 = Get-AgentEvalFileHash $fixturePath
             inputClosureSha256 = Get-AgentEvalTaskInputClosureHash -Task $task -Root $root

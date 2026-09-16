@@ -280,13 +280,20 @@ reviewer grades the two exact final answers under randomized opaque identifiers,
 without arm, order, model, skill, cost, timing, transcript, or path metadata. The
 pair's rubric record is hashed before the arm map is revealed. This masks the arm
 label but cannot hide wording that may itself suggest skill use, so the report calls
-the grading arm-masked rather than inference-blind. A wrong or overconfident answer
-is a valid measured quality outcome and remains in the four-pair denominator; broken
-identity, accounting, transcript, or grade evidence stops the experiment incomplete
-without a replacement pair. `Test-Docs.ps1` validates the protocol's shape,
+the grading arm-masked rather than inference-blind. No final answer, a wrong answer,
+or an overconfident answer is a valid measured quality outcome and remains in the
+four-pair denominator; broken identity, accounting, transcript, or grade evidence
+stops the experiment incomplete without a replacement pair. `Test-Docs.ps1`
+validates the protocol's shape,
 identities, order, bounds, record schema, grading boundary, and privacy. The record
 is not an execution script: protocol preparation and measured execution require
 separate authorization, and no measured session is currently authorized.
+
+Before each grade freeze, unblinding step, and final report, run
+`eval/Test-ReadyCaptureRecords.ps1` against the private artifact directory. It
+schema-validates each record and recomputes session fields, arm summaries, paired
+deltas, order summaries, and quality/cost classifications from the retained result
+and grade files. `Test-Docs.ps1` runs its complete-artifact mutation suite in CI.
 
 `claude` is recognized but not yet wired. The trace path is masked back to
 `<TRACE>` in persisted transcripts and answers. The owned path and fixture-derived
