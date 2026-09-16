@@ -259,12 +259,16 @@ else {
                 'sessionValidWhen', 'pairValidWhen',
                 'experimentIncompleteWhen') 'Prepared EP1 validity')
         [void](Assert-ExactDocObjectMembers $protocol.adjudication @(
-            'timing', 'blindId', 'randomization', 'packet', 'hiddenFields',
-            'grader', 'rubric', 'freeze', 'unblinding', 'qualityFailure',
-            'integrityFailure', 'limitation') 'Prepared EP1 adjudication')
+            'timing', 'blindId', 'randomization', 'packetConstruction',
+            'packet', 'hiddenFields', 'grader', 'rubric', 'freeze',
+            'unblinding', 'qualityFailure', 'integrityFailure',
+            'limitation') 'Prepared EP1 adjudication')
         [void](Assert-ExactDocObjectMembers $protocol.records @(
             'schemaPath', 'schemaSha256', 'validatorPath', 'recordHashPolicy',
-            'recordTypes', 'semanticChecks', 'validation') 'Prepared EP1 records')
+            'validationPhases', 'recordTypes', 'semanticChecks',
+            'validation') 'Prepared EP1 records')
+        [void](Assert-ExactDocObjectMembers $protocol.records.validationPhases @(
+            'preUnblind', 'final') 'Prepared EP1 validation phases')
         [void](Assert-ExactDocObjectMembers $protocol.measurement @(
             'primaryDimensions', 'observationalDimensions', 'clock',
             'practicalEquivalence', 'classification') 'Prepared EP1 measurement')
@@ -551,6 +555,8 @@ else {
                 'random-128-bit-id-per-session-generated-after-the-session-and-stored-only-in-the-private-arm-map' -or
             $protocol.adjudication.randomization -cne
                 'generate-packet-and-blind-ids-with-System.Security.Cryptography.RandomNumberGenerator-16-bytes-each-and-sort-packet-answers-by-blind-id-ordinal' -or
+            $protocol.adjudication.packetConstruction -cne
+                'create-a-packet-only-after-both-pair-sessions-pass-machine-evidence-validation;retain-a-started-invalid-session-only-in-the-final-incomplete-report' -or
             $protocol.adjudication.packet -cne
                 'explicit-answer-availability-plus-exact-final-answer-text-or-null-randomized-within-pair-under-opaque-blind-ids' -or
             @($protocol.adjudication.hiddenFields).Count -ne $expectedHiddenFields.Count -or
@@ -589,6 +595,10 @@ else {
             @($protocol.records.semanticChecks).Count -ne 8 -or
             $protocol.records.recordHashPolicy -cne
                 'lowercase-sha256-of-exact-retained-file-bytes' -or
+            $protocol.records.validationPhases.preUnblind -cne
+                'all-finalized-pairs-have-one-packet-grade-and-private-arm-map;no-final-report-or-unpaired-session-result-is-present' -or
+            $protocol.records.validationPhases.final -cne
+                'one-final-report-binds-all-finalized-pairs-and-lists-every-unpaired-started-result-under-invalidSessions' -or
             $protocol.records.validation -cne
                 'run-validator-after-each-grade-is-serialized-and-hashed-before-unblinding-and-again-before-final-report') {
             Add-Failure 'Prepared EP1 record schema contract has drifted.'
@@ -706,11 +716,13 @@ else {
                 skillManifestSha256 = 'a' * 64
                 evaluatorClosureSha256 = 'b' * 64
                 hostExecutableSha256 = 'c' * 64
+                hostExecutablePath = 'self-test-host'
                 hostVersion = '1.0.0'
                 modelIdentity = 'private-model'
                 taskSha256 = 'd' * 64
                 qaLineSha256 = 'e' * 64
                 fixtureSha256 = 'f' * 64
+                inputClosureSha256 = '0' * 64
             }
             $authorizationProbe = [ordered]@{
                 schemaVersion = 1
@@ -737,6 +749,7 @@ else {
                 sessionResultSha256 = @()
                 gradeSha256 = @()
                 sessions = @()
+                invalidSessions = @()
                 armSummaries = @()
                 pairedDeltas = @()
                 orderSummaries = @()

@@ -214,6 +214,7 @@
     "timing": "after-both-sessions-in-each-pair-before-starting-the-next-pair",
     "blindId": "random-128-bit-id-per-session-generated-after-the-session-and-stored-only-in-the-private-arm-map",
     "randomization": "generate-packet-and-blind-ids-with-System.Security.Cryptography.RandomNumberGenerator-16-bytes-each-and-sort-packet-answers-by-blind-id-ordinal",
+    "packetConstruction": "create-a-packet-only-after-both-pair-sessions-pass-machine-evidence-validation;retain-a-started-invalid-session-only-in-the-final-incomplete-report",
     "packet": "explicit-answer-availability-plus-exact-final-answer-text-or-null-randomized-within-pair-under-opaque-blind-ids",
     "hiddenFields": [
       "arm",
@@ -232,9 +233,13 @@
   },
   "records": {
     "schemaPath": "eval/protocols/ep1-ready-capture-record-v1.schema.json",
-    "schemaSha256": "aeb9cb97b47ec9a3b8bc3f016b9aabf57a7f526d6cb7469aa76a45174505903a",
+    "schemaSha256": "dbda10ffb045544e94c3e61e7d16788c3b20d8878dc5ef9d7cb47cc78cdd80ba",
     "validatorPath": "eval/Test-ReadyCaptureRecords.ps1",
     "recordHashPolicy": "lowercase-sha256-of-exact-retained-file-bytes",
+    "validationPhases": {
+      "preUnblind": "all-finalized-pairs-have-one-packet-grade-and-private-arm-map;no-final-report-or-unpaired-session-result-is-present",
+      "final": "one-final-report-binds-all-finalized-pairs-and-lists-every-unpaired-started-result-under-invalidSessions"
+    },
     "recordTypes": [
       "blinded-packet",
       "blinded-grade",

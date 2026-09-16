@@ -218,11 +218,13 @@
         "skillManifestSha256",
         "evaluatorClosureSha256",
         "hostExecutableSha256",
+        "hostExecutablePath",
         "hostVersion",
         "modelIdentity",
         "taskSha256",
         "qaLineSha256",
-        "fixtureSha256"
+        "fixtureSha256",
+        "inputClosureSha256"
       ],
       "properties": {
         "schemaVersion": { "const": 1 },
@@ -242,11 +244,13 @@
         "skillManifestSha256": { "$ref": "#/definitions/hash" },
         "evaluatorClosureSha256": { "$ref": "#/definitions/hash" },
         "hostExecutableSha256": { "$ref": "#/definitions/hash" },
+        "hostExecutablePath": { "type": "string", "minLength": 1 },
         "hostVersion": { "type": "string", "minLength": 1 },
         "modelIdentity": { "type": "string", "minLength": 1 },
         "taskSha256": { "$ref": "#/definitions/hash" },
         "qaLineSha256": { "$ref": "#/definitions/hash" },
-        "fixtureSha256": { "$ref": "#/definitions/hash" }
+        "fixtureSha256": { "$ref": "#/definitions/hash" },
+        "inputClosureSha256": { "$ref": "#/definitions/hash" }
       }
     },
     "privateAuthorization": {
@@ -423,6 +427,30 @@
         "inputIdentity": { "$ref": "#/definitions/inputIdentity" }
       }
     },
+    "invalidSessionReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pair",
+        "position",
+        "arm",
+        "resultSha256",
+        "reason",
+        "hostAiCredits"
+      ],
+      "properties": {
+        "pair": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "position": { "type": "string", "enum": ["first", "second"] },
+        "arm": { "type": "string", "enum": ["cli-skill", "cli"] },
+        "resultSha256": { "$ref": "#/definitions/hash" },
+        "reason": { "type": "string", "minLength": 1 },
+        "hostAiCredits": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 30
+        }
+      }
+    },
     "armSummary": {
       "type": "object",
       "additionalProperties": false,
@@ -481,6 +509,7 @@
         "sessionResultSha256",
         "gradeSha256",
         "sessions",
+        "invalidSessions",
         "armSummaries",
         "pairedDeltas",
         "orderSummaries",
@@ -505,7 +534,11 @@
         },
         "validPairs": { "type": "integer", "minimum": 0, "maximum": 4 },
         "hostSessions": { "type": "integer", "minimum": 0, "maximum": 8 },
-        "hostAiCredits": { "type": "number", "minimum": 0, "maximum": 240 },
+        "hostAiCredits": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 240
+        },
         "authorizationSha256": {
           "oneOf": [
             { "$ref": "#/definitions/hash" },
@@ -528,6 +561,11 @@
           "type": "array",
           "maxItems": 8,
           "items": { "$ref": "#/definitions/sessionReport" }
+        },
+        "invalidSessions": {
+          "type": "array",
+          "maxItems": 8,
+          "items": { "$ref": "#/definitions/invalidSessionReport" }
         },
         "armSummaries": {
           "type": "array",
@@ -575,10 +613,12 @@
             "properties": {
               "validPairs": { "const": 4 },
               "hostSessions": { "const": 8 },
+              "hostAiCredits": { "type": "number" },
               "authorizationSha256": { "$ref": "#/definitions/hash" },
               "sessionResultSha256": { "minItems": 8, "maxItems": 8 },
               "gradeSha256": { "minItems": 4, "maxItems": 4 },
               "sessions": { "minItems": 8, "maxItems": 8 },
+              "invalidSessions": { "maxItems": 0 },
               "armSummaries": { "minItems": 2, "maxItems": 2 },
               "pairedDeltas": { "minItems": 4, "maxItems": 4 },
               "orderSummaries": { "minItems": 2, "maxItems": 2 }

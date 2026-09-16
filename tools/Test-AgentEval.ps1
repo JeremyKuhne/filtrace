@@ -656,6 +656,10 @@ try {
         'Successful fake run did not retain the modern PowerShell metadata.'
     Assert-True (@($success.model.observedDistinct) -notcontains 'provider-model') `
         'Provider-level model metadata was used as strict host identity.'
+    [void](Invoke-FakeRun -Name 'schema validation success' -Mode success -Label validation)
+    [string] $successResultPath = @(Get-ChildItem -LiteralPath (Join-Path $temporaryRoot 'schema validation success') -File -Filter '*.json' |
+        Sort-Object LastWriteTimeUtc | Select-Object -Last 1).FullName
+    & $compareRunner -ValidateResultPath $successResultPath | Out-Null
     [string] $gcTaskPath = Join-Path $root 'eval/tasks/04-gc-report.json'
     Assert-True ($success.inputIdentity[0].taskSha256 -eq
         (Get-AgentEvalCanonicalTextFileHash $gcTaskPath)) `

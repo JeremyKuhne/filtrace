@@ -40,6 +40,9 @@
 .PARAMETER Candidate
   The label of the candidate runs.
 
+.PARAMETER ValidateResultPath
+  Validate one or more schema-v3 result files without comparing labeled runs.
+
 .PARAMETER ResultsDir
   Where the result JSON files live. Defaults to eval/results.
 
@@ -47,17 +50,19 @@
   Allowed fractional token growth before a task counts as a regression. Defaults
   to 0.15 (the design's budget).
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'Compare')]
 param(
-    [Parameter(Mandatory)][string]$Baseline,
-    [Parameter(Mandatory)][string]$Candidate,
+  [Parameter(Mandatory, ParameterSetName = 'Compare')][string]$Baseline,
+  [Parameter(Mandatory, ParameterSetName = 'Compare')][string]$Candidate,
+  [Parameter(Mandatory, ParameterSetName = 'Validate')][string[]]$ValidateResultPath,
     [string]$ResultsDir,
     [double]$TokenGrowthTolerance = 0.15
 )
 
 $ErrorActionPreference = 'Stop'
 [long] $MaxResultBytes = 256MB
-if ([string]::Equals($Baseline, $Candidate, [StringComparison]::Ordinal)) {
+if ($PSCmdlet.ParameterSetName -eq 'Compare' -and
+  [string]::Equals($Baseline, $Candidate, [StringComparison]::Ordinal)) {
   throw 'Baseline and candidate labels must differ.'
 }
 if ([double]::IsNaN($TokenGrowthTolerance) -or
@@ -65,8 +70,10 @@ if ([double]::IsNaN($TokenGrowthTolerance) -or
   $TokenGrowthTolerance -lt 0 -or $TokenGrowthTolerance -gt 1) {
   throw 'TokenGrowthTolerance must be a finite fraction from 0 through 1.'
 }
-if (-not $ResultsDir) { $ResultsDir = Join-Path $PSScriptRoot 'results' }
-if (-not (Test-Path $ResultsDir)) { throw "No results directory at '$ResultsDir'. Run Invoke-AgentEval.ps1 -Label first." }
+if ($PSCmdlet.ParameterSetName -eq 'Compare') {
+  if (-not $ResultsDir) { $ResultsDir = Join-Path $PSScriptRoot 'results' }
+  if (-not (Test-Path $ResultsDir)) { throw "No results directory at '$ResultsDir'. Run Invoke-AgentEval.ps1 -Label first." }
+}
 
 function Test-FiniteNumber($Value) {
   if ($Value -isnot [byte] -and $Value -isnot [sbyte] -and
@@ -638,6 +645,24 @@ function Assert-ResultPayload($Payload, [string] $Path) {
     }
   }
   Assert-ResultEvidenceSchema -Payload $Payload -Path $Path
+}
+
+if ($PSCmdlet.ParameterSetName -eq 'Validate') {
+  foreach ($requestedPath in $ValidateResultPath) {
+    [string] $path = (Resolve-Path -LiteralPath $requestedPath).Path
+    [System.IO.FileInfo] $file = Get-Item -LiteralPath $path
+    if ($file.Length -gt $MaxResultBytes) { throw "Result '$path' exceeds $MaxResultBytes bytes." }
+    [string] $json = [System.IO.File]::ReadAllText($path)
+    [System.Text.Json.JsonDocument] $document = [System.Text.Json.JsonDocument]::Parse($json)
+    try { Assert-UniqueJsonMembers -Element $document.RootElement -Context "Result '$path'" }
+    finally { $document.Dispose() }
+    $payload = $json | ConvertFrom-Json -Depth 100
+    [void](Get-ResultTimestamp -Json $json -Path $path)
+    Assert-ResultPayload -Payload $payload -Path $path
+    if ([int]$payload.schemaVersion -ne 3) { throw "Result '$path' is not schema-v3." }
+  }
+  Write-Host "Agent eval result validation passed for $($ValidateResultPath.Count) file(s)."
+  return
 }
 
 function Get-LabelFilePattern([string] $Label) {

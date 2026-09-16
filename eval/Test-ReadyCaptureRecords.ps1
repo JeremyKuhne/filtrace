@@ -9,12 +9,15 @@ param(
     [Parameter(Mandatory)][string] $ProtocolPath,
     [Parameter(Mandatory)][string] $SchemaPath,
     [string] $ArtifactDirectory,
+    [ValidateSet('PreUnblind', 'Final')][string] $Phase = 'Final',
     [switch] $RequireComplete,
     [switch] $SelfTest
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+[string] $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+. (Join-Path $PSScriptRoot 'CopilotEval.Helpers.ps1')
 
 function Get-RawHash([string] $Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -24,6 +27,53 @@ function Get-CanonicalTextHash([string] $Path) {
     [string] $text = [System.IO.File]::ReadAllText($Path).Replace("`r`n", "`n").Replace("`r", "`n")
     [byte[]] $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
     return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+}
+
+function Get-TextHash([string] $Text) {
+    [byte[]] $bytes = [Text.UTF8Encoding]::new($false).GetBytes($Text)
+    return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+}
+
+function Get-ManifestHash([object[]] $Entries) {
+    [string[]] $canonical = @($Entries | ForEach-Object {
+            [string] $path = if ($_.PSObject.Properties.Name -ccontains 'relativePath') {
+            [string]$_.relativePath
+            }
+            else { [string]$_.path }
+            [string]([ordered]@{
+                path = $path
+                    bytes = [long]$_.bytes
+                    sha256 = [string]$_.sha256
+                } | ConvertTo-Json -Compress)
+        })
+    [Array]::Sort($canonical, [StringComparer]::Ordinal)
+    return Get-TextHash (ConvertTo-Json -InputObject $canonical -Compress)
+}
+
+function Get-EvaluatorClosureHash($Protocol, [string] $ProtocolFile) {
+    [string] $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path ([System.IO.Path]::GetDirectoryName($ProtocolFile)) '../..'))
+    [string[]] $relativePaths = @(
+           [System.IO.Path]::GetRelativePath($repositoryRoot, $ProtocolFile).Replace('\', '/')
+        [string]$Protocol.records.schemaPath
+        [string]$Protocol.records.validatorPath
+        'eval/Invoke-AgentEval.ps1'
+        'eval/Compare-EvalRuns.ps1'
+        'eval/CopilotEval.Helpers.ps1'
+        'eval/CopilotEval.PolicyHook.ps1'
+        [string]$Protocol.inputs.taskPath
+        [string]$Protocol.inputs.qaPath)
+    [string[]] $entries = @($relativePaths | Sort-Object -CaseSensitive -Unique | ForEach-Object {
+            [string] $relativePath = $_
+            [string] $path = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $relativePath))
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                throw "Evaluator closure file '$relativePath' does not exist."
+            }
+            [string]([ordered]@{
+                    path = $relativePath
+                    sha256 = Get-CanonicalTextHash $path
+                } | ConvertTo-Json -Compress)
+        })
+    return Get-TextHash (ConvertTo-Json -InputObject $entries -Compress)
 }
 
 function Read-Record([string] $Path) {
@@ -231,10 +281,17 @@ function Get-CostState([object[]] $Pairs, [string] $Member, [double] $Equivalenc
     return 'skill-higher'
 }
 
-function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Schema, [bool] $Complete) {
+function Test-ArtifactSet(
+    [string] $Directory,
+    [string] $Protocol,
+    [string] $Schema,
+    [bool] $Complete,
+    [bool] $ValidateSessionSchema,
+    [string] $ValidationPhase) {
     if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
         throw "Ready-capture artifact directory '$Directory' does not exist."
     }
+    $protocolValue = [System.IO.File]::ReadAllText($Protocol) | ConvertFrom-Json -Depth 100
     [string] $protocolHash = Get-CanonicalTextHash $Protocol
     [object[]] $records = @(Get-ChildItem -LiteralPath $Directory -File -Filter '*.json' |
         Sort-Object Name | ForEach-Object { Read-Record $_.FullName })
@@ -256,6 +313,24 @@ function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Sch
         }
     }
 
+    [System.Collections.Generic.List[string]] $invalidResultHashes =
+        [System.Collections.Generic.List[string]]::new()
+    if ($reports.Count -eq 1) {
+        foreach ($invalidSession in @($reports[0].Value.invalidSessions)) {
+            $invalidResultHashes.Add([string]$invalidSession.resultSha256)
+        }
+    }
+    if (@($invalidResultHashes | Sort-Object -Unique).Count -ne $invalidResultHashes.Count) {
+        throw 'Ready-capture final report repeats an invalid-session result hash.'
+    }
+    [object[]] $validResults = @($results | Where-Object {
+            -not $invalidResultHashes.Contains([string]$_.Hash)
+        })
+    if ($ValidateSessionSchema -and @($validResults).Count -gt 0) {
+        [string] $resultValidator = Join-Path $PSScriptRoot 'Compare-EvalRuns.ps1'
+        & $resultValidator -ValidateResultPath @($validResults | ForEach-Object Path) | Out-Null
+    }
+
     if ($packets.Count -ne $grades.Count -or $packets.Count -ne $maps.Count) {
         throw 'Ready-capture packet, grade, and arm-map counts differ.'
     }
@@ -264,6 +339,39 @@ function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Sch
         throw 'Started ready-capture evidence must contain one private execution authorization.'
     }
     if ($reports.Count -gt 1) { throw 'Ready-capture evidence contains multiple final reports.' }
+    if ($ValidationPhase -eq 'PreUnblind' -and $reports.Count -ne 0) {
+        throw 'Pre-unblinding validation does not accept a final report.'
+    }
+    if ($ValidationPhase -eq 'Final' -and $reports.Count -ne 1) {
+        throw 'Final ready-capture validation requires one final report.'
+    }
+    $checkpoint = $checkpoints[0].Value
+    $task = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot ([string]$protocolValue.inputs.taskPath))) |
+        ConvertFrom-Json -Depth 100
+    [string] $expectedClosureHash = Get-AgentEvalTaskInputClosureHash -Task $task -Root $repositoryRoot
+    [string] $expectedEvaluatorHash = Get-EvaluatorClosureHash $protocolValue $Protocol
+    if (-not [string]::Equals([string]$checkpoint.taskSha256, [string]$protocolValue.inputs.taskSha256, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$checkpoint.qaLineSha256, [string]$protocolValue.inputs.qaLineSha256, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$checkpoint.fixtureSha256, [string]$protocolValue.inputs.fixtureSha256, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$checkpoint.inputClosureSha256, $expectedClosureHash, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$checkpoint.evaluatorClosureSha256, $expectedEvaluatorHash, [StringComparison]::Ordinal) -or
+        -not (Test-Path -LiteralPath ([string]$checkpoint.hostExecutablePath) -PathType Leaf) -or
+        -not [string]::Equals(
+            [string]$checkpoint.hostExecutableSha256,
+            (Get-RawHash ([string]$checkpoint.hostExecutablePath)),
+            [StringComparison]::Ordinal)) {
+        throw 'Ready-capture checkpoint identities do not match the frozen protocol and host.'
+    }
+    if ($ValidateSessionSchema) {
+        [string] $head = (& git -C $repositoryRoot rev-parse HEAD).Trim()
+        [string] $tree = (& git -C $repositoryRoot rev-parse 'HEAD^{tree}').Trim()
+        if ($LASTEXITCODE -ne 0 -or
+            -not [string]::Equals([string]$checkpoint.mergeCommit, $head, [StringComparison]::Ordinal) -or
+            -not [string]::Equals([string]$checkpoint.mergeTree, $tree, [StringComparison]::Ordinal) -or
+            -not [string]::IsNullOrEmpty((& git -C $repositoryRoot status --porcelain | Out-String).Trim())) {
+            throw 'Ready-capture validation requires the exact clean checkpointed source revision.'
+        }
+    }
     if ($Complete -and
         ($packets.Count -ne 4 -or $grades.Count -ne 4 -or $maps.Count -ne 4 -or
             $results.Count -ne 8 -or $reports.Count -ne 1)) {
@@ -278,6 +386,10 @@ function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Sch
     }
 
     [System.Collections.Generic.HashSet[string]] $seenPacketIds =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    [System.Collections.Generic.HashSet[string]] $seenBlindIds =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    [System.Collections.Generic.HashSet[string]] $seenGradeNonces =
         [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     [System.Collections.Generic.HashSet[int]] $seenPairs = [System.Collections.Generic.HashSet[int]]::new()
     [System.Collections.Generic.HashSet[string]] $referencedResultHashes =
@@ -298,20 +410,48 @@ function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Sch
         }
         $packetRecord = $matchingPackets[0]
         $gradeRecord = $matchingGrades[0]
-        if (-not [string]::Equals([string]$gradeRecord.Value.packetSha256, $packetRecord.Hash, [StringComparison]::Ordinal) -or
-            -not [string]::Equals([string]$map.packetSha256, $packetRecord.Hash, [StringComparison]::Ordinal) -or
-            -not [string]::Equals([string]$map.gradeSha256, $gradeRecord.Hash, [StringComparison]::Ordinal)) {
-            throw "Ready-capture pair '$($map.pair)' has a packet or grade hash mismatch."
+        if (-not $seenGradeNonces.Add([string]$gradeRecord.Value.gradeNonce)) {
+            throw "Ready-capture pair '$($map.pair)' repeats a grade nonce."
         }
-
         [string[]] $packetBlindIds = @($packetRecord.Value.answers | ForEach-Object { [string]$_.blindId })
         [string[]] $gradeBlindIds = @($gradeRecord.Value.grades | ForEach-Object { [string]$_.blindId })
         [string[]] $mapBlindIds = @($map.entries | ForEach-Object { [string]$_.blindId })
         if (@($packetBlindIds | Sort-Object -Unique).Count -ne 2) {
             throw "Ready-capture pair '$($map.pair)' repeats a packet blind id."
         }
+        foreach ($blindId in $packetBlindIds) {
+            if (-not $seenBlindIds.Add($blindId)) {
+                throw "Ready-capture pair '$($map.pair)' reuses a blind id from another pair."
+            }
+        }
+        [string[]] $sortedBlindIds = @($packetBlindIds | Sort-Object -CaseSensitive)
+        for ($blindIndex = 0; $blindIndex -lt $packetBlindIds.Count; $blindIndex++) {
+            if (-not [string]::Equals(
+                    $packetBlindIds[$blindIndex],
+                    $sortedBlindIds[$blindIndex],
+                    [StringComparison]::Ordinal)) {
+                throw "Ready-capture pair '$($map.pair)' packet answers are not sorted by blind id."
+            }
+        }
         Assert-EqualSet $packetBlindIds $gradeBlindIds "Ready-capture pair '$($map.pair)' grade blind ids"
         Assert-EqualSet $packetBlindIds $mapBlindIds "Ready-capture pair '$($map.pair)' arm-map blind ids"
+
+        $expectedPair = $protocolValue.sample.pairs[[int]$map.pair - 1]
+        foreach ($position in @('first', 'second')) {
+            [object[]] $positionEntries = @($map.entries | Where-Object position -eq $position)
+            if ($positionEntries.Count -ne 1 -or
+                -not [string]::Equals(
+                    [string]$positionEntries[0].arm,
+                    [string]$expectedPair.$position,
+                    [StringComparison]::Ordinal)) {
+                throw "Ready-capture pair '$($map.pair)' does not match the frozen arm schedule."
+            }
+        }
+        if (-not [string]::Equals([string]$gradeRecord.Value.packetSha256, $packetRecord.Hash, [StringComparison]::Ordinal) -or
+            -not [string]::Equals([string]$map.packetSha256, $packetRecord.Hash, [StringComparison]::Ordinal) -or
+            -not [string]::Equals([string]$map.gradeSha256, $gradeRecord.Hash, [StringComparison]::Ordinal)) {
+            throw "Ready-capture pair '$($map.pair)' has a packet or grade hash mismatch."
+        }
 
         foreach ($answer in $packetRecord.Value.answers) {
             [bool] $available = [bool]$answer.answerAvailable
@@ -331,15 +471,56 @@ function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Sch
                 throw "Ready-capture pair '$($map.pair)' does not reference one retained session result."
             }
             $result = $matchingResults[0].Value
+            [string] $expectedLabel = "ep1-rc-p$($map.pair)-$($entry.position)-$($entry.arm)"
             if ($result.schemaVersion -ne 3 -or $result.n -ne 1 -or
                 -not [string]::Equals([string]$result.arm, [string]$entry.arm, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$result.label, $expectedLabel, [StringComparison]::Ordinal) -or
                 @($result.iterations).Count -ne 1 -or @($result.inputIdentity).Count -ne 1) {
                 throw "Ready-capture pair '$($map.pair)' references a malformed session result."
             }
+            $inputIdentity = $result.inputIdentity[0]
+            $iteration = $result.iterations[0]
+            if (-not [string]::Equals([string]$result.host, 'copilot', [StringComparison]::Ordinal) -or
+                -not $result.model.verified -or
+                -not [string]::Equals([string]$result.model.observed, [string]$checkpoint.modelIdentity, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$result.model.expected, [string]$checkpoint.modelIdentity, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$inputIdentity.task, [string]$protocolValue.inputs.taskId, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$inputIdentity.taskSha256, [string]$protocolValue.inputs.taskSha256, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$inputIdentity.qaSha256, [string]$protocolValue.inputs.qaLineSha256, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$inputIdentity.fixtureSha256, [string]$protocolValue.inputs.fixtureSha256, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$inputIdentity.inputClosureSha256, [string]$checkpoint.inputClosureSha256, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$iteration.execution.fixture.sha256, [string]$protocolValue.inputs.fixtureSha256, [StringComparison]::Ordinal) -or
+                [int]$iteration.execution.processExitCode -ne 0 -or
+                [int]$iteration.execution.resultExitCode -ne 0 -or
+                -not $iteration.hostUsageFile.available -or
+                -not [string]::Equals(
+                    (Get-ManifestHash @($iteration.execution.cli.inventory)),
+                    [string]$checkpoint.cliBundleManifestSha256,
+                    [StringComparison]::Ordinal)) {
+                throw "Ready-capture pair '$($map.pair)' session identity or machine evidence does not match the checkpoint."
+            }
+            if ([string]::Equals([string]$entry.arm, 'cli-skill', [StringComparison]::Ordinal)) {
+                if (-not $iteration.skill.provided -or -not $iteration.skill.observed -or
+                    -not $iteration.skill.verified -or $null -eq $iteration.skill.discovery -or
+                    -not $iteration.skill.discovery.enabled -or
+                    -not [string]::Equals([string]$iteration.skill.discovery.source, 'project', [StringComparison]::Ordinal) -or
+                    -not [string]::Equals(
+                        (Get-ManifestHash @($iteration.skill.inventory)),
+                        [string]$checkpoint.skillManifestSha256,
+                        [StringComparison]::Ordinal)) {
+                    throw "Ready-capture pair '$($map.pair)' lacks the checkpointed project-skill evidence."
+                }
+            }
+            elseif ($iteration.skill.provided -or $iteration.skill.observed -or
+                $iteration.skill.verified -or $null -ne $iteration.skill.discovery -or
+                ($null -ne $iteration.skill.inventory -and
+                    @($iteration.skill.inventory).Count -ne 0)) {
+                throw "Ready-capture pair '$($map.pair)' CLI-only session contains skill evidence."
+            }
         }
     }
-    Assert-EqualSet @($referencedResultHashes) @($results | ForEach-Object Hash) `
-        'Ready-capture retained session-result hashes'
+    Assert-EqualSet @($referencedResultHashes) @($validResults | ForEach-Object Hash) `
+        'Ready-capture finalized session-result hashes'
 
     if ($reports.Count -eq 1) {
         $report = $reports[0].Value
@@ -354,8 +535,10 @@ function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Sch
                 [StringComparison]::Ordinal)) {
             throw 'Ready-capture final-report authorization hash does not match retained evidence.'
         }
-        Assert-EqualSet @($report.sessions | ForEach-Object { $_.resultSha256 }) @($results | ForEach-Object Hash) `
+        Assert-EqualSet @($report.sessions | ForEach-Object { $_.resultSha256 }) @($validResults | ForEach-Object Hash) `
             'Ready-capture final-report session rows'
+        Assert-EqualSet @($report.invalidSessions | ForEach-Object { $_.resultSha256 }) $invalidResultHashes `
+            'Ready-capture final-report invalid-session rows'
         if ([int]$report.hostSessions -ne $results.Count -or
             [int]$report.validPairs -ne $maps.Count) {
             throw 'Ready-capture final-report counts do not match retained evidence.'
@@ -443,7 +626,33 @@ function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Sch
                 }
             }
         }
-        if ([double]$report.hostAiCredits -ne $creditTotal) {
+        foreach ($invalidSession in $report.invalidSessions) {
+            [object[]] $matchingResults = @($results | Where-Object {
+                    [string]::Equals([string]$_.Hash, [string]$invalidSession.resultSha256, [StringComparison]::Ordinal)
+                })
+            $expectedPair = $protocolValue.sample.pairs[[int]$invalidSession.pair - 1]
+            [string] $expectedArm = [string]$expectedPair.PSObject.Properties[
+                [string]$invalidSession.position].Value
+            if ($matchingResults.Count -ne 1 -or
+                -not [string]::Equals(
+                    [string]$invalidSession.arm,
+                    $expectedArm,
+                    [StringComparison]::Ordinal) -or
+                -not [string]::Equals(
+                    [string]$matchingResults[0].Value.arm,
+                    [string]$invalidSession.arm,
+                    [StringComparison]::Ordinal) -or
+                -not [string]::Equals(
+                    [string]$matchingResults[0].Value.label,
+                    "ep1-rc-p$($invalidSession.pair)-$($invalidSession.position)-$($invalidSession.arm)",
+                    [StringComparison]::Ordinal)) {
+                throw 'Ready-capture invalid-session evidence does not match the frozen schedule.'
+            }
+            if ($null -ne $invalidSession.hostAiCredits) {
+                $creditTotal += [double]$invalidSession.hostAiCredits
+            }
+        }
+        if ($null -ne $report.hostAiCredits -and [double]$report.hostAiCredits -ne $creditTotal) {
             throw 'Ready-capture final-report host AI credits do not match retained usage evidence.'
         }
 
@@ -568,8 +777,18 @@ function Invoke-SelfTest {
     [string] $root = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace ep1 record contract $([Guid]::NewGuid().ToString('N'))"
     [System.IO.Directory]::CreateDirectory($root) | Out-Null
     try {
+        $protocolValue = [System.IO.File]::ReadAllText($ProtocolPath) | ConvertFrom-Json -Depth 100
         [string] $protocolHash = Get-CanonicalTextHash $ProtocolPath
         [string] $zeroHash = '0' * 64
+        $task = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot ([string]$protocolValue.inputs.taskPath))) |
+            ConvertFrom-Json -Depth 100
+        [string] $inputClosureHash = Get-AgentEvalTaskInputClosureHash -Task $task -Root $repositoryRoot
+        [string] $evaluatorClosureHash = Get-EvaluatorClosureHash $protocolValue $ProtocolPath
+        [string] $hostPath = (Resolve-Path -LiteralPath $SchemaPath).Path
+        $cliInventory = @([pscustomobject]@{ relativePath = 'filtrace.exe'; bytes = 1; sha256 = '3' * 64 })
+        $skillInventory = @([pscustomobject]@{ path = 'SKILL.md'; bytes = 1; sha256 = '4' * 64 })
+        [string] $cliManifestHash = Get-ManifestHash $cliInventory
+        [string] $skillManifestHash = Get-ManifestHash $skillInventory
         [System.Collections.Generic.List[object]] $maps = [System.Collections.Generic.List[object]]::new()
         [System.Collections.Generic.List[object]] $sessions = [System.Collections.Generic.List[object]]::new()
         [System.Collections.Generic.List[string]] $gradeHashes = [System.Collections.Generic.List[string]]::new()
@@ -581,10 +800,11 @@ function Invoke-SelfTest {
             protocolSha256 = $protocolHash; sourceRepository = 'https://github.com/JeremyKuhne/filtrace.git'
             mergeCommit = '1' * 40; mergeTree = '2' * 40; buildCommand = 'dotnet build filtrace.slnx -c Release'
             sdkVersion = '10.0.100'; osDescription = 'self-test'; architecture = 'x64'
-            cliBundleManifestSha256 = '3' * 64; skillManifestSha256 = '4' * 64
-            evaluatorClosureSha256 = '5' * 64; hostExecutableSha256 = '6' * 64
-            hostVersion = '1.0.0'; modelIdentity = 'private-model'; taskSha256 = '7' * 64
-            qaLineSha256 = '8' * 64; fixtureSha256 = '9' * 64
+            cliBundleManifestSha256 = $cliManifestHash; skillManifestSha256 = $skillManifestHash
+            evaluatorClosureSha256 = $evaluatorClosureHash; hostExecutableSha256 = Get-RawHash $hostPath
+            hostExecutablePath = $hostPath; hostVersion = '1.0.0'; modelIdentity = 'private-model'
+            taskSha256 = $protocolValue.inputs.taskSha256; qaLineSha256 = $protocolValue.inputs.qaLineSha256
+            fixtureSha256 = $protocolValue.inputs.fixtureSha256; inputClosureSha256 = $inputClosureHash
         }
         Write-JsonFile (Join-Path $root 'checkpoint.json') $checkpoint
         $authorization = [ordered]@{
@@ -650,15 +870,47 @@ function Invoke-SelfTest {
             foreach ($armPosition in $armPositions) {
                 $answerRecord = @($packet.answers | Where-Object blindId -eq $armPosition.blindId)[0]
                 $gradeRecord = @($grade.grades | Where-Object blindId -eq $armPosition.blindId)[0]
-                $inputIdentity = [ordered]@{ task = 'scope-preserving-drill'; taskSha256 = 'a' * 64; qaSha256 = 'b' * 64; fixtureSha256 = 'c' * 64; inputClosureSha256 = 'd' * 64 }
+                $inputIdentity = [ordered]@{
+                    task = $protocolValue.inputs.taskId
+                    taskSha256 = $protocolValue.inputs.taskSha256
+                    qaSha256 = $protocolValue.inputs.qaLineSha256
+                    fixtureSha256 = $protocolValue.inputs.fixtureSha256
+                    inputClosureSha256 = $inputClosureHash
+                }
+                [bool] $withSkill = [string]::Equals(
+                    [string]$armPosition.arm, 'cli-skill', [StringComparison]::Ordinal)
+                [object[]] $sessionSkillInventory = [object[]]::new(0)
+                if ($withSkill) { $sessionSkillInventory = @($skillInventory) }
                 $iteration = [ordered]@{
                     task = 'scope-preserving-drill'; iteration = 1; success = [bool]$answerRecord.answerAvailable; calls = 1; helpCalls = 0
                     tokens = 100; wallMs = 1000; hostUsage = [ordered]@{ premiumRequests = 1 }
                     hostUsageFile = [ordered]@{ available = $true; value = [ordered]@{ totalPremiumRequestCost = 1 } }
                     answer = $answerRecord.answer; transcript = @([ordered]@{ kind = 'filtrace' })
+                    execution = [ordered]@{
+                        processExitCode = 0
+                        resultExitCode = 0
+                        fixture = [ordered]@{ sha256 = $protocolValue.inputs.fixtureSha256 }
+                        cli = [ordered]@{ inventory = $cliInventory }
+                    }
+                    skill = [ordered]@{
+                        provided = $withSkill
+                        observed = $withSkill
+                        verified = $withSkill
+                        inventory = $sessionSkillInventory
+                        discovery = if ($withSkill) {
+                            [ordered]@{ enabled = $true; source = 'project' }
+                        }
+                        else { $null }
+                    }
                 }
                 $result = [ordered]@{
                     schemaVersion = 3
+                    host = 'copilot'
+                    model = [ordered]@{
+                        expected = 'private-model'
+                        observed = 'private-model'
+                        verified = $true
+                    }
                     arm = $armPosition.arm
                     label = "ep1-rc-p$pair-$($armPosition.position)-$($armPosition.arm)"
                     n = 1
@@ -707,6 +959,7 @@ function Invoke-SelfTest {
             hostSessions = 8; hostAiCredits = 8; authorizationSha256 = $authorizationHash
             sessionResultSha256 = @($resultHashes)
             gradeSha256 = @($gradeHashes); sessions = @($sessions)
+            invalidSessions = @()
             armSummaries = @(
                 (New-ArmSummary -Sessions @($sessions) -Arm 'cli-skill'),
                 (New-ArmSummary -Sessions @($sessions) -Arm 'cli'))
@@ -719,13 +972,57 @@ function Invoke-SelfTest {
             nextAction = 'stop-and-return-to-user'
         }
         Write-JsonFile (Join-Path $root 'final-report.json') $report
-        $result = Test-ArtifactSet $root $ProtocolPath $SchemaPath $true
+        $result = Test-ArtifactSet $root $ProtocolPath $SchemaPath $true $false 'Final'
         if ($result.pairs -ne 4 -or $result.sessions -ne 8) { throw 'Ready-capture self-test did not validate the complete artifact set.' }
+
+        [string] $preUnblindRoot = "$root-pre-unblind"
+        Copy-Item -LiteralPath $root -Destination $preUnblindRoot -Recurse
+        try {
+            Remove-Item -LiteralPath (Join-Path $preUnblindRoot 'final-report.json')
+            [void](Test-ArtifactSet $preUnblindRoot $ProtocolPath $SchemaPath $false $false 'PreUnblind')
+        }
+        finally {
+            Remove-Item -LiteralPath $preUnblindRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        [string] $incompleteRoot = "$root-incomplete"
+        [System.IO.Directory]::CreateDirectory($incompleteRoot) | Out-Null
+        try {
+            Copy-Item -LiteralPath (Join-Path $root 'checkpoint.json') -Destination $incompleteRoot
+            Copy-Item -LiteralPath (Join-Path $root 'authorization.json') -Destination $incompleteRoot
+            [string] $invalidResultName = 'pair-1-first-result.json'
+            [string] $invalidResultPath = Join-Path $incompleteRoot $invalidResultName
+            Copy-Item -LiteralPath (Join-Path $root $invalidResultName) -Destination $invalidResultPath
+            [string] $invalidResultHash = Get-RawHash $invalidResultPath
+            $incompleteReport = [ordered]@{
+                schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'final-report'
+                protocolSha256 = $protocolHash; terminalDisposition = 'incomplete-evidence-integrity'
+                validPairs = 0; hostSessions = 1; hostAiCredits = 1
+                authorizationSha256 = $authorizationHash
+                sessionResultSha256 = @($invalidResultHash); gradeSha256 = @(); sessions = @()
+                invalidSessions = @([ordered]@{
+                        pair = 1; position = 'first'; arm = 'cli-skill'
+                        resultSha256 = $invalidResultHash; reason = 'self-test invalid evidence'
+                        hostAiCredits = 1
+                    })
+                armSummaries = @(); pairedDeltas = @(); orderSummaries = @()
+                qualityState = 'unavailable'
+                costStates = [ordered]@{ analysisCalls = 'unavailable'; helpCalls = 'unavailable'; resultTokens = 'unavailable'; wallMs = 'unavailable'; hostAiCredits = 'unavailable' }
+                nextAction = 'stop-and-return-to-user'
+            }
+            Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $incompleteReport
+            [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final')
+        }
+        finally {
+            Remove-Item -LiteralPath $incompleteRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
 
         $mutations = @(
             @{ Name = 'grade blind ids'; File = 'pair-1-grade.json'; Change = { param($v) $v.grades[1].blindId = 'f' * 32 } },
             @{ Name = 'answer availability'; File = 'pair-1-packet.json'; Change = { param($v) $v.answers[0].answerAvailable = $true } },
+            @{ Name = 'packet order'; File = 'pair-1-packet.json'; Change = { param($v) $v.answers = @($v.answers[1], $v.answers[0]) } },
             @{ Name = 'arm-map blind ids'; File = 'pair-1-map.json'; Change = { param($v) $v.entries[1].blindId = 'e' * 32 } },
+            @{ Name = 'pair schedule'; File = 'pair-2-map.json'; Change = { param($v) $first = $v.entries[0].arm; $v.entries[0].arm = $v.entries[1].arm; $v.entries[1].arm = $first } },
             @{ Name = 'protocol hash'; File = 'checkpoint.json'; Change = { param($v) $v.protocolSha256 = $zeroHash } },
             @{ Name = 'authorization'; File = 'authorization.json'; Change = { param($v) $v.maximumHostSessions = 7 } },
             @{ Name = 'packet hash'; File = 'pair-1-map.json'; Change = { param($v) $v.packetSha256 = $zeroHash } },
@@ -745,7 +1042,7 @@ function Invoke-SelfTest {
                 & $mutation.Change $value
                 Write-JsonFile $path $value
                 [bool] $rejected = $false
-                try { [void](Test-ArtifactSet $copy $ProtocolPath $SchemaPath $true) }
+                try { [void](Test-ArtifactSet $copy $ProtocolPath $SchemaPath $true $false 'Final') }
                 catch { $rejected = $true }
                 if (-not $rejected) { throw "Ready-capture mutation '$($mutation.Name)' unexpectedly passed." }
             }
@@ -767,6 +1064,6 @@ else {
     if ([string]::IsNullOrWhiteSpace($ArtifactDirectory)) {
         throw '-ArtifactDirectory is required unless -SelfTest is specified.'
     }
-    $validated = Test-ArtifactSet $ArtifactDirectory $ProtocolPath $SchemaPath $RequireComplete
+    $validated = Test-ArtifactSet $ArtifactDirectory $ProtocolPath $SchemaPath $RequireComplete $true $Phase
     Write-Host "Ready-capture records validated: $($validated.pairs) pair(s), $($validated.sessions) session(s), $($validated.reports) report(s)."
 }
