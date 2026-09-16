@@ -218,6 +218,9 @@ for ($directory = Get-Item -LiteralPath $WorkingDirectory; $null -ne $directory;
 if ($mode -eq 'timeout') {
     [System.Threading.Thread]::Sleep(5000)
 }
+if ($mode -eq 'delayed-success') {
+    [System.Threading.Thread]::Sleep(250)
+}
 if ($mode -in @('closed-stream-timeout', 'closed-stream-artifact')) {
     Add-Type -Namespace AgentEval -Name NativeMethods -MemberDefinition @'
 [System.Runtime.InteropServices.DllImport("kernel32.dll")]

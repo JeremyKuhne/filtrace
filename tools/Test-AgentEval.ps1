@@ -590,13 +590,13 @@ try {
     Assert-True ((Get-Item -LiteralPath $fallbackResult.diagnosticPath).Length -le 24) `
         'Fallback output diagnostic exceeded the remaining artifact budget.'
 
-    $success = Invoke-FakeRun -Name 'cli success' -Mode success
+    $success = Invoke-FakeRun -Name 'cli success' -Mode delayed-success
     Assert-True ($success.arm -eq 'cli') "Expected cli arm, got '$($success.arm)'."
     Assert-True ($success.model.observed -eq 'expected-model') 'The observed model was not retained.'
     Assert-True ($success.model.verified -eq $true) 'The observed model was not verified.'
     Assert-True ($success.iterations[0].success -eq $true) "Grounded CLI iteration failed: $($success.iterations[0].note)"
     Assert-True ($success.iterations[0].hostUsage.sessionDurationMs -eq 25 -and
-        $success.iterations[0].wallMs -gt 100 -and
+        $success.iterations[0].wallMs -ge 200 -and
         $success.iterations[0].wallMs -ne $success.iterations[0].hostUsage.sessionDurationMs) `
         'Primary wallMs did not remain on the evaluator-owned monotonic process clock.'
     $filtraceEntry = @($success.iterations[0].transcript | Where-Object { $_.kind -eq 'filtrace' })

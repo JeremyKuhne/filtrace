@@ -386,14 +386,19 @@ function Assert-ReadyCaptureSessionMachineEvidence(
         [int]$iteration.execution.resultExitCode -ne 0 -or
         [int]$iteration.execution.nativeTimeoutSeconds -ne [int]$Protocol.bounds.nativeTimeoutSecondsPerSession -or
         [long]$iteration.execution.hostOutputMaxBytes -ne [long]$Protocol.bounds.maxHostOutputBytesPerSession -or
+        [long]$iteration.wallMs -lt 0 -or
         [long]$iteration.wallMs -gt ([long]$Protocol.bounds.nativeTimeoutSecondsPerSession * 1000) -or
         -not $creditEvidence.available -or
         [double]$creditEvidence.value -gt [double]$Protocol.bounds.maxAiCreditsPerSession -or
         [int]$result.maxSteps -ne [int]$Protocol.arms.common.maxSteps -or
         [long]$result.strictRunBudget.maxBytes -ne [long]$Protocol.bounds.maxProjectedRetainedBytesPerInvocation -or
+        [long]$result.strictRunBudget.projectedBytes -lt 0 -or
         [long]$result.strictRunBudget.projectedBytes -gt [long]$result.strictRunBudget.maxBytes -or
+        [long]$iteration.execution.capturedBytes -lt 0 -or
         [long]$iteration.execution.capturedBytes -gt [long]$Protocol.bounds.maxHostOutputBytesPerSession -or
+        [long]$iteration.execution.artifactBytes -lt 0 -or
         [long]$iteration.execution.artifactBytes -gt [long]$Protocol.bounds.maxHostArtifactBytesPerSession -or
+        [long]$iteration.execution.hostRuntimeBytes -lt 0 -or
         [long]$iteration.execution.hostRuntimeBytes -gt [long]$Protocol.bounds.maxHostRuntimeBytesPerSession -or
         [long]$isolation.dynamicArtifactMaxBytes -ne [long]$Protocol.bounds.maxHostArtifactBytesPerSession -or
         [long]$isolation.hostRuntimeMaxBytes -ne [long]$Protocol.bounds.maxHostRuntimeBytesPerSession -or
@@ -490,6 +495,28 @@ function Test-ReadyCaptureBudgetExceeded(
         }
         default { return $false }
     }
+}
+
+function Test-ReadyCaptureAnyBudgetExceeded(
+    $ResultRecord,
+    $Protocol,
+    [double] $TotalCredits) {
+    foreach ($reason in @(
+            'budget:host-ai-credits',
+            'budget:wall-ms',
+            'budget:host-output-bytes',
+            'budget:host-artifact-bytes',
+            'budget:host-runtime-bytes',
+            'budget:projected-retained-bytes')) {
+        if (Test-ReadyCaptureBudgetExceeded `
+                -ResultRecord $ResultRecord `
+                -Reason $reason `
+                -Protocol $Protocol `
+                -TotalCredits $TotalCredits) {
+            return $true
+        }
+    }
+    return $false
 }
 
 function Get-TrustedHostVersion([string] $Path) {
@@ -633,7 +660,7 @@ function Test-ArtifactSet(
         -not [string]::Equals([string]$checkpoint.evaluatorClosureSha256, $expectedEvaluatorHash, [StringComparison]::Ordinal)) {
         throw 'Ready-capture checkpoint identities do not match the frozen protocol and host.'
     }
-    if ($ValidateSessionSchema) {
+    if ($ValidateSessionSchema -and $results.Count -gt 0) {
         if ([string]::IsNullOrWhiteSpace($TrustedHostPath)) {
             throw '-HostExecutablePath is required when validating retained session results.'
         }
@@ -997,6 +1024,24 @@ function Test-ArtifactSet(
         }
         [bool] $allInvalidSessionsMachineValid =
             @($invalidSessionMachineValidity | Where-Object { -not $_ }).Count -eq 0
+        [bool] $finalFailureExceedsBudget = $false
+        if ($stoppedAtFirstMachineFailure) {
+            try {
+                $finalFailureExceedsBudget = Test-ReadyCaptureAnyBudgetExceeded `
+                    -ResultRecord $invalidSessionResults[$invalidSessionResults.Count - 1] `
+                    -Protocol $protocolValue `
+                    -TotalCredits $creditTotal
+            }
+            catch { $finalFailureExceedsBudget = $false }
+        }
+
+        if (-not [string]::Equals(
+                [string]$report.terminalDisposition,
+                'descriptive-complete',
+                [StringComparison]::Ordinal) -and
+            $maps.Count -ge [int]$protocolValue.sample.validPairTarget) {
+            throw 'Four valid pairs require the descriptive-complete disposition.'
+        }
 
         switch ([string]$report.terminalDisposition) {
             'descriptive-complete' {
@@ -1018,6 +1063,7 @@ function Test-ArtifactSet(
                 if (-not ([string]$report.terminalReason).StartsWith('evidence:', [StringComparison]::Ordinal) -or
                     @($report.invalidSessions).Count -eq 0 -or
                     -not $stoppedAtFirstMachineFailure -or
+                    $finalFailureExceedsBudget -or
                     @($report.invalidSessions | Where-Object {
                             -not ([string]$_.reason).StartsWith('evidence:', [StringComparison]::Ordinal)
                         }).Count -ne 0) {
@@ -1454,6 +1500,57 @@ function Invoke-SelfTest {
         $result = Test-ArtifactSet $root $ProtocolPath $SchemaPath $true $false 'Final' $null
         if ($result.pairs -ne 4 -or $result.sessions -ne 8) { throw 'Ready-capture self-test did not validate the complete artifact set.' }
 
+        $incompleteCompleteReport = ($report | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+        $incompleteCompleteReport.terminalDisposition = 'incomplete-precondition'
+        $incompleteCompleteReport.terminalReason = 'precondition:self-test after four pairs'
+        $incompleteCompleteReport.armSummaries = @()
+        $incompleteCompleteReport.pairedDeltas = @()
+        $incompleteCompleteReport.orderSummaries = @()
+        $incompleteCompleteReport.qualityState = 'unavailable'
+        foreach ($property in $incompleteCompleteReport.costStates.PSObject.Properties) {
+            $property.Value = 'unavailable'
+        }
+        Write-JsonFile (Join-Path $root 'final-report.json') $incompleteCompleteReport
+        [bool] $incompleteCompleteRejected = $false
+        try { [void](Test-ArtifactSet $root $ProtocolPath $SchemaPath $false $false 'Final' $null) }
+        catch {
+            $incompleteCompleteRejected = $_.Exception.Message.Contains(
+                'Four valid pairs require', [StringComparison]::Ordinal)
+        }
+        if (-not $incompleteCompleteRejected) {
+            throw 'Ready-capture four-pair incomplete disposition unexpectedly passed.'
+        }
+        Write-JsonFile (Join-Path $root 'final-report.json') $report
+
+        [string] $zeroSessionRoot = "$root-zero-session"
+        [System.IO.Directory]::CreateDirectory($zeroSessionRoot) | Out-Null
+        try {
+            Copy-Item -LiteralPath (Join-Path $root 'checkpoint.json') -Destination $zeroSessionRoot
+            $zeroSessionReport = ($report | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $zeroSessionReport.terminalDisposition = 'incomplete-precondition'
+            $zeroSessionReport.terminalReason = 'precondition:self-test before first session'
+            $zeroSessionReport.validPairs = 0
+            $zeroSessionReport.hostSessions = 0
+            $zeroSessionReport.hostAiCredits = 0
+            $zeroSessionReport.authorizationSha256 = $null
+            $zeroSessionReport.sessionResultSha256 = @()
+            $zeroSessionReport.gradeSha256 = @()
+            $zeroSessionReport.sessions = @()
+            $zeroSessionReport.invalidSessions = @()
+            $zeroSessionReport.armSummaries = @()
+            $zeroSessionReport.pairedDeltas = @()
+            $zeroSessionReport.orderSummaries = @()
+            $zeroSessionReport.qualityState = 'unavailable'
+            foreach ($property in $zeroSessionReport.costStates.PSObject.Properties) {
+                $property.Value = 'unavailable'
+            }
+            Write-JsonFile (Join-Path $zeroSessionRoot 'final-report.json') $zeroSessionReport
+            [void](Test-ArtifactSet $zeroSessionRoot $ProtocolPath $SchemaPath $false $true 'Final' $null)
+        }
+        finally {
+            Remove-Item -LiteralPath $zeroSessionRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
         [string] $preUnblindRoot = "$root-pre-unblind"
         Copy-Item -LiteralPath $root -Destination $preUnblindRoot -Recurse
         try {
@@ -1571,6 +1668,43 @@ function Invoke-SelfTest {
             }
             Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $incompleteReport
             [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final' $null)
+
+            $negativeAccountingCases = @(
+                [pscustomobject]@{
+                    name = 'negative wall time'
+                    mutate = { param($value) $value.iterations[0].wallMs = -1 }
+                },
+                [pscustomobject]@{
+                    name = 'negative projected bytes'
+                    mutate = { param($value) $value.strictRunBudget.projectedBytes = -1 }
+                },
+                [pscustomobject]@{
+                    name = 'negative captured bytes'
+                    mutate = { param($value) $value.iterations[0].execution.capturedBytes = -1 }
+                },
+                [pscustomobject]@{
+                    name = 'negative artifact bytes'
+                    mutate = { param($value) $value.iterations[0].execution.artifactBytes = -1 }
+                },
+                [pscustomobject]@{
+                    name = 'negative runtime bytes'
+                    mutate = { param($value) $value.iterations[0].execution.hostRuntimeBytes = -1 }
+                })
+            foreach ($negativeAccountingCase in $negativeAccountingCases) {
+                $negativeAccountingResult = [System.IO.File]::ReadAllText((Join-Path $root $invalidResultName)) |
+                    ConvertFrom-Json -Depth 100
+                & $negativeAccountingCase.mutate $negativeAccountingResult
+                Write-JsonFile $invalidResultPath $negativeAccountingResult
+                [string] $negativeAccountingHash = Get-RawHash $invalidResultPath
+                $negativeAccountingReport = ($incompleteReport | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+                $negativeAccountingReport.sessionResultSha256 = @($negativeAccountingHash)
+                $negativeAccountingReport.invalidSessions[0].resultSha256 = $negativeAccountingHash
+                Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $negativeAccountingReport
+                [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final' $null)
+            }
+
+            Write-JsonFile $invalidResultPath $invalidResultValue
+            Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $incompleteReport
 
             Copy-Item -LiteralPath (Join-Path $root $invalidResultName) -Destination $invalidResultPath -Force
             [string] $validNoAnswerHash = Get-RawHash $invalidResultPath
@@ -1695,6 +1829,18 @@ function Invoke-SelfTest {
                 $budgetReport.invalidSessions[0].hostAiCredits = $budgetCase.credits
                 Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $budgetReport
                 [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final' $null)
+            }
+
+            $budgetAsEvidenceReport = ($budgetReport | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $budgetAsEvidenceReport.terminalDisposition = 'incomplete-evidence-integrity'
+            $budgetAsEvidenceReport.terminalReason = 'evidence:self-test relabeled budget failure'
+            $budgetAsEvidenceReport.invalidSessions[0].reason = 'evidence:self-test relabeled budget failure'
+            Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $budgetAsEvidenceReport
+            [bool] $budgetAsEvidenceRejected = $false
+            try { [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final' $null) }
+            catch { $budgetAsEvidenceRejected = $true }
+            if (-not $budgetAsEvidenceRejected) {
+                throw 'Ready-capture budget failure was accepted as generic evidence failure.'
             }
 
             $budgetReport.terminalReason = 'budget:host-output-bytes'
