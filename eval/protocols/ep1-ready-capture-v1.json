@@ -1,0 +1,361 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "ep1-ready-capture-v1",
+  "state": "prepared-not-authorized",
+  "question": "Does genuine discovery and use of the shipped Filtrace skill improve the quality or cost of an evidence-backed performance investigation compared with the same model using the same Filtrace CLI without the skill?",
+  "authorization": {
+    "preparationBoundary": "roadmap-and-protocol-through-review-and-merge-only",
+    "measuredExecutionAuthorized": false,
+    "requiredNextAuthorization": [
+      "exact protocol content hash",
+      "maximum 8 host sessions",
+      "maximum 240 host AI credits",
+      "stop after the ready-capture report"
+    ],
+    "terminalAction": "stop-and-return-to-user"
+  },
+  "identity": {
+    "sourceRepository": "https://github.com/JeremyKuhne/filtrace.git",
+    "sourceRevision": "merge-commit-and-tree-recorded-in-private-checkpoint",
+    "cleanTree": "required-before-build-and-before-each-session",
+    "buildCommand": "dotnet build filtrace.slnx -c Release",
+    "buildReuse": "one-release-build-after-merge-reused-byte-for-byte-for-all-eight-sessions",
+    "cliIdentity": "complete-cli-bundle-manifest-sha256-recorded-in-private-checkpoint-and-each-session",
+    "skillIdentity": "complete-shipped-skill-manifest-sha256-recorded-in-private-checkpoint-and-skill-sessions",
+    "evaluatorIdentity": "protocol-runner-helper-policy-and-task-closure-sha256-recorded-in-private-checkpoint",
+    "hostIdentity": "exact-executable-sha256-and-version-recorded-in-private-checkpoint",
+    "modelIdentity": "exact-private-identifier-recorded-in-private-checkpoint-and-verified-before-work",
+    "promptIdentity": "exact-inputs-taskPrompt-value",
+    "permissionIdentity": "generated-hook-and-policy-hashes-recorded-per-session",
+    "environmentIdentity": "inherited-name-value-and-owned-path-policy-hashes-recorded-per-session",
+    "privateCheckpointRecordType": "private-checkpoint",
+    "mismatchPolicy": "stop-before-the-next-host-session-and-report-incomplete-precondition"
+  },
+  "inputs": {
+    "executionRevisionPolicy": "protocol-merge-tree-recorded-in-private-checkpoint",
+    "taskId": "scope-preserving-drill",
+    "taskPath": "eval/tasks/23-scope-preserving-drill.json",
+    "taskSha256": "632eb9d2c64572692bd542d57d0e740497b213d4ab6128e81a2bb83368c4cc50",
+    "qaPath": "eval/mcp-qa.jsonl",
+    "qaLineSha256": "e67ac6d10edbd3d51ea19620b99fafdd816b4196d266cb3de9720e0f51dcc31f",
+    "fixturePath": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
+    "fixtureSha256": "835c293fb03c0ed882bccf8442409003aa6cfdb7d86bb2d70352ae1d371e0504",
+    "taskPrompt": "Analyze CPU self-time in this machine-wide ETW capture for the HotLoopBench process tree. Identify the hottest frame only if the evidence supports a name, state the exact scope and evidence quality, give the next drill command without losing scope, and name one conclusion the trace does not justify.",
+    "requiredAnswerStrings": [
+      "--process",
+      "HotLoopBench",
+      "0%",
+      "51",
+      "200",
+      "callers",
+      "source"
+    ],
+    "expectedEvidence": {
+      "operation": "rank",
+      "metric": "cpu",
+      "measure": "self",
+      "process": "HotLoopBench",
+      "includeChildren": true,
+      "topFrame": "?",
+      "frameResolutionPercent": 0,
+      "contributingRecords": 51,
+      "recommendedMinimumRecords": 200,
+      "nextOperation": "callers",
+      "nextFrame": "?",
+      "nextProcess": "HotLoopBench"
+    }
+  },
+  "arms": {
+    "common": {
+      "agentHost": "copilot",
+      "configuration": "Release",
+      "taskId": "scope-preserving-drill",
+      "modelIdentity": "private-checkpoint-exact-match",
+      "iterationsPerInvocation": 1,
+      "maxSteps": 6,
+      "nonSkillTool": "powershell"
+    },
+    "cliSkill": {
+      "label": "A",
+      "arm": "cli-skill",
+      "skillState": "normal-project-discovery-required",
+      "skillEvidence": "discovery-before-native-invocation-before-context-before-answer"
+    },
+    "cliOnly": {
+      "label": "B",
+      "arm": "cli",
+      "skillState": "verified-no-skill",
+      "skillEvidence": "no-filtrace-skill-discovered-invoked-or-injected"
+    },
+    "permittedDifferences": [
+      "attested Filtrace project-skill installation",
+      "native skill and bounded view tools required by that installation",
+      "skill-specific transcript evidence"
+    ]
+  },
+  "isolation": {
+    "workspace": "unique-outside-repository-per-session",
+    "home": "unique-empty-owned-home-per-session",
+    "inputs": "attested-immutable-cli-fixture-skill-policy-and-configuration",
+    "analysisCache": "no-adjacent-derived-cache-copied-or-reused",
+    "hostCache": "fresh-session-private-under-unique-home",
+    "osCache": "not-reset-balanced-order-and-reported-as-limitation",
+    "oracle": "task-qa-and-expected-facts-never-copied-to-model-visible-surfaces",
+    "fullLoop": "outside-this-protocol-requires-separate-isolated-worktree-contract"
+  },
+  "sample": {
+    "validPairTarget": 4,
+    "maximumPairs": 4,
+    "maximumSessions": 8,
+    "replacementPairs": 0,
+    "orderAlgorithm": "sha256-parity-two-balanced-blocks-v1",
+    "orderSeed": "b3b82538d6de28adf6dece625e8d5402",
+    "pairs": [
+      {
+        "pair": 1,
+        "first": "cli-skill",
+        "second": "cli"
+      },
+      {
+        "pair": 2,
+        "first": "cli",
+        "second": "cli-skill"
+      },
+      {
+        "pair": 3,
+        "first": "cli",
+        "second": "cli-skill"
+      },
+      {
+        "pair": 4,
+        "first": "cli-skill",
+        "second": "cli"
+      }
+    ],
+    "invalidSessionPolicy": "retain-entire-pair-stop-incomplete-no-automatic-replacement"
+  },
+  "execution": {
+    "runnerPath": "eval/Invoke-AgentEval.ps1",
+    "commandTemplate": "./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Arm <arm> -Model <private-model-id> -ExpectedModel <private-model-id> -Tasks scope-preserving-drill -N 1 -MaxSteps 6 -Configuration Release -Label ep1-rc-p<pair>-<position>-<arm> -OutDir <private-new-output-directory> -NativeTimeoutSeconds 600 -MaxHostOutputBytes 10485760 -MaxHostArtifactBytes 16777216",
+    "labelTemplate": "ep1-rc-p{pair}-{position}-{arm}",
+    "outputDirectoryPolicy": "new-private-directory-bound-to-protocol-hash",
+    "preSessionChecks": [
+      "protocol task qa fixture and execution-tree hashes match",
+      "private exact model identity is available",
+      "output directory does not exist",
+      "no workspace home or analysis cache is reused",
+      "session matches the frozen pair arm and position"
+    ],
+    "postSessionChecks": [
+      "exactly one schema-v3 result was created",
+      "label arm input identity model and usage match the protocol",
+      "arm-specific skill evidence verifies independently of answer quality",
+      "host and result processes exit zero with one nonempty final answer",
+      "all required machine evidence is available",
+      "record runner success as a quality anchor rather than a validity gate",
+      "stop immediately if evidence integrity is invalid"
+    ]
+  },
+  "bounds": {
+    "nativeTimeoutSecondsPerSession": 600,
+    "maxHostOutputBytesPerSession": 10485760,
+    "maxHostArtifactBytesPerSession": 16777216,
+    "maxProjectedRetainedBytesPerInvocation": 2147483648,
+    "maxAiCreditsPerSession": 30,
+    "maximumHostSessions": 8,
+    "maximumHostAiCredits": 240,
+    "stopOnInvalidSession": true
+  },
+  "validity": {
+    "machineRequirements": [
+      "schema-v3 result validates",
+      "exact private model identity verifies before work",
+      "task qa fixture and input-closure hashes match",
+      "arm-specific skill state verifies",
+      "detailed host usage file is valid",
+      "terminal result and process exit are zero",
+      "one nonempty final answer and a complete bounded transcript are retained"
+    ],
+    "answerCriteria": [
+      {
+        "id": "scope",
+        "rule": "state HotLoopBench process-tree scope including children"
+      },
+      {
+        "id": "attribution-restraint",
+        "rule": "state that the top frame is unresolved and do not name a hottest method"
+      },
+      {
+        "id": "evidence-quality",
+        "rule": "report 0% frame resolution and 51 contributing records against the 200-record recommendation"
+      },
+      {
+        "id": "scope-preserving-drill",
+        "rule": "give callers for the unresolved frame and retain --process HotLoopBench"
+      },
+      {
+        "id": "unsupported-claim",
+        "rule": "state that this trace does not justify named-method or source-line attribution and is thin for directional confidence"
+      }
+    ],
+    "falseConfidenceCriteria": [
+      "names a hottest method despite the unresolved top frame",
+      "claims source-line attribution despite 0% frame resolution",
+      "presents 51 records as strong directional evidence",
+      "drops the HotLoopBench process scope from the next drill"
+    ],
+    "sessionValidWhen": "all-machine-requirements-pass-and-a-schema-valid-blinded-grade-is-frozen-regardless-of-answer-quality",
+    "pairValidWhen": "both-sessions-are-valid-and-the-pair-grade-record-hash-precedes-arm-map-reveal",
+    "experimentIncompleteWhen": "evidence-integrity-precondition-budget-or-required-grade-prevents-the-four-pair-denominator"
+  },
+  "adjudication": {
+    "timing": "after-both-sessions-in-each-pair-before-starting-the-next-pair",
+    "blindId": "random-128-bit-id-per-session-generated-after-the-session-and-stored-only-in-the-private-arm-map",
+    "randomization": "generate-packet-and-blind-ids-with-System.Security.Cryptography.RandomNumberGenerator-16-bytes-each-and-sort-packet-answers-by-blind-id-ordinal",
+    "packet": "exact-final-answer-text-only-randomized-within-pair-under-opaque-blind-ids",
+    "hiddenFields": [
+      "arm",
+      "pair position",
+      "model and skill evidence",
+      "cost and timing",
+      "transcript and file paths"
+    ],
+    "grader": "user-or-independent-reviewer-without-the-private-arm-map",
+    "rubric": "grade-each-answer-criterion-pass-fail-with-an-exact-answer-quote-and-record-one-false-confidence-boolean",
+    "freeze": "serialize-and-sha256-the-pair-grade-record-before-revealing-the-arm-map",
+    "unblinding": "reveal-pair-position-and-arm-only-after-both-session-grades-are-frozen",
+    "qualityFailure": "a-failed-criterion-or-false-confidence-is-a-valid-measured-quality-outcome-not-an-invalid-session",
+    "integrityFailure": "missing-or-malformed-session-packet-grade-or-freeze-evidence-stops-incomplete-before-the-next-pair",
+    "limitation": "answer-wording-can-suggest-skill-use-so-report-the-grading-as-arm-masked-not-inference-blind"
+  },
+  "records": {
+    "schemaPath": "eval/protocols/ep1-ready-capture-record-v1.schema.json",
+    "schemaSha256": "185e9280c7d56601e0e8fd17698495bcdb1ce2a439ff85268e8bba447c79e805",
+    "recordTypes": [
+      "blinded-packet",
+      "blinded-grade",
+      "private-arm-map",
+      "private-checkpoint",
+      "final-report"
+    ],
+    "semanticChecks": [
+      "packet and grade contain the same two distinct blind ids",
+      "private arm map contains the same two blind ids exactly once",
+      "packet grade result and protocol hashes match retained bytes",
+      "one cli and one cli-skill arm occupy distinct first and second positions",
+      "complete report contains eight distinct session hashes and four distinct grade hashes"
+    ],
+    "validation": "json-schema-plus-tools-Test-Docs-semantic-probes-before-freeze-and-every-report"
+  },
+  "measurement": {
+    "primaryDimensions": [
+      "arm-masked-answer-quality",
+      "analysis-calls",
+      "help-calls",
+      "observed-result-tokens",
+      "evaluator-monotonic-wall-ms",
+      "host-ai-credits"
+    ],
+    "observationalDimensions": [
+      "host-reported-api-duration-ms",
+      "host-reported-session-duration-ms",
+      "input-cache-read-cache-write-and-output-tokens",
+      "denied-tool-attempts",
+      "host-runtime-and-artifact-bytes"
+    ],
+    "clock": {
+      "source": "System.Diagnostics.Stopwatch-in-Invoke-AgentEvalProcess",
+      "start": "immediately-before-contained-job-object-setup-and-host-process-start",
+      "stop": "after-host-exit-stream-drain-final-artifact-scan-and-input-integrity-check",
+      "primaryField": "iteration-wallMs-from-processResult-wallMs",
+      "hostDurations": "observational-only-never-substituted-for-primary-wallMs"
+    },
+    "practicalEquivalence": {
+      "quality": "same-five-criterion-pass-vector-and-same-false-confidence-value-in-each-pair",
+      "analysisCallsAbsolute": 0,
+      "helpCallsAbsolute": 0,
+      "resultTokensRelative": 0.05,
+      "wallMsRelative": 0.05,
+      "hostAiCreditsAbsolute": 0,
+      "relativeDelta": "skill-minus-cli-divided-by-cli; equal-zero-is-equivalent-and-other-zero-denominators-are-unavailable"
+    },
+    "classification": {
+      "deltaOrientation": "cli-skill-minus-cli",
+      "qualityStates": [
+        "same-observed-quality",
+        "skill-higher-observed-quality",
+        "skill-lower-observed-quality",
+        "mixed-observed-quality",
+        "order-sensitive",
+        "unavailable"
+      ],
+      "costStates": [
+        "skill-lower",
+        "practically-equivalent",
+        "skill-higher",
+        "mixed",
+        "order-sensitive",
+        "unavailable"
+      ],
+      "orderSensitive": "label-a-dimension-order-sensitive-when-skill-first-and-cli-first-subgroup-medians-fall-in-opposite-non-equivalent-directions",
+      "aggregation": "report-all-four-paired-deltas-plus-median-and-range-per-arm-and-by-first-arm",
+      "overall": "no-winner-score-or-significance-claim"
+    }
+  },
+  "dispositions": {
+    "session": {
+      "validQualityPass": "machine-evidence-valid-and-all-five-criteria-pass-without-false-confidence",
+      "validQualityFail": "machine-evidence-valid-and-any-criterion-fails-or-false-confidence-triggers",
+      "invalidEvidence": "any-machine-requirement-or-record-integrity-check-fails"
+    },
+    "pair": {
+      "valid": "both-sessions-have-valid-evidence-and-schema-valid-grades-frozen-before-unblinding-regardless-of-quality",
+      "invalid": "either-session-has-invalid-evidence-or-the-grade-freeze-cannot-be-proved"
+    },
+    "terminal": {
+      "descriptiveComplete": "four-valid-graded-pairs-retained",
+      "incompletePrecondition": "an-identity-environment-or-launch-precondition-fails-before-a-session",
+      "incompleteEvidenceIntegrity": "a-started-session-or-pair-is-invalid-with-no-automatic-replacement",
+      "incompleteBudget": "the-next-session-would-exceed-the-session-credit-time-output-artifact-or-retained-byte-bound",
+      "stoppedByUser": "the-user-stops-before-four-valid-pairs"
+    },
+    "blockerReproducibility": "call-a-precondition-blocked-only-after-the-same-non-metered-check-fails-twice;retain-a-started-invalid-session-as-incomplete-without-replacement",
+    "routing": "every-terminal-disposition-writes-a-schema-valid-final-report-and-stops-for-user-decision-with-no-automatic-next-work"
+  },
+  "reporting": {
+    "mode": "descriptive-only-no-winner-classification",
+    "requiredSessionFields": [
+      "success",
+      "falseConfidence",
+      "calls",
+      "helpCalls",
+      "tokens",
+      "wallMs",
+      "hostUsage",
+      "hostUsageFile",
+      "answerCriteria",
+      "transcript",
+      "inputIdentity",
+      "pair",
+      "position"
+    ],
+    "sourceSeparation": "success-comes-from-schema-v3-runner-output-answerCriteria-and-falseConfidence-come-only-from-the-frozen-blinded-grade-record",
+    "pairDeltaOrientation": "cli-skill-minus-cli",
+    "aggregates": [
+      "raw sessions in frozen order",
+      "per-arm median and range",
+      "all paired deltas",
+      "paired deltas grouped by first arm"
+    ],
+    "orderEffect": "report orientation summaries separately and label disagreement order-sensitive",
+    "missingData": "report unavailable never zero and stop incomplete for required fields",
+    "completion": "descriptive-complete-only-after-four-valid-graded-pairs-including-quality-failures",
+    "nextAction": "stop-and-return-to-user-no-automatic-routing"
+  },
+  "freeze": {
+    "validator": "tools/Test-Docs.ps1",
+    "protocolHashPolicy": "record-sha256-after-merge-in-private-checkpoint",
+    "mergeTreePolicy": "record-reviewed-head-and-merge-tree-after-merge",
+    "executionPrecondition": "exact-protocol-hash-and-private-model-identity-match"
+  }
+}

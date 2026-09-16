@@ -1,15 +1,18 @@
 {
   "id": "scope-preserving-drill",
-  "title": "Carry the process scope from a ranking into the next drill.",
-  "prompt": "Rank CPU in this machine-wide ETW capture scoped to the HotLoopBench process tree, then say exactly what the next drill command must carry so the scope is not silently lost.",
+  "title": "Preserve scope and reject unsupported CPU attribution.",
+  "prompt": "Analyze CPU self-time in this machine-wide ETW capture for the HotLoopBench process tree. Identify the hottest frame only if the evidence supports a name, state the exact scope and evidence quality, give the next drill command without losing scope, and name one conclusion the trace does not justify.",
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
   "os": "windows",
   "steps": [
     { "args": ["rank", "{fixture}", "--metric", "cpu", "--process", "HotLoopBench", "--top", "3"] }
   ],
   "assert": [
+    { "field": "result.rows[0].frame", "equals": "?" },
+    { "field": "warnings[2].data.resolutionPercent", "equals": 0 },
+    { "field": "warnings[3].data.contributingRecords", "equals": 51 },
     { "hintContains": "--process 'HotLoopBench'" },
     { "jsonContains": "Scoped to the 'HotLoopBench' process tree" }
   ],
-  "expect": ["--process", "HotLoopBench"]
+  "expect": ["--process", "HotLoopBench", "0%", "51", "200", "callers", "source"]
 }

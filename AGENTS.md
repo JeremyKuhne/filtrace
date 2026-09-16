@@ -52,8 +52,9 @@ CI also runs twelve contract and evaluation checks that must stay green:
 - `tools/Test-McpServer.ps1 -Configuration Release` - stdout is pure JSON-RPC,
   the tool-list schema stays within the token budget, and a real `tools/call`
   round-trips.
-- `tools/Test-Docs.ps1` - shared workflow blocks, command/tool catalogs, and the
-  packaged filtrace skill stay synchronized.
+- `tools/Test-Docs.ps1` - shared workflow blocks, command/tool catalogs, the
+  packaged filtrace skill, and the prepared EP1 protocol's input hashes, order,
+  bounds, arm-masked grading, privacy, and stopped state stay synchronized.
 - `tools/Test-CaptureBenchmarkTrace.ps1` - run artifacts stay isolated, overlap
   is rejected, every case enters the manifest, and exact child symbols are used.
 - `tools/Test-CaptureCommandTrace.ps1` - fake-only short-command capture retains

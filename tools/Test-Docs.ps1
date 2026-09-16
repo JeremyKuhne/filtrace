@@ -18,13 +18,18 @@
        the map (e.g. `tools`) are reference-only and need no consumer copy.
     2. The shipped skill's YAML frontmatter is valid: `name` matches the skill
        directory, and `description` is present.
-    3. Every canonical CLI command appears in the command catalog, and every MCP
-       tool appears in the tool catalog - so new surface cannot ship undocumented.
-    4. Every relative link in a shipped skill file (.agents/skills/filtrace/)
+        3. The prepared EP1 ready-capture protocol remains non-executable, binds exact
+            public inputs, balances pair order, separates runner and arm-masked answer
+            grading, and caps sessions and host AI credits.
+     4. Every canonical CLI command appears in the command catalog, and every MCP
+         tool appears in the tool catalog - so new surface cannot ship undocumented.
+     5. Every relative link in a shipped skill file (.agents/skills/filtrace/)
        resolves to a path inside the skill directory - so no link dangles once
        the skill is packed into the NuGet package or vendored via
        `gh skill install`, both of which carry only the skill directory (issue #10).
-    5. Packing every packable project produces only the CLI and MCP packages, and no
+     6. Every file provided or linked by the shipped skill is carried into the MCP
+         package.
+     7. Packing every packable project produces only the CLI and MCP packages, and no
          repository workflow skill enters either archive. Only skills/filtrace/
          may ship, and only in KlutzyNinja.Filtrace.Mcp.
 
@@ -44,6 +49,52 @@ $root = Split-Path -Parent $PSScriptRoot
 
 $failures = [System.Collections.Generic.List[string]]::new()
 function Add-Failure([string]$message) { $failures.Add($message) }
+
+function Assert-ExactDocObjectMembers($Value, [string[]]$Expected, [string]$Context) {
+    if ($null -eq $Value -or $Value -is [string] -or $Value -is [ValueType]) {
+        Add-Failure "$Context is not an object."
+        return $false
+    }
+    [string[]] $actual = @($Value.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($actual.Count -ne $Expected.Count -or
+        @($actual | Where-Object { $Expected -cnotcontains $_ }).Count -ne 0) {
+        Add-Failure "$Context has malformed members."
+        return $false
+    }
+    return $true
+}
+
+function Get-DocTextSha256([string]$Text) {
+    return [Convert]::ToHexString(
+        [Security.Cryptography.SHA256]::HashData(
+            [Text.UTF8Encoding]::new($false).GetBytes($Text))).ToLowerInvariant()
+}
+
+function Assert-UniqueDocJsonMembers([Text.Json.JsonElement]$RootElement, [string]$Context) {
+    [System.Collections.Generic.Stack[Text.Json.JsonElement]] $pending =
+        [System.Collections.Generic.Stack[Text.Json.JsonElement]]::new()
+    $pending.Push($RootElement)
+    while ($pending.Count -gt 0) {
+        [Text.Json.JsonElement] $element = $pending.Pop()
+        if ($element.ValueKind -eq [Text.Json.JsonValueKind]::Object) {
+            [System.Collections.Generic.HashSet[string]] $names =
+                [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            foreach ($property in $element.EnumerateObject()) {
+                if (-not $names.Add($property.Name)) { throw "$Context contains a duplicate member." }
+                $pending.Push($property.Value)
+            }
+        }
+        elseif ($element.ValueKind -eq [Text.Json.JsonValueKind]::Array) {
+            foreach ($item in $element.EnumerateArray()) { $pending.Push($item) }
+        }
+    }
+}
+
+function Test-DocJsonSchema($Value, [string]$SchemaPath) {
+    [string] $json = $Value | ConvertTo-Json -Depth 100 -Compress
+    return [bool]($json | Test-Json -SchemaFile $SchemaPath `
+            -ErrorAction SilentlyContinue -WarningAction SilentlyContinue)
+}
 
 # The block sync map: each marked block has one source-of-truth page in docs/ and
 # the consumer surfaces that embed a verbatim copy.
@@ -129,7 +180,617 @@ else {
     }
 }
 
-# 3. Command / tool completeness: every canonical CLI command is in the command
+# 3. Prepared EP1 protocol: exact declarative shape plus semantic checks that bind
+# the current tracked task/QA/fixture and the predeclared balanced pair order. This
+# validates preparation only; the protocol and this check cannot authorize a run.
+$protocolCount = 0
+$protocolPath = Join-Path $root 'eval/protocols/ep1-ready-capture-v1.json'
+if (-not (Test-Path -LiteralPath $protocolPath -PathType Leaf)) {
+    Add-Failure 'Prepared EP1 protocol eval/protocols/ep1-ready-capture-v1.json is missing.'
+}
+else {
+    $protocolCount = 1
+    [string] $protocolRaw = [System.IO.File]::ReadAllText($protocolPath)
+    $protocol = $null
+    try {
+        [Text.Json.JsonDocument] $protocolDocument = [Text.Json.JsonDocument]::Parse($protocolRaw)
+        try { Assert-UniqueDocJsonMembers $protocolDocument.RootElement 'Prepared EP1 protocol' }
+        finally { $protocolDocument.Dispose() }
+        $protocol = $protocolRaw | ConvertFrom-Json -Depth 100
+    }
+    catch {
+        Add-Failure "Prepared EP1 protocol is malformed: $($_.Exception.Message)"
+    }
+
+    if ($null -ne $protocol) {
+        [void](Assert-ExactDocObjectMembers $protocol @(
+            'schemaVersion', 'protocolId', 'state', 'question', 'authorization',
+            'identity', 'inputs', 'arms', 'isolation', 'sample', 'execution',
+            'bounds', 'validity', 'adjudication', 'records', 'measurement',
+            'dispositions', 'reporting', 'freeze') 'Prepared EP1 protocol')
+        [void](Assert-ExactDocObjectMembers $protocol.authorization @(
+                'preparationBoundary', 'measuredExecutionAuthorized',
+                'requiredNextAuthorization', 'terminalAction') 'Prepared EP1 authorization')
+        [void](Assert-ExactDocObjectMembers $protocol.identity @(
+            'sourceRepository', 'sourceRevision', 'cleanTree', 'buildCommand',
+            'buildReuse', 'cliIdentity', 'skillIdentity', 'evaluatorIdentity',
+            'hostIdentity', 'modelIdentity', 'promptIdentity',
+            'permissionIdentity', 'environmentIdentity',
+            'privateCheckpointRecordType', 'mismatchPolicy') 'Prepared EP1 identity')
+        [void](Assert-ExactDocObjectMembers $protocol.inputs @(
+                'executionRevisionPolicy', 'taskId', 'taskPath', 'taskSha256',
+                'qaPath', 'qaLineSha256', 'fixturePath', 'fixtureSha256',
+                'taskPrompt', 'requiredAnswerStrings', 'expectedEvidence') 'Prepared EP1 inputs')
+        [void](Assert-ExactDocObjectMembers $protocol.inputs.expectedEvidence @(
+                'operation', 'metric', 'measure', 'process', 'includeChildren',
+                'topFrame', 'frameResolutionPercent', 'contributingRecords',
+                'recommendedMinimumRecords', 'nextOperation', 'nextFrame',
+                'nextProcess') 'Prepared EP1 expected evidence')
+        [void](Assert-ExactDocObjectMembers $protocol.arms @(
+                'common', 'cliSkill', 'cliOnly', 'permittedDifferences') 'Prepared EP1 arms')
+        [void](Assert-ExactDocObjectMembers $protocol.arms.common @(
+                'agentHost', 'configuration', 'taskId', 'modelIdentity',
+                'iterationsPerInvocation', 'maxSteps', 'nonSkillTool') 'Prepared EP1 common arm')
+        [void](Assert-ExactDocObjectMembers $protocol.arms.cliSkill @(
+                'label', 'arm', 'skillState', 'skillEvidence') 'Prepared EP1 skill arm')
+        [void](Assert-ExactDocObjectMembers $protocol.arms.cliOnly @(
+                'label', 'arm', 'skillState', 'skillEvidence') 'Prepared EP1 CLI arm')
+        [void](Assert-ExactDocObjectMembers $protocol.isolation @(
+                'workspace', 'home', 'inputs', 'analysisCache', 'hostCache',
+                'osCache', 'oracle', 'fullLoop') 'Prepared EP1 isolation')
+        [void](Assert-ExactDocObjectMembers $protocol.sample @(
+                'validPairTarget', 'maximumPairs', 'maximumSessions',
+                'replacementPairs', 'orderAlgorithm', 'orderSeed', 'pairs',
+                'invalidSessionPolicy') 'Prepared EP1 sample')
+        [void](Assert-ExactDocObjectMembers $protocol.execution @(
+            'runnerPath', 'commandTemplate', 'labelTemplate',
+            'outputDirectoryPolicy', 'preSessionChecks',
+            'postSessionChecks') 'Prepared EP1 execution')
+        [void](Assert-ExactDocObjectMembers $protocol.bounds @(
+                'nativeTimeoutSecondsPerSession', 'maxHostOutputBytesPerSession',
+                'maxHostArtifactBytesPerSession', 'maxProjectedRetainedBytesPerInvocation',
+                'maxAiCreditsPerSession', 'maximumHostSessions',
+                'maximumHostAiCredits', 'stopOnInvalidSession') 'Prepared EP1 bounds')
+        [void](Assert-ExactDocObjectMembers $protocol.validity @(
+                'machineRequirements', 'answerCriteria', 'falseConfidenceCriteria',
+                'sessionValidWhen', 'pairValidWhen',
+                'experimentIncompleteWhen') 'Prepared EP1 validity')
+        [void](Assert-ExactDocObjectMembers $protocol.adjudication @(
+            'timing', 'blindId', 'randomization', 'packet', 'hiddenFields',
+            'grader', 'rubric', 'freeze', 'unblinding', 'qualityFailure',
+            'integrityFailure', 'limitation') 'Prepared EP1 adjudication')
+        [void](Assert-ExactDocObjectMembers $protocol.records @(
+            'schemaPath', 'schemaSha256', 'recordTypes', 'semanticChecks',
+            'validation') 'Prepared EP1 records')
+        [void](Assert-ExactDocObjectMembers $protocol.measurement @(
+            'primaryDimensions', 'observationalDimensions', 'clock',
+            'practicalEquivalence', 'classification') 'Prepared EP1 measurement')
+        [void](Assert-ExactDocObjectMembers $protocol.measurement.clock @(
+            'source', 'start', 'stop', 'primaryField',
+            'hostDurations') 'Prepared EP1 clock')
+        [void](Assert-ExactDocObjectMembers $protocol.measurement.practicalEquivalence @(
+            'quality', 'analysisCallsAbsolute', 'helpCallsAbsolute',
+            'resultTokensRelative', 'wallMsRelative',
+            'hostAiCreditsAbsolute', 'relativeDelta') 'Prepared EP1 equivalence')
+        [void](Assert-ExactDocObjectMembers $protocol.measurement.classification @(
+            'deltaOrientation', 'qualityStates', 'costStates',
+            'orderSensitive', 'aggregation', 'overall') 'Prepared EP1 classification')
+        [void](Assert-ExactDocObjectMembers $protocol.dispositions @(
+            'session', 'pair', 'terminal', 'blockerReproducibility',
+            'routing') 'Prepared EP1 dispositions')
+        [void](Assert-ExactDocObjectMembers $protocol.dispositions.session @(
+            'validQualityPass', 'validQualityFail',
+            'invalidEvidence') 'Prepared EP1 session dispositions')
+        [void](Assert-ExactDocObjectMembers $protocol.dispositions.pair @(
+            'valid', 'invalid') 'Prepared EP1 pair dispositions')
+        [void](Assert-ExactDocObjectMembers $protocol.dispositions.terminal @(
+            'descriptiveComplete', 'incompletePrecondition',
+            'incompleteEvidenceIntegrity', 'incompleteBudget',
+            'stoppedByUser') 'Prepared EP1 terminal dispositions')
+        [void](Assert-ExactDocObjectMembers $protocol.reporting @(
+                'mode', 'requiredSessionFields', 'pairDeltaOrientation',
+            'sourceSeparation', 'aggregates', 'orderEffect', 'missingData', 'completion',
+                'nextAction') 'Prepared EP1 reporting')
+        [void](Assert-ExactDocObjectMembers $protocol.freeze @(
+                'validator', 'protocolHashPolicy', 'mergeTreePolicy',
+                'executionPrecondition') 'Prepared EP1 freeze')
+
+        if ($protocol.schemaVersion -ne 1 -or
+            $protocol.protocolId -cne 'ep1-ready-capture-v1' -or
+            $protocol.state -cne 'prepared-not-authorized' -or
+            $protocol.authorization.measuredExecutionAuthorized -ne $false -or
+            $protocol.authorization.terminalAction -cne 'stop-and-return-to-user' -or
+            $protocol.reporting.mode -cne 'descriptive-only-no-winner-classification' -or
+            $protocol.reporting.nextAction -cne 'stop-and-return-to-user-no-automatic-routing') {
+            Add-Failure 'Prepared EP1 protocol does not retain its stopped descriptive-only state.'
+        }
+        if (@($protocol.authorization.requiredNextAuthorization).Count -ne 4 -or
+            $protocol.authorization.preparationBoundary -cne
+                'roadmap-and-protocol-through-review-and-merge-only') {
+            Add-Failure 'Prepared EP1 protocol authorization boundary is malformed.'
+        }
+        if ($protocol.identity.sourceRepository -cne
+                'https://github.com/JeremyKuhne/filtrace.git' -or
+            $protocol.identity.sourceRevision -cne
+                'merge-commit-and-tree-recorded-in-private-checkpoint' -or
+            $protocol.identity.cleanTree -cne
+                'required-before-build-and-before-each-session' -or
+            $protocol.identity.buildCommand -cne
+                'dotnet build filtrace.slnx -c Release' -or
+            $protocol.identity.buildReuse -cne
+                'one-release-build-after-merge-reused-byte-for-byte-for-all-eight-sessions' -or
+            $protocol.identity.privateCheckpointRecordType -cne 'private-checkpoint' -or
+            $protocol.identity.mismatchPolicy -cne
+                'stop-before-the-next-host-session-and-report-incomplete-precondition') {
+            Add-Failure 'Prepared EP1 protocol immutable identity contract has drifted.'
+        }
+        if ($protocolRaw -match '(?i)gpt-5|internal only|sol fast|[A-Z]:\\') {
+            Add-Failure 'Prepared EP1 protocol contains a private model identifier or absolute Windows path.'
+        }
+
+        $expectedEvidence = $protocol.inputs.expectedEvidence
+        if ($expectedEvidence.operation -cne 'rank' -or
+            $expectedEvidence.metric -cne 'cpu' -or
+            $expectedEvidence.measure -cne 'self' -or
+            $expectedEvidence.process -cne 'HotLoopBench' -or
+            $expectedEvidence.includeChildren -ne $true -or
+            $expectedEvidence.topFrame -cne '?' -or
+            $expectedEvidence.frameResolutionPercent -ne 0 -or
+            $expectedEvidence.contributingRecords -ne 51 -or
+            $expectedEvidence.recommendedMinimumRecords -ne 200 -or
+            $expectedEvidence.nextOperation -cne 'callers' -or
+            $expectedEvidence.nextFrame -cne '?' -or
+            $expectedEvidence.nextProcess -cne 'HotLoopBench') {
+            Add-Failure 'Prepared EP1 protocol expected evidence has drifted.'
+        }
+        [string[]] $requiredAnswerContract = @(
+            '--process', 'HotLoopBench', '0%', '51', '200', 'callers', 'source')
+        if (@($protocol.inputs.requiredAnswerStrings).Count -ne $requiredAnswerContract.Count -or
+            @(for ($index = 0; $index -lt $requiredAnswerContract.Count; $index++) {
+                    if ([string]$protocol.inputs.requiredAnswerStrings[$index] -cne
+                        $requiredAnswerContract[$index]) { $index }
+                }).Count -ne 0) {
+            Add-Failure 'Prepared EP1 protocol machine answer anchors have drifted.'
+        }
+        if ($protocol.arms.common.agentHost -cne 'copilot' -or
+            $protocol.arms.common.configuration -cne 'Release' -or
+            $protocol.arms.common.taskId -cne $protocol.inputs.taskId -or
+            $protocol.arms.common.modelIdentity -cne 'private-checkpoint-exact-match' -or
+            $protocol.arms.common.iterationsPerInvocation -ne 1 -or
+            $protocol.arms.common.maxSteps -ne 6 -or
+            $protocol.arms.common.nonSkillTool -cne 'powershell' -or
+            $protocol.arms.cliSkill.label -cne 'A' -or
+            $protocol.arms.cliSkill.arm -cne 'cli-skill' -or
+            $protocol.arms.cliSkill.skillState -cne 'normal-project-discovery-required' -or
+            $protocol.arms.cliOnly.label -cne 'B' -or
+            $protocol.arms.cliOnly.arm -cne 'cli' -or
+            $protocol.arms.cliOnly.skillState -cne 'verified-no-skill' -or
+            @($protocol.arms.permittedDifferences).Count -ne 3) {
+            Add-Failure 'Prepared EP1 protocol arm contract has drifted.'
+        }
+        if ($protocol.isolation.workspace -cne 'unique-outside-repository-per-session' -or
+            $protocol.isolation.home -cne 'unique-empty-owned-home-per-session' -or
+            $protocol.isolation.analysisCache -cne 'no-adjacent-derived-cache-copied-or-reused' -or
+            $protocol.isolation.hostCache -cne 'fresh-session-private-under-unique-home' -or
+            $protocol.isolation.osCache -cne 'not-reset-balanced-order-and-reported-as-limitation' -or
+            $protocol.isolation.oracle -cne
+                'task-qa-and-expected-facts-never-copied-to-model-visible-surfaces') {
+            Add-Failure 'Prepared EP1 protocol isolation contract has drifted.'
+        }
+
+        [string] $taskPath = Join-Path $root ([string]$protocol.inputs.taskPath)
+        [string] $fixturePath = Join-Path $root ([string]$protocol.inputs.fixturePath)
+        if (-not (Test-Path -LiteralPath $taskPath -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $fixturePath -PathType Leaf)) {
+            Add-Failure 'Prepared EP1 protocol task or fixture path does not resolve.'
+        }
+        else {
+            $task = Get-Content -LiteralPath $taskPath -Raw | ConvertFrom-Json
+            [string] $taskHash = (Get-FileHash -LiteralPath $taskPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            [string] $fixtureHash = (Get-FileHash -LiteralPath $fixturePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($taskHash -cne $protocol.inputs.taskSha256 -or
+                $fixtureHash -cne $protocol.inputs.fixtureSha256 -or
+                $task.id -cne $protocol.inputs.taskId -or
+                $task.fixture -cne $protocol.inputs.fixturePath -or
+                $task.prompt -cne $protocol.inputs.taskPrompt) {
+                Add-Failure 'Prepared EP1 protocol task or fixture identity has drifted.'
+            }
+            [System.Collections.Generic.Dictionary[string, object]] $assertions =
+                [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+            foreach ($assertion in @($task.assert | Where-Object {
+                        $_.PSObject.Properties.Name -ccontains 'field' -and
+                        $_.PSObject.Properties.Name -ccontains 'equals'
+                    })) {
+                if (-not $assertions.TryAdd([string]$assertion.field, $assertion.equals)) {
+                    Add-Failure "Prepared EP1 task repeats field assertion '$($assertion.field)'."
+                }
+            }
+            if (-not $assertions.ContainsKey('result.rows[0].frame') -or
+                [string]$assertions['result.rows[0].frame'] -cne [string]$expectedEvidence.topFrame -or
+                -not $assertions.ContainsKey('warnings[2].data.resolutionPercent') -or
+                [int]$assertions['warnings[2].data.resolutionPercent'] -ne
+                    [int]$expectedEvidence.frameResolutionPercent -or
+                -not $assertions.ContainsKey('warnings[3].data.contributingRecords') -or
+                [int]$assertions['warnings[3].data.contributingRecords'] -ne
+                    [int]$expectedEvidence.contributingRecords -or
+                @($task.assert | Where-Object {
+                        $_.PSObject.Properties.Name -ccontains 'hintContains' -and
+                        [string]$_.hintContains -ceq "--process 'HotLoopBench'"
+                    }).Count -ne 1) {
+                Add-Failure 'Prepared EP1 task assertions have drifted from expected evidence.'
+            }
+            [string[]] $expectedAnswerStrings = @($protocol.inputs.requiredAnswerStrings)
+            if (@($task.expect).Count -ne $expectedAnswerStrings.Count -or
+                @(for ($index = 0; $index -lt $expectedAnswerStrings.Count; $index++) {
+                        if ([string]$task.expect[$index] -cne $expectedAnswerStrings[$index]) { $index }
+                    }).Count -ne 0) {
+                Add-Failure 'Prepared EP1 protocol answer strings have drifted from the task.'
+            }
+        }
+
+        [System.Collections.Generic.List[string]] $qaLines = [System.Collections.Generic.List[string]]::new()
+        foreach ($line in Get-Content -LiteralPath (Join-Path $root ([string]$protocol.inputs.qaPath))) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            try { $qa = $line | ConvertFrom-Json } catch { continue }
+            if ([string]$qa.id -ceq [string]$protocol.inputs.taskId) { $qaLines.Add($line) }
+        }
+        if ($qaLines.Count -ne 1 -or
+            (Get-DocTextSha256 $qaLines[0]) -cne $protocol.inputs.qaLineSha256) {
+            Add-Failure 'Prepared EP1 protocol QA identity has drifted.'
+        }
+        else {
+            $qa = $qaLines[0] | ConvertFrom-Json
+            if ($qa.question -cne $protocol.inputs.taskPrompt -or
+                @($qa.answerContains).Count -ne @($protocol.inputs.requiredAnswerStrings).Count -or
+                @(for ($index = 0; $index -lt @($qa.answerContains).Count; $index++) {
+                        if ([string]$qa.answerContains[$index] -cne
+                            [string]$protocol.inputs.requiredAnswerStrings[$index]) { $index }
+                    }).Count -ne 0) {
+                Add-Failure 'Prepared EP1 protocol QA content has drifted.'
+            }
+        }
+
+        [object[]] $pairs = @($protocol.sample.pairs)
+        if ($protocol.sample.validPairTarget -ne 4 -or
+            $protocol.sample.maximumPairs -ne 4 -or
+            $protocol.sample.maximumSessions -ne 8 -or
+            $protocol.sample.replacementPairs -ne 0 -or
+            $pairs.Count -ne 4 -or
+            $protocol.sample.orderSeed -cnotmatch '^[0-9a-f]{32}$' -or
+            $protocol.sample.orderAlgorithm -cne 'sha256-parity-two-balanced-blocks-v1') {
+            Add-Failure 'Prepared EP1 protocol pair bounds or order seed are malformed.'
+        }
+        else {
+            [System.Collections.Generic.List[string]] $expectedOrder = [System.Collections.Generic.List[string]]::new()
+            foreach ($block in 0..1) {
+                [byte[]] $digest = [Security.Cryptography.SHA256]::HashData(
+                    [Text.UTF8Encoding]::new($false).GetBytes("$($protocol.sample.orderSeed):$block"))
+                if (($digest[0] -band 1) -eq 0) {
+                    $expectedOrder.Add('cli-skill,cli')
+                    $expectedOrder.Add('cli,cli-skill')
+                }
+                else {
+                    $expectedOrder.Add('cli,cli-skill')
+                    $expectedOrder.Add('cli-skill,cli')
+                }
+            }
+            [int] $skillFirst = 0
+            for ($index = 0; $index -lt $pairs.Count; $index++) {
+                [void](Assert-ExactDocObjectMembers $pairs[$index] @('pair', 'first', 'second') "Prepared EP1 pair $($index + 1)")
+                [string] $actualOrder = "$($pairs[$index].first),$($pairs[$index].second)"
+                if ($pairs[$index].pair -ne ($index + 1) -or
+                    $actualOrder -cne $expectedOrder[$index]) {
+                    Add-Failure "Prepared EP1 pair $($index + 1) does not match its frozen order seed."
+                }
+                if ($pairs[$index].first -ceq 'cli-skill') { $skillFirst++ }
+            }
+            if ($skillFirst -ne 2) { Add-Failure 'Prepared EP1 pair order is not balanced.' }
+        }
+
+        if ($protocol.bounds.maximumHostSessions -ne $protocol.sample.maximumSessions -or
+            $protocol.bounds.maximumHostAiCredits -ne
+                ($protocol.bounds.maximumHostSessions * $protocol.bounds.maxAiCreditsPerSession) -or
+            $protocol.bounds.nativeTimeoutSecondsPerSession -ne 600 -or
+            $protocol.bounds.maxHostOutputBytesPerSession -ne 10485760 -or
+            $protocol.bounds.maxHostArtifactBytesPerSession -ne 16777216 -or
+            $protocol.bounds.maxProjectedRetainedBytesPerInvocation -ne 2147483648 -or
+            $protocol.bounds.maxAiCreditsPerSession -ne 30 -or
+            $protocol.bounds.stopOnInvalidSession -ne $true -or
+            $protocol.sample.invalidSessionPolicy -cne
+                'retain-entire-pair-stop-incomplete-no-automatic-replacement') {
+            Add-Failure 'Prepared EP1 protocol session/spend bounds are inconsistent.'
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $root ([string]$protocol.execution.runnerPath)) -PathType Leaf) -or
+            $protocol.execution.commandTemplate -cnotmatch '^-?\.?/eval/Invoke-AgentEval\.ps1 ' -or
+            $protocol.execution.commandTemplate -notmatch '-Model <private-model-id>' -or
+            $protocol.execution.commandTemplate -notmatch '-ExpectedModel <private-model-id>' -or
+            $protocol.execution.commandTemplate -notmatch '-Tasks scope-preserving-drill' -or
+            $protocol.execution.commandTemplate -notmatch '-N 1' -or
+            $protocol.execution.commandTemplate -notmatch '-Label ep1-rc-p<pair>-<position>-<arm>' -or
+            $protocol.execution.labelTemplate -cne 'ep1-rc-p{pair}-{position}-{arm}' -or
+            @($protocol.execution.preSessionChecks).Count -lt 5 -or
+            @($protocol.execution.postSessionChecks).Count -lt 5) {
+            Add-Failure 'Prepared EP1 protocol execution template or checks are malformed.'
+        }
+        [string[]] $answerCriterionIds = @($protocol.validity.answerCriteria | ForEach-Object { $_.id })
+        foreach ($criterionId in @(
+                'scope', 'attribution-restraint', 'evidence-quality',
+                'scope-preserving-drill', 'unsupported-claim')) {
+            if ($answerCriterionIds -cnotcontains $criterionId) {
+                Add-Failure "Prepared EP1 protocol is missing answer criterion '$criterionId'."
+            }
+        }
+        foreach ($criterion in @($protocol.validity.answerCriteria)) {
+            [void](Assert-ExactDocObjectMembers $criterion @('id', 'rule') "Prepared EP1 answer criterion '$($criterion.id)'")
+            if ([string]::IsNullOrWhiteSpace([string]$criterion.rule)) {
+                Add-Failure "Prepared EP1 answer criterion '$($criterion.id)' has no rule."
+            }
+        }
+        if (@($protocol.validity.machineRequirements).Count -ne 7 -or
+            @($protocol.validity.falseConfidenceCriteria).Count -ne 4 -or
+            $protocol.validity.sessionValidWhen -cne
+                'all-machine-requirements-pass-and-a-schema-valid-blinded-grade-is-frozen-regardless-of-answer-quality' -or
+            $protocol.validity.pairValidWhen -cne
+                'both-sessions-are-valid-and-the-pair-grade-record-hash-precedes-arm-map-reveal' -or
+            $protocol.validity.experimentIncompleteWhen -cne
+                'evidence-integrity-precondition-budget-or-required-grade-prevents-the-four-pair-denominator') {
+            Add-Failure 'Prepared EP1 protocol validity rules have drifted.'
+        }
+        [string[]] $expectedHiddenFields = @(
+            'arm', 'pair position', 'model and skill evidence', 'cost and timing',
+            'transcript and file paths')
+        if ($protocol.adjudication.timing -cne
+                'after-both-sessions-in-each-pair-before-starting-the-next-pair' -or
+            $protocol.adjudication.blindId -cne
+                'random-128-bit-id-per-session-generated-after-the-session-and-stored-only-in-the-private-arm-map' -or
+            $protocol.adjudication.randomization -cne
+                'generate-packet-and-blind-ids-with-System.Security.Cryptography.RandomNumberGenerator-16-bytes-each-and-sort-packet-answers-by-blind-id-ordinal' -or
+            $protocol.adjudication.packet -cne
+                'exact-final-answer-text-only-randomized-within-pair-under-opaque-blind-ids' -or
+            @($protocol.adjudication.hiddenFields).Count -ne $expectedHiddenFields.Count -or
+            @(for ($index = 0; $index -lt $expectedHiddenFields.Count; $index++) {
+                    if ([string]$protocol.adjudication.hiddenFields[$index] -cne
+                        $expectedHiddenFields[$index]) { $index }
+                }).Count -ne 0 -or
+            $protocol.adjudication.grader -cne
+                'user-or-independent-reviewer-without-the-private-arm-map' -or
+            $protocol.adjudication.rubric -cne
+                'grade-each-answer-criterion-pass-fail-with-an-exact-answer-quote-and-record-one-false-confidence-boolean' -or
+            $protocol.adjudication.freeze -cne
+                'serialize-and-sha256-the-pair-grade-record-before-revealing-the-arm-map' -or
+            $protocol.adjudication.unblinding -cne
+                'reveal-pair-position-and-arm-only-after-both-session-grades-are-frozen' -or
+            $protocol.adjudication.qualityFailure -cne
+                'a-failed-criterion-or-false-confidence-is-a-valid-measured-quality-outcome-not-an-invalid-session' -or
+            $protocol.adjudication.integrityFailure -cne
+                'missing-or-malformed-session-packet-grade-or-freeze-evidence-stops-incomplete-before-the-next-pair' -or
+            $protocol.adjudication.limitation -cne
+                'answer-wording-can-suggest-skill-use-so-report-the-grading-as-arm-masked-not-inference-blind') {
+            Add-Failure 'Prepared EP1 protocol arm-masked grading contract has drifted.'
+        }
+        [string[]] $recordTypes = @(
+            'blinded-packet', 'blinded-grade', 'private-arm-map',
+            'private-checkpoint', 'final-report')
+        [string] $recordSchemaPath = Join-Path $root ([string]$protocol.records.schemaPath)
+        if (-not (Test-Path -LiteralPath $recordSchemaPath -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $recordSchemaPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+                [string]$protocol.records.schemaSha256 -or
+            @($protocol.records.recordTypes).Count -ne $recordTypes.Count -or
+            @(for ($index = 0; $index -lt $recordTypes.Count; $index++) {
+                    if ([string]$protocol.records.recordTypes[$index] -cne
+                        $recordTypes[$index]) { $index }
+                }).Count -ne 0 -or
+            @($protocol.records.semanticChecks).Count -ne 5 -or
+            $protocol.records.validation -cne
+                'json-schema-plus-tools-Test-Docs-semantic-probes-before-freeze-and-every-report') {
+            Add-Failure 'Prepared EP1 record schema contract has drifted.'
+        }
+        else {
+            [string] $zeroHash = '0' * 64
+            [string] $packetId = '1' * 32
+            [string] $firstBlindId = '2' * 32
+            [string] $secondBlindId = '3' * 32
+            $criterion = [ordered]@{ pass = $true; evidence = 'exact answer quote' }
+            $packetProbe = [ordered]@{
+                schemaVersion = 1
+                protocolId = 'ep1-ready-capture-v1'
+                recordType = 'blinded-packet'
+                protocolSha256 = $zeroHash
+                packetId = $packetId
+                answers = @(
+                    [ordered]@{ blindId = $firstBlindId; answer = 'first answer' },
+                    [ordered]@{ blindId = $secondBlindId; answer = 'second answer' })
+            }
+            $gradeProbe = [ordered]@{
+                schemaVersion = 1
+                protocolId = 'ep1-ready-capture-v1'
+                recordType = 'blinded-grade'
+                protocolSha256 = $zeroHash
+                packetId = $packetId
+                packetSha256 = $zeroHash
+                gradeNonce = '4' * 32
+                graderRole = 'user'
+                grades = @(
+                    [ordered]@{
+                        blindId = $firstBlindId
+                        criteria = [ordered]@{
+                            scope = $criterion
+                            'attribution-restraint' = $criterion
+                            'evidence-quality' = $criterion
+                            'scope-preserving-drill' = $criterion
+                            'unsupported-claim' = $criterion
+                        }
+                        falseConfidence = [ordered]@{ triggered = $false; evidence = 'none' }
+                    },
+                    [ordered]@{
+                        blindId = $secondBlindId
+                        criteria = [ordered]@{
+                            scope = $criterion
+                            'attribution-restraint' = $criterion
+                            'evidence-quality' = $criterion
+                            'scope-preserving-drill' = $criterion
+                            'unsupported-claim' = $criterion
+                        }
+                        falseConfidence = [ordered]@{ triggered = $false; evidence = 'none' }
+                    })
+            }
+            $armMapProbe = [ordered]@{
+                schemaVersion = 1
+                protocolId = 'ep1-ready-capture-v1'
+                recordType = 'private-arm-map'
+                protocolSha256 = $zeroHash
+                pair = 1
+                packetId = $packetId
+                packetSha256 = $zeroHash
+                gradeSha256 = $zeroHash
+                entries = @(
+                    [ordered]@{
+                        blindId = $firstBlindId
+                        arm = 'cli-skill'
+                        position = 'first'
+                        resultSha256 = '5' * 64
+                    },
+                    [ordered]@{
+                        blindId = $secondBlindId
+                        arm = 'cli'
+                        position = 'second'
+                        resultSha256 = '6' * 64
+                    })
+            }
+            $checkpointProbe = [ordered]@{
+                schemaVersion = 1
+                protocolId = 'ep1-ready-capture-v1'
+                recordType = 'private-checkpoint'
+                state = 'prepared-not-authorized'
+                measuredExecutionAuthorized = $false
+                protocolSha256 = $zeroHash
+                sourceRepository = 'https://github.com/JeremyKuhne/filtrace.git'
+                mergeCommit = '7' * 40
+                mergeTree = '8' * 40
+                buildCommand = 'dotnet build filtrace.slnx -c Release'
+                sdkVersion = '10.0.100'
+                osDescription = 'test-os'
+                architecture = 'x64'
+                cliBundleManifestSha256 = '9' * 64
+                skillManifestSha256 = 'a' * 64
+                evaluatorClosureSha256 = 'b' * 64
+                hostExecutableSha256 = 'c' * 64
+                hostVersion = '1.0.0'
+                modelIdentity = 'private-model'
+                taskSha256 = 'd' * 64
+                qaLineSha256 = 'e' * 64
+                fixtureSha256 = 'f' * 64
+            }
+            $reportProbe = [ordered]@{
+                schemaVersion = 1
+                protocolId = 'ep1-ready-capture-v1'
+                recordType = 'final-report'
+                protocolSha256 = $zeroHash
+                terminalDisposition = 'descriptive-complete'
+                validPairs = 4
+                hostSessions = 8
+                hostAiCredits = 8
+                sessionResultSha256 = @(1..8 | ForEach-Object { '{0:x64}' -f $_ })
+                gradeSha256 = @(9..12 | ForEach-Object { '{0:x64}' -f $_ })
+                qualityState = 'same-observed-quality'
+                costStates = [ordered]@{
+                    analysisCalls = 'practically-equivalent'
+                    helpCalls = 'practically-equivalent'
+                    resultTokens = 'practically-equivalent'
+                    wallMs = 'practically-equivalent'
+                    hostAiCredits = 'practically-equivalent'
+                }
+                nextAction = 'stop-and-return-to-user'
+            }
+            foreach ($probe in @($packetProbe, $gradeProbe, $armMapProbe, $checkpointProbe, $reportProbe)) {
+                if (-not (Test-DocJsonSchema $probe $recordSchemaPath)) {
+                    Add-Failure "Prepared EP1 schema rejected valid '$($probe.recordType)' probe."
+                }
+            }
+
+            $invalidPacket = ($packetProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $invalidPacket | Add-Member -NotePropertyName arm -NotePropertyValue 'cli'
+            $invalidGrade = ($gradeProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $invalidGrade.grades[0].criteria.PSObject.Properties.Remove('scope')
+            $invalidArmMap = ($armMapProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $invalidArmMap.entries[1].arm = 'cli-skill'
+            $invalidCheckpoint = ($checkpointProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $invalidCheckpoint.measuredExecutionAuthorized = $true
+            $invalidReport = ($reportProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $invalidReport.validPairs = 3
+            foreach ($probe in @(
+                    $invalidPacket, $invalidGrade, $invalidArmMap,
+                    $invalidCheckpoint, $invalidReport)) {
+                if (Test-DocJsonSchema $probe $recordSchemaPath) {
+                    Add-Failure "Prepared EP1 schema accepted malformed '$($probe.recordType)' probe."
+                }
+            }
+        }
+        if (@($protocol.measurement.primaryDimensions).Count -ne 6 -or
+            @($protocol.measurement.observationalDimensions).Count -ne 5 -or
+            $protocol.measurement.clock.source -cne
+                'System.Diagnostics.Stopwatch-in-Invoke-AgentEvalProcess' -or
+            $protocol.measurement.clock.start -cne
+                'immediately-before-contained-job-object-setup-and-host-process-start' -or
+            $protocol.measurement.clock.stop -cne
+                'after-host-exit-stream-drain-final-artifact-scan-and-input-integrity-check' -or
+            $protocol.measurement.clock.primaryField -cne
+                'iteration-wallMs-from-processResult-wallMs' -or
+            $protocol.measurement.clock.hostDurations -cne
+                'observational-only-never-substituted-for-primary-wallMs' -or
+            $protocol.measurement.practicalEquivalence.analysisCallsAbsolute -ne 0 -or
+            $protocol.measurement.practicalEquivalence.helpCallsAbsolute -ne 0 -or
+            $protocol.measurement.practicalEquivalence.resultTokensRelative -ne 0.05 -or
+            $protocol.measurement.practicalEquivalence.wallMsRelative -ne 0.05 -or
+            $protocol.measurement.practicalEquivalence.hostAiCreditsAbsolute -ne 0 -or
+            $protocol.measurement.classification.deltaOrientation -cne
+                'cli-skill-minus-cli' -or
+            @($protocol.measurement.classification.qualityStates).Count -ne 6 -or
+            @($protocol.measurement.classification.costStates).Count -ne 6 -or
+            $protocol.measurement.classification.overall -cne
+                'no-winner-score-or-significance-claim') {
+            Add-Failure 'Prepared EP1 measurement and classification contract has drifted.'
+        }
+        if ($protocol.dispositions.session.validQualityFail -cne
+                'machine-evidence-valid-and-any-criterion-fails-or-false-confidence-triggers' -or
+            $protocol.dispositions.pair.valid -cne
+                'both-sessions-have-valid-evidence-and-schema-valid-grades-frozen-before-unblinding-regardless-of-quality' -or
+            @($protocol.dispositions.terminal.PSObject.Properties).Count -ne 5 -or
+            $protocol.dispositions.blockerReproducibility -cne
+                'call-a-precondition-blocked-only-after-the-same-non-metered-check-fails-twice;retain-a-started-invalid-session-as-incomplete-without-replacement' -or
+            $protocol.dispositions.routing -cne
+                'every-terminal-disposition-writes-a-schema-valid-final-report-and-stops-for-user-decision-with-no-automatic-next-work') {
+            Add-Failure 'Prepared EP1 terminal disposition contract has drifted.'
+        }
+        foreach ($requiredField in @(
+                'success', 'falseConfidence', 'calls', 'helpCalls', 'tokens',
+                'wallMs', 'hostUsage', 'answerCriteria', 'transcript',
+                'inputIdentity', 'pair', 'position')) {
+            if (@($protocol.reporting.requiredSessionFields) -cnotcontains $requiredField) {
+                Add-Failure "Prepared EP1 protocol is missing report field '$requiredField'."
+            }
+        }
+        if ($protocol.reporting.pairDeltaOrientation -cne 'cli-skill-minus-cli' -or
+            $protocol.reporting.sourceSeparation -cne
+                'success-comes-from-schema-v3-runner-output-answerCriteria-and-falseConfidence-come-only-from-the-frozen-blinded-grade-record' -or
+            @($protocol.reporting.aggregates).Count -ne 4 -or
+            $protocol.reporting.orderEffect -cne
+                'report orientation summaries separately and label disagreement order-sensitive' -or
+            $protocol.reporting.missingData -cne
+                'report unavailable never zero and stop incomplete for required fields' -or
+            $protocol.reporting.completion -cne
+                'descriptive-complete-only-after-four-valid-graded-pairs-including-quality-failures' -or
+            $protocol.freeze.validator -cne 'tools/Test-Docs.ps1' -or
+            $protocol.freeze.protocolHashPolicy -cne
+                'record-sha256-after-merge-in-private-checkpoint' -or
+            $protocol.freeze.executionPrecondition -cne
+                'exact-protocol-hash-and-private-model-identity-match') {
+            Add-Failure 'Prepared EP1 protocol reporting or freeze contract has drifted.'
+        }
+    }
+}
+
+# 4. Command / tool completeness: every canonical CLI command is in the command
 # catalog, every MCP tool is in the tool catalog.
 $verbsBlock = Get-DocBlock -Path (Join-Path $root 'docs/workflow.md') -Id 'verbs'
 $commandsSource = Get-Content -LiteralPath (Join-Path $root 'src/Filtrace/Cli/TraceCommands.cs') -Raw
@@ -159,7 +820,7 @@ foreach ($tool in $tools) {
     }
 }
 
-# 4. Skill link integrity: every relative link in a shipped skill file must
+# 5. Skill link integrity: every relative link in a shipped skill file must
 # resolve to a path inside the skill directory. A link that escapes the directory
 # (e.g. ../../../docs/workflow.md) dangles once the skill is packed into the NuGet
 # package or vendored via `gh skill install`, both of which carry only the skill
@@ -210,7 +871,7 @@ if (Test-Path $skillDir) {
     }
 }
 
-# 5. Skill packaging completeness: every shipped skill file and every in-directory
+# 6. Skill packaging completeness: every shipped skill file and every in-directory
 # file it links to must be carried into the MCP package - not merely resolvable in
 # the repo. Check 4 proves the repo layout; a curated <None Pack> include can still
 # drift from what SKILL.md references and ship a dangling link while check 4 passes
@@ -256,7 +917,7 @@ if ($requiredInPackage.Count -gt 0) {
     }
 }
 
-# 6. Package isolation: discover and inspect every packable project, not only
+# 7. Package isolation: discover and inspect every packable project, not only
 # evaluated MSBuild items or projects currently in the solution. This catches future
 # broad content globs, new item types, and new packages that would otherwise pick up
 # repository workflow skills.
@@ -379,7 +1040,7 @@ else {
     }
 }
 
-Write-Host "Checked $($blocks.Count) shared block(s), $($verbs.Count) command(s), $($tools.Count) tool(s), $linkCount skill link(s), $packedCount packed skill file(s), $packageCount package archive(s)."
+Write-Host "Checked $($blocks.Count) shared block(s), $protocolCount prepared protocol(s), $($verbs.Count) command(s), $($tools.Count) tool(s), $linkCount skill link(s), $packedCount packed skill file(s), $packageCount package archive(s)."
 
 if ($failures.Count -gt 0) {
     Write-Host ''

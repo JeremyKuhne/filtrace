@@ -5,9 +5,9 @@ has two arms, both shipped here: a deterministic, no-LLM gate that runs in CI, a
 a live agent arm that scores a real model locally.
 
 The deterministic gate remains active. The public
-[Filtrace roadmap](../docs/roadmap.md) makes the bounded EP1 CLI-plus-skill
-preflight active while deferring broader comparative-agent harness work. This page
-documents the available harness rather than creating a parallel implementation queue.
+[Filtrace roadmap](../docs/roadmap.md) records EP1 preflight complete and no
+measured execution active. This page documents the available harness and prepared
+protocol rather than creating a parallel implementation queue.
 
 ## Deterministic gate (shipped, runs in CI)
 
@@ -269,6 +269,25 @@ host, model, and skill protocol availability; it is not the ready-capture effica
 smoke. If an isolated home cannot use platform-keyring authentication, the run must
 fail clearly; do not copy credentials or weaken isolation.
 
+### EP1 ready-capture protocol
+
+The prepared [ready-capture protocol](protocols/ep1-ready-capture-v1.json) binds a
+held-out scope/attribution task, exact public input hashes, evaluator-only expected
+facts, balanced four-pair order, eight maximum host sessions, and a 240-credit
+ceiling. It reports descriptive arm and paired values without a winner label, uses
+no automatic replacement pair, and stops for a user decision. After each pair, a
+reviewer grades the two exact final answers under randomized opaque identifiers,
+without arm, order, model, skill, cost, timing, transcript, or path metadata. The
+pair's rubric record is hashed before the arm map is revealed. This masks the arm
+label but cannot hide wording that may itself suggest skill use, so the report calls
+the grading arm-masked rather than inference-blind. A wrong or overconfident answer
+is a valid measured quality outcome and remains in the four-pair denominator; broken
+identity, accounting, transcript, or grade evidence stops the experiment incomplete
+without a replacement pair. `Test-Docs.ps1` validates the protocol's shape,
+identities, order, bounds, record schema, grading boundary, and privacy. The record
+is not an execution script: protocol preparation and measured execution require
+separate authorization, and no measured session is currently authorized.
+
 `claude` is recognized but not yet wired. The trace path is masked back to
 `<TRACE>` in persisted transcripts and answers. The owned path and fixture-derived
 CLI output are still sent to the selected model; only committed eval fixtures are
@@ -304,6 +323,12 @@ Each accepted skill-file view retains its attested source byte/text hashes, exac
 request hash and range, requested bytes, returned-content and logical-payload hashes,
 character counts, line coverage, and truncation protocol; aggregate skill fields
 retain total requested and returned content.
+
+For the ready-capture protocol, runner `success` is only the machine-evidence
+result. It does not produce the protocol's semantic `answerCriteria` or
+`falseConfidence` fields. Those fields come only from the separately frozen,
+arm-masked pair-grade record described above; a final report must keep the two
+sources distinct and must never synthesize a missing grade from runner success.
 
 Schema-v3 labeled records also retain one arm-neutral input identity per task: the
 task file hash, matching MCP-QA row hash, primary fixture hash, and a deterministic
@@ -358,8 +383,8 @@ Both returned `MyApp.Inner` at 16 ms / 64% self weight and `MyApp.Work` as its
 
 Each arm reported one premium request. The skill arm's discovery, invocation, and
 context hashes verified. This single pair proves protocol and accounting readiness;
-it does not establish an efficacy advantage. The next accepted evidence is three
-alternating pairs on a frozen ready-capture task with transcript-level grading.
+it does not establish an efficacy advantage. The prepared next evidence is four
+balanced pairs on a frozen ready-capture task with transcript-level grading.
 
 Substring matching removes thousands separators from digit runs on both sides
 first, so a task can pin `4309` and an answer that says "4,309" still matches.
@@ -432,8 +457,8 @@ Live success still uses expected substrings rather than a general semantic grade
 The MCP arm requires its expected MCP tools; strict CLI arms require matched local
 apphost evidence; cli-skill also requires verified project discovery, invocation,
 and injected context. These checks reject unsupported provenance but do not establish
-that the skill caused a better answer. The three alternating ready-capture
-comparison pairs and semantic-grader follow-up remain EP1 work.
+that the skill caused a better answer. The prepared four-pair ready-capture
+comparison remains EP1 work; measured execution requires separate authorization.
 
 ### Example local run
 

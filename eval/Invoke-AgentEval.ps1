@@ -1761,12 +1761,9 @@ function Invoke-CopilotIteration {
     elseif (-not $evidenceValid) { $note = 'copilot transcript evidence was malformed or included an unexpected tool attempt' }
     elseif (-not $hasUsageEvidence) { $note = 'copilot host reported no valid usage evidence' }
     elseif ($filtraceCalls -eq 0) { $note = 'no local filtrace tool call' }
-    $wallMs = if ($usageValid -and $usage.sessionDurationMs) {
-        [int]$usage.sessionDurationMs
-    }
-    else {
-        [int]$processResult.wallMs
-    }
+    # Keep the primary elapsed value on the evaluator-owned monotonic clock.
+    # Host-reported session/API durations remain available under hostUsage.
+    $wallMs = [int]$processResult.wallMs
     return [pscustomobject]@{
         answer = $answer; calls = $filtraceCalls; helpCalls = $helpCalls; tokens = $tokens
         textTokens = $textTokens; structuredTokens = $structuredTokens; wireTokens = $wireTokens

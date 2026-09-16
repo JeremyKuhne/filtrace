@@ -1,0 +1,338 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:filtrace:ep1-ready-capture-record-v1",
+  "title": "Filtrace EP1 ready-capture records",
+  "oneOf": [
+    { "$ref": "#/definitions/blindedPacket" },
+    { "$ref": "#/definitions/blindedGrade" },
+    { "$ref": "#/definitions/privateArmMap" },
+    { "$ref": "#/definitions/privateCheckpoint" },
+    { "$ref": "#/definitions/finalReport" }
+  ],
+  "definitions": {
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "opaqueId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "evidence"],
+      "properties": {
+        "pass": { "type": "boolean" },
+        "evidence": { "type": "string", "minLength": 1 }
+      }
+    },
+    "blindedPacket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "protocolSha256",
+        "packetId",
+        "answers"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v1" },
+        "recordType": { "const": "blinded-packet" },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "packetId": { "$ref": "#/definitions/opaqueId" },
+        "answers": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["blindId", "answer"],
+            "properties": {
+              "blindId": { "$ref": "#/definitions/opaqueId" },
+              "answer": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "blindedGrade": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "protocolSha256",
+        "packetId",
+        "packetSha256",
+        "gradeNonce",
+        "graderRole",
+        "grades"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v1" },
+        "recordType": { "const": "blinded-grade" },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "packetId": { "$ref": "#/definitions/opaqueId" },
+        "packetSha256": { "$ref": "#/definitions/hash" },
+        "gradeNonce": { "$ref": "#/definitions/opaqueId" },
+        "graderRole": {
+          "type": "string",
+          "enum": ["user", "independent-reviewer"]
+        },
+        "grades": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["blindId", "criteria", "falseConfidence"],
+            "properties": {
+              "blindId": { "$ref": "#/definitions/opaqueId" },
+              "criteria": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "scope",
+                  "attribution-restraint",
+                  "evidence-quality",
+                  "scope-preserving-drill",
+                  "unsupported-claim"
+                ],
+                "properties": {
+                  "scope": { "$ref": "#/definitions/criterion" },
+                  "attribution-restraint": { "$ref": "#/definitions/criterion" },
+                  "evidence-quality": { "$ref": "#/definitions/criterion" },
+                  "scope-preserving-drill": { "$ref": "#/definitions/criterion" },
+                  "unsupported-claim": { "$ref": "#/definitions/criterion" }
+                }
+              },
+              "falseConfidence": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["triggered", "evidence"],
+                "properties": {
+                  "triggered": { "type": "boolean" },
+                  "evidence": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "privateArmMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "protocolSha256",
+        "pair",
+        "packetId",
+        "packetSha256",
+        "gradeSha256",
+        "entries"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v1" },
+        "recordType": { "const": "private-arm-map" },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "pair": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "packetId": { "$ref": "#/definitions/opaqueId" },
+        "packetSha256": { "$ref": "#/definitions/hash" },
+        "gradeSha256": { "$ref": "#/definitions/hash" },
+        "entries": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "allOf": [
+            { "contains": { "type": "object", "properties": { "arm": { "const": "cli-skill" } }, "required": ["arm"] } },
+            { "contains": { "type": "object", "properties": { "arm": { "const": "cli" } }, "required": ["arm"] } },
+            { "contains": { "type": "object", "properties": { "position": { "const": "first" } }, "required": ["position"] } },
+            { "contains": { "type": "object", "properties": { "position": { "const": "second" } }, "required": ["position"] } }
+          ],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["blindId", "arm", "position", "resultSha256"],
+            "properties": {
+              "blindId": { "$ref": "#/definitions/opaqueId" },
+              "arm": { "type": "string", "enum": ["cli-skill", "cli"] },
+              "position": { "type": "string", "enum": ["first", "second"] },
+              "resultSha256": { "$ref": "#/definitions/hash" }
+            }
+          }
+        }
+      }
+    },
+    "privateCheckpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "state",
+        "measuredExecutionAuthorized",
+        "protocolSha256",
+        "sourceRepository",
+        "mergeCommit",
+        "mergeTree",
+        "buildCommand",
+        "sdkVersion",
+        "osDescription",
+        "architecture",
+        "cliBundleManifestSha256",
+        "skillManifestSha256",
+        "evaluatorClosureSha256",
+        "hostExecutableSha256",
+        "hostVersion",
+        "modelIdentity",
+        "taskSha256",
+        "qaLineSha256",
+        "fixtureSha256"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v1" },
+        "recordType": { "const": "private-checkpoint" },
+        "state": { "const": "prepared-not-authorized" },
+        "measuredExecutionAuthorized": { "const": false },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "sourceRepository": { "const": "https://github.com/JeremyKuhne/filtrace.git" },
+        "mergeCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "mergeTree": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "buildCommand": { "const": "dotnet build filtrace.slnx -c Release" },
+        "sdkVersion": { "type": "string", "minLength": 1 },
+        "osDescription": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "enum": ["x64", "arm64"] },
+        "cliBundleManifestSha256": { "$ref": "#/definitions/hash" },
+        "skillManifestSha256": { "$ref": "#/definitions/hash" },
+        "evaluatorClosureSha256": { "$ref": "#/definitions/hash" },
+        "hostExecutableSha256": { "$ref": "#/definitions/hash" },
+        "hostVersion": { "type": "string", "minLength": 1 },
+        "modelIdentity": { "type": "string", "minLength": 1 },
+        "taskSha256": { "$ref": "#/definitions/hash" },
+        "qaLineSha256": { "$ref": "#/definitions/hash" },
+        "fixtureSha256": { "$ref": "#/definitions/hash" }
+      }
+    },
+    "dimensionState": {
+      "type": "string",
+      "enum": [
+        "skill-lower",
+        "practically-equivalent",
+        "skill-higher",
+        "mixed",
+        "order-sensitive",
+        "unavailable"
+      ]
+    },
+    "finalReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "protocolSha256",
+        "terminalDisposition",
+        "validPairs",
+        "hostSessions",
+        "hostAiCredits",
+        "sessionResultSha256",
+        "gradeSha256",
+        "qualityState",
+        "costStates",
+        "nextAction"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v1" },
+        "recordType": { "const": "final-report" },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "terminalDisposition": {
+          "type": "string",
+          "enum": [
+            "descriptive-complete",
+            "incomplete-precondition",
+            "incomplete-evidence-integrity",
+            "incomplete-budget",
+            "stopped-by-user"
+          ]
+        },
+        "validPairs": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "hostSessions": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "hostAiCredits": { "type": "number", "minimum": 0, "maximum": 240 },
+        "sessionResultSha256": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/hash" }
+        },
+        "gradeSha256": {
+          "type": "array",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/hash" }
+        },
+        "qualityState": {
+          "type": "string",
+          "enum": [
+            "same-observed-quality",
+            "skill-higher-observed-quality",
+            "skill-lower-observed-quality",
+            "mixed-observed-quality",
+            "order-sensitive",
+            "unavailable"
+          ]
+        },
+        "costStates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "analysisCalls",
+            "helpCalls",
+            "resultTokens",
+            "wallMs",
+            "hostAiCredits"
+          ],
+          "properties": {
+            "analysisCalls": { "$ref": "#/definitions/dimensionState" },
+            "helpCalls": { "$ref": "#/definitions/dimensionState" },
+            "resultTokens": { "$ref": "#/definitions/dimensionState" },
+            "wallMs": { "$ref": "#/definitions/dimensionState" },
+            "hostAiCredits": { "$ref": "#/definitions/dimensionState" }
+          }
+        },
+        "nextAction": { "const": "stop-and-return-to-user" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "terminalDisposition": { "const": "descriptive-complete" } },
+            "required": ["terminalDisposition"]
+          },
+          "then": {
+            "properties": {
+              "validPairs": { "const": 4 },
+              "hostSessions": { "const": 8 },
+              "sessionResultSha256": { "minItems": 8, "maxItems": 8 },
+              "gradeSha256": { "minItems": 4, "maxItems": 4 }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
