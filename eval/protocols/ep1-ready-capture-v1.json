@@ -26,8 +26,8 @@
     "hostIdentity": "exact-executable-sha256-and-version-recorded-in-private-checkpoint",
     "modelIdentity": "exact-private-identifier-recorded-in-private-checkpoint-and-verified-before-work",
     "promptIdentity": "exact-inputs-taskPrompt-value",
-    "permissionIdentity": "generated-hook-and-policy-hashes-recorded-per-session",
-    "environmentIdentity": "inherited-name-value-and-owned-path-policy-hashes-recorded-per-session",
+    "permissionIdentity": "permission-limits-tool-exposure-denial-state-and-observed-command-hashes-recorded-per-session",
+    "environmentIdentity": "inherited-and-owned-environment-variable-name-policy-recorded-per-session",
     "privateCheckpointRecordType": "private-checkpoint",
     "privateAuthorizationRecordType": "private-authorization",
     "mismatchPolicy": "stop-before-the-next-host-session-and-report-incomplete-precondition"
