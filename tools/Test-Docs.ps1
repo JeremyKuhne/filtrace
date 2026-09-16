@@ -65,6 +65,7 @@ function Assert-ExactDocObjectMembers($Value, [string[]]$Expected, [string]$Cont
 }
 
 function Get-DocTextSha256([string]$Text) {
+    $Text = $Text.Replace("`r`n", "`n").Replace("`r", "`n")
     return [Convert]::ToHexString(
         [Security.Cryptography.SHA256]::HashData(
             [Text.UTF8Encoding]::new($false).GetBytes($Text))).ToLowerInvariant()
@@ -218,9 +219,10 @@ else {
             'permissionIdentity', 'environmentIdentity',
             'privateCheckpointRecordType', 'mismatchPolicy') 'Prepared EP1 identity')
         [void](Assert-ExactDocObjectMembers $protocol.inputs @(
-                'executionRevisionPolicy', 'taskId', 'taskPath', 'taskSha256',
-                'qaPath', 'qaLineSha256', 'fixturePath', 'fixtureSha256',
-                'taskPrompt', 'requiredAnswerStrings', 'expectedEvidence') 'Prepared EP1 inputs')
+            'executionRevisionPolicy', 'textHashNormalization', 'taskId',
+            'taskPath', 'taskSha256', 'qaPath', 'qaLineSha256', 'fixturePath',
+            'fixtureSha256', 'taskPrompt', 'requiredAnswerStrings',
+            'expectedEvidence') 'Prepared EP1 inputs')
         [void](Assert-ExactDocObjectMembers $protocol.inputs.expectedEvidence @(
                 'operation', 'metric', 'measure', 'process', 'includeChildren',
                 'topFrame', 'frameResolutionPercent', 'contributingRecords',
@@ -329,7 +331,9 @@ else {
         }
 
         $expectedEvidence = $protocol.inputs.expectedEvidence
-        if ($expectedEvidence.operation -cne 'rank' -or
+        if ($protocol.inputs.textHashNormalization -cne
+                'utf8-no-bom-with-crlf-and-cr-normalized-to-lf' -or
+            $expectedEvidence.operation -cne 'rank' -or
             $expectedEvidence.metric -cne 'cpu' -or
             $expectedEvidence.measure -cne 'self' -or
             $expectedEvidence.process -cne 'HotLoopBench' -or
@@ -386,7 +390,7 @@ else {
         }
         else {
             $task = Get-Content -LiteralPath $taskPath -Raw | ConvertFrom-Json
-            [string] $taskHash = (Get-FileHash -LiteralPath $taskPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            [string] $taskHash = Get-DocTextSha256 ([System.IO.File]::ReadAllText($taskPath))
             [string] $fixtureHash = (Get-FileHash -LiteralPath $fixturePath -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($taskHash -cne $protocol.inputs.taskSha256 -or
                 $fixtureHash -cne $protocol.inputs.fixtureSha256 -or
@@ -573,7 +577,7 @@ else {
             'private-checkpoint', 'final-report')
         [string] $recordSchemaPath = Join-Path $root ([string]$protocol.records.schemaPath)
         if (-not (Test-Path -LiteralPath $recordSchemaPath -PathType Leaf) -or
-            (Get-FileHash -LiteralPath $recordSchemaPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+            (Get-DocTextSha256 ([System.IO.File]::ReadAllText($recordSchemaPath))) -cne
                 [string]$protocol.records.schemaSha256 -or
             @($protocol.records.recordTypes).Count -ne $recordTypes.Count -or
             @(for ($index = 0; $index -lt $recordTypes.Count; $index++) {

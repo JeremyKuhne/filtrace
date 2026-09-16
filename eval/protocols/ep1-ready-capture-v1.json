@@ -33,9 +33,10 @@
   },
   "inputs": {
     "executionRevisionPolicy": "protocol-merge-tree-recorded-in-private-checkpoint",
+    "textHashNormalization": "utf8-no-bom-with-crlf-and-cr-normalized-to-lf",
     "taskId": "scope-preserving-drill",
     "taskPath": "eval/tasks/23-scope-preserving-drill.json",
-    "taskSha256": "632eb9d2c64572692bd542d57d0e740497b213d4ab6128e81a2bb83368c4cc50",
+    "taskSha256": "22b78d99e71ea7a220d2466589906015b629b3b1132ad515248baf99f978d68c",
     "qaPath": "eval/mcp-qa.jsonl",
     "qaLineSha256": "e67ac6d10edbd3d51ea19620b99fafdd816b4196d266cb3de9720e0f51dcc31f",
     "fixturePath": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
@@ -230,7 +231,7 @@
   },
   "records": {
     "schemaPath": "eval/protocols/ep1-ready-capture-record-v1.schema.json",
-    "schemaSha256": "185e9280c7d56601e0e8fd17698495bcdb1ce2a439ff85268e8bba447c79e805",
+    "schemaSha256": "8d025a4d02b8f737c8c747d30ff0dc33abb6cc9f8fdc0084e5a32c89f9a749b9",
     "recordTypes": [
       "blinded-packet",
       "blinded-grade",
