@@ -356,6 +356,7 @@ function Assert-ReadyCaptureSessionMachineEvidence(
     $iteration = $result.iterations[0]
     $isolation = $iteration.execution.isolation
     $inputPolicy = $iteration.execution.inputPolicy
+    $creditEvidence = Get-ResultCreditEvidence $result
     [string[]] $expectedAvailableTools = if ([string]::Equals(
             $Arm, 'cli-skill', [StringComparison]::Ordinal)) {
         @('powershell', 'skill', 'view')
@@ -385,7 +386,9 @@ function Assert-ReadyCaptureSessionMachineEvidence(
         [int]$iteration.execution.resultExitCode -ne 0 -or
         [int]$iteration.execution.nativeTimeoutSeconds -ne [int]$Protocol.bounds.nativeTimeoutSecondsPerSession -or
         [long]$iteration.execution.hostOutputMaxBytes -ne [long]$Protocol.bounds.maxHostOutputBytesPerSession -or
-        -not $iteration.hostUsageFile.available -or
+        [long]$iteration.wallMs -gt ([long]$Protocol.bounds.nativeTimeoutSecondsPerSession * 1000) -or
+        -not $creditEvidence.available -or
+        [double]$creditEvidence.value -gt [double]$Protocol.bounds.maxAiCreditsPerSession -or
         [int]$result.maxSteps -ne [int]$Protocol.arms.common.maxSteps -or
         [long]$result.strictRunBudget.maxBytes -ne [long]$Protocol.bounds.maxProjectedRetainedBytesPerInvocation -or
         [long]$result.strictRunBudget.projectedBytes -gt [long]$result.strictRunBudget.maxBytes -or
@@ -451,6 +454,44 @@ function Assert-ReadyCaptureSessionMachineEvidence(
     }
 }
 
+function Test-ReadyCaptureBudgetExceeded(
+    $ResultRecord,
+    [string] $Reason,
+    $Protocol,
+    [double] $TotalCredits) {
+    $result = $ResultRecord.Value
+    $iteration = $result.iterations[0]
+    switch ($Reason) {
+        'budget:host-ai-credits' {
+            $creditEvidence = Get-ResultCreditEvidence $result
+            return $creditEvidence.available -and
+                ([double]$creditEvidence.value -gt [double]$Protocol.bounds.maxAiCreditsPerSession -or
+                    $TotalCredits -gt [double]$Protocol.bounds.maximumHostAiCredits)
+        }
+        'budget:wall-ms' {
+            return [long]$iteration.wallMs -gt
+                ([long]$Protocol.bounds.nativeTimeoutSecondsPerSession * 1000)
+        }
+        'budget:host-output-bytes' {
+            return [long]$iteration.execution.capturedBytes -gt
+                [long]$Protocol.bounds.maxHostOutputBytesPerSession
+        }
+        'budget:host-artifact-bytes' {
+            return [long]$iteration.execution.artifactBytes -gt
+                [long]$Protocol.bounds.maxHostArtifactBytesPerSession
+        }
+        'budget:host-runtime-bytes' {
+            return [long]$iteration.execution.hostRuntimeBytes -gt
+                [long]$Protocol.bounds.maxHostRuntimeBytesPerSession
+        }
+        'budget:projected-retained-bytes' {
+            return [long]$result.strictRunBudget.projectedBytes -gt
+                [long]$Protocol.bounds.maxProjectedRetainedBytesPerInvocation
+        }
+        default { return $false }
+    }
+}
+
 function Get-TrustedHostVersion([string] $Path) {
     [System.Diagnostics.ProcessStartInfo] $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $Path
@@ -501,33 +542,31 @@ function Test-ArtifactSet(
             [StringComparison]::Ordinal)) {
         throw 'The supplied ready-capture schema does not match the frozen protocol.'
     }
-    [object[]] $allArtifactEntries = @(Get-ChildItem -LiteralPath $Directory -Force -Recurse |
-        Sort-Object FullName)
-    if (@($allArtifactEntries | Where-Object {
-                ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
-            }).Count -ne 0) {
-        throw 'Ready-capture artifact tree contains a reparse point.'
+    [System.IO.FileSystemInfo] $artifactRootInfo = Get-Item -LiteralPath $Directory -Force
+    if (($artifactRootInfo.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Ready-capture artifact directory is a reparse point.'
     }
-    [System.IO.FileInfo[]] $allArtifactFiles = @($allArtifactEntries | Where-Object { -not $_.PSIsContainer })
+    [System.Collections.Generic.List[System.IO.FileInfo]] $artifactFileList =
+        [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+    foreach ($artifactPath in [System.IO.Directory]::EnumerateFileSystemEntries($Directory)) {
+        if ($artifactFileList.Count -ge [int]$protocolValue.bounds.maxArtifactFiles) {
+            throw "Ready-capture artifact count exceeds $($protocolValue.bounds.maxArtifactFiles)."
+        }
+        [System.IO.FileAttributes] $attributes = [System.IO.File]::GetAttributes($artifactPath)
+        if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Ready-capture artifact '$artifactPath' is a reparse point."
+        }
+        if (($attributes -band [System.IO.FileAttributes]::Directory) -ne 0) {
+            throw 'Ready-capture artifact directory must contain only top-level files.'
+        }
+        $artifactFileList.Add([System.IO.FileInfo]::new($artifactPath))
+    }
+    [System.IO.FileInfo[]] $allArtifactFiles = @($artifactFileList | Sort-Object FullName)
     Assert-ArtifactBounds `
         -Files $allArtifactFiles `
         -MaximumFiles ([int]$protocolValue.bounds.maxArtifactFiles) `
         -MaximumRecordBytes ([long]$protocolValue.bounds.maxArtifactRecordBytes) `
         -MaximumTotalBytes ([long]$protocolValue.bounds.maxArtifactSetBytes)
-    [string] $artifactRoot = [System.IO.Path]::GetFullPath($Directory)
-    [object[]] $nestedJson = @($allArtifactFiles | Where-Object {
-            $_.Extension -ieq '.json' -and
-            -not [string]::Equals(
-                [System.IO.Path]::GetFullPath($_.DirectoryName),
-                $artifactRoot,
-                $(if ([System.OperatingSystem]::IsWindows()) {
-                    [StringComparison]::OrdinalIgnoreCase
-                }
-                else { [StringComparison]::Ordinal }))
-        })
-    if ($nestedJson.Count -ne 0) {
-        throw 'Ready-capture JSON records must be top-level files in the retained artifact directory.'
-    }
     [System.IO.FileInfo[]] $artifactFiles = @($allArtifactFiles | Where-Object {
             $_.Extension -ieq '.json'
         })
@@ -874,6 +913,8 @@ function Test-ArtifactSet(
         }
         [System.Collections.Generic.List[bool]] $invalidSessionMachineValidity =
             [System.Collections.Generic.List[bool]]::new()
+        [System.Collections.Generic.List[object]] $invalidSessionResults =
+            [System.Collections.Generic.List[object]]::new()
         foreach ($invalidSession in $invalidSessionRows) {
             [object[]] $matchingResults = @($results | Where-Object {
                     [string]::Equals([string]$_.Hash, [string]$invalidSession.resultSha256, [StringComparison]::Ordinal)
@@ -912,6 +953,7 @@ function Test-ArtifactSet(
             if ($creditEvidence.available) {
                 $creditTotal += [double]$creditEvidence.value
             }
+            $invalidSessionResults.Add($matchingResults[0])
             [bool] $machineEvidenceValid = $true
             if ($ValidateSessionSchema) {
                 try {
@@ -944,6 +986,18 @@ function Test-ArtifactSet(
             throw 'Ready-capture final-report host AI credits do not match retained usage evidence.'
         }
 
+        [bool] $stoppedAtFirstMachineFailure = $invalidSessionMachineValidity.Count -gt 0 -and
+            -not $invalidSessionMachineValidity[$invalidSessionMachineValidity.Count - 1]
+        for ($validPrefixIndex = 0;
+            $validPrefixIndex -lt ($invalidSessionMachineValidity.Count - 1);
+            $validPrefixIndex++) {
+            if (-not $invalidSessionMachineValidity[$validPrefixIndex]) {
+                $stoppedAtFirstMachineFailure = $false
+            }
+        }
+        [bool] $allInvalidSessionsMachineValid =
+            @($invalidSessionMachineValidity | Where-Object { -not $_ }).Count -eq 0
+
         switch ([string]$report.terminalDisposition) {
             'descriptive-complete' {
                 if (-not [string]::Equals(
@@ -961,15 +1015,6 @@ function Test-ArtifactSet(
                 }
             }
             'incomplete-evidence-integrity' {
-                [bool] $stoppedAtFirstMachineFailure = $invalidSessionMachineValidity.Count -gt 0 -and
-                    -not $invalidSessionMachineValidity[$invalidSessionMachineValidity.Count - 1]
-                for ($validPrefixIndex = 0;
-                    $validPrefixIndex -lt ($invalidSessionMachineValidity.Count - 1);
-                    $validPrefixIndex++) {
-                    if (-not $invalidSessionMachineValidity[$validPrefixIndex]) {
-                        $stoppedAtFirstMachineFailure = $false
-                    }
-                }
                 if (-not ([string]$report.terminalReason).StartsWith('evidence:', [StringComparison]::Ordinal) -or
                     @($report.invalidSessions).Count -eq 0 -or
                     -not $stoppedAtFirstMachineFailure -or
@@ -980,15 +1025,30 @@ function Test-ArtifactSet(
                 }
             }
             'incomplete-budget' {
-                if (-not ([string]$report.terminalReason).StartsWith('budget:', [StringComparison]::Ordinal) -or
+                [bool] $budgetExceeded = $false
+                if ($stoppedAtFirstMachineFailure) {
+                    try {
+                        $budgetExceeded = Test-ReadyCaptureBudgetExceeded `
+                            -ResultRecord $invalidSessionResults[$invalidSessionResults.Count - 1] `
+                            -Reason ([string]$report.terminalReason) `
+                            -Protocol $protocolValue `
+                            -TotalCredits $creditTotal
+                    }
+                    catch { $budgetExceeded = $false }
+                }
+                if (-not $budgetExceeded -or
                     @($report.invalidSessions | Where-Object {
-                            -not ([string]$_.reason).StartsWith('budget:', [StringComparison]::Ordinal)
+                            -not [string]::Equals(
+                                [string]$_.reason,
+                                [string]$report.terminalReason,
+                                [StringComparison]::Ordinal)
                         }).Count -ne 0) {
-                    throw 'A budget disposition requires only budget-class invalid sessions.'
+                    throw 'A budget disposition requires retained evidence of its named exceeded bound.'
                 }
             }
             'stopped-by-user' {
                 if (-not ([string]$report.terminalReason).StartsWith('user:', [StringComparison]::Ordinal) -or
+                    -not $allInvalidSessionsMachineValid -or
                     @($report.invalidSessions | Where-Object {
                             -not ([string]$_.reason).StartsWith('user:', [StringComparison]::Ordinal)
                         }).Count -ne 0) {
@@ -1123,10 +1183,8 @@ function Invoke-SelfTest {
         [System.IO.File]::WriteAllBytes((Join-Path $boundsRoot 'first.json'), [byte[]]::new(4))
         [System.IO.File]::WriteAllBytes((Join-Path $boundsRoot 'second.json'), [byte[]]::new(6))
         [System.IO.File]::WriteAllBytes((Join-Path $boundsRoot '.hidden.bin'), [byte[]]::new(1))
-        [string] $nestedBoundsRoot = Join-Path $boundsRoot 'nested'
-        [System.IO.Directory]::CreateDirectory($nestedBoundsRoot) | Out-Null
-        [System.IO.File]::WriteAllBytes((Join-Path $nestedBoundsRoot 'retained.bin'), [byte[]]::new(2))
-        [System.IO.FileInfo[]] $boundFiles = @(Get-ChildItem -LiteralPath $boundsRoot -File -Force -Recurse)
+        [System.IO.File]::WriteAllBytes((Join-Path $boundsRoot 'retained.bin'), [byte[]]::new(2))
+        [System.IO.FileInfo[]] $boundFiles = @(Get-ChildItem -LiteralPath $boundsRoot -File -Force)
         Assert-ArtifactBounds $boundFiles 4 6 13
         foreach ($limits in @(
             [pscustomobject]@{ files = 3; record = 6; total = 13 },
@@ -1433,9 +1491,14 @@ function Invoke-SelfTest {
             [void](Test-ArtifactSet $prefixRoot $ProtocolPath $SchemaPath $false $false 'Final' $null)
 
             $prefixReport.terminalDisposition = 'incomplete-budget'
-            $prefixReport.terminalReason = 'budget:self-test before pair 2'
+            $prefixReport.terminalReason = 'budget:host-output-bytes'
             Write-JsonFile (Join-Path $prefixRoot 'final-report.json') $prefixReport
-            [void](Test-ArtifactSet $prefixRoot $ProtocolPath $SchemaPath $false $false 'Final' $null)
+            [bool] $unsupportedBudgetRejected = $false
+            try { [void](Test-ArtifactSet $prefixRoot $ProtocolPath $SchemaPath $false $false 'Final' $null) }
+            catch { $unsupportedBudgetRejected = $true }
+            if (-not $unsupportedBudgetRejected) {
+                throw 'Ready-capture unsupported early budget stop unexpectedly passed.'
+            }
         }
         finally {
             Remove-Item -LiteralPath $prefixRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -1578,11 +1641,71 @@ function Invoke-SelfTest {
             $invalidDispositionReport = ($incompleteReport | ConvertTo-Json -Depth 100) | ConvertFrom-Json
             $invalidDispositionReport.terminalDisposition = 'stopped-by-user'
             $invalidDispositionReport.terminalReason = 'user:self-test'
+            $invalidDispositionReport.invalidSessions[0].reason = 'user:self-test'
             Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $invalidDispositionReport
             [bool] $invalidDispositionRejected = $false
             try { [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final' $null) }
             catch { $invalidDispositionRejected = $true }
             if (-not $invalidDispositionRejected) { throw 'Ready-capture terminal-disposition mutation unexpectedly passed.' }
+
+            $budgetCases = @(
+                [pscustomobject]@{
+                    reason = 'budget:host-ai-credits'
+                    mutate = { param($value) $value.iterations[0].hostUsageFile.value.totalPremiumRequestCost = 31 }
+                    credits = 31
+                },
+                [pscustomobject]@{
+                    reason = 'budget:wall-ms'
+                    mutate = { param($value) $value.iterations[0].wallMs = 600001 }
+                    credits = 1
+                },
+                [pscustomobject]@{
+                    reason = 'budget:host-output-bytes'
+                    mutate = { param($value) $value.iterations[0].execution.capturedBytes = 10485761 }
+                    credits = 1
+                },
+                [pscustomobject]@{
+                    reason = 'budget:host-artifact-bytes'
+                    mutate = { param($value) $value.iterations[0].execution.artifactBytes = 16777217 }
+                    credits = 1
+                },
+                [pscustomobject]@{
+                    reason = 'budget:host-runtime-bytes'
+                    mutate = { param($value) $value.iterations[0].execution.hostRuntimeBytes = 268435457 }
+                    credits = 1
+                },
+                [pscustomobject]@{
+                    reason = 'budget:projected-retained-bytes'
+                    mutate = { param($value) $value.strictRunBudget.projectedBytes = 2147483649 }
+                    credits = 1
+                })
+            foreach ($budgetCase in $budgetCases) {
+                $budgetResult = ($invalidResultValue | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+                $budgetResult.iterations[0].execution.processExitCode = 0
+                & $budgetCase.mutate $budgetResult
+                Write-JsonFile $invalidResultPath $budgetResult
+                [string] $budgetResultHash = Get-RawHash $invalidResultPath
+                $budgetReport = ($incompleteReport | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+                $budgetReport.terminalDisposition = 'incomplete-budget'
+                $budgetReport.terminalReason = $budgetCase.reason
+                $budgetReport.hostAiCredits = $budgetCase.credits
+                $budgetReport.sessionResultSha256 = @($budgetResultHash)
+                $budgetReport.invalidSessions[0].resultSha256 = $budgetResultHash
+                $budgetReport.invalidSessions[0].reason = $budgetCase.reason
+                $budgetReport.invalidSessions[0].hostAiCredits = $budgetCase.credits
+                Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $budgetReport
+                [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final' $null)
+            }
+
+            $budgetReport.terminalReason = 'budget:host-output-bytes'
+            $budgetReport.invalidSessions[0].reason = 'budget:host-output-bytes'
+            Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $budgetReport
+            [bool] $wrongBudgetDimensionRejected = $false
+            try { [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final' $null) }
+            catch { $wrongBudgetDimensionRejected = $true }
+            if (-not $wrongBudgetDimensionRejected) {
+                throw 'Ready-capture wrong budget dimension unexpectedly passed.'
+            }
         }
         finally {
             Remove-Item -LiteralPath $incompleteRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -1668,6 +1791,23 @@ function Invoke-SelfTest {
         }
         finally {
             Remove-Item -LiteralPath $nestedJsonRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        [string] $emptyDirectoryRoot = "$root-empty-directory"
+        Copy-Item -LiteralPath $root -Destination $emptyDirectoryRoot -Recurse
+        try {
+            [System.IO.Directory]::CreateDirectory((Join-Path $emptyDirectoryRoot 'empty')) | Out-Null
+            [bool] $emptyDirectoryRejected = $false
+            try { [void](Test-ArtifactSet $emptyDirectoryRoot $ProtocolPath $SchemaPath $true $false 'Final' $null) }
+            catch {
+                $emptyDirectoryRejected = $_.Exception.Message.Contains(
+                    'only top-level files', [StringComparison]::Ordinal)
+            }
+            if (-not $emptyDirectoryRejected) {
+                throw 'Ready-capture empty-directory mutation unexpectedly passed.'
+            }
+        }
+        finally {
+            Remove-Item -LiteralPath $emptyDirectoryRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
         Write-Host 'Ready-capture record contract passed.'
     }

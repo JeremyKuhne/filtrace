@@ -450,8 +450,7 @@
         "reason": { "type": "string", "minLength": 1 },
         "hostAiCredits": {
           "type": ["number", "null"],
-          "minimum": 0,
-          "maximum": 30
+          "minimum": 0
         }
       }
     },
@@ -542,8 +541,7 @@
         "hostSessions": { "type": "integer", "minimum": 0, "maximum": 8 },
         "hostAiCredits": {
           "type": ["number", "null"],
-          "minimum": 0,
-          "maximum": 240
+          "minimum": 0
         },
         "authorizationSha256": {
           "oneOf": [
@@ -619,7 +617,7 @@
             "properties": {
               "validPairs": { "const": 4 },
               "hostSessions": { "const": 8 },
-              "hostAiCredits": { "type": "number" },
+              "hostAiCredits": { "type": "number", "maximum": 240 },
               "authorizationSha256": { "$ref": "#/definitions/hash" },
               "sessionResultSha256": { "minItems": 8, "maxItems": 8 },
               "gradeSha256": { "minItems": 4, "maxItems": 4 },

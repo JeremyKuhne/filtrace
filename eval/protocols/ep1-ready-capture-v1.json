@@ -248,7 +248,7 @@
   },
   "records": {
     "schemaPath": "eval/protocols/ep1-ready-capture-record-v1.schema.json",
-    "schemaSha256": "f7370b5015ee5f097f812df56bc0bb9d9f244559f5a51843c17e6e17c381e899",
+    "schemaSha256": "03c487a8724eef2c87dd31d3315f84e1d06b15f8f2f1c304d731fd7a6305f8e8",
     "validatorPath": "eval/Test-ReadyCaptureRecords.ps1",
     "recordHashPolicy": "lowercase-sha256-of-exact-retained-file-bytes",
     "validationPhases": {
@@ -346,7 +346,7 @@
       "descriptiveComplete": "four-valid-graded-pairs-retained",
       "incompletePrecondition": "an-identity-environment-or-launch-precondition-fails-before-a-session",
       "incompleteEvidenceIntegrity": "a-started-session-or-pair-is-invalid-with-no-automatic-replacement",
-      "incompleteBudget": "the-next-session-would-exceed-the-session-credit-time-output-artifact-or-retained-byte-bound",
+      "incompleteBudget": "a-started-session-exceeds-a-retained-wall-time-output-artifact-runtime-projected-retained-byte-or-host-ai-credit-bound",
       "stoppedByUser": "the-user-stops-before-four-valid-pairs"
     },
     "blockerReproducibility": "call-a-precondition-blocked-only-after-the-same-non-metered-check-fails-twice;retain-a-started-invalid-session-as-incomplete-without-replacement",
