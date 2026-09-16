@@ -289,11 +289,13 @@ identities, order, bounds, record schema, grading boundary, and privacy. The rec
 is not an execution script: protocol preparation and measured execution require
 separate authorization, and no measured session is currently authorized.
 
-Before each grade freeze, unblinding step, and final report, run
+After each grade is serialized and hashed, run
 `eval/Test-ReadyCaptureRecords.ps1` against the private artifact directory. It
-schema-validates each record and recomputes session fields, arm summaries, paired
-deltas, order summaries, and quality/cost classifications from the retained result
-and grade files. `Test-Docs.ps1` runs its complete-artifact mutation suite in CI.
+must pass before the private arm map is revealed and again before the final report.
+It schema-validates each record and recomputes session fields, arm summaries,
+paired deltas, order summaries, and quality/cost classifications from the retained
+result and grade files. `Test-Docs.ps1` runs its complete-artifact mutation suite
+in CI.
 
 `claude` is recognized but not yet wired. The trace path is masked back to
 `<TRACE>` in persisted transcripts and answers. The owned path and fixture-derived

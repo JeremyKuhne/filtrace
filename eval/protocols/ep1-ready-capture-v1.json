@@ -29,6 +29,7 @@
     "permissionIdentity": "generated-hook-and-policy-hashes-recorded-per-session",
     "environmentIdentity": "inherited-name-value-and-owned-path-policy-hashes-recorded-per-session",
     "privateCheckpointRecordType": "private-checkpoint",
+    "privateAuthorizationRecordType": "private-authorization",
     "mismatchPolicy": "stop-before-the-next-host-session-and-report-incomplete-precondition"
   },
   "inputs": {
@@ -231,13 +232,15 @@
   },
   "records": {
     "schemaPath": "eval/protocols/ep1-ready-capture-record-v1.schema.json",
-    "schemaSha256": "4cb966ce07813a6bba7dde6fdc039d05b59af7d4114d8380fb74390a5a9a0be3",
+    "schemaSha256": "aeb9cb97b47ec9a3b8bc3f016b9aabf57a7f526d6cb7469aa76a45174505903a",
     "validatorPath": "eval/Test-ReadyCaptureRecords.ps1",
+    "recordHashPolicy": "lowercase-sha256-of-exact-retained-file-bytes",
     "recordTypes": [
       "blinded-packet",
       "blinded-grade",
       "private-arm-map",
       "private-checkpoint",
+      "private-authorization",
       "final-report"
     ],
     "semanticChecks": [
@@ -246,10 +249,11 @@
       "private arm map contains the same two blind ids exactly once",
       "packet grade result and protocol hashes match retained bytes",
       "one cli and one cli-skill arm occupy distinct first and second positions",
+      "started sessions and final reports bind the exact separately granted execution authorization",
       "complete report contains eight distinct session hashes and four distinct grade hashes",
       "final report session fields summaries paired deltas order summaries and classifications recompute from retained results and grades"
     ],
-    "validation": "run-validator-against-the-retained-artifact-directory-before-each-grade-freeze-unblinding-and-final-report"
+    "validation": "run-validator-after-each-grade-is-serialized-and-hashed-before-unblinding-and-again-before-final-report"
   },
   "measurement": {
     "primaryDimensions": [

@@ -7,6 +7,7 @@
     { "$ref": "#/definitions/blindedGrade" },
     { "$ref": "#/definitions/privateArmMap" },
     { "$ref": "#/definitions/privateCheckpoint" },
+    { "$ref": "#/definitions/privateAuthorization" },
     { "$ref": "#/definitions/finalReport" }
   ],
   "definitions": {
@@ -248,6 +249,34 @@
         "fixtureSha256": { "$ref": "#/definitions/hash" }
       }
     },
+    "privateAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "protocolId",
+        "recordType",
+        "measuredExecutionAuthorized",
+        "protocolSha256",
+        "maximumHostSessions",
+        "maximumHostAiCredits",
+        "terminalAction",
+        "authorizedAt",
+        "authorizationEvidence"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "protocolId": { "const": "ep1-ready-capture-v1" },
+        "recordType": { "const": "private-authorization" },
+        "measuredExecutionAuthorized": { "const": true },
+        "protocolSha256": { "$ref": "#/definitions/hash" },
+        "maximumHostSessions": { "const": 8 },
+        "maximumHostAiCredits": { "const": 240 },
+        "terminalAction": { "const": "stop-after-ready-capture-report" },
+        "authorizedAt": { "type": "string", "format": "date-time" },
+        "authorizationEvidence": { "type": "string", "minLength": 1 }
+      }
+    },
     "dimensionState": {
       "type": "string",
       "enum": [
@@ -448,6 +477,7 @@
         "validPairs",
         "hostSessions",
         "hostAiCredits",
+        "authorizationSha256",
         "sessionResultSha256",
         "gradeSha256",
         "sessions",
@@ -476,6 +506,12 @@
         "validPairs": { "type": "integer", "minimum": 0, "maximum": 4 },
         "hostSessions": { "type": "integer", "minimum": 0, "maximum": 8 },
         "hostAiCredits": { "type": "number", "minimum": 0, "maximum": 240 },
+        "authorizationSha256": {
+          "oneOf": [
+            { "$ref": "#/definitions/hash" },
+            { "type": "null" }
+          ]
+        },
         "sessionResultSha256": {
           "type": "array",
           "maxItems": 8,
@@ -539,6 +575,7 @@
             "properties": {
               "validPairs": { "const": 4 },
               "hostSessions": { "const": 8 },
+              "authorizationSha256": { "$ref": "#/definitions/hash" },
               "sessionResultSha256": { "minItems": 8, "maxItems": 8 },
               "gradeSha256": { "minItems": 4, "maxItems": 4 },
               "sessions": { "minItems": 8, "maxItems": 8 },
@@ -553,6 +590,7 @@
               "pairedDeltas": { "maxItems": 0 },
               "orderSummaries": { "maxItems": 0 },
               "qualityState": { "const": "unavailable" },
+              "authorizationSha256": {},
               "costStates": {
                 "properties": {
                   "analysisCalls": { "const": "unavailable" },

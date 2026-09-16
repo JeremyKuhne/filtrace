@@ -242,10 +242,11 @@ function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Sch
     [object[]] $grades = @($records | Where-Object RecordType -eq 'blinded-grade')
     [object[]] $maps = @($records | Where-Object RecordType -eq 'private-arm-map')
     [object[]] $checkpoints = @($records | Where-Object RecordType -eq 'private-checkpoint')
+    [object[]] $authorizations = @($records | Where-Object RecordType -eq 'private-authorization')
     [object[]] $reports = @($records | Where-Object RecordType -eq 'final-report')
     [object[]] $results = @($records | Where-Object RecordType -eq 'session-result')
 
-    foreach ($record in @($packets + $grades + $maps + $checkpoints + $reports)) {
+    foreach ($record in @($packets + $grades + $maps + $checkpoints + $authorizations + $reports)) {
         Assert-Schema $record $Schema
         if (-not [string]::Equals(
                 [string]$record.Value.protocolSha256,
@@ -259,6 +260,9 @@ function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Sch
         throw 'Ready-capture packet, grade, and arm-map counts differ.'
     }
     if ($checkpoints.Count -ne 1) { throw 'Ready-capture evidence must contain one private checkpoint.' }
+    if ($authorizations.Count -gt 1 -or ($results.Count -gt 0 -and $authorizations.Count -ne 1)) {
+        throw 'Started ready-capture evidence must contain one private execution authorization.'
+    }
     if ($reports.Count -gt 1) { throw 'Ready-capture evidence contains multiple final reports.' }
     if ($Complete -and
         ($packets.Count -ne 4 -or $grades.Count -ne 4 -or $maps.Count -ne 4 -or
@@ -343,6 +347,13 @@ function Test-ArtifactSet([string] $Directory, [string] $Protocol, [string] $Sch
             'Ready-capture final-report session hashes'
         Assert-EqualSet @($report.gradeSha256) @($grades | ForEach-Object Hash) `
             'Ready-capture final-report grade hashes'
+        [string] $authorizationHash = if ($authorizations.Count -eq 1) { $authorizations[0].Hash } else { $null }
+        if (-not [string]::Equals(
+                [string]$report.authorizationSha256,
+                $authorizationHash,
+                [StringComparison]::Ordinal)) {
+            throw 'Ready-capture final-report authorization hash does not match retained evidence.'
+        }
         Assert-EqualSet @($report.sessions | ForEach-Object { $_.resultSha256 }) @($results | ForEach-Object Hash) `
             'Ready-capture final-report session rows'
         if ([int]$report.hostSessions -ne $results.Count -or
@@ -576,6 +587,16 @@ function Invoke-SelfTest {
             qaLineSha256 = '8' * 64; fixtureSha256 = '9' * 64
         }
         Write-JsonFile (Join-Path $root 'checkpoint.json') $checkpoint
+        $authorization = [ordered]@{
+            schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'private-authorization'
+            measuredExecutionAuthorized = $true; protocolSha256 = $protocolHash
+            maximumHostSessions = 8; maximumHostAiCredits = 240
+            terminalAction = 'stop-after-ready-capture-report'
+            authorizedAt = '2026-09-15T00:00:00Z'; authorizationEvidence = 'self-test authorization'
+        }
+        [string] $authorizationPath = Join-Path $root 'authorization.json'
+        Write-JsonFile $authorizationPath $authorization
+        [string] $authorizationHash = Get-RawHash $authorizationPath
 
         foreach ($pair in 1..4) {
             [string] $packetId = '{0:x32}' -f $pair
@@ -683,7 +704,8 @@ function Invoke-SelfTest {
         $report = [ordered]@{
             schemaVersion = 1; protocolId = 'ep1-ready-capture-v1'; recordType = 'final-report'
             protocolSha256 = $protocolHash; terminalDisposition = 'descriptive-complete'; validPairs = 4
-            hostSessions = 8; hostAiCredits = 8; sessionResultSha256 = @($resultHashes)
+            hostSessions = 8; hostAiCredits = 8; authorizationSha256 = $authorizationHash
+            sessionResultSha256 = @($resultHashes)
             gradeSha256 = @($gradeHashes); sessions = @($sessions)
             armSummaries = @(
                 (New-ArmSummary -Sessions @($sessions) -Arm 'cli-skill'),
@@ -705,6 +727,7 @@ function Invoke-SelfTest {
             @{ Name = 'answer availability'; File = 'pair-1-packet.json'; Change = { param($v) $v.answers[0].answerAvailable = $true } },
             @{ Name = 'arm-map blind ids'; File = 'pair-1-map.json'; Change = { param($v) $v.entries[1].blindId = 'e' * 32 } },
             @{ Name = 'protocol hash'; File = 'checkpoint.json'; Change = { param($v) $v.protocolSha256 = $zeroHash } },
+            @{ Name = 'authorization'; File = 'authorization.json'; Change = { param($v) $v.maximumHostSessions = 7 } },
             @{ Name = 'packet hash'; File = 'pair-1-map.json'; Change = { param($v) $v.packetSha256 = $zeroHash } },
             @{ Name = 'grade hash'; File = 'pair-1-map.json'; Change = { param($v) $v.gradeSha256 = $zeroHash } },
             @{ Name = 'result hash'; File = 'pair-1-map.json'; Change = { param($v) $v.entries[0].resultSha256 = $zeroHash } },

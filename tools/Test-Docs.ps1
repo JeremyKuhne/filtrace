@@ -217,7 +217,8 @@ else {
             'buildReuse', 'cliIdentity', 'skillIdentity', 'evaluatorIdentity',
             'hostIdentity', 'modelIdentity', 'promptIdentity',
             'permissionIdentity', 'environmentIdentity',
-            'privateCheckpointRecordType', 'mismatchPolicy') 'Prepared EP1 identity')
+                'privateCheckpointRecordType', 'privateAuthorizationRecordType',
+                'mismatchPolicy') 'Prepared EP1 identity')
         [void](Assert-ExactDocObjectMembers $protocol.inputs @(
             'executionRevisionPolicy', 'textHashNormalization', 'taskId',
             'taskPath', 'taskSha256', 'qaPath', 'qaLineSha256', 'fixturePath',
@@ -262,8 +263,8 @@ else {
             'grader', 'rubric', 'freeze', 'unblinding', 'qualityFailure',
             'integrityFailure', 'limitation') 'Prepared EP1 adjudication')
         [void](Assert-ExactDocObjectMembers $protocol.records @(
-            'schemaPath', 'schemaSha256', 'validatorPath', 'recordTypes',
-            'semanticChecks', 'validation') 'Prepared EP1 records')
+            'schemaPath', 'schemaSha256', 'validatorPath', 'recordHashPolicy',
+            'recordTypes', 'semanticChecks', 'validation') 'Prepared EP1 records')
         [void](Assert-ExactDocObjectMembers $protocol.measurement @(
             'primaryDimensions', 'observationalDimensions', 'clock',
             'practicalEquivalence', 'classification') 'Prepared EP1 measurement')
@@ -575,7 +576,7 @@ else {
         }
         [string[]] $recordTypes = @(
             'blinded-packet', 'blinded-grade', 'private-arm-map',
-            'private-checkpoint', 'final-report')
+            'private-checkpoint', 'private-authorization', 'final-report')
         [string] $recordSchemaPath = Join-Path $root ([string]$protocol.records.schemaPath)
         if (-not (Test-Path -LiteralPath $recordSchemaPath -PathType Leaf) -or
             (Get-DocTextSha256 ([System.IO.File]::ReadAllText($recordSchemaPath))) -cne
@@ -585,9 +586,11 @@ else {
                     if ([string]$protocol.records.recordTypes[$index] -cne
                         $recordTypes[$index]) { $index }
                 }).Count -ne 0 -or
-            @($protocol.records.semanticChecks).Count -ne 7 -or
+            @($protocol.records.semanticChecks).Count -ne 8 -or
+            $protocol.records.recordHashPolicy -cne
+                'lowercase-sha256-of-exact-retained-file-bytes' -or
             $protocol.records.validation -cne
-                'run-validator-against-the-retained-artifact-directory-before-each-grade-freeze-unblinding-and-final-report') {
+                'run-validator-after-each-grade-is-serialized-and-hashed-before-unblinding-and-again-before-final-report') {
             Add-Failure 'Prepared EP1 record schema contract has drifted.'
         }
         else {
@@ -709,6 +712,18 @@ else {
                 qaLineSha256 = 'e' * 64
                 fixtureSha256 = 'f' * 64
             }
+            $authorizationProbe = [ordered]@{
+                schemaVersion = 1
+                protocolId = 'ep1-ready-capture-v1'
+                recordType = 'private-authorization'
+                measuredExecutionAuthorized = $true
+                protocolSha256 = $zeroHash
+                maximumHostSessions = 8
+                maximumHostAiCredits = 240
+                terminalAction = 'stop-after-ready-capture-report'
+                authorizedAt = '2026-09-15T00:00:00Z'
+                authorizationEvidence = 'self-test authorization'
+            }
             $reportProbe = [ordered]@{
                 schemaVersion = 1
                 protocolId = 'ep1-ready-capture-v1'
@@ -718,6 +733,7 @@ else {
                 validPairs = 0
                 hostSessions = 0
                 hostAiCredits = 0
+                authorizationSha256 = $null
                 sessionResultSha256 = @()
                 gradeSha256 = @()
                 sessions = @()
@@ -734,7 +750,9 @@ else {
                 }
                 nextAction = 'stop-and-return-to-user'
             }
-            foreach ($probe in @($packetProbe, $gradeProbe, $armMapProbe, $checkpointProbe, $reportProbe)) {
+                foreach ($probe in @(
+                    $packetProbe, $gradeProbe, $armMapProbe, $checkpointProbe,
+                    $authorizationProbe, $reportProbe)) {
                 if (-not (Test-DocJsonSchema $probe $recordSchemaPath)) {
                     Add-Failure "Prepared EP1 schema rejected valid '$($probe.recordType)' probe."
                 }
@@ -756,11 +774,13 @@ else {
             $invalidArmMap.entries[1].arm = 'cli-skill'
             $invalidCheckpoint = ($checkpointProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
             $invalidCheckpoint.measuredExecutionAuthorized = $true
+            $invalidAuthorization = ($authorizationProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+            $invalidAuthorization.maximumHostSessions = 7
             $invalidReport = ($reportProbe | ConvertTo-Json -Depth 100) | ConvertFrom-Json
             $invalidReport.terminalDisposition = 'descriptive-complete'
             foreach ($probe in @(
                     $invalidPacket, $invalidAnswerPacket, $invalidGrade, $invalidArmMap,
-                    $invalidCheckpoint, $invalidReport)) {
+                    $invalidCheckpoint, $invalidAuthorization, $invalidReport)) {
                 if (Test-DocJsonSchema $probe $recordSchemaPath) {
                     Add-Failure "Prepared EP1 schema accepted malformed '$($probe.recordType)' probe."
                 }
