@@ -678,6 +678,7 @@ function ConvertFrom-AgentEvalJsonLines([string[]] $Lines) {
         'model.turn_started', 'model.call_start', 'model.model_call_started',
         'model.captured_assignment_context', 'model.model_call_success', 'model.call_finished',
         'model.message', 'model.messages_snapshot', 'model.tool_execution', 'model.response', 'model.turn_ended',
+        'prompt_cache_break',
         'assistant.turn_start', 'assistant.message_start', 'assistant.tool_call_delta',
         'assistant.message_delta', 'assistant.message', 'assistant.reasoning',
         'assistant.idle', 'assistant.turn_end',
