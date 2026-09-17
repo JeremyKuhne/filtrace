@@ -2147,8 +2147,7 @@ function Get-AgentEvalHostUsageFile($Context) {
     [string[]] $usageMembers = @($value.PSObject.Properties | ForEach-Object { $_.Name })
     [string[]] $expectedUsageMembers = @(
         'totalPremiumRequestCost', 'totalUserRequests', 'tokenDetails', 'currentModel')
-    if ($usageMembers.Count -ne $expectedUsageMembers.Count -or
-        @($usageMembers | Where-Object { $expectedUsageMembers -cnotcontains $_ }).Count -ne 0) {
+    if (@($expectedUsageMembers | Where-Object { $usageMembers -cnotcontains $_ }).Count -ne 0) {
         throw 'Copilot usage output schema was malformed.'
     }
     [bool] $premiumCostValid = $value.totalPremiumRequestCost -is [byte] -or
@@ -2199,7 +2198,12 @@ function Get-AgentEvalHostUsageFile($Context) {
         path = $path
         bytes = $file.Length
         sha256 = Get-AgentEvalFileHash $path
-        value = $value
+        value = [pscustomobject]@{
+            totalPremiumRequestCost = $value.totalPremiumRequestCost
+            totalUserRequests = $value.totalUserRequests
+            tokenDetails = $value.tokenDetails
+            currentModel = $value.currentModel
+        }
     }
 }
 

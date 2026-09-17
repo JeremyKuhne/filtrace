@@ -184,10 +184,27 @@ else {
 # 3. Prepared EP1 protocol: exact declarative shape plus semantic checks that bind
 # the current tracked task/QA/fixture and the predeclared balanced pair order. This
 # validates preparation only; the protocol and this check cannot authorize a run.
+$frozenV1Artifacts = @(
+    [pscustomobject]@{
+        path = 'eval/protocols/ep1-ready-capture-v1.json'
+        sha256 = 'c073cd3a36394b818c43b03d3d6302966d0c20100ac6e90cadf8b777c69a95aa'
+    },
+    [pscustomobject]@{
+        path = 'eval/protocols/ep1-ready-capture-record-v1.schema.json'
+        sha256 = '03c487a8724eef2c87dd31d3315f84e1d06b15f8f2f1c304d731fd7a6305f8e8'
+    })
+foreach ($artifact in $frozenV1Artifacts) {
+    [string] $artifactPath = Join-Path $root $artifact.path
+    if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf) -or
+        (Get-DocTextSha256 ([System.IO.File]::ReadAllText($artifactPath))) -cne $artifact.sha256) {
+        Add-Failure "Frozen EP1 v1 artifact '$($artifact.path)' has drifted."
+    }
+}
+
 $protocolCount = 0
-$protocolPath = Join-Path $root 'eval/protocols/ep1-ready-capture-v1.json'
+$protocolPath = Join-Path $root 'eval/protocols/ep1-ready-capture-v2.json'
 if (-not (Test-Path -LiteralPath $protocolPath -PathType Leaf)) {
-    Add-Failure 'Prepared EP1 protocol eval/protocols/ep1-ready-capture-v1.json is missing.'
+    Add-Failure 'Prepared EP1 protocol eval/protocols/ep1-ready-capture-v2.json is missing.'
 }
 else {
     $protocolCount = 1
@@ -205,10 +222,13 @@ else {
 
     if ($null -ne $protocol) {
         [void](Assert-ExactDocObjectMembers $protocol @(
-            'schemaVersion', 'protocolId', 'state', 'question', 'authorization',
+            'schemaVersion', 'protocolId', 'state', 'revision', 'question', 'authorization',
             'identity', 'inputs', 'arms', 'isolation', 'sample', 'execution',
             'bounds', 'validity', 'adjudication', 'records', 'measurement',
             'dispositions', 'reporting', 'freeze') 'Prepared EP1 protocol')
+        [void](Assert-ExactDocObjectMembers $protocol.revision @(
+                'supersedes', 'priorDisposition', 'repairs',
+                'unchanged') 'Prepared EP1 revision')
         [void](Assert-ExactDocObjectMembers $protocol.authorization @(
                 'preparationBoundary', 'measuredExecutionAuthorized',
                 'requiredNextAuthorization', 'terminalAction') 'Prepared EP1 authorization')
@@ -250,7 +270,8 @@ else {
             'outputDirectoryPolicy', 'preSessionChecks',
             'postSessionChecks') 'Prepared EP1 execution')
         [void](Assert-ExactDocObjectMembers $protocol.bounds @(
-                'nativeTimeoutSecondsPerSession', 'maxHostOutputBytesPerSession',
+            'nativeTimeoutSecondsPerSession', 'maxPowerShellInitialWaitSeconds',
+            'maxHostOutputBytesPerSession',
                 'maxHostArtifactBytesPerSession', 'maxProjectedRetainedBytesPerInvocation',
             'maxArtifactFiles', 'maxArtifactRecordBytes', 'maxArtifactSetBytes',
             'maxHostRuntimeBytesPerSession', 'maxHostRuntimeFileBytes',
@@ -310,13 +331,33 @@ else {
                 'executionPrecondition') 'Prepared EP1 freeze')
 
         if ($protocol.schemaVersion -ne 1 -or
-            $protocol.protocolId -cne 'ep1-ready-capture-v1' -or
+            $protocol.protocolId -cne 'ep1-ready-capture-v2' -or
             $protocol.state -cne 'prepared-not-authorized' -or
             $protocol.authorization.measuredExecutionAuthorized -ne $false -or
             $protocol.authorization.terminalAction -cne 'stop-and-return-to-user' -or
             $protocol.reporting.mode -cne 'descriptive-only-no-winner-classification' -or
             $protocol.reporting.nextAction -cne 'stop-and-return-to-user-no-automatic-routing') {
             Add-Failure 'Prepared EP1 protocol does not retain its stopped descriptive-only state.'
+        }
+        [string[]] $expectedRepairs = @(
+            'accept-bounded-duplicate-free-additive-root-usage-telemetry-while-persisting-only-the-four-required-accounting-fields',
+            'accept-powershell-initial-wait-metadata-from-1-through-120-seconds-while-preserving-the-independent-600-second-native-timeout')
+        [string[]] $expectedUnchanged = @(
+            'question-task-fixture-model-arms-pair-order-and-grading',
+            'command-verb-option-path-output-format-and-call-policy',
+            'eight-session-240-credit-ceiling-zero-replacements-and-stop-rules')
+        if ($protocol.revision.supersedes -cne 'ep1-ready-capture-v1' -or
+            $protocol.revision.priorDisposition -cne
+                'incomplete-evidence-integrity-after-one-started-session-and-zero-valid-pairs' -or
+            @($protocol.revision.repairs).Count -ne $expectedRepairs.Count -or
+            @(for ($index = 0; $index -lt $expectedRepairs.Count; $index++) {
+                    if ([string]$protocol.revision.repairs[$index] -cne $expectedRepairs[$index]) { $index }
+                }).Count -ne 0 -or
+            @($protocol.revision.unchanged).Count -ne $expectedUnchanged.Count -or
+            @(for ($index = 0; $index -lt $expectedUnchanged.Count; $index++) {
+                    if ([string]$protocol.revision.unchanged[$index] -cne $expectedUnchanged[$index]) { $index }
+                }).Count -ne 0) {
+            Add-Failure 'Prepared EP1 protocol revision scope has drifted.'
         }
         if (@($protocol.authorization.requiredNextAuthorization).Count -ne 4 -or
             $protocol.authorization.preparationBoundary -cne
@@ -507,6 +548,7 @@ else {
             $protocol.bounds.maximumHostAiCredits -ne
                 ($protocol.bounds.maximumHostSessions * $protocol.bounds.maxAiCreditsPerSession) -or
             $protocol.bounds.nativeTimeoutSecondsPerSession -ne 600 -or
+            $protocol.bounds.maxPowerShellInitialWaitSeconds -ne 120 -or
             $protocol.bounds.maxHostOutputBytesPerSession -ne 10485760 -or
             $protocol.bounds.maxHostArtifactBytesPerSession -ne 16777216 -or
             $protocol.bounds.maxProjectedRetainedBytesPerInvocation -ne 2147483648 -or
@@ -648,7 +690,7 @@ else {
             $criterion = [ordered]@{ pass = $true; evidence = 'exact answer quote' }
             $packetProbe = [ordered]@{
                 schemaVersion = 1
-                protocolId = 'ep1-ready-capture-v1'
+                protocolId = $protocol.protocolId
                 recordType = 'blinded-packet'
                 protocolSha256 = $zeroHash
                 packetId = $packetId
@@ -666,7 +708,7 @@ else {
             }
             $gradeProbe = [ordered]@{
                 schemaVersion = 1
-                protocolId = 'ep1-ready-capture-v1'
+                protocolId = $protocol.protocolId
                 recordType = 'blinded-grade'
                 protocolSha256 = $zeroHash
                 packetId = $packetId
@@ -699,7 +741,7 @@ else {
             }
             $armMapProbe = [ordered]@{
                 schemaVersion = 1
-                protocolId = 'ep1-ready-capture-v1'
+                protocolId = $protocol.protocolId
                 recordType = 'private-arm-map'
                 protocolSha256 = $zeroHash
                 pair = 1
@@ -722,7 +764,7 @@ else {
             }
             $checkpointProbe = [ordered]@{
                 schemaVersion = 1
-                protocolId = 'ep1-ready-capture-v1'
+                protocolId = $protocol.protocolId
                 recordType = 'private-checkpoint'
                 state = 'prepared-not-authorized'
                 measuredExecutionAuthorized = $false
@@ -748,7 +790,7 @@ else {
             }
             $authorizationProbe = [ordered]@{
                 schemaVersion = 1
-                protocolId = 'ep1-ready-capture-v1'
+                protocolId = $protocol.protocolId
                 recordType = 'private-authorization'
                 measuredExecutionAuthorized = $true
                 protocolSha256 = $zeroHash
@@ -760,7 +802,7 @@ else {
             }
             $reportProbe = [ordered]@{
                 schemaVersion = 1
-                protocolId = 'ep1-ready-capture-v1'
+                protocolId = $protocol.protocolId
                 recordType = 'final-report'
                 protocolSha256 = $zeroHash
                 terminalDisposition = 'incomplete-precondition'
