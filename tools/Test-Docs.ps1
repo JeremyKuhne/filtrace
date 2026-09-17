@@ -997,7 +997,7 @@ else {
                 'reporting', 'freeze') 'Prepared EP2 protocol')
         [void](Assert-ExactDocObjectMembers $ep2.treatment @(
                 'controlledVariable', 'sharedSkillDirectory',
-            'sharedRelatedGitBlobManifestSha256', 'control', 'candidate',
+            'sharedRelatedFiles', 'control', 'candidate',
                 'unchanged') 'Prepared EP2 treatment')
         [void](Assert-ExactDocObjectMembers $ep2.sample @(
                 'validPairTarget', 'countedConversations',
@@ -1090,19 +1090,32 @@ else {
         }
 
         [string] $skillDirectory = Join-Path $root ([string]$ep2.treatment.sharedSkillDirectory)
-        $relatedFiles = @(Get-ChildItem -LiteralPath $skillDirectory -File -Recurse |
-            Where-Object { $_.Name -cne 'SKILL.md' } |
-            ForEach-Object {
-                [ordered]@{
-                    path = [System.IO.Path]::GetRelativePath($skillDirectory, $_.FullName).Replace('\', '/')
-                    gitBlobId = Get-DocGitBlobId $_.FullName
-                }
-            } | Sort-Object path)
-        [string] $relatedManifest = @($relatedFiles | ForEach-Object {
-                $_ | ConvertTo-Json -Compress
-            }) -join "`n"
-        if ((Get-RawDocTextSha256 $relatedManifest) -cne
-            [string]$ep2.treatment.sharedRelatedGitBlobManifestSha256) {
+        [System.Collections.Generic.Dictionary[string, string]] $expectedRelatedFiles =
+            [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+        foreach ($relatedFile in @($ep2.treatment.sharedRelatedFiles)) {
+            [void](Assert-ExactDocObjectMembers $relatedFile @('path', 'gitBlobId') `
+                "Prepared EP2 related file '$($relatedFile.path)'")
+            if ([string]::IsNullOrWhiteSpace([string]$relatedFile.path) -or
+                [string]$relatedFile.gitBlobId -cnotmatch '^[0-9a-f]{40,64}$' -or
+                -not $expectedRelatedFiles.TryAdd(
+                    [string]$relatedFile.path,
+                    [string]$relatedFile.gitBlobId)) {
+                Add-Failure "Prepared EP2 related file '$($relatedFile.path)' is malformed or repeated."
+            }
+        }
+        [System.IO.FileInfo[]] $actualRelatedFiles = @(Get-ChildItem -LiteralPath $skillDirectory -File -Recurse |
+            Where-Object { $_.Name -cne 'SKILL.md' })
+        foreach ($relatedFile in $actualRelatedFiles) {
+            [string] $relativePath = [System.IO.Path]::GetRelativePath(
+                $skillDirectory,
+                $relatedFile.FullName).Replace('\', '/')
+            [string] $expectedBlobId = $null
+            if (-not $expectedRelatedFiles.TryGetValue($relativePath, [ref]$expectedBlobId) -or
+                (Get-DocGitBlobId $relatedFile.FullName) -cne $expectedBlobId) {
+                Add-Failure "Prepared EP2 related file '$relativePath' has drifted."
+            }
+        }
+        if ($actualRelatedFiles.Count -ne $expectedRelatedFiles.Count) {
             Add-Failure 'Prepared EP2 shared related-file inventory has drifted.'
         }
 

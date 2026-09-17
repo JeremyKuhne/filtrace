@@ -51,7 +51,17 @@
   "treatment": {
     "controlledVariable": "installed-Filtrace-SKILL.md-entrypoint-bytes-only",
     "sharedSkillDirectory": ".agents/skills/filtrace",
-    "sharedRelatedGitBlobManifestSha256": "21c1ef29c785a2e4d112df20ace194285ce724c1726eaeb5c4cab323e38d5033",
+    "sharedRelatedFiles": [
+      { "path": "README.md", "gitBlobId": "aebc446a3ffbadd7235667fd53a7af0dad3d9b7a" },
+      { "path": "references/guide.md", "gitBlobId": "59bbd193aef4a19cdd2179bb4671c64da74c2d24" },
+      { "path": "scripts/Capture-BenchmarkTrace.ps1", "gitBlobId": "14fda7adba2a3aa4fe5cfae5b7956fe9caa24e2e" },
+      { "path": "scripts/Capture-CommandTrace.ps1", "gitBlobId": "c85fc6192f97f0b30555f3d24482d5eacd852277" },
+      { "path": "scripts/Capture-ProjectTrace.ps1", "gitBlobId": "1de9789ce59cab0a87c7074c01beb9428c36e336" },
+      { "path": "scripts/Get-DotnetTraceRecorder.ps1", "gitBlobId": "846cd530fbce61bc79654a606bc6709c00883666" },
+      { "path": "scripts/Invoke-FiltraceAnalysis.ps1", "gitBlobId": "3f00ac35be4b0bb31a2df0de18cc77931ce80911" },
+      { "path": "scripts/Open-PerfettoTrace.ps1", "gitBlobId": "ecf3d362aa8a6c2bd956709682ec474b89ee0fea" },
+      { "path": "scripts/Open-SpeedscopeTrace.ps1", "gitBlobId": "6d94cd559523493d99f4b7fad074da90faca4c60" }
+    ],
     "control": {
       "label": "baseline",
       "entrypointPath": "eval/skill-variants/ep1-baseline/SKILL.md",
