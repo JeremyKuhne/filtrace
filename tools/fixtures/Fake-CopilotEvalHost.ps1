@@ -152,9 +152,15 @@ $observedBuiltinTools = @(
     'read_agent', 'list_agents', 'write_agent', 'rg', 'glob', 'task')
 $expectedExcludedTools = @($observedBuiltinTools | Where-Object { $expectedTools.Split(',') -notcontains $_ }) -join ','
 $deniedToolNames = @($DeniedTools | ForEach-Object { $_ -split ',' })
+$creditPolicyValid = if ($env:FILTRACE_AGENT_EVAL_EXPECT_UNCAPPED -eq '1') {
+    -not $PSBoundParameters.ContainsKey('MaxAiCredits')
+}
+else {
+    $PSBoundParameters.ContainsKey('MaxAiCredits') -and $MaxAiCredits -eq 30
+}
 if ($AvailableTools -ne $expectedTools -or $ExcludedTools -ne $expectedExcludedTools -or
     $AllowedTools.Count -ne 0 -or $deniedToolNames -notcontains 'read' -or $deniedToolNames -notcontains 'shell' -or
-    $deniedToolNames -notcontains 'write' -or $deniedToolNames -notcontains 'url' -or $MaxAiCredits -ne 30) {
+    $deniedToolNames -notcontains 'write' -or $deniedToolNames -notcontains 'url' -or -not $creditPolicyValid) {
     throw 'Fake Copilot host did not receive the strict owned-apphost tool policy.'
 }
 $hookConfigurationPath = Join-Path $env:COPILOT_HOME 'hooks/filtrace-eval-policy.json'

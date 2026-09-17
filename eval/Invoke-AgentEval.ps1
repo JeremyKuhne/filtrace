@@ -130,6 +130,11 @@
     pre-attested immutable CLI, fixture, and skill inputs and the separately
     bounded Windows Copilot runtime cache. Defaults to 16 MiB.
 
+.PARAMETER NoHostAiCreditLimit
+    Do not pass an evaluator-imposed AI credit ceiling to strict Copilot CLI
+    arms. Host usage is still retained. Other process, output, artifact, command,
+    and call-count bounds remain enforced.
+
 .EXAMPLE
   ./eval/Invoke-AgentEval.ps1 -Tasks cpu-hotspot,gc-report -N 1
   A quick two-task sample against the default local model.
@@ -161,7 +166,8 @@ param(
     [ValidateRange(1024, 104857600)]
     [int]$MaxHostOutputBytes = 10485760,
     [ValidateRange(1024, 104857600)]
-    [int]$MaxHostArtifactBytes = 16777216
+    [int]$MaxHostArtifactBytes = 16777216,
+    [switch]$NoHostAiCreditLimit
 )
 
 $ErrorActionPreference = 'Stop'
@@ -1190,9 +1196,9 @@ function Invoke-CopilotIteration {
             '--available-tools', ($availableToolNames -join ','),
             '--excluded-tools', ($excludedToolNames -join ','),
             '--deny-tool', 'read,shell,write,url',
-            '--disallow-temp-dir',
-            '--max-ai-credits', '30'
+            '--disallow-temp-dir'
         )
+        if (-not $NoHostAiCreditLimit) { $cmdArgs += @('--max-ai-credits', '30') }
         if ($arm -eq 'cli') { $cmdArgs += '--no-custom-instructions' }
     }
     if ($script:CurrentModel) { $cmdArgs += @('--model', $script:CurrentModel) }
@@ -1201,6 +1207,7 @@ function Invoke-CopilotIteration {
     if ($CopilotAdapterPath) {
         $processEnvironment['FILTRACE_AGENT_EVAL_FAKE_MODE'] =
             [System.Environment]::GetEnvironmentVariable('FILTRACE_AGENT_EVAL_FAKE_MODE')
+        $processEnvironment['FILTRACE_AGENT_EVAL_EXPECT_UNCAPPED'] = if ($NoHostAiCreditLimit) { '1' } else { '0' }
     }
     [System.Collections.Generic.List[System.IO.FileStream]] $securityFileLocks =
         [System.Collections.Generic.List[System.IO.FileStream]]::new()
@@ -1830,7 +1837,7 @@ function Invoke-CopilotIteration {
                 hostRuntimeMaxFileBytes = $processResult.hostRuntimeMaxFileBytes
                 hostRuntimeMaxEntries = $processResult.hostRuntimeMaxEntries
                 processTreeContained = $processResult.processTreeContained
-                maxAiCredits = 30
+                maxAiCredits = if ($NoHostAiCreditLimit) { 0 } else { 30 }
             }
             inputPolicy = $context.inputPolicy
         }

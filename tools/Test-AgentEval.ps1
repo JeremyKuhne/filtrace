@@ -184,7 +184,8 @@ function Invoke-FakeRun {
         [string] $OutDir,
         [int] $TimeoutSeconds = 30,
         [int] $MaxOutputBytes = 10485760,
-        [int] $MaxArtifactBytes = 16777216
+        [int] $MaxArtifactBytes = 16777216,
+        [switch] $NoHostAiCreditLimit
     )
 
     if (-not $OutDir) { $OutDir = Join-Path $temporaryRoot $Name }
@@ -218,7 +219,8 @@ function Invoke-FakeRun {
             -CopilotAdapterPath $fakeHost `
             -NativeTimeoutSeconds $TimeoutSeconds `
             -MaxHostOutputBytes $MaxOutputBytes `
-            -MaxHostArtifactBytes $MaxArtifactBytes
+            -MaxHostArtifactBytes $MaxArtifactBytes `
+            -NoHostAiCreditLimit:$NoHostAiCreditLimit
     }
     finally {
         [System.Environment]::SetEnvironmentVariable(
@@ -681,6 +683,13 @@ try {
         $success.iterations[0].hostUsageFile.value.tokenDetails.cache_write.tokenCount -eq 15 -and
         $success.iterations[0].hostUsageFile.value.tokenDetails.output.tokenCount -eq 10) `
         'Detailed host token accounting was not retained from the usage output file.'
+    $uncappedHostUsage = Invoke-FakeRun `
+        -Name 'uncapped host usage' `
+        -Mode success `
+        -NoHostAiCreditLimit
+    Assert-True ($uncappedHostUsage.iterations[0].success -eq $true -and
+        $uncappedHostUsage.iterations[0].execution.isolation.maxAiCredits -eq 0) `
+        'Uncapped host usage still received or retained an evaluator credit ceiling.'
     $additiveUsage = Invoke-FakeRun -Name 'additive usage output' -Mode additive-usage-output
     [string[]] $projectedUsageMembers = @(
         $additiveUsage.iterations[0].hostUsageFile.value.PSObject.Properties.Name)
