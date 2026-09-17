@@ -1,0 +1,28 @@
+{
+  "id": "exact-pid-tree-scope",
+  "title": "Preserve an exact ETW process-id tree across CPU analysis and drill-down.",
+  "prompt": "Analyze CPU self-time for the process tree rooted at PID 40356 in this machine-wide ETW capture, including descendants. Identify the hottest frame only if the evidence supports a name, state the exact root and descendant scope and evidence quality, give the next callers command without losing that scope, and name one conclusion the trace does not justify.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
+  "os": "windows",
+  "steps": [
+    { "args": ["rank", "{fixture}", "--metric", "cpu", "--pid", "40356", "--children", "include", "--top", "3"] }
+  ],
+  "assert": [
+    { "field": "result.rows[0].frame", "equals": "?" },
+    { "field": "result.contributingRecordCount", "equals": 51 },
+    { "field": "context.scope.processMode", "equals": "ids" },
+    { "field": "context.scope.requestedProcessIds[0]", "equals": 40356 },
+    { "field": "context.scope.rootProcessIds[0]", "equals": 40356 },
+    { "field": "context.scope.descendantProcessIds[0]", "equals": 48348 },
+    { "field": "context.scope.requestedProcessIdCount", "equals": 1 },
+    { "field": "context.scope.rootProcessIdCount", "equals": 1 },
+    { "field": "context.scope.descendantProcessIdCount", "equals": 1 },
+    { "field": "context.scope.includeChildren", "equals": true },
+    { "field": "warnings[2].data.resolutionPercent", "equals": 0 },
+    { "field": "warnings[3].data.contributingRecords", "equals": 51 },
+    { "field": "warnings[3].data.recommendedMinimum", "equals": 200 },
+    { "hintContains": "--pid 40356" },
+    { "jsonContains": "Scoped to the process tree of pid 40356" }
+  ],
+  "expect": ["--pid", "40356", "48348", "0%", "51", "200", "callers"]
+}

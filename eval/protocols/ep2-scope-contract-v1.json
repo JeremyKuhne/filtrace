@@ -1,0 +1,239 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "ep2-scope-contract-v1",
+  "state": "prepared-not-authorized",
+  "question": "Does a compact named-process scope acceptance contract in the discovered Filtrace skill prevent agents from accepting automatic process scope and preserve the requested scope through the next CPU drill?",
+  "evidenceBase": {
+    "protocolId": "ep1-natural-adoption-v1",
+    "countedConversations": 20,
+    "skillStrictPasses": 5,
+    "cliStrictPasses": 3,
+    "skillInvocations": 10,
+    "skillEligibleConversations": 10,
+    "mechanism": "all-five-failed-skill-chats-used-an-unscoped-rank;all-five-passing-skill-chats-used-an-explicit-HotLoopBench-process-selector",
+    "gradingSha256": "15a237a024823485fc1ba9ce9ab2f6a40f9dacc1e83fde227d2cdbe44ae80c50",
+    "reportSha256": "b0e5b21b6d61cdff738d5cbc432faf9c71b990dc0816b0b6bc0613c9d80c1a41"
+  },
+  "authorization": {
+    "preparationBoundary": "local-implementation-documentation-protocol-and-validation-only",
+    "measuredExecutionAuthorized": false,
+    "requiredNextAuthorization": [
+      "exact protocol content hash and candidate merge commit and tree",
+      "maximum 20 counted host sessions plus 4 infrastructure replacements",
+      "no evaluator-imposed host credit ceiling and actual credits retained",
+      "stop after the EP2 scope-contract report"
+    ],
+    "terminalAction": "stop-and-return-to-user"
+  },
+  "identity": {
+    "sourceRepository": "https://github.com/JeremyKuhne/filtrace.git",
+    "sourceRevision": "candidate-merge-commit-and-tree-recorded-in-private-checkpoint",
+    "cleanTree": "required-before-build-and-before-each-session",
+    "buildCommand": "dotnet build filtrace.slnx -c Release",
+    "buildReuse": "one-release-build-reused-byte-for-byte-for-all-sessions",
+    "cliIdentity": "complete-cli-bundle-manifest-sha256-recorded-in-private-checkpoint-and-each-session",
+    "hostIdentity": "exact-executable-sha256-and-version-recorded-in-private-checkpoint",
+    "modelIdentity": "exact-private-identifier-recorded-in-private-checkpoint-and-verified-before-work",
+    "fixturePath": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
+    "fixtureSha256": "835c293fb03c0ed882bccf8442409003aa6cfdb7d86bb2d70352ae1d371e0504",
+    "textHashNormalization": "utf8-no-bom-with-crlf-and-cr-normalized-to-lf",
+    "evaluatorFiles": [
+      { "path": "eval/Invoke-AgentEval.ps1", "sha256": "72345a24f46e169e259069ec027c52499cc556e99f4876e7d96746a6208105da" },
+      { "path": "eval/CopilotEval.Helpers.ps1", "sha256": "176493d9440404c4e8e749b1c51b8b3c6601ae8775e2e1c8da32ecb49875ee26" },
+      { "path": "eval/CopilotEval.PolicyHook.ps1", "sha256": "be9f965c940ccf60e4cf8ffb5d33e09058925b4b90905625b4fe801d5868a9c5" },
+      { "path": "eval/Compare-EvalRuns.ps1", "sha256": "04d642de4309e7c6e645e1f3acb0c0f921c122ec1446734c9633fc2036530c5e" },
+      { "path": "tools/Test-AgentEval.ps1", "sha256": "f6a60067ecf6aaa538f236d70b0aa3d0ec9a1705b980478b3d5a5dd2532398bc" }
+    ],
+    "mismatchPolicy": "stop-before-the-next-host-session-and-report-incomplete-precondition"
+  },
+  "treatment": {
+    "controlledVariable": "installed-Filtrace-SKILL.md-entrypoint-bytes-only",
+    "sharedSkillDirectory": ".agents/skills/filtrace",
+    "sharedRelatedFileManifestSha256": "872c44219f3022bba4ef3b684931d017e58a1f0b9be239daa8dbef14c8cff47c",
+    "control": {
+      "label": "baseline",
+      "entrypointPath": "eval/skill-variants/ep1-baseline/SKILL.md",
+      "sourceByteSha256": "404477df5de6a772ebab89766ff48bd5c44743f523f90298f535941854b39b7d",
+      "sourceTextSha256": "404477df5de6a772ebab89766ff48bd5c44743f523f90298f535941854b39b7d",
+      "sourceContextSha256": "12c2584605ddc06476a5d0a8fe26033f28c9971b68855946ab0ddbb7595caa67"
+    },
+    "candidate": {
+      "label": "scope-contract",
+      "entrypointPath": ".agents/skills/filtrace/SKILL.md",
+      "sourceByteSha256": "c36f8e35d8a0fe59d2c6627b4c184a721c30d7947ca9e43d25b67731eaaf4884",
+      "sourceTextSha256": "c36f8e35d8a0fe59d2c6627b4c184a721c30d7947ca9e43d25b67731eaaf4884",
+      "sourceContextSha256": "cd291557ee7a772bce9eedab2ab75407071085e2a6469b397f348d8f1de8a82c"
+    },
+    "unchanged": [
+      "related skill files and discovery path",
+      "CLI bundle host model fixture task prompt and command policy",
+      "workspace home timeout output artifact and process containment",
+      "grading validity replacement and reporting rules"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "named-process-self-scope",
+      "path": "eval/tasks/28-named-process-self-scope.json",
+      "taskSha256": "797c78c35f3f2a07454a12b9f9a67059b11fac98534b0eecadff36648667e5e8",
+      "qaLineSha256": "1184a3b420e17873e075857206112b3bcd6965a3ed27eb9c71ee59149899459e",
+      "requiredOperations": ["processes", "rank"],
+      "expectedScope": {
+        "processMode": "name",
+        "process": "HotLoopBench-Job-IXTYWS-1",
+        "rootProcessIds": [40356],
+        "descendantProcessIds": [],
+        "includeChildren": false,
+        "contributingRecords": 50,
+        "frameResolutionPercent": 0,
+        "recommendedMinimumRecords": 200,
+        "nextOperation": "callers",
+        "nextSelector": "--process HotLoopBench-Job-IXTYWS-1 --children exclude"
+      }
+    },
+    {
+      "id": "exact-pid-tree-scope",
+      "path": "eval/tasks/29-exact-pid-tree-scope.json",
+      "taskSha256": "2f112372b8b0bf269695a6b0dd61d03456756b4191c9607c42386ff5686f68f8",
+      "qaLineSha256": "069344513e55687a76ce5a102cbb4d035fa23db77d13b2f45068f0d5a786cd67",
+      "requiredOperations": ["rank"],
+      "expectedScope": {
+        "processMode": "ids",
+        "process": null,
+        "rootProcessIds": [40356],
+        "descendantProcessIds": [48348],
+        "includeChildren": true,
+        "contributingRecords": 51,
+        "frameResolutionPercent": 0,
+        "recommendedMinimumRecords": 200,
+        "nextOperation": "callers",
+        "nextSelector": "--pid 40356 with descendants included"
+      }
+    }
+  ],
+  "sample": {
+    "validPairTarget": 10,
+    "countedConversations": 20,
+    "maximumInfrastructureReplacements": 4,
+    "maximumStartedSessions": 24,
+    "behavioralRetries": 0,
+    "oneConversationPerInvocation": true,
+    "schedule": [
+      { "pair": 1, "task": "named-process-self-scope", "first": "baseline", "second": "scope-contract" },
+      { "pair": 2, "task": "exact-pid-tree-scope", "first": "scope-contract", "second": "baseline" },
+      { "pair": 3, "task": "named-process-self-scope", "first": "scope-contract", "second": "baseline" },
+      { "pair": 4, "task": "exact-pid-tree-scope", "first": "baseline", "second": "scope-contract" },
+      { "pair": 5, "task": "named-process-self-scope", "first": "baseline", "second": "scope-contract" },
+      { "pair": 6, "task": "exact-pid-tree-scope", "first": "scope-contract", "second": "baseline" },
+      { "pair": 7, "task": "named-process-self-scope", "first": "scope-contract", "second": "baseline" },
+      { "pair": 8, "task": "exact-pid-tree-scope", "first": "baseline", "second": "scope-contract" },
+      { "pair": 9, "task": "named-process-self-scope", "first": "baseline", "second": "scope-contract" },
+      { "pair": 10, "task": "exact-pid-tree-scope", "first": "scope-contract", "second": "baseline" }
+    ],
+    "infrastructureReplacementPolicy": "replace-only-a-session-with-invalid-machine-evidence-using-the-same-task-variant-and-position;retain-the-invalid-attempt-and-credit",
+    "behavioralFailurePolicy": "skill-non-use-zero-analysis-calls-abstention-wrong-scope-wrong-answer-and-overconfidence-count-without-retry"
+  },
+  "execution": {
+    "runnerPath": "eval/Invoke-AgentEval.ps1",
+    "commonCommandTemplate": "./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Arm cli-skill -Model <private-model-id> -ExpectedModel <private-model-id> -AuthorizationSha256 <private-auth-sha256> -Tasks <task-id> -N 1 -MaxSteps 6 -Configuration Release -Label ep2-p<pair>-<position>-<variant> -OutDir <private-new-output-directory> -NativeTimeoutSeconds 600 -MaxHostOutputBytes 10485760 -MaxHostArtifactBytes 16777216 -NoHostAiCreditLimit",
+    "controlAdditionalArgument": "-SkillEntrypointPath eval/skill-variants/ep1-baseline/SKILL.md",
+    "candidateAdditionalArgument": "none;the-shipped-entrypoint-is-the-default",
+    "labelTemplate": "ep2-p{pair}-{position}-{variant}",
+    "preSessionChecks": [
+      "protocol authorization repository evaluator task QA fixture CLI skill host and model hashes match",
+      "schedule identifies exactly one task variant and position",
+      "new outside-repository output directory and empty owned home are available",
+      "no adjacent analysis cache is copied or reused",
+      "no other build test capture benchmark or measured host session is running"
+    ],
+    "postSessionChecks": [
+      "one schema-v3 result and complete bounded transcript are retained",
+      "result task label model fixture CLI and selected skill hashes match the protocol",
+      "skill discovery inventory invocation and injected context are recorded without making invocation a validity requirement",
+      "host and result process exits usage output and containment evidence are valid",
+      "standalone authoritative completion record is written only after child exit and result validation"
+    ]
+  },
+  "validity": {
+    "sessionValidWhen": "exact-input-and-arm-setup-evidence-valid-host-and-result-exits-zero-usage-and-transcript-retained-and-final-answer-event-present",
+    "skillNonUse": "valid-behavioral-adoption-failure-not-an-infrastructure-failure",
+    "zeroAnalysisCalls": "valid-behavioral-outcome-not-an-infrastructure-failure",
+    "infrastructureInvalid": [
+      "wrong repository evaluator task QA fixture CLI skill host or model identity",
+      "host or result process crash timeout or nonzero exit",
+      "missing malformed duplicate-member or unknown-evidence transcript or usage data",
+      "resource command path write network or containment policy breach"
+    ]
+  },
+  "grading": {
+    "timing": "after-both-sessions-in-each-pair-and-before-starting-the-next-pair",
+    "method": "arm-masked-randomized-answer-packet-with-grade-hash-frozen-before-unblinding",
+    "criteria": [
+      "state the requested root and descendant process scope without substituting automatic scope",
+      "refuse to name a hottest method because the only row is unresolved",
+      "report zero-percent name resolution and the contributing record count against the 200-record recommendation",
+      "give callers with the same process selector and child-inclusion policy",
+      "state that named-method or source attribution is not justified and characterize the evidence as thin"
+    ],
+    "falseConfidence": [
+      "presents automatic process scope as the requested explicit scope",
+      "names a hottest method despite the unresolved row",
+      "presents the sub-200-record result as strong directional evidence",
+      "drops or widens process scope in the proposed drill"
+    ],
+    "strictPass": "all-five-criteria-pass-and-no-false-confidence-condition-triggers"
+  },
+  "outcomes": {
+    "primary": "successful-explicit-scope-selection-plus-matching-effective-context-plus-scope-preserving-callers-drill",
+    "secondary": [
+      "strict answer-quality vector and false confidence",
+      "skill discovery invocation and related-file views",
+      "successful failed and help calls",
+      "observed result tokens and host input cache-read cache-write and output tokens",
+      "wall time and actual host-reported credits"
+    ],
+    "paired": "report baseline and scope-contract outcomes per pair and by task and order;do-not-pool-away-task-or-position",
+    "cost": "report separately from quality;do-not-collapse-into-one-score"
+  },
+  "decision": {
+    "candidateMechanismThreshold": "at-least-8-of-10-primary-passes-and-at-least-4-of-5-on-each-task",
+    "comparativeThreshold": "at-least-two-more-primary-passes-than-baseline-and-no-more-false-confidence-cases",
+    "retain": "both-thresholds-pass-without-a-task-specific-or-order-specific-reversal",
+    "reviseOrReject": "candidate-mechanism-threshold-fails",
+    "inconclusive": "mechanism-threshold-passes-but-comparative-threshold-or-order-stability-does-not",
+    "nextLayer": "consider-CLI-or-MCP-scope-salience-only-if-candidate-failures-still-accept-automatic-scope-after-verified-skill-use",
+    "claimBoundary": "descriptive-decision-rule-not-a-significance-or-general-winner-claim"
+  },
+  "bounds": {
+    "nativeTimeoutSecondsPerSession": 600,
+    "maxPowerShellInitialWaitSeconds": 120,
+    "maxStepsPerSession": 6,
+    "maxHostOutputBytesPerSession": 10485760,
+    "maxHostArtifactBytesPerSession": 16777216,
+    "maxProjectedRetainedBytesPerInvocation": 2147483648,
+    "maxSkillFiles": 64,
+    "maxSkillEntries": 128,
+    "maxSkillBytes": 16777216,
+    "maxSkillViewCalls": 4,
+    "maxSkillRequestedBytes": 67108864,
+    "evaluatorImposedHostCreditLimit": null,
+    "hostCreditTreatment": "record-actual-credits-as-an-outcome-never-as-validity-or-stopping-condition"
+  },
+  "reporting": {
+    "afterEachPair": "record exact prompt answer selected skill hash successful and attempted commands grade and accounting before continuing",
+    "final": "report-all-20-counted-conversations-paired-task-order-and-variant-summaries-plus-every-infrastructure-invalid-attempt-and-credit",
+    "limitations": [
+      "one model host and operating system",
+      "two tasks over one machine-wide ETW fixture",
+      "entrypoint wording may reveal variant behavior despite arm masking",
+      "fixed small sample and residual temporal host variation"
+    ],
+    "terminalAction": "stop-and-return-to-user-without-automatic-CLI-change-or-further-experiment"
+  },
+  "freeze": {
+    "validator": "tools/Test-Docs.ps1",
+    "protocolHashPolicy": "lowercase-sha256-of-exact-file-bytes-recorded-in-private-authorization",
+    "mergeTreePolicy": "exact-reviewed-candidate-merge-commit-and-tree-recorded-before-authorization",
+    "executionPrecondition": "all-local-gates-pass-protocol-and-candidate-are-merged-private-checkpoint-is-complete-and-user-separately-authorizes-measured-execution"
+  }
+}

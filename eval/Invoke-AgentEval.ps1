@@ -119,6 +119,11 @@
 .PARAMETER CopilotPath
     Explicit native Copilot executable. Defaults to the first copilot.exe on PATH.
 
+.PARAMETER SkillEntrypointPath
+    Optional repository-relative SKILL.md beneath eval/skill-variants to substitute
+    for the strict cli-skill arm. Related files still come from the shipped Filtrace
+    skill, so the recorded entrypoint source and hash are the only variant input.
+
 .PARAMETER NativeTimeoutSeconds
     Maximum wall time for one Copilot host process. Defaults to 600 seconds.
 
@@ -161,6 +166,7 @@ param(
     [string]$Label,
     [string]$CopilotPath,
     [string]$CopilotAdapterPath,
+    [string]$SkillEntrypointPath,
     [ValidateRange(1, 600)]
     [int]$NativeTimeoutSeconds = 600,
     [ValidateRange(1024, 104857600)]
@@ -186,6 +192,10 @@ if (-not $OutDir) { $OutDir = Join-Path $PSScriptRoot 'results' }
 
 if (-not $Arm) { $Arm = if ($AgentHost -eq 'ollama') { 'cli' } else { 'mcp' } }
 [string] $arm = $Arm
+if (-not [string]::IsNullOrWhiteSpace($SkillEntrypointPath) -and
+    ($AgentHost -ne 'copilot' -or $arm -ne 'cli-skill')) {
+    throw '-SkillEntrypointPath is supported only by the Copilot cli-skill arm.'
+}
 [string] $cliDll = $null
 if ($AgentHost -eq 'ollama') {
     [string] $cliSourceDirectory = Get-AgentEvalCliOutputDirectory `
@@ -987,6 +997,7 @@ function Get-AgentEvalStrictRunProjection {
         [Parameter(Mandatory)][int] $Iterations,
         [Parameter(Mandatory)][string] $Arm,
         [Parameter(Mandatory)][string] $Configuration,
+        [string] $SkillEntrypointPath,
         [Parameter(Mandatory)][long] $MaxArtifactBytes
     )
 
@@ -1018,13 +1029,9 @@ function Get-AgentEvalStrictRunProjection {
         -MaxBytes 512MB
     [long] $immutableBytes = [long]$runtimeInventory.bytes + [long]$architectureInventory.bytes
     if ($Arm -eq 'cli-skill') {
-        $skillInventory = Get-AgentEvalFileInventory `
-            -SourceDirectory (Join-Path $root '.agents/skills/filtrace') `
-            -DestinationPrefix '' `
-            -Recurse `
-            -MaxFiles 64 `
-            -MaxEntries 128 `
-            -MaxBytes 16MB
+        $skillInventory = Get-AgentEvalSkillInput `
+            -Root $root `
+            -EntrypointPath $SkillEntrypointPath
         $immutableBytes += [long]$skillInventory.bytes
     }
 
@@ -1152,6 +1159,7 @@ function Invoke-CopilotIteration {
         -Arm $arm `
         -FixturePath $FixtureAbs `
         -Configuration $Configuration `
+        -SkillEntrypointPath $SkillEntrypointPath `
         -StrictCliArm:($arm -ne 'mcp')
     $executionPolicy = if ($arm -in @('cli', 'cli-skill')) {
         Initialize-CopilotEvalExecutionPolicy `
@@ -1418,7 +1426,7 @@ function Invoke-CopilotIteration {
     $helpCalls = 0
     $skillEvidence = [ordered]@{
         provided = [bool]($arm -eq 'cli-skill')
-        sourcePath = (Join-Path $root '.agents/skills/filtrace')
+        sourcePath = $context.skillSourcePath
         installedPath = $context.skillPath
         sha256 = $context.skillSha256
         sourceByteSha256 = $context.skillSha256
@@ -1970,6 +1978,7 @@ if ($AgentHost -eq 'copilot' -and $arm -in @('cli', 'cli-skill')) {
         -Iterations $N `
         -Arm $arm `
         -Configuration $Configuration `
+        -SkillEntrypointPath $SkillEntrypointPath `
         -MaxArtifactBytes $MaxHostArtifactBytes
     if ([long]$strictRunProjection.projectedBytes -gt [long]$strictRunProjection.maxBytes) {
         throw "The Copilot '$arm' arm projects $($strictRunProjection.projectedBytes) retained bytes, exceeding the run-wide $($strictRunProjection.maxBytes)-byte limit."

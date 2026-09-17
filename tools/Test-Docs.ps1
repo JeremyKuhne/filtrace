@@ -18,9 +18,9 @@
        the map (e.g. `tools`) are reference-only and need no consumer copy.
     2. The shipped skill's YAML frontmatter is valid: `name` matches the skill
        directory, and `description` is present.
-        3. The prepared EP1 ready-capture protocol remains non-executable, binds exact
-            public inputs, balances pair order, separates runner and arm-masked answer
-            grading, and caps sessions and host AI credits.
+        3. The frozen EP1 protocols retain their exact contracts. The prepared EP2
+            protocol remains non-executable, binds the one-file treatment and held-out
+            tasks, balances pair order, and separates behavior from infrastructure.
      4. Every canonical CLI command appears in the command catalog, and every MCP
          tool appears in the tool catalog - so new surface cannot ship undocumented.
      5. Every relative link in a shipped skill file (.agents/skills/filtrace/)
@@ -69,6 +69,26 @@ function Get-DocTextSha256([string]$Text) {
     return [Convert]::ToHexString(
         [Security.Cryptography.SHA256]::HashData(
             [Text.UTF8Encoding]::new($false).GetBytes($Text))).ToLowerInvariant()
+}
+
+function Get-RawDocTextSha256([string]$Text) {
+    return [Convert]::ToHexString(
+        [Security.Cryptography.SHA256]::HashData(
+            [Text.UTF8Encoding]::new($false).GetBytes($Text))).ToLowerInvariant()
+}
+
+function Get-SkillContextSha256([string]$Path) {
+    [string] $source = [System.IO.File]::ReadAllText($Path).Replace("`r`n", "`n").Replace("`r", "`n")
+    if (-not $source.StartsWith("---`n", [StringComparison]::Ordinal)) {
+        throw "Skill entrypoint '$Path' has no frontmatter."
+    }
+    [int] $frontmatterEnd = $source.IndexOf("`n---`n", 4, [StringComparison]::Ordinal)
+    if ($frontmatterEnd -lt 0) { throw "Skill entrypoint '$Path' has unterminated frontmatter." }
+    [string] $body = $source.Substring($frontmatterEnd + 5)
+    if (-not $body.StartsWith("`n", [StringComparison]::Ordinal)) {
+        throw "Skill entrypoint '$Path' has no leading body separator."
+    }
+    return Get-RawDocTextSha256 $body.Substring(1)
 }
 
 function Assert-UniqueDocJsonMembers([Text.Json.JsonElement]$RootElement, [string]$Context) {
@@ -933,7 +953,252 @@ else {
     }
 }
 
-# 4. Command / tool completeness: every canonical CLI command is in the command
+# 4. Prepared EP2 protocol: bind the one-file skill treatment, two held-out tasks,
+# balanced interleaved order, fixed decision rule, and stopped authorization state.
+$ep2ProtocolPath = Join-Path $root 'eval/protocols/ep2-scope-contract-v1.json'
+if (-not (Test-Path -LiteralPath $ep2ProtocolPath -PathType Leaf)) {
+    Add-Failure 'Prepared EP2 protocol eval/protocols/ep2-scope-contract-v1.json is missing.'
+}
+else {
+    $protocolCount++
+    [string] $ep2Raw = [System.IO.File]::ReadAllText($ep2ProtocolPath)
+    $ep2 = $null
+    try {
+        [Text.Json.JsonDocument] $ep2Document = [Text.Json.JsonDocument]::Parse($ep2Raw)
+        try { Assert-UniqueDocJsonMembers $ep2Document.RootElement 'Prepared EP2 protocol' }
+        finally { $ep2Document.Dispose() }
+        $ep2 = $ep2Raw | ConvertFrom-Json -Depth 100
+    }
+    catch {
+        Add-Failure "Prepared EP2 protocol is malformed: $($_.Exception.Message)"
+    }
+
+    if ($null -ne $ep2) {
+        [void](Assert-ExactDocObjectMembers $ep2 @(
+                'schemaVersion', 'protocolId', 'state', 'question', 'evidenceBase',
+                'authorization', 'identity', 'treatment', 'tasks', 'sample',
+                'execution', 'validity', 'grading', 'outcomes', 'decision', 'bounds',
+                'reporting', 'freeze') 'Prepared EP2 protocol')
+        [void](Assert-ExactDocObjectMembers $ep2.treatment @(
+                'controlledVariable', 'sharedSkillDirectory',
+                'sharedRelatedFileManifestSha256', 'control', 'candidate',
+                'unchanged') 'Prepared EP2 treatment')
+        [void](Assert-ExactDocObjectMembers $ep2.sample @(
+                'validPairTarget', 'countedConversations',
+                'maximumInfrastructureReplacements', 'maximumStartedSessions',
+                'behavioralRetries', 'oneConversationPerInvocation', 'schedule',
+                'infrastructureReplacementPolicy',
+                'behavioralFailurePolicy') 'Prepared EP2 sample')
+
+        if ($ep2.schemaVersion -ne 1 -or
+            $ep2.protocolId -cne 'ep2-scope-contract-v1' -or
+            $ep2.state -cne 'prepared-not-authorized' -or
+            $ep2.authorization.measuredExecutionAuthorized -ne $false -or
+            $ep2.authorization.preparationBoundary -cne
+                'local-implementation-documentation-protocol-and-validation-only' -or
+            $ep2.authorization.terminalAction -cne 'stop-and-return-to-user' -or
+            $ep2.reporting.terminalAction -cne
+                'stop-and-return-to-user-without-automatic-CLI-change-or-further-experiment') {
+            Add-Failure 'Prepared EP2 protocol does not retain its stopped authorization state.'
+        }
+        if ($ep2Raw -match '(?i)gpt-5|internal only|sol fast|[A-Z]:\\') {
+            Add-Failure 'Prepared EP2 protocol contains a private model identifier or absolute Windows path.'
+        }
+        if ($ep2.evidenceBase.countedConversations -ne 20 -or
+            $ep2.evidenceBase.skillStrictPasses -ne 5 -or
+            $ep2.evidenceBase.cliStrictPasses -ne 3 -or
+            $ep2.evidenceBase.skillInvocations -ne 10 -or
+            $ep2.evidenceBase.skillEligibleConversations -ne 10 -or
+            $ep2.evidenceBase.gradingSha256 -cnotmatch '^[0-9a-f]{64}$' -or
+            $ep2.evidenceBase.reportSha256 -cnotmatch '^[0-9a-f]{64}$') {
+            Add-Failure 'Prepared EP2 evidence-base summary has drifted.'
+        }
+
+        [System.Collections.Generic.HashSet[string]] $evaluatorPaths =
+            [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($evaluatorFile in @($ep2.identity.evaluatorFiles)) {
+            [void](Assert-ExactDocObjectMembers $evaluatorFile @('path', 'sha256') `
+                "Prepared EP2 evaluator file '$($evaluatorFile.path)'")
+            [string] $evaluatorPath = Join-Path $root ([string]$evaluatorFile.path)
+            if (-not $evaluatorPaths.Add([string]$evaluatorFile.path) -or
+                -not (Test-Path -LiteralPath $evaluatorPath -PathType Leaf) -or
+                (Get-DocTextSha256 ([System.IO.File]::ReadAllText($evaluatorPath))) -cne
+                    [string]$evaluatorFile.sha256) {
+                Add-Failure "Prepared EP2 evaluator input '$($evaluatorFile.path)' has drifted."
+            }
+        }
+        [string] $ep2FixturePath = Join-Path $root ([string]$ep2.identity.fixturePath)
+        [string] $ep2FixtureHash = (Get-FileHash -LiteralPath $ep2FixturePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($evaluatorPaths.Count -ne 5 -or
+            $ep2.identity.fixturePath -cne
+                'tests/Filtrace.Core.Tests/Fixtures/etw.etl' -or
+            $ep2FixtureHash -cne [string]$ep2.identity.fixtureSha256) {
+            Add-Failure 'Prepared EP2 evaluator or fixture identity is incomplete.'
+        }
+
+        foreach ($variantName in @('control', 'candidate')) {
+            $variant = $ep2.treatment.$variantName
+            [void](Assert-ExactDocObjectMembers $variant @(
+                    'label', 'entrypointPath', 'sourceByteSha256',
+                    'sourceTextSha256', 'sourceContextSha256') `
+                "Prepared EP2 $variantName variant")
+            [string] $entrypointPath = Join-Path $root ([string]$variant.entrypointPath)
+            if (-not (Test-Path -LiteralPath $entrypointPath -PathType Leaf)) {
+                Add-Failure "Prepared EP2 $variantName entrypoint is missing."
+                continue
+            }
+            [string] $source = [System.IO.File]::ReadAllText($entrypointPath)
+            if ((Get-FileHash -LiteralPath $entrypointPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+                    [string]$variant.sourceByteSha256 -or
+                (Get-RawDocTextSha256 $source) -cne [string]$variant.sourceTextSha256 -or
+                (Get-SkillContextSha256 $entrypointPath) -cne
+                    [string]$variant.sourceContextSha256) {
+                Add-Failure "Prepared EP2 $variantName skill identity has drifted."
+            }
+        }
+        if ($ep2.treatment.control.sourceByteSha256 -ceq
+                $ep2.treatment.candidate.sourceByteSha256 -or
+            $ep2.treatment.control.sourceContextSha256 -ceq
+                $ep2.treatment.candidate.sourceContextSha256 -or
+            $ep2.treatment.control.entrypointPath -cne
+                'eval/skill-variants/ep1-baseline/SKILL.md' -or
+            $ep2.treatment.candidate.entrypointPath -cne
+                '.agents/skills/filtrace/SKILL.md' -or
+            $ep2.treatment.control.sourceByteSha256 -cne
+                '404477df5de6a772ebab89766ff48bd5c44743f523f90298f535941854b39b7d' -or
+            $ep2.treatment.control.sourceContextSha256 -cne
+                '12c2584605ddc06476a5d0a8fe26033f28c9971b68855946ab0ddbb7595caa67') {
+            Add-Failure 'Prepared EP2 treatment does not retain the exact EP1 control.'
+        }
+
+        [string] $skillDirectory = Join-Path $root ([string]$ep2.treatment.sharedSkillDirectory)
+        $relatedFiles = @(Get-ChildItem -LiteralPath $skillDirectory -File -Recurse |
+            Where-Object { $_.Name -cne 'SKILL.md' } |
+            ForEach-Object {
+                [ordered]@{
+                    path = [System.IO.Path]::GetRelativePath($skillDirectory, $_.FullName).Replace('\', '/')
+                    bytes = $_.Length
+                    sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+            } | Sort-Object path)
+        [string] $relatedManifest = @($relatedFiles | ForEach-Object {
+                $_ | ConvertTo-Json -Compress
+            }) -join "`n"
+        if ((Get-RawDocTextSha256 $relatedManifest) -cne
+            [string]$ep2.treatment.sharedRelatedFileManifestSha256) {
+            Add-Failure 'Prepared EP2 shared related-file inventory has drifted.'
+        }
+
+        [object[]] $ep2Tasks = @($ep2.tasks)
+        [System.Collections.Generic.HashSet[string]] $taskIds =
+            [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($taskRecord in $ep2Tasks) {
+            [void](Assert-ExactDocObjectMembers $taskRecord @(
+                    'id', 'path', 'taskSha256', 'qaLineSha256',
+                    'requiredOperations', 'expectedScope') `
+                "Prepared EP2 task '$($taskRecord.id)'")
+            [string] $taskPath = Join-Path $root ([string]$taskRecord.path)
+            if (-not $taskIds.Add([string]$taskRecord.id) -or
+                -not (Test-Path -LiteralPath $taskPath -PathType Leaf) -or
+                (Get-DocTextSha256 ([System.IO.File]::ReadAllText($taskPath))) -cne
+                    [string]$taskRecord.taskSha256) {
+                Add-Failure "Prepared EP2 task '$($taskRecord.id)' has drifted."
+                continue
+            }
+            $task = Get-Content -LiteralPath $taskPath -Raw | ConvertFrom-Json
+            if ($task.id -cne $taskRecord.id -or
+                $task.fixture -cne $ep2.identity.fixturePath -or
+                @($task.steps | ForEach-Object { [string]$_.args[0] }).Count -ne
+                    @($taskRecord.requiredOperations).Count) {
+                Add-Failure "Prepared EP2 task '$($taskRecord.id)' content is inconsistent."
+            }
+            [System.Collections.Generic.Dictionary[string, object]] $assertions =
+                [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+            foreach ($assertion in @($task.assert | Where-Object {
+                        $_.PSObject.Properties.Name -ccontains 'field' -and
+                        $_.PSObject.Properties.Name -ccontains 'equals'
+                    })) {
+                [void]$assertions.TryAdd([string]$assertion.field, $assertion.equals)
+            }
+            $scope = $taskRecord.expectedScope
+            if ([string]$assertions['context.scope.processMode'] -cne [string]$scope.processMode -or
+                [int]$assertions['context.scope.rootProcessIds[0]'] -ne [int]$scope.rootProcessIds[0] -or
+                [bool]$assertions['context.scope.includeChildren'] -ne [bool]$scope.includeChildren -or
+                [int]$assertions['result.contributingRecordCount'] -ne [int]$scope.contributingRecords -or
+                [int]$assertions['warnings[2].data.resolutionPercent'] -ne
+                    [int]$scope.frameResolutionPercent -or
+                [int]$assertions['warnings[3].data.recommendedMinimum'] -ne
+                    [int]$scope.recommendedMinimumRecords) {
+                Add-Failure "Prepared EP2 task '$($taskRecord.id)' scope assertions have drifted."
+            }
+
+            [string[]] $qaLines = @(Get-Content -LiteralPath (Join-Path $root 'eval/mcp-qa.jsonl') |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and
+                    [string](($_ | ConvertFrom-Json).id) -ceq [string]$taskRecord.id })
+            if ($qaLines.Count -ne 1 -or
+                (Get-DocTextSha256 $qaLines[0]) -cne [string]$taskRecord.qaLineSha256) {
+                Add-Failure "Prepared EP2 QA row '$($taskRecord.id)' has drifted."
+            }
+        }
+        if ($ep2Tasks.Count -ne 2 -or
+            $taskIds.Count -ne 2 -or
+            -not $taskIds.Contains('named-process-self-scope') -or
+            -not $taskIds.Contains('exact-pid-tree-scope')) {
+            Add-Failure 'Prepared EP2 task set is not the two held-out scope contracts.'
+        }
+
+        [object[]] $schedule = @($ep2.sample.schedule)
+        [int] $baselineFirst = 0
+        [System.Collections.Generic.Dictionary[string, int]] $taskCounts =
+            [System.Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
+        foreach ($pair in $schedule) {
+            [void](Assert-ExactDocObjectMembers $pair @('pair', 'task', 'first', 'second') `
+                "Prepared EP2 pair '$($pair.pair)'")
+            if ($pair.pair -lt 1 -or $pair.pair -gt 10 -or
+                -not $taskIds.Contains([string]$pair.task) -or
+                @('baseline', 'scope-contract') -cnotcontains [string]$pair.first -or
+                @('baseline', 'scope-contract') -cnotcontains [string]$pair.second -or
+                [string]$pair.first -ceq [string]$pair.second) {
+                Add-Failure "Prepared EP2 pair '$($pair.pair)' is malformed."
+            }
+            if ($pair.first -ceq 'baseline') { $baselineFirst++ }
+            if (-not $taskCounts.ContainsKey([string]$pair.task)) {
+                $taskCounts[[string]$pair.task] = 0
+            }
+            $taskCounts[[string]$pair.task]++
+        }
+        if ($ep2.sample.validPairTarget -ne 10 -or
+            $ep2.sample.countedConversations -ne 20 -or
+            $ep2.sample.maximumInfrastructureReplacements -ne 4 -or
+            $ep2.sample.maximumStartedSessions -ne 24 -or
+            $ep2.sample.behavioralRetries -ne 0 -or
+            $ep2.sample.oneConversationPerInvocation -ne $true -or
+            $schedule.Count -ne 10 -or
+            $baselineFirst -ne 5 -or
+            $taskCounts['named-process-self-scope'] -ne 5 -or
+            $taskCounts['exact-pid-tree-scope'] -ne 5) {
+            Add-Failure 'Prepared EP2 sample is not balanced at 10 pairs over two tasks.'
+        }
+        if ($ep2.execution.runnerPath -cne 'eval/Invoke-AgentEval.ps1' -or
+            $ep2.execution.commonCommandTemplate -notmatch '-Arm cli-skill' -or
+            $ep2.execution.commonCommandTemplate -notmatch '-Tasks <task-id> -N 1' -or
+            $ep2.execution.commonCommandTemplate -notmatch '-NoHostAiCreditLimit' -or
+            $ep2.execution.controlAdditionalArgument -cne
+                '-SkillEntrypointPath eval/skill-variants/ep1-baseline/SKILL.md' -or
+            $ep2.bounds.evaluatorImposedHostCreditLimit -ne $null -or
+            $ep2.decision.candidateMechanismThreshold -cne
+                'at-least-8-of-10-primary-passes-and-at-least-4-of-5-on-each-task' -or
+            $ep2.decision.comparativeThreshold -cne
+                'at-least-two-more-primary-passes-than-baseline-and-no-more-false-confidence-cases' -or
+            $ep2.decision.claimBoundary -cne
+                'descriptive-decision-rule-not-a-significance-or-general-winner-claim' -or
+            $ep2.freeze.validator -cne 'tools/Test-Docs.ps1') {
+            Add-Failure 'Prepared EP2 execution, credit, decision, or freeze contract has drifted.'
+        }
+    }
+}
+
+# 5. Command / tool completeness: every canonical CLI command is in the command
 # catalog, every MCP tool is in the tool catalog.
 $verbsBlock = Get-DocBlock -Path (Join-Path $root 'docs/workflow.md') -Id 'verbs'
 $commandsSource = Get-Content -LiteralPath (Join-Path $root 'src/Filtrace/Cli/TraceCommands.cs') -Raw

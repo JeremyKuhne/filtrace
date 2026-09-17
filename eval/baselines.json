@@ -108,6 +108,14 @@
     "point-in-time-snapshot": {
       "calls": 1,
       "tokens": 507
+    },
+    "named-process-self-scope": {
+      "calls": 2,
+      "tokens": 793
+    },
+    "exact-pid-tree-scope": {
+      "calls": 1,
+      "tokens": 461
     }
   }
 }
