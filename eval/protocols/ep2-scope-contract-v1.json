@@ -37,6 +37,8 @@
     "fixturePath": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
     "fixtureSha256": "835c293fb03c0ed882bccf8442409003aa6cfdb7d86bb2d70352ae1d371e0504",
     "textHashNormalization": "utf8-no-bom-with-crlf-and-cr-normalized-to-lf",
+    "repositoryBlobIdentity": "git-hash-object-after-repository-clean-filters",
+    "runtimeByteIdentity": "exact-source-and-installed-byte-sha256-retained-in-each-session-and-private-checkpoint",
     "evaluatorFiles": [
       { "path": "eval/Invoke-AgentEval.ps1", "sha256": "72345a24f46e169e259069ec027c52499cc556e99f4876e7d96746a6208105da" },
       { "path": "eval/CopilotEval.Helpers.ps1", "sha256": "176493d9440404c4e8e749b1c51b8b3c6601ae8775e2e1c8da32ecb49875ee26" },
@@ -49,23 +51,24 @@
   "treatment": {
     "controlledVariable": "installed-Filtrace-SKILL.md-entrypoint-bytes-only",
     "sharedSkillDirectory": ".agents/skills/filtrace",
-    "sharedRelatedFileManifestSha256": "872c44219f3022bba4ef3b684931d017e58a1f0b9be239daa8dbef14c8cff47c",
+    "sharedRelatedGitBlobManifestSha256": "21c1ef29c785a2e4d112df20ace194285ce724c1726eaeb5c4cab323e38d5033",
     "control": {
       "label": "baseline",
       "entrypointPath": "eval/skill-variants/ep1-baseline/SKILL.md",
-      "sourceByteSha256": "404477df5de6a772ebab89766ff48bd5c44743f523f90298f535941854b39b7d",
-      "sourceTextSha256": "404477df5de6a772ebab89766ff48bd5c44743f523f90298f535941854b39b7d",
+      "gitBlobId": "32fefcae8df88a1daff42556981891e9df7947cb",
+      "normalizedSourceSha256": "a4a4b9efdf57a1036936d49037554e5da285d25bb70bf1211c37148667a4f06f",
       "sourceContextSha256": "12c2584605ddc06476a5d0a8fe26033f28c9971b68855946ab0ddbb7595caa67"
     },
     "candidate": {
       "label": "scope-contract",
       "entrypointPath": ".agents/skills/filtrace/SKILL.md",
-      "sourceByteSha256": "c36f8e35d8a0fe59d2c6627b4c184a721c30d7947ca9e43d25b67731eaaf4884",
-      "sourceTextSha256": "c36f8e35d8a0fe59d2c6627b4c184a721c30d7947ca9e43d25b67731eaaf4884",
+      "gitBlobId": "c7ca45586e2f1958ac691c8be2f4ea26b5c3e7aa",
+      "normalizedSourceSha256": "99e08941cf11fe7a04f871584c0226d05c4bb2e15681c5db03a1dbe4bb55ddb6",
       "sourceContextSha256": "cd291557ee7a772bce9eedab2ab75407071085e2a6469b397f348d8f1de8a82c"
     },
     "unchanged": [
       "related skill files and discovery path",
+      "exact runtime source and installed byte hashes retained per session",
       "CLI bundle host model fixture task prompt and command policy",
       "workspace home timeout output artifact and process containment",
       "grading validity replacement and reporting rules"

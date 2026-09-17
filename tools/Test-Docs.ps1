@@ -91,6 +91,22 @@ function Get-SkillContextSha256([string]$Path) {
     return Get-RawDocTextSha256 $body.Substring(1)
 }
 
+function Get-DocGitBlobId([string]$Path) {
+    [string] $canonicalPath = [System.IO.Path]::GetFullPath($Path)
+    [string] $relativePath = [System.IO.Path]::GetRelativePath($root, $canonicalPath).Replace('\', '/')
+    if ([System.IO.Path]::IsPathRooted($relativePath) -or
+        $relativePath -eq '..' -or $relativePath.StartsWith('../', [StringComparison]::Ordinal)) {
+        throw "Repository input '$Path' is outside '$root'."
+    }
+    [string] $gitPath = @(Get-Command git -CommandType Application -ErrorAction Stop)[0].Source
+    $PSNativeCommandUseErrorActionPreference = $false
+    [string[]] $output = @(& $gitPath -C $root hash-object "--path=$relativePath" -- $relativePath 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $output.Count -ne 1 -or $output[0] -cnotmatch '^[0-9a-f]{40,64}$') {
+        throw "Could not compute the repository blob id for '$relativePath'."
+    }
+    return $output[0]
+}
+
 function Assert-UniqueDocJsonMembers([Text.Json.JsonElement]$RootElement, [string]$Context) {
     [System.Collections.Generic.Stack[Text.Json.JsonElement]] $pending =
         [System.Collections.Generic.Stack[Text.Json.JsonElement]]::new()
@@ -981,7 +997,7 @@ else {
                 'reporting', 'freeze') 'Prepared EP2 protocol')
         [void](Assert-ExactDocObjectMembers $ep2.treatment @(
                 'controlledVariable', 'sharedSkillDirectory',
-                'sharedRelatedFileManifestSha256', 'control', 'candidate',
+            'sharedRelatedGitBlobManifestSha256', 'control', 'candidate',
                 'unchanged') 'Prepared EP2 treatment')
         [void](Assert-ExactDocObjectMembers $ep2.sample @(
                 'validPairTarget', 'countedConversations',
@@ -1039,8 +1055,8 @@ else {
         foreach ($variantName in @('control', 'candidate')) {
             $variant = $ep2.treatment.$variantName
             [void](Assert-ExactDocObjectMembers $variant @(
-                    'label', 'entrypointPath', 'sourceByteSha256',
-                    'sourceTextSha256', 'sourceContextSha256') `
+                    'label', 'entrypointPath', 'gitBlobId', 'normalizedSourceSha256',
+                    'sourceContextSha256') `
                 "Prepared EP2 $variantName variant")
             [string] $entrypointPath = Join-Path $root ([string]$variant.entrypointPath)
             if (-not (Test-Path -LiteralPath $entrypointPath -PathType Leaf)) {
@@ -1048,24 +1064,26 @@ else {
                 continue
             }
             [string] $source = [System.IO.File]::ReadAllText($entrypointPath)
-            if ((Get-FileHash -LiteralPath $entrypointPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne
-                    [string]$variant.sourceByteSha256 -or
-                (Get-RawDocTextSha256 $source) -cne [string]$variant.sourceTextSha256 -or
+            if ((Get-DocGitBlobId $entrypointPath) -cne [string]$variant.gitBlobId -or
+                (Get-DocTextSha256 $source) -cne [string]$variant.normalizedSourceSha256 -or
                 (Get-SkillContextSha256 $entrypointPath) -cne
                     [string]$variant.sourceContextSha256) {
                 Add-Failure "Prepared EP2 $variantName skill identity has drifted."
             }
         }
-        if ($ep2.treatment.control.sourceByteSha256 -ceq
-                $ep2.treatment.candidate.sourceByteSha256 -or
+        if ($ep2.treatment.control.normalizedSourceSha256 -ceq
+            $ep2.treatment.candidate.normalizedSourceSha256 -or
+            $ep2.treatment.control.gitBlobId -ceq $ep2.treatment.candidate.gitBlobId -or
             $ep2.treatment.control.sourceContextSha256 -ceq
                 $ep2.treatment.candidate.sourceContextSha256 -or
             $ep2.treatment.control.entrypointPath -cne
                 'eval/skill-variants/ep1-baseline/SKILL.md' -or
             $ep2.treatment.candidate.entrypointPath -cne
                 '.agents/skills/filtrace/SKILL.md' -or
-            $ep2.treatment.control.sourceByteSha256 -cne
-                '404477df5de6a772ebab89766ff48bd5c44743f523f90298f535941854b39b7d' -or
+            $ep2.treatment.control.normalizedSourceSha256 -cne
+                'a4a4b9efdf57a1036936d49037554e5da285d25bb70bf1211c37148667a4f06f' -or
+            $ep2.treatment.control.gitBlobId -cne
+                '32fefcae8df88a1daff42556981891e9df7947cb' -or
             $ep2.treatment.control.sourceContextSha256 -cne
                 '12c2584605ddc06476a5d0a8fe26033f28c9971b68855946ab0ddbb7595caa67') {
             Add-Failure 'Prepared EP2 treatment does not retain the exact EP1 control.'
@@ -1077,15 +1095,14 @@ else {
             ForEach-Object {
                 [ordered]@{
                     path = [System.IO.Path]::GetRelativePath($skillDirectory, $_.FullName).Replace('\', '/')
-                    bytes = $_.Length
-                    sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                    gitBlobId = Get-DocGitBlobId $_.FullName
                 }
             } | Sort-Object path)
         [string] $relatedManifest = @($relatedFiles | ForEach-Object {
                 $_ | ConvertTo-Json -Compress
             }) -join "`n"
         if ((Get-RawDocTextSha256 $relatedManifest) -cne
-            [string]$ep2.treatment.sharedRelatedFileManifestSha256) {
+            [string]$ep2.treatment.sharedRelatedGitBlobManifestSha256) {
             Add-Failure 'Prepared EP2 shared related-file inventory has drifted.'
         }
 
