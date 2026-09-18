@@ -6,7 +6,7 @@ a live agent arm that scores a real model locally.
 
 The deterministic gate remains active. The public
 [Filtrace roadmap](../docs/roadmap.md) records EP1 natural-adoption measurement
-complete and an EP2 skill-only candidate in preparation; no measured execution is
+complete and an EP2 skill-only candidate under review; no measured execution is
 active. This page documents the harness and evidence boundary rather than creating
 a parallel implementation queue.
 
@@ -323,15 +323,15 @@ The command evidence isolates the next mechanism: all five failed skill chats us
 an unscoped `rank` and accepted `context.scope.processMode: "automatic"`; all five
 passing skill chats used `--process HotLoopBench`. The current follow-up therefore
 changes only the skill's named-process acceptance contract and adds two deterministic
-tasks without changing frozen EP1 task 23. The prepared
-[EP2 protocol](protocols/ep2-scope-contract-v1.json) compares the exact EP1
-entrypoint with the candidate on [named-process root scope](tasks/28-named-process-self-scope.json)
+tasks without changing frozen EP1 task 23: [named-process root scope](tasks/28-named-process-self-scope.json)
 and [exact-PID tree scope](tasks/29-exact-pid-tree-scope.json). The evaluator's
-`-SkillEntrypointPath` substitutes only a repository-local `SKILL.md`; every related
-skill file remains shared and hash-attested. No EP2 measured session is active or
-authorized.
+`-SkillEntrypointPath` can substitute the retained EP1 `SKILL.md` at the same project
+discovery path while every related skill file remains shared and hash-attested.
+This candidate does not freeze an EP2 sample, schedule, grading record, or execution
+protocol. Prepare those separately against the merged tree; no EP2 measured session
+is active or authorized.
 
-After each grade is serialized and hashed, run
+For the frozen EP1 ready-capture record schema, after each grade is serialized and hashed, run
 `eval/Test-ReadyCaptureRecords.ps1` against the private artifact directory. It
 must pass before the private arm map is revealed and again before the final report.
 It schema-validates each record and recomputes session fields, arm summaries,
@@ -435,7 +435,7 @@ Both returned `MyApp.Inner` at 16 ms / 64% self weight and `MyApp.Work` as its
 Each arm reported one premium request. The skill arm's discovery, invocation, and
 context hashes verified. This single pair proved protocol and accounting readiness;
 it did not establish an efficacy advantage. The later natural-adoption measurement
-and its bounded EP2 follow-up are described above.
+and the bounded EP2 candidate follow-up are described above.
 
 Substring matching removes thousands separators from digit runs on both sides
 first, so a task can pin `4309` and an answer that says "4,309" still matches.
@@ -509,8 +509,8 @@ The MCP arm requires its expected MCP tools; strict CLI arms require matched loc
 apphost evidence; cli-skill also requires verified project discovery, invocation,
 and injected context. These checks reject unsupported provenance but do not establish
 that the skill caused a better answer. EP1 is complete; the next prepared comparison
-isolates the named-process scope contract, and measured EP2 execution requires
-separate authorization.
+candidate isolates the named-process scope contract. Its measured protocol still
+requires separate preparation, review, and authorization.
 
 ### Example local run
 
