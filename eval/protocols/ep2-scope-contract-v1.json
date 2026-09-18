@@ -88,39 +88,53 @@
     {
       "id": "named-process-self-scope",
       "path": "eval/tasks/28-named-process-self-scope.json",
-      "taskSha256": "797c78c35f3f2a07454a12b9f9a67059b11fac98534b0eecadff36648667e5e8",
+      "taskSha256": "f0b7bada1db253cc3e69715af59507fc1b53214e7ddf0c108321174c9777011f",
       "qaLineSha256": "1184a3b420e17873e075857206112b3bcd6965a3ed27eb9c71ee59149899459e",
       "requiredOperations": ["processes", "rank"],
+      "requiredTools": ["trace_processes", "trace_rank"],
       "expectedScope": {
+        "topFrame": "?",
         "processMode": "name",
         "process": "HotLoopBench-Job-IXTYWS-1",
+        "requestedProcessIds": [],
         "rootProcessIds": [40356],
         "descendantProcessIds": [],
+        "requestedProcessIdCount": null,
+        "rootProcessIdCount": 1,
+        "descendantProcessIdCount": null,
         "includeChildren": false,
         "contributingRecords": 50,
         "frameResolutionPercent": 0,
         "recommendedMinimumRecords": 200,
         "nextOperation": "callers",
-        "nextSelector": "--process HotLoopBench-Job-IXTYWS-1 --children exclude"
+        "nextSelector": "--process 'HotLoopBench-Job-IXTYWS-1' --children exclude",
+        "scopeNotice": "Scoped to the 'HotLoopBench-Job-IXTYWS-1' process itself (no children)"
       }
     },
     {
       "id": "exact-pid-tree-scope",
       "path": "eval/tasks/29-exact-pid-tree-scope.json",
-      "taskSha256": "2f112372b8b0bf269695a6b0dd61d03456756b4191c9607c42386ff5686f68f8",
+      "taskSha256": "77d48ad8f8b1bc5a7799afe3466c617f1ea3b4830f0b1b972285d3c255e7bffb",
       "qaLineSha256": "069344513e55687a76ce5a102cbb4d035fa23db77d13b2f45068f0d5a786cd67",
       "requiredOperations": ["rank"],
+      "requiredTools": ["trace_rank"],
       "expectedScope": {
+        "topFrame": "?",
         "processMode": "ids",
         "process": null,
+        "requestedProcessIds": [40356],
         "rootProcessIds": [40356],
         "descendantProcessIds": [48348],
+        "requestedProcessIdCount": 1,
+        "rootProcessIdCount": 1,
+        "descendantProcessIdCount": 1,
         "includeChildren": true,
         "contributingRecords": 51,
         "frameResolutionPercent": 0,
         "recommendedMinimumRecords": 200,
         "nextOperation": "callers",
-        "nextSelector": "--pid 40356 with descendants included"
+        "nextSelector": "--pid 40356",
+        "scopeNotice": "Scoped to the process tree of pid 40356"
       }
     }
   ],

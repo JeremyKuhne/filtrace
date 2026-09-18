@@ -21,7 +21,7 @@
     { "field": "warnings[2].data.resolutionPercent", "equals": 0 },
     { "field": "warnings[3].data.contributingRecords", "equals": 51 },
     { "field": "warnings[3].data.recommendedMinimum", "equals": 200 },
-    { "hintContains": "--pid 40356" },
+    { "hintContains": "callers ? --pid 40356" },
     { "jsonContains": "Scoped to the process tree of pid 40356" }
   ],
   "expect": ["--pid", "40356", "48348", "0%", "51", "200", "callers"]

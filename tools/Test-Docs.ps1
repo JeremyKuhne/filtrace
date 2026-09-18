@@ -64,6 +64,66 @@ function Assert-ExactDocObjectMembers($Value, [string[]]$Expected, [string]$Cont
     return $true
 }
 
+function Test-DocStringArray($Value) {
+    return $Value -is [Array] -and
+        $Value.Count -gt 0 -and
+        @($Value | Where-Object {
+                $_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_)
+            }).Count -eq 0
+}
+
+function Test-DocNonEmptyString($Value) {
+    return $Value -is [string] -and -not [string]::IsNullOrWhiteSpace($Value)
+}
+
+function Test-DocInteger($Value) {
+    return $Value -is [int] -or $Value -is [long]
+}
+
+function Test-DocIntegerArray($Value) {
+    return $Value -is [Array] -and
+        @($Value | Where-Object { -not (Test-DocInteger $_) }).Count -eq 0
+}
+
+function Test-DocIntegerSequence($Left, $Right) {
+    if (-not (Test-DocIntegerArray $Left) -or -not (Test-DocIntegerArray $Right) -or
+        $Left.Count -ne $Right.Count) {
+        return $false
+    }
+    for ($index = 0; $index -lt $Left.Count; $index++) {
+        if ([long]$Left[$index] -ne [long]$Right[$index]) { return $false }
+    }
+    return $true
+}
+
+function Test-DocScalarEquals($Left, $Right) {
+    if ($Left -is [string] -or $Right -is [string]) {
+        return $Left -is [string] -and $Right -is [string] -and
+            [string]::Equals($Left, $Right, [StringComparison]::Ordinal)
+    }
+    if ($Left -is [bool] -or $Right -is [bool]) {
+        return $Left -is [bool] -and $Right -is [bool] -and $Left -eq $Right
+    }
+    if ((Test-DocInteger $Left) -or (Test-DocInteger $Right)) {
+        return (Test-DocInteger $Left) -and (Test-DocInteger $Right) -and
+            [long]$Left -eq [long]$Right
+    }
+    return $null -eq $Left -and $null -eq $Right
+}
+
+function Test-DocStringSequence($Left, $Right) {
+    if (-not (Test-DocStringArray $Left) -or -not (Test-DocStringArray $Right) -or
+        $Left.Count -ne $Right.Count) {
+        return $false
+    }
+    for ($index = 0; $index -lt $Left.Count; $index++) {
+        if (-not [string]::Equals($Left[$index], $Right[$index], [StringComparison]::Ordinal)) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Get-DocTextSha256([string]$Text) {
     $Text = $Text.Replace("`r`n", "`n").Replace("`r", "`n")
     return [Convert]::ToHexString(
@@ -125,6 +185,13 @@ function Assert-UniqueDocJsonMembers([Text.Json.JsonElement]$RootElement, [strin
             foreach ($item in $element.EnumerateArray()) { $pending.Push($item) }
         }
     }
+}
+
+function ConvertFrom-UniqueDocJson([string]$Json, [string]$Context) {
+    [Text.Json.JsonDocument] $document = [Text.Json.JsonDocument]::Parse($Json)
+    try { Assert-UniqueDocJsonMembers $document.RootElement $Context }
+    finally { $document.Dispose() }
+    return $Json | ConvertFrom-Json -Depth 100
 }
 
 function Test-DocJsonSchema($Value, [string]$SchemaPath) {
@@ -1032,20 +1099,40 @@ else {
 
         [System.Collections.Generic.HashSet[string]] $evaluatorPaths =
             [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        [string[]] $expectedEvaluatorPaths = @(
+            'eval/Invoke-AgentEval.ps1',
+            'eval/CopilotEval.Helpers.ps1',
+            'eval/CopilotEval.PolicyHook.ps1',
+            'eval/Compare-EvalRuns.ps1',
+            'tools/Test-AgentEval.ps1')
         foreach ($evaluatorFile in @($ep2.identity.evaluatorFiles)) {
-            [void](Assert-ExactDocObjectMembers $evaluatorFile @('path', 'sha256') `
-                "Prepared EP2 evaluator file '$($evaluatorFile.path)'")
-            [string] $evaluatorPath = Join-Path $root ([string]$evaluatorFile.path)
-            if (-not $evaluatorPaths.Add([string]$evaluatorFile.path) -or
+            [bool] $evaluatorFileShapeValid = Assert-ExactDocObjectMembers `
+                $evaluatorFile @('path', 'sha256') `
+                "Prepared EP2 evaluator file '$($evaluatorFile.path)'"
+            $evaluatorFileShapeValid = $evaluatorFileShapeValid -and
+                (Test-DocNonEmptyString $evaluatorFile.path) -and
+                $evaluatorFile.sha256 -is [string] -and
+                $evaluatorFile.sha256 -cmatch '^[0-9a-f]{64}$'
+            if (-not $evaluatorFileShapeValid) {
+                Add-Failure "Prepared EP2 evaluator input '$($evaluatorFile.path)' is malformed."
+                continue
+            }
+            [string] $evaluatorPath = Join-Path $root $evaluatorFile.path
+            if (-not $evaluatorPaths.Add($evaluatorFile.path) -or
                 -not (Test-Path -LiteralPath $evaluatorPath -PathType Leaf) -or
                 (Get-DocTextSha256 ([System.IO.File]::ReadAllText($evaluatorPath))) -cne
-                    [string]$evaluatorFile.sha256) {
+                    $evaluatorFile.sha256) {
                 Add-Failure "Prepared EP2 evaluator input '$($evaluatorFile.path)' has drifted."
+            }
+        }
+        foreach ($expectedEvaluatorPath in $expectedEvaluatorPaths) {
+            if (-not $evaluatorPaths.Contains($expectedEvaluatorPath)) {
+                Add-Failure "Prepared EP2 evaluator input '$expectedEvaluatorPath' is missing."
             }
         }
         [string] $ep2FixturePath = Join-Path $root ([string]$ep2.identity.fixturePath)
         [string] $ep2FixtureHash = (Get-FileHash -LiteralPath $ep2FixturePath -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($evaluatorPaths.Count -ne 5 -or
+        if ($evaluatorPaths.Count -ne $expectedEvaluatorPaths.Count -or
             $ep2.identity.fixturePath -cne
                 'tests/Filtrace.Core.Tests/Fixtures/etw.etl' -or
             $ep2FixtureHash -cne [string]$ep2.identity.fixtureSha256) {
@@ -1122,52 +1209,323 @@ else {
         [object[]] $ep2Tasks = @($ep2.tasks)
         [System.Collections.Generic.HashSet[string]] $taskIds =
             [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        [System.Collections.Generic.Dictionary[string, object]] $fixedTaskScopes =
+            [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+        $fixedTaskScopes.Add('named-process-self-scope', [pscustomobject][ordered]@{
+                topFrame = '?'
+                processMode = 'name'
+                process = 'HotLoopBench-Job-IXTYWS-1'
+                requestedProcessIds = [object[]]@()
+                rootProcessIds = [object[]]@(40356)
+                descendantProcessIds = [object[]]@()
+                requestedProcessIdCount = $null
+                rootProcessIdCount = 1
+                descendantProcessIdCount = $null
+                includeChildren = $false
+                contributingRecords = 50
+                frameResolutionPercent = 0
+                recommendedMinimumRecords = 200
+                nextOperation = 'callers'
+                nextSelector = "--process 'HotLoopBench-Job-IXTYWS-1' --children exclude"
+                scopeNotice = "Scoped to the 'HotLoopBench-Job-IXTYWS-1' process itself (no children)"
+            })
+        $fixedTaskScopes.Add('exact-pid-tree-scope', [pscustomobject][ordered]@{
+                topFrame = '?'
+                processMode = 'ids'
+                process = $null
+                requestedProcessIds = [object[]]@(40356)
+                rootProcessIds = [object[]]@(40356)
+                descendantProcessIds = [object[]]@(48348)
+                requestedProcessIdCount = 1
+                rootProcessIdCount = 1
+                descendantProcessIdCount = 1
+                includeChildren = $true
+                contributingRecords = 51
+                frameResolutionPercent = 0
+                recommendedMinimumRecords = 200
+                nextOperation = 'callers'
+                nextSelector = '--pid 40356'
+                scopeNotice = 'Scoped to the process tree of pid 40356'
+            })
+        [System.Collections.Generic.Dictionary[string, object]] $qaRows =
+            [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+        foreach ($qaLine in Get-Content -LiteralPath (Join-Path $root 'eval/mcp-qa.jsonl')) {
+            if ([string]::IsNullOrWhiteSpace($qaLine)) { continue }
+            try {
+                $qaValue = ConvertFrom-UniqueDocJson $qaLine 'Prepared EP2 QA input'
+            }
+            catch {
+                Add-Failure "Prepared EP2 QA input is malformed: $($_.Exception.Message)"
+                continue
+            }
+            if (-not (Test-DocNonEmptyString $qaValue.id) -or
+                -not $qaRows.TryAdd($qaValue.id, [pscustomobject]@{
+                        raw = $qaLine
+                        value = $qaValue
+                    })) {
+                Add-Failure "Prepared EP2 QA id '$($qaValue.id)' is malformed or repeated."
+            }
+        }
         foreach ($taskRecord in $ep2Tasks) {
-            [void](Assert-ExactDocObjectMembers $taskRecord @(
+            [bool] $taskRecordShapeValid = Assert-ExactDocObjectMembers $taskRecord @(
                     'id', 'path', 'taskSha256', 'qaLineSha256',
-                    'requiredOperations', 'expectedScope') `
-                "Prepared EP2 task '$($taskRecord.id)'")
-            [string] $taskPath = Join-Path $root ([string]$taskRecord.path)
-            if (-not $taskIds.Add([string]$taskRecord.id) -or
+                    'requiredOperations', 'requiredTools', 'expectedScope') `
+                "Prepared EP2 task '$($taskRecord.id)'"
+            $taskRecordShapeValid = $taskRecordShapeValid -and
+                (Test-DocNonEmptyString $taskRecord.id) -and
+                (Test-DocNonEmptyString $taskRecord.path) -and
+                $taskRecord.taskSha256 -is [string] -and
+                $taskRecord.taskSha256 -cmatch '^[0-9a-f]{64}$' -and
+                $taskRecord.qaLineSha256 -is [string] -and
+                $taskRecord.qaLineSha256 -cmatch '^[0-9a-f]{64}$' -and
+                (Test-DocStringArray $taskRecord.requiredOperations) -and
+                (Test-DocStringArray $taskRecord.requiredTools) -and
+                $taskRecord.expectedScope -is [pscustomobject]
+            if (-not $taskRecordShapeValid) {
+                Add-Failure "Prepared EP2 task '$($taskRecord.id)' record is malformed."
+                continue
+            }
+            [void](Assert-ExactDocObjectMembers $taskRecord.expectedScope @(
+                    'topFrame', 'processMode', 'process', 'requestedProcessIds',
+                    'rootProcessIds', 'descendantProcessIds', 'requestedProcessIdCount',
+                    'rootProcessIdCount', 'descendantProcessIdCount', 'includeChildren',
+                    'contributingRecords', 'frameResolutionPercent',
+                    'recommendedMinimumRecords', 'nextOperation', 'nextSelector',
+                    'scopeNotice') `
+                "Prepared EP2 task '$($taskRecord.id)' expected scope")
+            $scope = $taskRecord.expectedScope
+            [bool] $expectedScopeValid =
+                (Test-DocNonEmptyString $scope.topFrame) -and
+                (Test-DocNonEmptyString $scope.processMode) -and
+                ($null -eq $scope.process -or (Test-DocNonEmptyString $scope.process)) -and
+                (Test-DocIntegerArray $scope.requestedProcessIds) -and
+                (Test-DocIntegerArray $scope.rootProcessIds) -and
+                $scope.rootProcessIds.Count -gt 0 -and
+                (Test-DocIntegerArray $scope.descendantProcessIds) -and
+                ($null -eq $scope.requestedProcessIdCount -or
+                    (Test-DocInteger $scope.requestedProcessIdCount)) -and
+                (Test-DocInteger $scope.rootProcessIdCount) -and
+                ($null -eq $scope.descendantProcessIdCount -or
+                    (Test-DocInteger $scope.descendantProcessIdCount)) -and
+                $scope.includeChildren -is [bool] -and
+                (Test-DocInteger $scope.contributingRecords) -and
+                (Test-DocInteger $scope.frameResolutionPercent) -and
+                (Test-DocInteger $scope.recommendedMinimumRecords) -and
+                (Test-DocNonEmptyString $scope.nextOperation) -and
+                (Test-DocNonEmptyString $scope.nextSelector) -and
+                (Test-DocNonEmptyString $scope.scopeNotice)
+            if (-not $expectedScopeValid) {
+                Add-Failure "Prepared EP2 task '$($taskRecord.id)' expected scope is malformed."
+                continue
+            }
+            $fixedScope = $null
+            if (-not $fixedTaskScopes.TryGetValue($taskRecord.id, [ref]$fixedScope) -or
+                -not (Test-DocScalarEquals $scope.topFrame $fixedScope.topFrame) -or
+                -not (Test-DocScalarEquals $scope.processMode $fixedScope.processMode) -or
+                -not (Test-DocScalarEquals $scope.process $fixedScope.process) -or
+                -not (Test-DocIntegerSequence $scope.requestedProcessIds $fixedScope.requestedProcessIds) -or
+                -not (Test-DocIntegerSequence $scope.rootProcessIds $fixedScope.rootProcessIds) -or
+                -not (Test-DocIntegerSequence $scope.descendantProcessIds $fixedScope.descendantProcessIds) -or
+                -not (Test-DocScalarEquals $scope.requestedProcessIdCount $fixedScope.requestedProcessIdCount) -or
+                -not (Test-DocScalarEquals $scope.rootProcessIdCount $fixedScope.rootProcessIdCount) -or
+                -not (Test-DocScalarEquals $scope.descendantProcessIdCount $fixedScope.descendantProcessIdCount) -or
+                -not (Test-DocScalarEquals $scope.includeChildren $fixedScope.includeChildren) -or
+                -not (Test-DocScalarEquals $scope.contributingRecords $fixedScope.contributingRecords) -or
+                -not (Test-DocScalarEquals $scope.frameResolutionPercent $fixedScope.frameResolutionPercent) -or
+                -not (Test-DocScalarEquals $scope.recommendedMinimumRecords $fixedScope.recommendedMinimumRecords) -or
+                -not (Test-DocScalarEquals $scope.nextOperation $fixedScope.nextOperation) -or
+                -not (Test-DocScalarEquals $scope.nextSelector $fixedScope.nextSelector) -or
+                -not (Test-DocScalarEquals $scope.scopeNotice $fixedScope.scopeNotice)) {
+                Add-Failure "Prepared EP2 task '$($taskRecord.id)' expected scope has drifted."
+            }
+            [string] $taskPath = Join-Path $root $taskRecord.path
+            [string] $taskRaw = if (Test-Path -LiteralPath $taskPath -PathType Leaf) {
+                [System.IO.File]::ReadAllText($taskPath)
+            }
+            else { '' }
+            if (-not $taskIds.Add($taskRecord.id) -or
                 -not (Test-Path -LiteralPath $taskPath -PathType Leaf) -or
-                (Get-DocTextSha256 ([System.IO.File]::ReadAllText($taskPath))) -cne
-                    [string]$taskRecord.taskSha256) {
+                (Get-DocTextSha256 $taskRaw) -cne
+                    $taskRecord.taskSha256) {
                 Add-Failure "Prepared EP2 task '$($taskRecord.id)' has drifted."
                 continue
             }
-            $task = Get-Content -LiteralPath $taskPath -Raw | ConvertFrom-Json
+            try {
+                $task = ConvertFrom-UniqueDocJson `
+                    $taskRaw "Prepared EP2 task '$($taskRecord.id)' content"
+            }
+            catch {
+                Add-Failure "Prepared EP2 task '$($taskRecord.id)' is malformed: $($_.Exception.Message)"
+                continue
+            }
+            [bool] $taskShapeValid = Assert-ExactDocObjectMembers $task @(
+                'id', 'title', 'prompt', 'fixture', 'os', 'steps', 'assert', 'expect') `
+                "Prepared EP2 task '$($taskRecord.id)' content"
+            $taskShapeValid = $taskShapeValid -and
+                $task.id -is [string] -and -not [string]::IsNullOrWhiteSpace($task.id) -and
+                $task.title -is [string] -and -not [string]::IsNullOrWhiteSpace($task.title) -and
+                $task.prompt -is [string] -and -not [string]::IsNullOrWhiteSpace($task.prompt) -and
+                $task.fixture -is [string] -and -not [string]::IsNullOrWhiteSpace($task.fixture) -and
+                $task.os -is [string] -and -not [string]::IsNullOrWhiteSpace($task.os) -and
+                $task.steps -is [object[]] -and $task.steps.Count -gt 0 -and
+                $task.assert -is [object[]] -and $task.assert.Count -gt 0 -and
+                (Test-DocStringArray $task.expect) -and
+                (Test-DocStringArray $taskRecord.requiredOperations)
+            [System.Collections.Generic.List[string]] $actualOperations =
+                [System.Collections.Generic.List[string]]::new()
+            if ($taskShapeValid) {
+                foreach ($step in $task.steps) {
+                    [bool] $stepShapeValid = Assert-ExactDocObjectMembers `
+                        $step @('args') "Prepared EP2 task '$($taskRecord.id)' step"
+                    if (-not $stepShapeValid -or -not (Test-DocStringArray $step.args)) {
+                        $taskShapeValid = $false
+                        break
+                    }
+                    $actualOperations.Add($step.args[0])
+                }
+            }
+            if (-not $taskShapeValid) {
+                Add-Failure "Prepared EP2 task '$($taskRecord.id)' has malformed content."
+            }
+            [string[]] $actualOperationValues = $actualOperations.ToArray()
+            [bool] $operationsMatch = $taskShapeValid -and
+                (Test-DocStringSequence `
+                    -Left $actualOperationValues `
+                    -Right $taskRecord.requiredOperations)
             if ($task.id -cne $taskRecord.id -or
                 $task.fixture -cne $ep2.identity.fixturePath -or
-                @($task.steps | ForEach-Object { [string]$_.args[0] }).Count -ne
-                    @($taskRecord.requiredOperations).Count) {
+                -not $operationsMatch) {
                 Add-Failure "Prepared EP2 task '$($taskRecord.id)' content is inconsistent."
             }
             [System.Collections.Generic.Dictionary[string, object]] $assertions =
                 [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
-            foreach ($assertion in @($task.assert | Where-Object {
-                        $_.PSObject.Properties.Name -ccontains 'field' -and
-                        $_.PSObject.Properties.Name -ccontains 'equals'
-                    })) {
-                [void]$assertions.TryAdd([string]$assertion.field, $assertion.equals)
+            [bool] $assertionsValid = $true
+            [int] $hintAssertionCount = 0
+            [int] $noticeAssertionCount = 0
+            [string] $expectedHint = "$($scope.nextOperation) $($scope.topFrame) $($scope.nextSelector)"
+            foreach ($assertion in $task.assert) {
+                [string[]] $assertionMembers = @($assertion.PSObject.Properties.Name)
+                if ($assertionMembers -ccontains 'field') {
+                    if (-not (Assert-ExactDocObjectMembers $assertion @('field', 'equals') `
+                                "Prepared EP2 task '$($taskRecord.id)' field assertion") -or
+                        -not (Test-DocNonEmptyString $assertion.field) -or
+                        -not $assertions.TryAdd($assertion.field, $assertion.equals)) {
+                        $assertionsValid = $false
+                    }
+                }
+                elseif ($assertionMembers -ccontains 'hintContains') {
+                    if (-not (Assert-ExactDocObjectMembers $assertion @('hintContains') `
+                                "Prepared EP2 task '$($taskRecord.id)' hint assertion") -or
+                        -not (Test-DocNonEmptyString $assertion.hintContains) -or
+                        -not [string]::Equals(
+                            $assertion.hintContains,
+                            $expectedHint,
+                            [StringComparison]::Ordinal)) {
+                        $assertionsValid = $false
+                    }
+                    $hintAssertionCount++
+                }
+                elseif ($assertionMembers -ccontains 'jsonContains') {
+                    if (-not (Assert-ExactDocObjectMembers $assertion @('jsonContains') `
+                                "Prepared EP2 task '$($taskRecord.id)' JSON assertion") -or
+                        -not (Test-DocNonEmptyString $assertion.jsonContains) -or
+                        -not [string]::Equals(
+                            $assertion.jsonContains,
+                            $scope.scopeNotice,
+                            [StringComparison]::Ordinal)) {
+                        $assertionsValid = $false
+                    }
+                    $noticeAssertionCount++
+                }
+                else {
+                    Add-Failure "Prepared EP2 task '$($taskRecord.id)' has an unrecognized assertion."
+                    $assertionsValid = $false
+                }
             }
-            $scope = $taskRecord.expectedScope
-            if ([string]$assertions['context.scope.processMode'] -cne [string]$scope.processMode -or
-                [int]$assertions['context.scope.rootProcessIds[0]'] -ne [int]$scope.rootProcessIds[0] -or
-                [bool]$assertions['context.scope.includeChildren'] -ne [bool]$scope.includeChildren -or
-                [int]$assertions['result.contributingRecordCount'] -ne [int]$scope.contributingRecords -or
-                [int]$assertions['warnings[2].data.resolutionPercent'] -ne
-                    [int]$scope.frameResolutionPercent -or
-                [int]$assertions['warnings[3].data.recommendedMinimum'] -ne
-                    [int]$scope.recommendedMinimumRecords) {
+            $expectedAssertions = [ordered]@{
+                'result.rows[0].frame' = $scope.topFrame
+                'context.scope.processMode' = $scope.processMode
+                'context.scope.rootProcessIds[0]' = $scope.rootProcessIds[0]
+                'context.scope.rootProcessIdCount' = $scope.rootProcessIdCount
+                'context.scope.includeChildren' = $scope.includeChildren
+                'result.contributingRecordCount' = $scope.contributingRecords
+                'warnings[2].data.resolutionPercent' = $scope.frameResolutionPercent
+                'warnings[3].data.contributingRecords' = $scope.contributingRecords
+                'warnings[3].data.recommendedMinimum' = $scope.recommendedMinimumRecords
+            }
+            if ($null -ne $scope.process) {
+                $expectedAssertions['context.scope.process'] = $scope.process
+            }
+            for ($index = 0; $index -lt $scope.requestedProcessIds.Count; $index++) {
+                $expectedAssertions["context.scope.requestedProcessIds[$index]"] =
+                    $scope.requestedProcessIds[$index]
+            }
+            if ($null -ne $scope.requestedProcessIdCount) {
+                $expectedAssertions['context.scope.requestedProcessIdCount'] =
+                    $scope.requestedProcessIdCount
+            }
+            for ($index = 0; $index -lt $scope.descendantProcessIds.Count; $index++) {
+                $expectedAssertions["context.scope.descendantProcessIds[$index]"] =
+                    $scope.descendantProcessIds[$index]
+            }
+            if ($null -ne $scope.descendantProcessIdCount) {
+                $expectedAssertions['context.scope.descendantProcessIdCount'] =
+                    $scope.descendantProcessIdCount
+            }
+            foreach ($expectedAssertion in $expectedAssertions.GetEnumerator()) {
+                $actualAssertion = $null
+                if (-not $assertions.TryGetValue($expectedAssertion.Key, [ref]$actualAssertion) -or
+                    -not (Test-DocScalarEquals $actualAssertion $expectedAssertion.Value)) {
+                    $assertionsValid = $false
+                }
+            }
+            if ($assertions.Count -ne $expectedAssertions.Count -or
+                $hintAssertionCount -ne 1 -or $noticeAssertionCount -ne 1 -or
+                $task.assert.Count -ne ($expectedAssertions.Count + 2)) {
+                $assertionsValid = $false
+            }
+            if (-not $assertionsValid) {
                 Add-Failure "Prepared EP2 task '$($taskRecord.id)' scope assertions have drifted."
             }
 
-            [string[]] $qaLines = @(Get-Content -LiteralPath (Join-Path $root 'eval/mcp-qa.jsonl') |
-                Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and
-                    [string](($_ | ConvertFrom-Json).id) -ceq [string]$taskRecord.id })
-            if ($qaLines.Count -ne 1 -or
-                (Get-DocTextSha256 $qaLines[0]) -cne [string]$taskRecord.qaLineSha256) {
+            $qaRow = $null
+            if (-not $qaRows.TryGetValue($taskRecord.id, [ref]$qaRow) -or
+                (Get-DocTextSha256 $qaRow.raw) -cne $taskRecord.qaLineSha256) {
                 Add-Failure "Prepared EP2 QA row '$($taskRecord.id)' has drifted."
+            }
+            else {
+                $qa = $qaRow.value
+                [bool] $qaShapeValid = Assert-ExactDocObjectMembers $qa @(
+                    'id', 'question', 'fixture', 'os', 'expectTools',
+                    'expectOperations', 'answerContains') `
+                    "Prepared EP2 QA row '$($taskRecord.id)'"
+                $qaShapeValid = $qaShapeValid -and
+                    $qa.id -is [string] -and -not [string]::IsNullOrWhiteSpace($qa.id) -and
+                    $qa.question -is [string] -and -not [string]::IsNullOrWhiteSpace($qa.question) -and
+                    $qa.fixture -is [string] -and -not [string]::IsNullOrWhiteSpace($qa.fixture) -and
+                    $qa.os -is [string] -and -not [string]::IsNullOrWhiteSpace($qa.os) -and
+                    (Test-DocStringArray $qa.expectTools) -and
+                    (Test-DocStringArray $qa.expectOperations) -and
+                    (Test-DocStringArray $qa.answerContains)
+                if (-not $qaShapeValid) {
+                    Add-Failure "Prepared EP2 QA row '$($taskRecord.id)' is malformed."
+                }
+                if (-not $qaShapeValid -or
+                    $qa.id -cne $task.id -or
+                    $qa.question -cne $task.prompt -or
+                    $qa.fixture -cne $task.fixture -or
+                    $qa.os -cne $task.os -or
+                    -not (Test-DocStringSequence `
+                        -Left $qa.expectTools `
+                        -Right $taskRecord.requiredTools) -or
+                    -not (Test-DocStringSequence `
+                        -Left $qa.expectOperations `
+                        -Right $taskRecord.requiredOperations) -or
+                    -not (Test-DocStringSequence `
+                        -Left $qa.answerContains `
+                        -Right $task.expect)) {
+                    Add-Failure "Prepared EP2 QA row '$($taskRecord.id)' does not match its task."
+                }
             }
         }
         if ($ep2Tasks.Count -ne 2 -or
@@ -1179,23 +1537,39 @@ else {
 
         [object[]] $schedule = @($ep2.sample.schedule)
         [int] $baselineFirst = 0
+        [System.Collections.Generic.HashSet[int]] $pairIds =
+            [System.Collections.Generic.HashSet[int]]::new()
         [System.Collections.Generic.Dictionary[string, int]] $taskCounts =
             [System.Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
         foreach ($pair in $schedule) {
-            [void](Assert-ExactDocObjectMembers $pair @('pair', 'task', 'first', 'second') `
-                "Prepared EP2 pair '$($pair.pair)'")
-            if ($pair.pair -lt 1 -or $pair.pair -gt 10 -or
-                -not $taskIds.Contains([string]$pair.task) -or
-                @('baseline', 'scope-contract') -cnotcontains [string]$pair.first -or
-                @('baseline', 'scope-contract') -cnotcontains [string]$pair.second -or
-                [string]$pair.first -ceq [string]$pair.second) {
+            [bool] $pairShapeValid = Assert-ExactDocObjectMembers `
+                $pair @('pair', 'task', 'first', 'second') `
+                "Prepared EP2 pair '$($pair.pair)'"
+            $pairShapeValid = $pairShapeValid -and
+                (Test-DocNonEmptyString $pair.task) -and
+                (Test-DocNonEmptyString $pair.first) -and
+                (Test-DocNonEmptyString $pair.second)
+            [bool] $validPairId = $pairShapeValid -and (Test-DocInteger $pair.pair) -and
+                [long]$pair.pair -ge 1 -and [long]$pair.pair -le 10
+            [bool] $uniquePairId = $validPairId -and $pairIds.Add([int][long]$pair.pair)
+            if (-not $uniquePairId -or
+                -not $taskIds.Contains($pair.task) -or
+                @('baseline', 'scope-contract') -cnotcontains $pair.first -or
+                @('baseline', 'scope-contract') -cnotcontains $pair.second -or
+                $pair.first -ceq $pair.second) {
                 Add-Failure "Prepared EP2 pair '$($pair.pair)' is malformed."
             }
+            if (-not $pairShapeValid) { continue }
             if ($pair.first -ceq 'baseline') { $baselineFirst++ }
-            if (-not $taskCounts.ContainsKey([string]$pair.task)) {
-                $taskCounts[[string]$pair.task] = 0
+            if (-not $taskCounts.ContainsKey($pair.task)) {
+                $taskCounts[$pair.task] = 0
             }
-            $taskCounts[[string]$pair.task]++
+            $taskCounts[$pair.task]++
+        }
+        foreach ($pairId in 1..10) {
+            if (-not $pairIds.Contains($pairId)) {
+                Add-Failure "Prepared EP2 pair '$pairId' is missing."
+            }
         }
         if ($ep2.sample.validPairTarget -ne 10 -or
             $ep2.sample.countedConversations -ne 20 -or
@@ -1204,6 +1578,7 @@ else {
             $ep2.sample.behavioralRetries -ne 0 -or
             $ep2.sample.oneConversationPerInvocation -ne $true -or
             $schedule.Count -ne 10 -or
+            $pairIds.Count -ne 10 -or
             $baselineFirst -ne 5 -or
             $taskCounts['named-process-self-scope'] -ne 5 -or
             $taskCounts['exact-pid-tree-scope'] -ne 5) {

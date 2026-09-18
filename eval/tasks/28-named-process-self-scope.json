@@ -19,7 +19,7 @@
     { "field": "warnings[2].data.resolutionPercent", "equals": 0 },
     { "field": "warnings[3].data.contributingRecords", "equals": 50 },
     { "field": "warnings[3].data.recommendedMinimum", "equals": 200 },
-    { "hintContains": "--process 'HotLoopBench-Job-IXTYWS-1' --children exclude" },
+    { "hintContains": "callers ? --process 'HotLoopBench-Job-IXTYWS-1' --children exclude" },
     { "jsonContains": "Scoped to the 'HotLoopBench-Job-IXTYWS-1' process itself (no children)" }
   ],
   "expect": ["--process", "HotLoopBench-Job-IXTYWS-1", "exclude", "0%", "50", "200", "callers"]
