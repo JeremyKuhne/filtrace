@@ -1411,6 +1411,95 @@ function Get-AgentEvalFileInventory {
     return [pscustomobject]@{ files = $files; bytes = $bytes; entries = $entries }
 }
 
+function Get-AgentEvalSkillInput {
+    param(
+        [Parameter(Mandatory)][string] $Root,
+        [string] $EntrypointPath
+    )
+
+    [string] $skillDirectory = [System.IO.Path]::GetFullPath(
+        (Join-Path $Root '.agents/skills/filtrace'))
+    [string] $canonicalEntrypoint = Join-Path $skillDirectory 'SKILL.md'
+    [string] $selectedEntrypoint = if ([string]::IsNullOrWhiteSpace($EntrypointPath)) {
+        $canonicalEntrypoint
+    }
+    else {
+        if ([System.IO.Path]::IsPathRooted($EntrypointPath)) {
+            throw "Skill entrypoint '$EntrypointPath' must be repository-relative."
+        }
+        [System.IO.Path]::GetFullPath((Join-Path $Root $EntrypointPath))
+    }
+
+    if (-not [string]::Equals(
+            $selectedEntrypoint,
+            $canonicalEntrypoint,
+            $(if ([System.OperatingSystem]::IsWindows()) {
+                    [StringComparison]::OrdinalIgnoreCase
+                }
+                else {
+                    [StringComparison]::Ordinal
+                }))) {
+        [string] $variantRoot = [System.IO.Path]::GetFullPath(
+            (Join-Path $Root 'eval/skill-variants'))
+        if (-not (Test-AgentEvalPathContained -Path $selectedEntrypoint -Root $variantRoot) -or
+            -not [string]::Equals(
+                [System.IO.Path]::GetFileName($selectedEntrypoint),
+                'SKILL.md',
+                [StringComparison]::Ordinal)) {
+            throw "Skill entrypoint '$EntrypointPath' must name SKILL.md beneath '$variantRoot'."
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $selectedEntrypoint -PathType Leaf)) {
+        throw "Skill entrypoint '$selectedEntrypoint' does not exist."
+    }
+    Assert-AgentEvalNoReparsePoint -Path $skillDirectory -Boundary $Root
+    Assert-AgentEvalNoReparsePoint -Path $selectedEntrypoint -Boundary $Root
+    [System.IO.FileInfo] $entrypointInfo = Get-Item -LiteralPath $selectedEntrypoint
+    if ($entrypointInfo.Length -gt 1MB) {
+        throw "Skill entrypoint '$selectedEntrypoint' exceeds 1048576 bytes."
+    }
+
+    $canonicalInventory = Get-AgentEvalFileInventory `
+        -SourceDirectory $skillDirectory `
+        -DestinationPrefix '' `
+        -Recurse `
+        -MaxFiles 64 `
+        -MaxEntries 128 `
+        -MaxBytes 16MB
+    [System.Collections.Generic.List[object]] $files =
+        [System.Collections.Generic.List[object]]::new()
+    [long] $bytes = 0
+    [int] $entrypointCount = 0
+    foreach ($file in @($canonicalInventory.files)) {
+        $selectedFile = $file
+        if ([string]::Equals([string]$file.relativePath, 'SKILL.md', [StringComparison]::Ordinal)) {
+            $entrypointCount++
+            $selectedFile = [pscustomobject]@{
+                sourcePath = $selectedEntrypoint
+                relativePath = 'SKILL.md'
+                bytes = $entrypointInfo.Length
+                sha256 = Get-AgentEvalFileHash $selectedEntrypoint
+            }
+        }
+        if ([long]$selectedFile.bytes -gt (16MB - $bytes)) {
+            throw "Selected Filtrace skill exceeds 16777216 bytes."
+        }
+        $bytes += [long]$selectedFile.bytes
+        $files.Add($selectedFile)
+    }
+    if ($entrypointCount -ne 1) {
+        throw "Canonical Filtrace skill inventory contained $entrypointCount SKILL.md entries."
+    }
+
+    return [pscustomobject]@{
+        sourcePath = $selectedEntrypoint
+        files = $files
+        bytes = $bytes
+        entries = $canonicalInventory.entries
+    }
+}
+
 function Copy-AgentEvalAttestedFile($File, [string] $DestinationRoot) {
     [string] $destination = Join-Path $DestinationRoot $File.relativePath
     [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($destination)) | Out-Null
@@ -1463,6 +1552,7 @@ function New-CopilotEvalContext {
         [Parameter(Mandatory)][string] $Arm,
         [Parameter(Mandatory)][string] $FixturePath,
         [Parameter(Mandatory)][string] $Configuration,
+        [string] $SkillEntrypointPath,
         [switch] $StrictCliArm
     )
 
@@ -1568,17 +1658,13 @@ function New-CopilotEvalContext {
     [System.Collections.Generic.List[object]] $skillInventory = [System.Collections.Generic.List[object]]::new()
     [string] $skillPath = $null
     [string] $skillHash = $null
+    [string] $skillSourcePath = $null
     if ($Arm -eq 'cli-skill') {
-        [string] $skillSource = Join-Path $Root '.agents/skills/filtrace'
-        Assert-AgentEvalNoReparsePoint -Path $skillSource -Boundary $Root
         [string] $skillDestination = Join-Path $workspace '.agents/skills/filtrace'
-        $boundedSkill = Get-AgentEvalFileInventory `
-            -SourceDirectory $skillSource `
-            -DestinationPrefix '' `
-            -Recurse `
-            -MaxFiles 64 `
-            -MaxEntries 128 `
-            -MaxBytes 16MB
+        $boundedSkill = Get-AgentEvalSkillInput `
+            -Root $Root `
+            -EntrypointPath $SkillEntrypointPath
+        $skillSourcePath = $boundedSkill.sourcePath
         foreach ($sourceFile in @($boundedSkill.files | Sort-Object relativePath)) {
             $copiedSkillFile = Copy-AgentEvalAttestedFile -File $sourceFile -DestinationRoot $skillDestination
             $immutableFiles.Add($copiedSkillFile)
@@ -1610,6 +1696,7 @@ function New-CopilotEvalContext {
         cliSha256 = $cliSourceHash
         cliInventory = $cliInventory
         skillPath = $skillPath
+        skillSourcePath = $skillSourcePath
         skillSha256 = $skillHash
         skillInventory = $skillInventory
         immutableFiles = $immutableFiles

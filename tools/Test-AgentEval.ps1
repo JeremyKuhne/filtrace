@@ -184,7 +184,9 @@ function Invoke-FakeRun {
         [string] $OutDir,
         [int] $TimeoutSeconds = 30,
         [int] $MaxOutputBytes = 10485760,
-        [int] $MaxArtifactBytes = 16777216
+        [int] $MaxArtifactBytes = 16777216,
+        [string] $SkillEntrypointPath,
+        [switch] $NoHostAiCreditLimit
     )
 
     if (-not $OutDir) { $OutDir = Join-Path $temporaryRoot $Name }
@@ -216,9 +218,11 @@ function Invoke-FakeRun {
             -OutDir $OutDir `
             -CopilotPath $pwshPath `
             -CopilotAdapterPath $fakeHost `
+            -SkillEntrypointPath $SkillEntrypointPath `
             -NativeTimeoutSeconds $TimeoutSeconds `
             -MaxHostOutputBytes $MaxOutputBytes `
-            -MaxHostArtifactBytes $MaxArtifactBytes
+            -MaxHostArtifactBytes $MaxArtifactBytes `
+            -NoHostAiCreditLimit:$NoHostAiCreditLimit
     }
     finally {
         [System.Environment]::SetEnvironmentVariable(
@@ -428,7 +432,8 @@ try {
         'hook.end', 'hook.start', 'model.call_finished', 'model.call_start',
         'model.captured_assignment_context', 'model.messages_snapshot',
         'model.model_call_success', 'model.response', 'model.turn_ended',
-        'model.turn_started', 'session.background_tasks_changed', 'session.info',
+        'model.turn_started', 'prompt_cache_break',
+        'session.background_tasks_changed', 'session.info',
         'session.managed_settings_resolved', 'session.mcp_servers_loaded',
         'session.shutdown', 'session.start', 'session.usage_checkpoint',
         'session.warning', 'system.message', 'tool.execution_partial_result',
@@ -681,6 +686,13 @@ try {
         $success.iterations[0].hostUsageFile.value.tokenDetails.cache_write.tokenCount -eq 15 -and
         $success.iterations[0].hostUsageFile.value.tokenDetails.output.tokenCount -eq 10) `
         'Detailed host token accounting was not retained from the usage output file.'
+    $uncappedHostUsage = Invoke-FakeRun `
+        -Name 'uncapped host usage' `
+        -Mode success `
+        -NoHostAiCreditLimit
+    Assert-True ($uncappedHostUsage.iterations[0].success -eq $true -and
+        $uncappedHostUsage.iterations[0].execution.isolation.maxAiCredits -eq 0) `
+        'Uncapped host usage still received or retained an evaluator credit ceiling.'
     $additiveUsage = Invoke-FakeRun -Name 'additive usage output' -Mode additive-usage-output
     [string[]] $projectedUsageMembers = @(
         $additiveUsage.iterations[0].hostUsageFile.value.PSObject.Properties.Name)
@@ -1557,6 +1569,57 @@ try {
         'Skill arm did not expose the native skill tool.'
     Assert-True (@($skillSuccess.iterations[0].execution.isolation.availableTools) -contains 'view') `
         'Skill arm did not expose bounded related-file views.'
+    [string] $baselineSkillEntrypoint = Join-Path $root 'eval/skill-variants/ep1-baseline/SKILL.md'
+    $baselineSkillSuccess = Invoke-FakeRun `
+        -Name 'baseline skill entrypoint success' `
+        -Mode success `
+        -Arm cli-skill `
+        -SkillEntrypointPath 'eval/skill-variants/ep1-baseline/SKILL.md'
+    Assert-True ($baselineSkillSuccess.iterations[0].success -eq $true) `
+        "Baseline skill entrypoint run failed: $($baselineSkillSuccess.iterations[0].note)"
+    Assert-True ([string]::Equals(
+            [string]$baselineSkillSuccess.iterations[0].skill.sourcePath,
+            $baselineSkillEntrypoint,
+            [StringComparison]::OrdinalIgnoreCase)) `
+        'Baseline skill entrypoint source path was not retained.'
+    [string] $baselineSkillHash = Get-AgentEvalFileHash $baselineSkillEntrypoint
+    Assert-True ($baselineSkillSuccess.iterations[0].skill.sourceByteSha256 -eq $baselineSkillHash) `
+        'Baseline skill entrypoint source hash was not retained.'
+    $baselineSkillInventory = @($baselineSkillSuccess.iterations[0].skill.inventory)
+    Assert-True (@($baselineSkillInventory | Where-Object {
+                $_.path -eq 'SKILL.md' -and $_.sha256 -eq $baselineSkillHash
+            }).Count -eq 1) `
+        'Baseline skill inventory did not substitute exactly one SKILL.md.'
+    [string] $canonicalGuidePath = Join-Path $root '.agents/skills/filtrace/references/guide.md'
+    Assert-True (@($baselineSkillInventory | Where-Object {
+                $_.path -eq 'references/guide.md' -and
+                $_.sha256 -eq (Get-AgentEvalFileHash $canonicalGuidePath)
+            }).Count -eq 1) `
+        'Baseline skill variant did not retain the canonical related-file inventory.'
+    [bool] $outsideSkillVariantRejected = $false
+    try {
+        [void](Get-AgentEvalSkillInput `
+                -Root $root `
+                -EntrypointPath 'docs/roadmap.md')
+    }
+    catch {
+        $outsideSkillVariantRejected = $_.Exception.Message.Contains(
+            'must name SKILL.md beneath', [StringComparison]::Ordinal)
+    }
+    Assert-True $outsideSkillVariantRejected `
+        'Skill entrypoint selection escaped the dedicated variant directory.'
+    [bool] $absoluteSkillVariantRejected = $false
+    try {
+        [void](Get-AgentEvalSkillInput `
+                -Root $root `
+                -EntrypointPath $baselineSkillEntrypoint)
+    }
+    catch {
+        $absoluteSkillVariantRejected = $_.Exception.Message.Contains(
+            'must be repository-relative', [StringComparison]::Ordinal)
+    }
+    Assert-True $absoluteSkillVariantRejected `
+        'Skill entrypoint selection accepted an absolute path.'
     $skillViewSuccess = Invoke-FakeRun -Name 'skill view success' -Mode skill-view-success -Arm cli-skill
     Assert-True ($skillViewSuccess.iterations[0].success -eq $true -and
         @($skillViewSuccess.iterations[0].transcript | Where-Object { $_.kind -eq 'skill-read' }).Count -eq 1) `
@@ -1988,6 +2051,27 @@ try {
         $missingExpectedModelRejected = $_.Exception.Message.Contains('-ExpectedModel is required', [StringComparison]::Ordinal)
     }
     Assert-True $missingExpectedModelRejected 'Strict CLI arm accepted a run without -ExpectedModel.'
+
+    [bool] $skillEntrypointOutsideSkillArmRejected = $false
+    try {
+        & $runner `
+            -AgentHost copilot `
+            -Arm cli `
+            -Model expected-model `
+            -ExpectedModel expected-model `
+            -Tasks gc-report `
+            -N 1 `
+            -SkillEntrypointPath 'eval/skill-variants/ep1-baseline/SKILL.md' `
+            -OutDir (Join-Path $temporaryRoot 'skill entrypoint outside skill arm') `
+            -CopilotPath $pwshPath `
+            -CopilotAdapterPath $fakeHost
+    }
+    catch {
+        $skillEntrypointOutsideSkillArmRejected = $_.Exception.Message.Contains(
+            'supported only by the Copilot cli-skill arm', [StringComparison]::Ordinal)
+    }
+    Assert-True $skillEntrypointOutsideSkillArmRejected `
+        'Skill entrypoint selection was accepted outside the Copilot skill arm.'
 
     [bool] $unsupportedDefaultTasksRejected = $false
     try {

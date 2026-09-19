@@ -5,9 +5,10 @@ has two arms, both shipped here: a deterministic, no-LLM gate that runs in CI, a
 a live agent arm that scores a real model locally.
 
 The deterministic gate remains active. The public
-[Filtrace roadmap](../docs/roadmap.md) records EP1 preflight complete and no
-measured execution active. This page documents the available harness and prepared
-protocol rather than creating a parallel implementation queue.
+[Filtrace roadmap](../docs/roadmap.md) records EP1 natural-adoption measurement
+complete and an EP2 skill-only candidate under review; no measured execution is
+active. This page documents the harness and evidence boundary rather than creating
+a parallel implementation queue.
 
 ## Deterministic gate (shipped, runs in CI)
 
@@ -127,7 +128,10 @@ contract and the no-LLM gate.
   a successful completion, and one injected `<skill-context name="filtrace">`
   whose body exactly matches `SKILL.md` after frontmatter and its leading blank
   separator are removed and CRLF is normalized to LF. Startup metadata alone is
-  not use evidence.
+  not use evidence. For a controlled entrypoint experiment,
+  `-SkillEntrypointPath eval/skill-variants/<name>/SKILL.md` substitutes only that
+  repository-relative file; related files still come from the shipped skill and
+  every selected source byte remains inventoried and hash-checked.
 
 The strict Copilot CLI arms create a GUID-owned workspace outside the repository
 when `-OutDir` equals or is beneath this checkout. They reject any selected
@@ -272,7 +276,7 @@ host, model, and skill protocol availability; it is not the ready-capture effica
 smoke. If an isolated home cannot use platform-keyring authentication, the run must
 fail clearly; do not copy credentials or weaken isolation.
 
-### EP1 ready-capture protocol
+### EP1 protocols and completed natural-adoption measurement
 
 The v1 measured attempt stopped after its first session with zero valid pairs. Its
 usage file contained additive root telemetry that the frozen parser rejected, and
@@ -280,13 +284,14 @@ an otherwise permitted `rank` request carried `initial_wait: 120` beyond the fro
 30-second metadata ceiling. The result is operational evidence only, not evidence
 for or against skill efficacy.
 
-The prepared [v2 ready-capture protocol](protocols/ep1-ready-capture-v2.json)
+The [v2 ready-capture protocol](protocols/ep1-ready-capture-v2.json)
 accepts bounded duplicate-free additive root usage telemetry while persisting only
 the four required accounting fields, and accepts `initial_wait` through 120 seconds
 without changing the independent 600-second process deadline. It otherwise binds
 the same held-out scope/attribution task, exact public input hashes, evaluator-only
 expected facts, balanced four-pair order, eight maximum host sessions, and a 240-credit
-ceiling. It reports descriptive arm and paired values without a winner label, uses
+ceiling. It is the frozen repair design, not a description of the later completed
+measurement. It reports descriptive arm and paired values without a winner label, uses
 no automatic replacement pair, and stops for a user decision. After each pair, a
 reviewer grades the two exact final answers under randomized opaque identifiers,
 without arm, order, model, skill, cost, timing, transcript, or path metadata. The
@@ -296,12 +301,37 @@ the grading arm-masked rather than inference-blind. No final answer, a wrong ans
 or an overconfident answer is a valid measured quality outcome and remains in the
 four-pair denominator; broken identity, accounting, transcript, or grade evidence
 stops the experiment incomplete without a replacement pair. `Test-Docs.ps1`
-validates the protocol's shape,
-identities, order, bounds, record schema, grading boundary, and privacy. The record
-is not an execution script: protocol preparation and measured execution require
-separate authorization, and no measured session is currently authorized.
+validates the protocol's shape, identities, order, bounds, record schema, grading
+boundary, and privacy.
 
-After each grade is serialized and hashed, run
+The user subsequently authorized a private natural-adoption protocol: 10 matched
+pairs / 20 fresh chats, with an identical prompt that did not instruct the skill arm
+to invoke the skill. Skill non-use, abstention, wrong answers, and overconfidence
+counted; only infrastructure failures could be replaced. Three infrastructure-invalid
+attempts were retained outside the behavioral denominator. A parser-only amendment
+recognized `prompt_cache_break` as non-evidence chatter and carried prior dialogs
+and results forward byte-for-byte.
+
+All 20 counted schema-v3 results validated. The project skill was discovered and
+invoked in every eligible chat. Under the fixed five-criterion rubric, strict passes
+were 5/10 with the skill and 3/10 with CLI-only; false-confidence scope errors were
+5/10 and 6/10. The skill arm consumed 42,848 observed result tokens versus 10,505,
+with 13 versus 12 successful analysis calls and 10 host credits in each counted arm.
+Strong time and position patterns prevent a winner claim.
+
+The command evidence isolates the next mechanism: all five failed skill chats used
+an unscoped `rank` and accepted `context.scope.processMode: "automatic"`; all five
+passing skill chats used `--process HotLoopBench`. The current follow-up therefore
+changes only the skill's named-process acceptance contract and adds two deterministic
+tasks without changing frozen EP1 task 23: [named-process root scope](tasks/28-named-process-self-scope.json)
+and [exact-PID tree scope](tasks/29-exact-pid-tree-scope.json). The evaluator's
+`-SkillEntrypointPath` can substitute the retained EP1 `SKILL.md` at the same project
+discovery path while every related skill file remains shared and hash-attested.
+This candidate does not freeze an EP2 sample, schedule, grading record, or execution
+protocol. Prepare those separately against the merged tree; no EP2 measured session
+is active or authorized.
+
+For the frozen EP1 ready-capture record schema, after each grade is serialized and hashed, run
 `eval/Test-ReadyCaptureRecords.ps1` against the private artifact directory. It
 must pass before the private arm map is revealed and again before the final report.
 It schema-validates each record and recomputes session fields, arm summaries,
@@ -403,9 +433,9 @@ Both returned `MyApp.Inner` at 16 ms / 64% self weight and `MyApp.Work` as its
 | CLI plus discovered skill | 2 / 1 / 1 | 955 | 32.704 s | 18 / 46,173 / 11,050 / 1,001 |
 
 Each arm reported one premium request. The skill arm's discovery, invocation, and
-context hashes verified. This single pair proves protocol and accounting readiness;
-it does not establish an efficacy advantage. The prepared next evidence is four
-balanced pairs on a frozen ready-capture task with arm-masked answer grading.
+context hashes verified. This single pair proved protocol and accounting readiness;
+it did not establish an efficacy advantage. The later natural-adoption measurement
+and the bounded EP2 candidate follow-up are described above.
 
 Substring matching removes thousands separators from digit runs on both sides
 first, so a task can pin `4309` and an answer that says "4,309" still matches.
@@ -478,8 +508,9 @@ Live success still uses expected substrings rather than a general semantic grade
 The MCP arm requires its expected MCP tools; strict CLI arms require matched local
 apphost evidence; cli-skill also requires verified project discovery, invocation,
 and injected context. These checks reject unsupported provenance but do not establish
-that the skill caused a better answer. The prepared four-pair ready-capture
-comparison remains EP1 work; measured execution requires separate authorization.
+that the skill caused a better answer. EP1 is complete; the next prepared comparison
+candidate isolates the named-process scope contract. Its measured protocol still
+requires separate preparation, review, and authorization.
 
 ### Example local run
 

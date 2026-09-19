@@ -198,7 +198,7 @@ These are checked by CI; a change that breaks one is not shippable.
 | Command discoverability | every canonical command in top-level help, README examples, and scope inventory; hidden aliases absent | 16 canonical commands; top-level help 27 lines / 2,171 chars | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
 | Catalog completeness | every canonical command and every `trace_*` tool documented | 16 commands / 18 tools | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
 | Knowledge-layer drift | zero drift between `docs/` blocks and their embedded copies | 4 blocks | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
-| Deterministic eval | every task keeps its answer, call count, and output budget | 27 tasks | [eval/Invoke-Eval.ps1](../eval/Invoke-Eval.ps1) |
+| Deterministic eval | every task keeps its answer, call count, and output budget | 29 tasks | [eval/Invoke-Eval.ps1](../eval/Invoke-Eval.ps1) |
 | Numeric parity | rankings match the frozen oracle within tolerance and ordering | committed fixtures | `tests/Filtrace.Parity.Tests` |
 | Capture contract | run artifacts isolated, profiles preflighted, every case in the manifest | - | [tools/Test-CaptureBenchmarkTrace.ps1](../tools/Test-CaptureBenchmarkTrace.ps1), [tools/Test-CaptureProjectTrace.ps1](../tools/Test-CaptureProjectTrace.ps1) |
 | Analysis-record contract | exact argv and hashes retained; changed inputs rejected before replay | - | [tools/Test-FiltraceAnalysis.ps1](../tools/Test-FiltraceAnalysis.ps1) |

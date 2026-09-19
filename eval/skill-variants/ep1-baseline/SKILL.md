@@ -58,13 +58,9 @@ activity. Surface envelope `warnings` and snapshot truncation/incomplete flags.
 1. Use the supplied trace and narrowest answering command. Except for the self-orienting
    snapshot, start with `info` / `trace_info`: check format, analysis, capture status,
    event count, and frame-name quality.
-2. Preserve scope. For machine-wide ETW, if the question names a process but gives
-   no exact id, run `processes`; then pass `--process <name>` or `--pid <id>` to the
-   answering query. Before interpreting it, require `context.scope.processMode` to
-   be `name` or `ids` and verify its root ids, descendant ids, and `includeChildren`;
-   `automatic` answers the busiest tree, not the named-process question. Carry the
-   same process, children, root, benchmark, activity, and time scope into follow-ups.
-   Prefer exact ids when a common name matches unrelated instances.
+2. Preserve scope. ETW auto-selects the busiest process tree; inspect `processes` when
+   identity matters and prefer exact pid over a common name. Carry process, children,
+   root, benchmark, activity, and time scope into follow-ups.
 3. Request bounded JSON (`--format json`; MCP is structured). Read `warnings` first;
    `hints` are candidates. Empty can mean wrong scope, missing providers, weak symbols,
    or an open Start/Stop operation.

@@ -53,7 +53,7 @@ CI also runs twelve contract and evaluation checks that must stay green:
   the tool-list schema stays within the token budget, and a real `tools/call`
   round-trips.
 - `tools/Test-Docs.ps1` - shared workflow blocks, command/tool catalogs, the
-  packaged filtrace skill, and the prepared EP1 protocol's input hashes, order,
+  packaged filtrace skill, and the frozen EP1 protocol's input hashes, order,
   bounds, arm-masked grading, privacy, and stopped state stay synchronized.
 - `tools/Test-CaptureBenchmarkTrace.ps1` - run artifacts stay isolated, overlap
   is rejected, every case enters the manifest, and exact child symbols are used.
