@@ -1771,10 +1771,11 @@ function Get-AgentEvalTaskCommandFamilies {
             }
             [string] $canonicalValue = [string]$arguments[$index]
             $optionPolicy = switch ($argument) {
-                { $_ -in @('--metric', '--measure', '--kind', '--lanes', '--mode') } {
+                { $_ -in @('--metric', '--measure', '--kind', '--lanes', '--mode', '--children') } {
                     [pscustomobject]@{ name = $argument; kind = 'enum'; values = @($canonicalValue) }
                     break
                 }
+                '--pid' { [pscustomobject]@{ name = $argument; kind = 'integer'; minimum = 1; maximum = [int]::MaxValue }; break }
                 '--top' { [pscustomobject]@{ name = $argument; kind = 'integer'; minimum = 1; maximum = 100 }; break }
                 '--take' { [pscustomobject]@{ name = $argument; kind = 'integer'; minimum = 0; maximum = 100 }; break }
                 { $_ -in @('--at', '--window') } {

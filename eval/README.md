@@ -6,9 +6,12 @@ a live agent arm that scores a real model locally.
 
 The deterministic gate remains active. The public
 [Filtrace roadmap](../docs/roadmap.md) records EP1 natural-adoption measurement
-complete and an EP2 skill-only candidate under review; no measured execution is
-active. This page documents the harness and evidence boundary rather than creating
-a parallel implementation queue.
+complete and the EP2 scope-contract candidate merged; post-merge protocol preparation
+has a reviewed private draft but exposed one strict-policy support gap for the new
+tasks. The local bounded `--pid` / `--children` repair passes this harness's contract;
+its execution tree still must be reviewed, published, and frozen. No measured
+execution is authorized. This page documents the harness and evidence boundary
+rather than creating a parallel implementation queue.
 
 ## Deterministic gate (shipped, runs in CI)
 
@@ -173,6 +176,10 @@ are metadata; only the command is parsed. The command must be one all-single-quo
 PowerShell AST invocation using the exact owned apphost and fixture. Permitted verbs
 and option names come from the task's canonical analysis steps, while text and
 numeric values remain typed and bounded rather than fixed to the expected answer.
+Task-derived `--children` values are frozen to the canonical include/exclude choice,
+and `--pid` values are positive 32-bit integers. Retained raw start/completion events
+remain necessary when an experiment grades the exact selector and returned effective
+scope.
 Unknown tool argument members and command options, including environment, input,
 timeout, sandbox, output, symbol/network, and native-symbol options, are rejected.
 For `view`, the hook requires one exact path from the copied skill inventory and an
@@ -327,9 +334,10 @@ tasks without changing frozen EP1 task 23: [named-process root scope](tasks/28-n
 and [exact-PID tree scope](tasks/29-exact-pid-tree-scope.json). The evaluator's
 `-SkillEntrypointPath` can substitute the retained EP1 `SKILL.md` at the same project
 discovery path while every related skill file remains shared and hash-attested.
-This candidate does not freeze an EP2 sample, schedule, grading record, or execution
-protocol. Prepare those separately against the merged tree; no EP2 measured session
-is active or authorized.
+The candidate PR did not freeze an EP2 protocol. Post-merge preparation now has a
+reviewed private draft with a balanced sample, grading records, and matching artifact
+validator. It remains deliberately unfrozen until the bounded strict-policy repair
+is published, and no EP2 measured session is active or authorized.
 
 For the frozen EP1 ready-capture record schema, after each grade is serialized and hashed, run
 `eval/Test-ReadyCaptureRecords.ps1` against the private artifact directory. It
