@@ -468,6 +468,17 @@ try {
         })
     Assert-True ($wrongNamedChildren.permissionDecision -eq 'deny') `
         'Strict named-process policy accepted the wrong child mode.'
+    $wrongNamedChildrenLedger = Invoke-TestLedgerRequest `
+        -PipeName $namedScopePolicy.executionPolicy.ledgerPipeName `
+        -Request ([ordered]@{
+            category = 'command'
+            command = $namedScopeCommand.Replace("'exclude'", "'include'")
+        })
+    Assert-True ($wrongNamedChildrenLedger.allowed -eq $false) `
+        'Parent-owned ledger accepted the wrong named-process child mode.'
+    $namedScopeLedgerState = Get-CopilotEvalExecutionPolicyState $namedScopePolicy.executionPolicy
+    Assert-True ($namedScopeLedgerState.callCount -eq 0) `
+        'A denied named-process child mode consumed parent-ledger capacity.'
     $validNamedScope = Invoke-TestPolicyHook `
         -Hook $namedScopePolicy.preToolHook `
         -SessionId $namedScopePolicy.context.runId `
@@ -487,7 +498,8 @@ try {
     [string] $pidScopeCommand =
         "& '$($pidScopePolicy.context.cliPath)' 'rank' '$($pidScopePolicy.context.fixturePath)' " +
         "'--metric' 'cpu' '--pid' '40356' '--children' 'include' '--top' '3' '--format' 'json'"
-    foreach ($invalidPid in @('0', 'not-a-pid', '2147483648')) {
+    [string[]] $invalidPids = @('0', 'not-a-pid', '2147483648')
+    foreach ($invalidPid in $invalidPids) {
         $invalidPidDecision = Invoke-TestPolicyHook `
             -Hook $pidScopePolicy.preToolHook `
             -SessionId $pidScopePolicy.context.runId `
@@ -511,6 +523,27 @@ try {
         })
     Assert-True ($wrongPidChildren.permissionDecision -eq 'deny') `
         'Strict PID policy accepted the wrong child mode.'
+    foreach ($invalidPid in $invalidPids) {
+        $invalidPidLedger = Invoke-TestLedgerRequest `
+            -PipeName $pidScopePolicy.executionPolicy.ledgerPipeName `
+            -Request ([ordered]@{
+                category = 'command'
+                command = $pidScopeCommand.Replace("'40356'", "'$invalidPid'")
+            })
+        Assert-True ($invalidPidLedger.allowed -eq $false) `
+            "Parent-owned ledger accepted invalid process id '$invalidPid'."
+    }
+    $wrongPidChildrenLedger = Invoke-TestLedgerRequest `
+        -PipeName $pidScopePolicy.executionPolicy.ledgerPipeName `
+        -Request ([ordered]@{
+            category = 'command'
+            command = $pidScopeCommand.Replace("'include'", "'exclude'")
+        })
+    Assert-True ($wrongPidChildrenLedger.allowed -eq $false) `
+        'Parent-owned ledger accepted the wrong PID child mode.'
+    $pidScopeLedgerState = Get-CopilotEvalExecutionPolicyState $pidScopePolicy.executionPolicy
+    Assert-True ($pidScopeLedgerState.callCount -eq 0) `
+        'A denied PID or child-mode command consumed parent-ledger capacity.'
     $validPidScope = Invoke-TestPolicyHook `
         -Hook $pidScopePolicy.preToolHook `
         -SessionId $pidScopePolicy.context.runId `
