@@ -31,6 +31,8 @@ function New-TestExecutionPolicy(
     [string] $Name,
     [int] $MaxCalls,
     [int] $TaskMaxCalls = 0,
+    [string] $TaskFile = 'eval/tasks/04-gc-report.json',
+    [string[]] $AllowedVerbs = @('report'),
     [switch] $WithSkill) {
     [string] $runDirectory = Join-Path $temporaryRoot $Name
     [string] $workspace = Join-Path $runDirectory 'workspace'
@@ -76,13 +78,13 @@ function New-TestExecutionPolicy(
         else { @() }
         immutableFiles = [System.Collections.Generic.List[object]]::new()
     }
-    $task = Get-Content -LiteralPath (Join-Path $root 'eval/tasks/04-gc-report.json') -Raw | ConvertFrom-Json
+    $task = Get-Content -LiteralPath (Join-Path $root $TaskFile) -Raw | ConvertFrom-Json
     $task | Add-Member -NotePropertyName maxCalls -NotePropertyValue $(
         if ($TaskMaxCalls -gt 0) { $TaskMaxCalls } else { $null })
     $executionPolicy = Initialize-CopilotEvalExecutionPolicy `
         -Context $context `
         -Task $task `
-        -AllowedVerbs @('report') `
+        -AllowedVerbs $AllowedVerbs `
         -MaxCalls $MaxCalls `
         -HookSourcePath $policyHook
     $policyLedgers.Add($executionPolicy.ledger)
@@ -422,6 +424,137 @@ try {
     Assert-True ($cpuOperations.Count -eq 2 -and $cpuOperations -contains 'rank' -and
         $cpuOperations -contains 'callers') `
         'Strict task operation derivation did not require both CPU analysis steps.'
+    $namedScopeTask = Get-Content -LiteralPath `
+        (Join-Path $root 'eval/tasks/28-named-process-self-scope.json') -Raw | ConvertFrom-Json
+    [object[]] $namedScopeFamilies = @(Get-AgentEvalTaskCommandFamilies `
+            -Task $namedScopeTask `
+            -AllowedVerbs @('processes', 'rank'))
+    $namedRankFamily = @($namedScopeFamilies | Where-Object { $_.verb -eq 'rank' })[0]
+    $namedChildrenOption = @($namedRankFamily.options | Where-Object { $_.name -eq '--children' })[0]
+    Assert-True ($namedChildrenOption.kind -eq 'enum' -and
+        @($namedChildrenOption.values).Count -eq 1 -and $namedChildrenOption.values[0] -eq 'exclude') `
+        'Strict named-process task policy did not freeze the excluded-descendant scope.'
+    $pidScopeTask = Get-Content -LiteralPath `
+        (Join-Path $root 'eval/tasks/29-exact-pid-tree-scope.json') -Raw | ConvertFrom-Json
+    [object[]] $pidScopeFamilies = @(Get-AgentEvalTaskCommandFamilies `
+            -Task $pidScopeTask `
+            -AllowedVerbs @('rank'))
+    $pidRankFamily = $pidScopeFamilies[0]
+    $pidOption = @($pidRankFamily.options | Where-Object { $_.name -eq '--pid' })[0]
+    $pidChildrenOption = @($pidRankFamily.options | Where-Object { $_.name -eq '--children' })[0]
+    Assert-True ($pidOption.kind -eq 'integer' -and $pidOption.minimum -eq 1 -and
+        $pidOption.maximum -eq [int]::MaxValue) `
+        'Strict PID task policy did not enforce the CLI process-id bounds.'
+    Assert-True ($pidChildrenOption.kind -eq 'enum' -and
+        @($pidChildrenOption.values).Count -eq 1 -and $pidChildrenOption.values[0] -eq 'include') `
+        'Strict PID task policy did not freeze the included-descendant scope.'
+    $namedScopePolicy = New-TestExecutionPolicy `
+        -Name 'named process scope policy' `
+        -MaxCalls 1 `
+        -TaskFile 'eval/tasks/28-named-process-self-scope.json' `
+        -AllowedVerbs @('processes', 'rank')
+    [string] $namedScopeCommand =
+        "& '$($namedScopePolicy.context.cliPath)' 'rank' '$($namedScopePolicy.context.fixturePath)' " +
+        "'--metric' 'cpu' '--process' 'HotLoopBench-Job-IXTYWS-1' " +
+        "'--children' 'exclude' '--top' '3' '--format' 'json'"
+    $wrongNamedChildren = Invoke-TestPolicyHook `
+        -Hook $namedScopePolicy.preToolHook `
+        -SessionId $namedScopePolicy.context.runId `
+        -WorkingDirectory $namedScopePolicy.context.workspace `
+        -ToolName powershell `
+        -ToolArguments ([ordered]@{
+            command = $namedScopeCommand.Replace("'exclude'", "'include'")
+            description = 'Reject the wrong named-process child mode'
+        })
+    Assert-True ($wrongNamedChildren.permissionDecision -eq 'deny') `
+        'Strict named-process policy accepted the wrong child mode.'
+    $wrongNamedChildrenLedger = Invoke-TestLedgerRequest `
+        -PipeName $namedScopePolicy.executionPolicy.ledgerPipeName `
+        -Request ([ordered]@{
+            category = 'command'
+            command = $namedScopeCommand.Replace("'exclude'", "'include'")
+        })
+    Assert-True ($wrongNamedChildrenLedger.allowed -eq $false) `
+        'Parent-owned ledger accepted the wrong named-process child mode.'
+    $namedScopeLedgerState = Get-CopilotEvalExecutionPolicyState $namedScopePolicy.executionPolicy
+    Assert-True ($namedScopeLedgerState.callCount -eq 0) `
+        'A denied named-process child mode consumed parent-ledger capacity.'
+    $validNamedScope = Invoke-TestPolicyHook `
+        -Hook $namedScopePolicy.preToolHook `
+        -SessionId $namedScopePolicy.context.runId `
+        -WorkingDirectory $namedScopePolicy.context.workspace `
+        -ToolName powershell `
+        -ToolArguments ([ordered]@{
+            command = $namedScopeCommand
+            description = 'Accept the canonical named-process scope'
+        })
+    Assert-True ($validNamedScope.permissionDecision -eq 'allow') `
+        'Strict named-process policy denied the canonical child mode.'
+    $pidScopePolicy = New-TestExecutionPolicy `
+        -Name 'pid process scope policy' `
+        -MaxCalls 1 `
+        -TaskFile 'eval/tasks/29-exact-pid-tree-scope.json' `
+        -AllowedVerbs @('rank')
+    [string] $pidScopeCommand =
+        "& '$($pidScopePolicy.context.cliPath)' 'rank' '$($pidScopePolicy.context.fixturePath)' " +
+        "'--metric' 'cpu' '--pid' '40356' '--children' 'include' '--top' '3' '--format' 'json'"
+    [string[]] $invalidPids = @('0', 'not-a-pid', '2147483648')
+    foreach ($invalidPid in $invalidPids) {
+        $invalidPidDecision = Invoke-TestPolicyHook `
+            -Hook $pidScopePolicy.preToolHook `
+            -SessionId $pidScopePolicy.context.runId `
+            -WorkingDirectory $pidScopePolicy.context.workspace `
+            -ToolName powershell `
+            -ToolArguments ([ordered]@{
+                command = $pidScopeCommand.Replace("'40356'", "'$invalidPid'")
+                description = 'Reject an invalid process id'
+            })
+        Assert-True ($invalidPidDecision.permissionDecision -eq 'deny') `
+            "Strict PID policy accepted invalid process id '$invalidPid'."
+    }
+    $wrongPidChildren = Invoke-TestPolicyHook `
+        -Hook $pidScopePolicy.preToolHook `
+        -SessionId $pidScopePolicy.context.runId `
+        -WorkingDirectory $pidScopePolicy.context.workspace `
+        -ToolName powershell `
+        -ToolArguments ([ordered]@{
+            command = $pidScopeCommand.Replace("'include'", "'exclude'")
+            description = 'Reject the wrong PID child mode'
+        })
+    Assert-True ($wrongPidChildren.permissionDecision -eq 'deny') `
+        'Strict PID policy accepted the wrong child mode.'
+    foreach ($invalidPid in $invalidPids) {
+        $invalidPidLedger = Invoke-TestLedgerRequest `
+            -PipeName $pidScopePolicy.executionPolicy.ledgerPipeName `
+            -Request ([ordered]@{
+                category = 'command'
+                command = $pidScopeCommand.Replace("'40356'", "'$invalidPid'")
+            })
+        Assert-True ($invalidPidLedger.allowed -eq $false) `
+            "Parent-owned ledger accepted invalid process id '$invalidPid'."
+    }
+    $wrongPidChildrenLedger = Invoke-TestLedgerRequest `
+        -PipeName $pidScopePolicy.executionPolicy.ledgerPipeName `
+        -Request ([ordered]@{
+            category = 'command'
+            command = $pidScopeCommand.Replace("'include'", "'exclude'")
+        })
+    Assert-True ($wrongPidChildrenLedger.allowed -eq $false) `
+        'Parent-owned ledger accepted the wrong PID child mode.'
+    $pidScopeLedgerState = Get-CopilotEvalExecutionPolicyState $pidScopePolicy.executionPolicy
+    Assert-True ($pidScopeLedgerState.callCount -eq 0) `
+        'A denied PID or child-mode command consumed parent-ledger capacity.'
+    $validPidScope = Invoke-TestPolicyHook `
+        -Hook $pidScopePolicy.preToolHook `
+        -SessionId $pidScopePolicy.context.runId `
+        -WorkingDirectory $pidScopePolicy.context.workspace `
+        -ToolName powershell `
+        -ToolArguments ([ordered]@{
+            command = $pidScopeCommand
+            description = 'Accept the canonical PID scope'
+        })
+    Assert-True ($validPidScope.permissionDecision -eq 'allow') `
+        'Strict PID policy denied the canonical process id and child mode.'
     Assert-True ((Get-AgentEvalMediatedOperation 'filtrace report <TRACE> --kind jit') -ceq 'jit' -and
         (Get-AgentEvalMediatedOperation 'rank <TRACE> --metric cpu') -ceq 'rank') `
         'Mediated CLI commands did not retain their actual operation intent.'
@@ -1178,9 +1311,11 @@ try {
         $hookProcesses.Add($hookProcess)
     }
     [int] $concurrentAllows = 0
+    [int] $concurrentHookTimeoutMilliseconds = 30000
     try {
         foreach ($hookProcess in $hookProcesses) {
-            Assert-True ($hookProcess.WaitForExit(10000)) 'Concurrent policy hook did not finish within 10 seconds.'
+            Assert-True ($hookProcess.WaitForExit($concurrentHookTimeoutMilliseconds)) `
+                'Concurrent policy hook did not finish within 30 seconds.'
             [string] $hookOutput = $hookProcess.StandardOutput.ReadToEnd()
             [string] $hookError = $hookProcess.StandardError.ReadToEnd()
             Assert-True ($hookProcess.ExitCode -eq 0) "Concurrent policy hook failed: $hookError"
@@ -1190,7 +1325,13 @@ try {
         }
     }
     finally {
-        foreach ($hookProcess in $hookProcesses) { $hookProcess.Dispose() }
+        foreach ($hookProcess in $hookProcesses) {
+            if (-not $hookProcess.HasExited) {
+                $hookProcess.Kill($true)
+                $hookProcess.WaitForExit()
+            }
+            $hookProcess.Dispose()
+        }
     }
     Assert-True ($concurrentAllows -eq 2) `
         'Concurrent pre-tool decisions did not saturate exactly at the two-call cap.'

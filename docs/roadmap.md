@@ -6,12 +6,16 @@ the change must be reflected here before it makes a Filtrace item active. Privat
 coordination records are supplemental evidence, not required to interpret this plan.
 
 **Status:** EP1 natural-adoption measurement is complete. No measured execution is
-active. The compact named-process scope-contract candidate, deterministic scope
-tasks, and hash-attested skill-entrypoint selector are under review. No EP2 measured
-protocol is prepared; define it separately against the merged candidate tree.
+active. PR #136 merged the compact named-process scope-contract candidate,
+deterministic scope tasks, and hash-attested skill-entrypoint selector. EP2 protocol
+preparation produced a private draft protocol and artifact validator. That review
+found the strict host policy did not yet admit the tasks' bounded `--pid` and
+`--children` options; the local repair passes the evaluator contract but must be
+reviewed and published before the execution tree can be frozen. No measured session
+is authorized.
 
-**Last verified:** 2026-09-17 against the completed EP1 evidence and the current
-scope-contract candidate.
+**Last verified:** 2026-09-19 against merged Filtrace commit `18e4f28c` and the
+completed EP1 evidence.
 
 Completed sections remain only where their measured decisions constrain future
 work. Git history and release tags record what landed; durable lessons live in
@@ -74,8 +78,8 @@ true.
 | When | Items | Why now |
 | --- | --- | --- |
 | Done | VN0-VN4, VC2, SC8, SC11, SC13, LT1, EP1 preflight and natural-adoption measurement | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, command provenance, decisive-query replay, repository-local activation, bounded evaluator preflight, and the first natural-adoption comparison are complete. |
-| Current checkpoint | EP2 candidate review; no measured execution | Replace soft named-process advice with an executable scope acceptance contract, add two deterministic scope tasks without changing frozen EP1 task 23, and retain a hash-attested entrypoint selector. Do not change CLI behavior or freeze an execution protocol in this candidate. |
-| Next after candidate merge | EP2 protocol preparation | Bind the exact merge tree, old/new skill inputs, tasks, host/model policy, sample, ordering, grading, replacements, accounting, and stop rules in a separately reviewed protocol. This step starts no host session. |
+| Done | EP2 scope-contract candidate | PR #136 merged the compact skill rule, exact EP1 baseline entrypoint, hash-attested selector, and two deterministic scope tasks without changing CLI behavior or frozen EP1 task 23. |
+| Current checkpoint | EP2 evaluator-support review and protocol freeze; no measured execution | Publish the bounded `--pid` / `--children` strict-policy repair, then bind its exact tree with the old/new skill inputs, tasks, host/model policy, balanced 12-pair order, machine-plus-answer grading, accounting, and stop rules in the separately reviewed private protocol. This step starts no host session. |
 | Next only with explicit authorization | EP2 scope-contract comparison | Run only the separately reviewed, hash-frozen protocol. Report descriptive evidence and stop without automatic routing. |
 | Later only after an accepted result and separate authorization | CLI scope salience, EP1 full-loop case, PP02 evidence gaps, PP10 adoption | Change CLI/MCP output only if the skill treatment does not reliably reject automatic scope for a named-process question. Any full-loop or broader adoption work remains a later decision. |
 | Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the named public scenario and gate recorded here; these are not the current default implementation queue. |
@@ -95,7 +99,7 @@ gates.
 
 | Area | Remaining outcome | Kind |
 | --- | --- | --- |
-| Next authorized outcome | After the candidate merges and a separate protocol is reviewed and frozen, compare the exact EP1 skill against the compact named-process scope contract with the same CLI, host, model, and non-skill policy. Primary outcomes are explicit scope selection and preservation; report raw evidence and stop without automatic routing. | Agent workflow evidence |
+| Next authorized outcome | After the post-merge protocol is reviewed and frozen, compare the exact EP1 skill against the compact named-process scope contract with the same CLI, host, model, and non-skill policy. Primary outcomes are explicit scope selection and preservation; report raw evidence and stop without automatic routing. | Agent workflow evidence |
 | PP02 / Track D evidence | No work is active. Add provider-rich, negative-control, repeated-query, disposal/eviction, or bounded-concurrency evidence only when a separately authorized comparison needs it. | Harness and evidence |
 | PP09 workflow | EP1 reproduced one routing failure: agents accepted automatic process scope despite a named-process question. Test the compact skill contract first; change CLI/MCP scope salience only if that treatment fails. VC3 remains optional. | Conditional Filtrace implementation |
 | PP10 adoption | Decide whether and how FastTrace becomes a product dependency; complete required native host evidence or explicitly narrow the claim, and resolve default DIA/native-symbol distribution. | Validation and product decision |
@@ -105,7 +109,7 @@ gates.
 VC4-VC8, VC1, general harness hardening, and speculative parallel implementations
 are outside the current finish line unless a required scenario promotes them.
 
-### EP1 natural adoption complete; EP2 candidate under review
+### EP1 natural adoption complete; EP2 protocol preparation active
 
 The deterministic fake-host contract fails closed for wrong or missing model,
 skill, tool, result, and usage evidence. Copilot CLI 1.0.82 discovered the owned
@@ -159,8 +163,20 @@ second. The stable mechanism is narrower: every failed skill chat accepted an
 unscoped automatic ranking, while every passing skill chat used
 `--process HotLoopBench`. EP2 therefore changes only the skill's scope acceptance
 contract before considering a CLI change. The candidate retains the exact EP1
-entrypoint and deterministic scope tasks needed to design that comparison. No EP2
-protocol is prepared and no measured session is active or authorized.
+entrypoint and deterministic scope tasks needed to design that comparison.
+
+Post-merge preparation exposed one bounded harness gap: the strict command policy
+could not derive the tasks' `--pid` and `--children` options. A local repair now
+freezes `--children` to the task's canonical value and bounds `--pid` to a positive
+32-bit integer; the focused preflight and full fake-host contract pass. Publish that
+repair before freezing the execution tree.
+
+The separate private draft fixes 12 balanced pairs / 24 counted conversations,
+exact old/new skill identities, machine-derived effective-scope evidence, arm-masked
+answer grading, zero behavioral retries, replacement only before model exposure and
+zero charge, accounting, decision rules, and a matching artifact schema/validator.
+It remains unfrozen and unauthorized until the evaluator-support revision is merged
+and the final checkpoint is reviewed. No measured session is active or authorized.
 
 ---
 
@@ -1423,7 +1439,8 @@ selected contracts; active changes must not silently reopen them.
 ## Current routing
 
 Follow the priorities and remaining-outcomes tables on this page. As of the
-2026-09-17 checkpoint, no measured execution is active. Finish review and merge of
-the EP2 skill-only candidate, then prepare its execution protocol as a separate
-change. Do not start a broad FastTrace sweep, general harness campaign, SC10, VC3,
-MCP arm, full-loop case, or CLI scope change in parallel.
+2026-09-19 checkpoint, no measured execution is active. Review and publish the
+bounded evaluator-support repair, then freeze its exact execution tree and the
+already reviewed private EP2 artifacts before asking separately for host-session
+authorization. Do not start a broad FastTrace sweep, general harness campaign,
+SC10, VC3, MCP arm, full-loop case, or CLI scope change in parallel.
