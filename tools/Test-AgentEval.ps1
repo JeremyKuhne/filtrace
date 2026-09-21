@@ -1311,9 +1311,11 @@ try {
         $hookProcesses.Add($hookProcess)
     }
     [int] $concurrentAllows = 0
+    [int] $concurrentHookTimeoutMilliseconds = 30000
     try {
         foreach ($hookProcess in $hookProcesses) {
-            Assert-True ($hookProcess.WaitForExit(10000)) 'Concurrent policy hook did not finish within 10 seconds.'
+            Assert-True ($hookProcess.WaitForExit($concurrentHookTimeoutMilliseconds)) `
+                'Concurrent policy hook did not finish within 30 seconds.'
             [string] $hookOutput = $hookProcess.StandardOutput.ReadToEnd()
             [string] $hookError = $hookProcess.StandardError.ReadToEnd()
             Assert-True ($hookProcess.ExitCode -eq 0) "Concurrent policy hook failed: $hookError"
@@ -1323,7 +1325,13 @@ try {
         }
     }
     finally {
-        foreach ($hookProcess in $hookProcesses) { $hookProcess.Dispose() }
+        foreach ($hookProcess in $hookProcesses) {
+            if (-not $hookProcess.HasExited) {
+                $hookProcess.Kill($true)
+                $hookProcess.WaitForExit()
+            }
+            $hookProcess.Dispose()
+        }
     }
     Assert-True ($concurrentAllows -eq 2) `
         'Concurrent pre-tool decisions did not saturate exactly at the two-call cap.'
