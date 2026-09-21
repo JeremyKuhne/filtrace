@@ -9,6 +9,7 @@ queues.
 | --- | --- |
 | [design.md](design.md) | Principles, goals, non-goals, and the measures of success every change is judged against. |
 | [roadmap.md](roadmap.md) | Public source of truth for Filtrace priorities, completion status, and conditional backlog. |
+| [primary-plan-closeout.md](primary-plan-closeout.md) | Final PP12 decision, measured capture-to-verification path, agent results, interface choices, and unsupported boundaries. |
 | [competitive-analysis.md](competitive-analysis.md) | How filtrace differs from other .NET performance tools, and what to learn from each. |
 | [parallelism-opportunities.md](parallelism-opportunities.md) | Executable BenchmarkDotNet and CLI self-profiling detail for PP02/PP08 Track D experiments. |
 | [source-build.md](source-build.md) | Explicit build-only FastTrace source integration and Native AOT commands. |

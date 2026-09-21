@@ -5,17 +5,13 @@ schedule and completion status. Cross-repository coordination may reorder work, 
 the change must be reflected here before it makes a Filtrace item active. Private
 coordination records are supplemental evidence, not required to interpret this plan.
 
-**Status:** EP1 natural-adoption measurement is complete. No measured execution is
-active. PR #136 merged the compact named-process scope-contract candidate,
-deterministic scope tasks, and hash-attested skill-entrypoint selector. EP2 protocol
-preparation produced a private draft protocol and artifact validator. That review
-found the strict host policy did not yet admit the tasks' bounded `--pid` and
-`--children` options; the local repair passes the evaluator contract but must be
-reviewed and published before the execution tree can be frozen. No measured session
-is authorized.
+**Status:** PP12 is closed locally. EP1, the stopped EP2 v1 run, and the separately
+authorized complete-answer follow-up are fully dispositioned. No measured execution
+is active, no EP2 rerun or full-development-loop comparison is scheduled, and no
+CLI/MCP scope-salience change follows from this result.
 
-**Last verified:** 2026-09-19 against merged Filtrace commit `18e4f28c` and the
-completed EP1 evidence.
+**Last verified:** 2026-09-21 against merged Filtrace commit `121f3c2`, the frozen
+EP2 evidence, and the [primary-plan closeout](primary-plan-closeout.md).
 
 Completed sections remain only where their measured decisions constrain future
 work. Git history and release tags record what landed; durable lessons live in
@@ -63,6 +59,12 @@ true.
   used `--process HotLoopBench`; all five failing skill chats used an unscoped
   ranking. Strong time/order variation and one repeated task make this a mechanism
   to test, not a winner claim.
+- **EP2 found no answer-quality advantage on its bounded tasks.** EP2 v1 remains
+  inconclusive because it stopped after a post-exposure treatment-integrity failure.
+  A separately authorized completion filled only the five unrun answer slots. Both
+  skill variants passed 12/12 answers with zero false confidence and 12 paired ties;
+  treatment delivery was verified for 12/12 baseline and 11/12 candidate answers.
+  This is descriptive completion, not a recovered efficacy experiment.
 - **Two FastTrace existing-API sweeps are complete.** FastTrace PR #298 retained
   GC reconstruction and classic replay improvements while preserving rejected and
   weakly attributed experiments. Broad API optimization is no longer the active
@@ -79,37 +81,36 @@ true.
 | --- | --- | --- |
 | Done | VN0-VN4, VC2, SC8, SC11, SC13, LT1, EP1 preflight and natural-adoption measurement | The output contract and CLI/MCP surfaces are selected; point-in-time snapshots, capture acceptance, ancestry coverage, command provenance, decisive-query replay, repository-local activation, bounded evaluator preflight, and the first natural-adoption comparison are complete. |
 | Done | EP2 scope-contract candidate | PR #136 merged the compact skill rule, exact EP1 baseline entrypoint, hash-attested selector, and two deterministic scope tasks without changing CLI behavior or frozen EP1 task 23. |
-| Current checkpoint | EP2 evaluator-support review and protocol freeze; no measured execution | Publish the bounded `--pid` / `--children` strict-policy repair, then bind its exact tree with the old/new skill inputs, tasks, host/model policy, balanced 12-pair order, machine-plus-answer grading, accounting, and stop rules in the separately reviewed private protocol. This step starts no host session. |
-| Next only with explicit authorization | EP2 scope-contract comparison | Run only the separately reviewed, hash-frozen protocol. Report descriptive evidence and stop without automatic routing. |
-| Later only after an accepted result and separate authorization | CLI scope salience, EP1 full-loop case, PP02 evidence gaps, PP10 adoption | Change CLI/MCP output only if the skill treatment does not reliably reject automatic scope for a named-process question. Any full-loop or broader adoption work remains a later decision. |
+| Done | EP2 evaluator support and bounded answer comparison | PR #137 merged the strict `--pid` / `--children` policy. EP2 v1 stopped inconclusive; the separate complete-answer corpus tied 12/12 to 12/12 with zero false confidence. No rerun or candidate-effect claim follows. |
+| Done | PP12 assessment and closeout | The replacement assessment accepts or narrows S00-S10 and declines the general S11 lower-effort claim. The [closeout overview](primary-plan-closeout.md) records the measured workflow, interface choices, limitations, and evidence bindings. |
+| Closed by scope decision | Full-loop efficacy comparison and broader FastTrace adoption | Two shipped profile-guided improvements establish the bounded local development loop. They do not prove lower total agent effort. FastTrace remains a source-integrated x64 candidate, not the default package dependency. |
 | Conditional | VC3, SC9, SC12, VN5 | Evaluate only against the named public scenario and gate recorded here; these are not the current default implementation queue. |
-| Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the remaining-outcomes table below; production implementation follows only for a kept candidate. |
+| Later or outside the finish line | VC4-VC8, general harness hardening, speculative LP production implementations | Capability and harness work remains demand- or dependency-gated. PP08 measurement and dispositions stay in the final-disposition table below; production implementation follows only for a kept candidate. |
 | Dependency opportunities | TE-P1..TE-P5 | First demonstrate a Filtrace scenario, material cost, and compatible ownership/lifetime contract against the selected dependency. They are not Filtrace-only changes and do not justify speculative upstream work. |
 | Backlog | VC1 ([issue #92](https://github.com/JeremyKuhne/filtrace/issues/92)) | DATAS applies only to modern server-GC workloads; retain the design without scheduling it ahead of broader capabilities. |
 
 VN3 retained the current MCP surface. New capabilities extend a compatible existing
 operation unless a measured task demonstrates that a standalone tool is better.
 
-### What remains before primary-plan closeout
+### Final primary-plan disposition
 
-This is the public outcome list, not a second execution order. The priorities table
-above decides which row is active; any cross-repository scheduling change must update
-it. [design.md](design.md#measures-of-success) owns Filtrace's standing product
-gates.
+This table closes the coordinated plan; it is not an execution queue. Filtrace's
+standing product gates in [design.md](design.md#measures-of-success) continue to
+apply to future independently motivated changes.
 
-| Area | Remaining outcome | Kind |
+| Area | Final disposition | Boundary |
 | --- | --- | --- |
-| Next authorized outcome | After the post-merge protocol is reviewed and frozen, compare the exact EP1 skill against the compact named-process scope contract with the same CLI, host, model, and non-skill policy. Primary outcomes are explicit scope selection and preservation; report raw evidence and stop without automatic routing. | Agent workflow evidence |
-| PP02 / Track D evidence | No work is active. Add provider-rich, negative-control, repeated-query, disposal/eviction, or bounded-concurrency evidence only when a separately authorized comparison needs it. | Harness and evidence |
-| PP09 workflow | EP1 reproduced one routing failure: agents accepted automatic process scope despite a named-process question. Test the compact skill contract first; change CLI/MCP scope salience only if that treatment fails. VC3 remains optional. | Conditional Filtrace implementation |
-| PP10 adoption | Decide whether and how FastTrace becomes a product dependency; complete required native host evidence or explicitly narrow the claim, and resolve default DIA/native-symbol distribution. | Validation and product decision |
-| PP11 efficacy | A full development-loop case requires an accepted ready-capture result plus a separate protocol and authorization. Do not revive the five-arm evaluator matrix first. | End-to-end evidence |
-| PP12 closeout | Finish the replacement assessment, Filtrace executive overview, scenario disposition, and closeout record from retained evidence. | Documentation and decision |
+| Agent workflow | EP1 is directional and order-sensitive; EP2 v1 is inconclusive; the complete answers show no observed quality advantage. | Keep the compact guidance without an efficacy claim. Do not rerun or change CLI/MCP scope salience from this evidence. |
+| PP02 / Track D | Closed at the evidence needed for this decision. | Provider-rich, disposal, concurrency, or exact-allocation work requires a new scenario; it is not closeout debt. |
+| PP09 workflow | Explicit named-process scope is the retained operating contract. | Future workflow changes require a reproduced failure against the current contract. |
+| PP10 adoption | FastTrace is source-ready for tested Windows x64 and Linux x64 workflows. TraceEvent 3.2.6 remains the package-backed default. | ARM64/macOS integrated execution, package adoption, and default DIA distribution remain unverified or separately gated. |
+| PP11 efficacy | Closed by scope decision. | Two shipped improvement loops do not establish lower total agent effort; S11 is declined as a general claim. |
+| PP12 closeout | Complete locally. | The replacement assessment and [executive closeout](primary-plan-closeout.md) retain losses, unsupported boundaries, reproducibility, and interface choices. Publication is separate. |
 
 VC4-VC8, VC1, general harness hardening, and speculative parallel implementations
 are outside the current finish line unless a required scenario promotes them.
 
-### EP1 natural adoption complete; EP2 protocol preparation active
+### EP1 and EP2 closeout
 
 The deterministic fake-host contract fails closed for wrong or missing model,
 skill, tool, result, and usage evidence. Copilot CLI 1.0.82 discovered the owned
@@ -157,26 +158,30 @@ against 10,505 for CLI-only. Both counted arms consumed 10 host credits; three
 infrastructure-invalid attempts consumed three additional credits outside the
 behavioral denominator.
 
-The result is directional. First-position chats passed 2/10 versus 6/10 in second
-position, and the skill moved from 0/5 strict passes in the first half to 5/5 in the
-second. The stable mechanism is narrower: every failed skill chat accepted an
-unscoped automatic ranking, while every passing skill chat used
-`--process HotLoopBench`. EP2 therefore changes only the skill's scope acceptance
-contract before considering a CLI change. The candidate retains the exact EP1
-entrypoint and deterministic scope tasks needed to design that comparison.
+The EP1 result is directional. First-position chats passed 2/10 versus 6/10 in
+second position, and the skill moved from 0/5 strict passes in the first half to
+5/5 in the second. The stable mechanism is narrower: every failed skill chat
+accepted an unscoped automatic ranking, while every passing skill chat used
+`--process HotLoopBench`.
 
-Post-merge preparation exposed one bounded harness gap: the strict command policy
-could not derive the tasks' `--pid` and `--children` options. A local repair now
-freezes `--children` to the task's canonical value and bounds `--pid` to a positive
-32-bit integer; the focused preflight and full fake-host contract pass. Publish that
-repair before freezing the execution tree.
+PR #136 retained the exact EP1 entrypoint and added the compact scope contract,
+hash-attested selector, and deterministic tasks. PR #137 merged the bounded strict
+policy for their `--pid` and `--children` arguments. EP2 v1 then froze 12 balanced
+pairs, exact source and binary identities, arm-masked answer grading, accounting,
+replacement rules, and stop conditions.
 
-The separate private draft fixes 12 balanced pairs / 24 counted conversations,
-exact old/new skill identities, machine-derived effective-scope evidence, arm-masked
-answer grading, zero behavioral retries, replacement only before model exposure and
-zero charge, accounting, decision rules, and a matching artifact schema/validator.
-It remains unfrozen and unauthorized until the evaluator-support revision is merged
-and the final checkpoint is reviewed. No measured session is active or authorized.
+The run stopped during pair 10 first after 19 model-exposed sessions. Eighteen
+prior sessions satisfied the evidence contract. The candidate stop-point attempt
+consumed one credit but emitted no skill inventory, and its skill-tool call failed,
+so treatment delivery could not be established. Post-exposure replacement was
+prohibited. EP2 v1 therefore remains inconclusive.
+
+Under separate authorization, only the five previously unrun answer slots were
+collected. Randomized arm-blinded grading of all 24 answers produced 12/12 strict
+passes per variant, zero false-confidence cases, and 12 pair ties. Baseline treatment
+delivery was verified 12/12; candidate delivery was 11/12 because the failed attempt
+remains unverified. This completes the descriptive answer set without reopening
+EP2 v1. No rerun, CLI/MCP scope change, or full-loop comparison is selected.
 
 ---
 
@@ -1438,9 +1443,9 @@ selected contracts; active changes must not silently reopen them.
 
 ## Current routing
 
-Follow the priorities and remaining-outcomes tables on this page. As of the
-2026-09-19 checkpoint, no measured execution is active. Review and publish the
-bounded evaluator-support repair, then freeze its exact execution tree and the
-already reviewed private EP2 artifacts before asking separately for host-session
-authorization. Do not start a broad FastTrace sweep, general harness campaign,
-SC10, VC3, MCP arm, full-loop case, or CLI scope change in parallel.
+The coordinated primary plan is closed locally. No measured execution, publication,
+or next numbered task is active. Preserve the EP2 stop, descriptive answer result,
+source-integrated x64 adoption boundary, and conditional backlog. A future change
+starts from a new reproduced product question and separate authorization; it does
+not resume EP2, a full-loop comparison, broad FastTrace work, or CLI/MCP scope work
+by implication.

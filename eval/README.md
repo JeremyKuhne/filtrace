@@ -6,11 +6,10 @@ a live agent arm that scores a real model locally.
 
 The deterministic gate remains active. The public
 [Filtrace roadmap](../docs/roadmap.md) records EP1 natural-adoption measurement
-complete and the EP2 scope-contract candidate merged; post-merge protocol preparation
-has a reviewed private draft but exposed one strict-policy support gap for the new
-tasks. The local bounded `--pid` / `--children` repair passes this harness's contract;
-its execution tree still must be reviewed, published, and frozen. No measured
-execution is authorized. This page documents the harness and evidence boundary
+complete, EP2 v1 stopped inconclusive, and the separately authorized complete-answer
+set graded. Both EP2 variants passed 12/12 answers with zero false confidence, but
+candidate treatment delivery was verified in only 11/12 answers. No measured
+execution or rerun is active. This page documents the harness and evidence boundary
 rather than creating a parallel implementation queue.
 
 ## Deterministic gate (shipped, runs in CI)
@@ -326,18 +325,23 @@ were 5/10 with the skill and 3/10 with CLI-only; false-confidence scope errors w
 with 13 versus 12 successful analysis calls and 10 host credits in each counted arm.
 Strong time and position patterns prevent a winner claim.
 
-The command evidence isolates the next mechanism: all five failed skill chats used
-an unscoped `rank` and accepted `context.scope.processMode: "automatic"`; all five
-passing skill chats used `--process HotLoopBench`. The current follow-up therefore
-changes only the skill's named-process acceptance contract and adds two deterministic
-tasks without changing frozen EP1 task 23: [named-process root scope](tasks/28-named-process-self-scope.json)
+The command evidence isolated the mechanism tested by the completed follow-up: all
+five failed skill chats used an unscoped `rank` and accepted
+`context.scope.processMode: "automatic"`; all five passing skill chats used
+`--process HotLoopBench`. The follow-up changed only the skill's named-process
+acceptance contract and added two deterministic tasks without changing frozen EP1
+task 23: [named-process root scope](tasks/28-named-process-self-scope.json)
 and [exact-PID tree scope](tasks/29-exact-pid-tree-scope.json). The evaluator's
 `-SkillEntrypointPath` can substitute the retained EP1 `SKILL.md` at the same project
 discovery path while every related skill file remains shared and hash-attested.
-The candidate PR did not freeze an EP2 protocol. Post-merge preparation now has a
-reviewed private draft with a balanced sample, grading records, and matching artifact
-validator. It remains deliberately unfrozen until the bounded strict-policy repair
-is published, and no EP2 measured session is active or authorized.
+PRs #136 and #137 subsequently merged the candidate and bounded strict-policy
+support. EP2 v1 froze 12 balanced pairs but stopped during pair 10 first after a
+post-exposure treatment-integrity failure; it remains inconclusive. A separate
+authorization collected only the five unrun answers. Across all 24 answers, both
+variants passed 12/12 with zero false confidence and 12 paired ties. Treatment
+delivery was verified 12/12 for the baseline and 11/12 for the candidate. This is
+descriptive answer completion, not a recovered efficacy experiment, and no rerun is
+scheduled.
 
 For the frozen EP1 ready-capture record schema, after each grade is serialized and hashed, run
 `eval/Test-ReadyCaptureRecords.ps1` against the private artifact directory. It
@@ -516,9 +520,9 @@ Live success still uses expected substrings rather than a general semantic grade
 The MCP arm requires its expected MCP tools; strict CLI arms require matched local
 apphost evidence; cli-skill also requires verified project discovery, invocation,
 and injected context. These checks reject unsupported provenance but do not establish
-that the skill caused a better answer. EP1 is complete; the next prepared comparison
-candidate isolates the named-process scope contract. Its measured protocol still
-requires separate preparation, review, and authorization.
+that the skill caused a better answer. EP1 and the bounded EP2 follow-up are complete.
+Future live evaluation requires a new question and authorization; it does not resume
+the named-process comparison.
 
 ### Example local run
 
