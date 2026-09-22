@@ -11,7 +11,7 @@ queues.
 | [roadmap.md](roadmap.md) | Public source of truth for Filtrace priorities, completion status, and conditional backlog. |
 | [primary-plan-closeout.md](primary-plan-closeout.md) | Final PP12 decision, measured capture-to-verification path, agent results, interface choices, and unsupported boundaries. |
 | [competitive-analysis.md](competitive-analysis.md) | How filtrace differs from other .NET performance tools, and what to learn from each. |
-| [parallelism-opportunities.md](parallelism-opportunities.md) | Executable BenchmarkDotNet and CLI self-profiling detail for PP02/PP08 Track D experiments. |
+| [parallelism-opportunities.md](parallelism-opportunities.md) | Historical PP02/PP08 Track D design and reusable BenchmarkDotNet/CLI self-profiling procedure; not an active queue. |
 | [source-build.md](source-build.md) | Explicit build-only FastTrace source integration and Native AOT commands. |
 | [local-testing-redesign.md](local-testing-redesign.md) | Completed design and recovery record for repository-scoped local checkout activation. |
 | [stack-traversal-experiment.md](stack-traversal-experiment.md) | Measurement record for the indexed stack traversal retained in PR #126. |

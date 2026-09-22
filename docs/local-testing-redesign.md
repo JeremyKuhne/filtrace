@@ -531,11 +531,11 @@ The replacement shipped after these gates held for its supported primary platfor
 
 These can return only with a concrete user scenario and dedicated threat model.
 
-## Validation backlog
+## Conditional validation boundary
 
-- Run the local-testing contract on Linux ARM64 and macOS as non-blocking
-  follow-up validation. Address concrete failures without treating exhaustive
-  platform coverage as a V1 release gate.
+Linux ARM64 and macOS validation was not required for V1 or PP12. A future platform
+claim may run the local-testing contract there and address concrete failures without
+treating exhaustive platform coverage as a prerequisite.
 
 ## Deferred compatibility decision
 

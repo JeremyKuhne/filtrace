@@ -1,7 +1,7 @@
 # FastTrace Source Build
 
 Filtrace uses `Microsoft.Diagnostics.Tracing.TraceEvent` 3.2.6 by default. For
-provisional FastTrace evaluation, pass an explicit absolute FastTrace checkout path:
+bounded FastTrace source evaluation, pass an explicit absolute FastTrace checkout path:
 
 ```pwsh
 dotnet build
@@ -14,10 +14,10 @@ Use separate checkouts or `-p:ArtifactsPath="<owned build directory>"` when reta
 both engines' outputs. Changing engine selection requires a restore; do not reuse
 `--no-restore` assets from the other selection.
 Use FastTrace `73b32fe690491bc3d3ba05080ae2d5eb59ba01cb` only to reproduce the
-provisional replacement-assessment baseline. New primary-plan experiments must pin
-the coordinated FastTrace revision recorded by that experiment rather than silently
-reusing this historical hash. This namespace-adjusted source integration is not a
-binary assembly-identity drop-in.
+historical replacement-assessment baseline. A future independently authorized
+source-build experiment must pin its selected FastTrace revision rather than
+silently reusing this historical hash. This namespace-adjusted source integration
+is not a binary assembly-identity drop-in.
 
 To publish an owned native CLI output on a native x64 host, first install the
 [Native AOT prerequisites](https://learn.microsoft.com/dotnet/core/deploying/native-aot/#prerequisites)
@@ -101,4 +101,5 @@ The six-query script checks project publishes, not Release configuration propaga
 through a solution. That behavior was separately validated by matching the deployed
 FastTrace DLL to the Release output and distinguishing it from Debug. Automated
 configuration assertions, dirty-tree provenance, and process deadlines are deferred
-in the primary plan's harness-hardening backlog; these limits are not claimed solved.
+in the historical harness-hardening backlog. They are documented limits, not active
+primary-plan work.

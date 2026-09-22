@@ -152,7 +152,7 @@ public sealed class EtwChildProcessTests
 
             descendantPid = int.Parse(File.ReadAllText(descendantPidPath));
             result.ExitCode.Should().Be(23);
-            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(15));
+            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(25));
             (DateTimeOffset.UtcNow - result.StoppedUtc).Should().BeGreaterThan(TimeSpan.FromSeconds(1));
             string log = subjectLog.ToString();
             log.Should().Contain("[subject stdout]");

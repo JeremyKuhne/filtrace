@@ -1,19 +1,19 @@
 # Track D performance investigation plan
 
-**Status:** Subordinate PP02/PP08 measurement plan. Frame-label reuse shipped in
-PR #124 and indexed traversal shipped in PR #126. The
+**Status:** Historical PP02/PP08 measurement plan, closed by the PP12 scope decision.
+Frame-label reuse shipped in PR #124 and indexed traversal shipped in PR #126. The
 [indexed traversal experiment](stack-traversal-experiment.md) records the second
-measured consumer change. Phase 0 final reconstruction and the broader LP
-dispositions remain open, but they are not the immediate implementation queue.
+measured consumer change. The original Phase 0 reconstruction and LP disposition
+criteria were not completed and are not current work.
+All imperative language and exit criteria below preserve the original experiment
+design; reuse requires a new measured scenario and separate authorization.
 
-**Execution update, 2026-09-13:** [roadmap.md](roadmap.md) records the coordinated
+**Historical execution update, 2026-09-13:** [roadmap.md](roadmap.md) recorded the coordinated
 EP1 priority: first prove the CLI-plus-skill and CLI-only evaluation contract, then
-run the bounded ready-capture comparison. Use this harness only when EP1 or a later
-accepted scenario selects a measurement need. LP-1 through LP-5 remain PP08
-hypotheses that require measured kept, rejected, or explicitly blocked dispositions,
-not mandated parallel implementations. An individual experiment may be inconclusive,
-but that is not a terminal Track D state. General harness hardening and full Track D
-Phase 0 closeout are not prerequisites for EP1.
+run the bounded ready-capture comparison. PP12 superseded that queue. LP-1 through
+LP-5 remain reusable hypotheses, not mandated parallel implementations or closeout
+debt. General harness hardening and full Track D Phase 0 closure were not required
+for the completed primary plan.
 
 This plan turns the performance and parallelism hypotheses in
 [roadmap.md](roadmap.md#track-d---performance-and-parallelism) into repeatable
@@ -31,20 +31,21 @@ Neither substitutes for the other. A microbenchmark win that does not reduce a C
 scenario is not a product win; a faster CLI run whose targeted frame is unchanged is
 noise or an unrelated effect.
 
-The outcomes below define the evidence needed for an LP disposition. Their original
+The historical outcomes below defined the evidence needed for an LP disposition. Their original
 numeric targets are retained as historical screening hypotheses, not current
 completion floors. The primary plan imposes no universal minimum improvement:
 equivalent work, semantic parity, absolute measurements, uncertainty, memory/GC
 effects, and attribution decide whether an experiment is kept, rejected, or
-inconclusive. An inconclusive experiment records evidence and a next action but does
-not close its LP item.
+inconclusive if a future scenario reactivates one.
 
 ## Outcomes
 
-Track D is complete when LP-1 through LP-5 each have a measured kept, rejected, or
-explicitly blocked disposition with reconstructable evidence. LP-5 remains blocked
+The original plan would have considered Track D complete when LP-1 through LP-5 each
+had a measured kept, rejected, or explicitly blocked disposition with reconstructable
+evidence. LP-5 was blocked
 until its thread-safety prerequisite is met; after that, a neutral production
-experiment may close it as rejected. Each retained change must satisfy all of these:
+experiment could close it as rejected. These criteria are inactive unless a new
+scenario selects an LP item. Each retained change would satisfy all of these:
 
 - deterministic output and numeric parity are unchanged;
 - the target BenchmarkDotNet row improves outside normal run-to-run noise;
@@ -362,8 +363,9 @@ These requirements are fixed before testing a candidate:
 
 ## Phase 0 - build the measurement harness
 
-Complete this before any production parallelism edit if PP08 schedules one. It does
-not block the active EP1 comparison.
+This was the prerequisite for a production parallelism edit under PP08. PP12 closed
+without selecting such an edit; the material below is reusable only if a new scenario
+reactivates it.
 
 **Phase 0 implementation through 2026-08-04:**
 
@@ -402,10 +404,10 @@ not block the active EP1 comparison.
 
 The 2026-09-06 comparison campaign copied the reviewed corpus into the approved
 primary-plan evidence root and consumed restored bytes in retained comparisons.
-Phase 0 still needs a fresh availability/hash check and a post-merge exact-worktree
-baseline-versus-baseline run using the default job and 25-launch telemetry before
-PP08 treats the harness itself as closed. A dirty-checkout dry smoke is not durable
-acceptance evidence.
+Phase 0 did not receive the fresh availability/hash check and post-merge exact-worktree
+baseline-versus-baseline run required by its original design. PP12 retains that as
+an evidence gap, not a current task. A dirty-checkout dry smoke is not durable
+acceptance evidence for any future reactivation.
 
 ### Benchmark additions
 
@@ -845,9 +847,9 @@ misses its gate, record the rejection in the roadmap/ledger and do not submit th
 losing production code. Any reusable harness improvement must already have landed in
 its own measurement-only PR.
 
-## Final Track D exit
+## Original Track D exit criteria
 
-Track D exits when:
+The historical plan would have exited when:
 
 - the Phase 0 no-op experiment proves reconstruction and neutral comparison;
 - LP-1 through LP-5 each have a benchmark-backed kept/rejected/blocked decision;
