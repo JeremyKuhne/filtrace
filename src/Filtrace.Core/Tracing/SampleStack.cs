@@ -12,6 +12,11 @@ namespace Filtrace.Tracing;
 /// </summary>
 /// <remarks>
 ///  <para>
+///   A normalized source may reuse one immutable instance for multiple equivalent
+///   records. List position and record count identify observations; object reference
+///   identity does not.
+///  </para>
+///  <para>
 ///   Frame strings are stored in their full, unshortened form (typically
 ///   <c>module!Namespace.Type.Method(args)</c>). The aggregator shortens them
 ///   on demand so root-frame scoping can still match against the full text.

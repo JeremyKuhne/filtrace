@@ -413,6 +413,93 @@ public sealed class TraceLoaderTests
     }
 
     [TestMethod]
+    [DataRow(15, true)]
+    [DataRow(16, false)]
+    public void CanCacheSampleVariant_BoundsRetainedSampleObjects(int cachedVariantCount, bool expected)
+    {
+        Readers.TraceLogReader.CanCacheSampleVariant(cachedVariantCount)
+            .Should().Be(expected);
+    }
+
+    [TestMethod]
+    public void CachedSampleStack_RetainsOnlyFirstSixteenSampleVariants()
+    {
+        Readers.TraceLogReader.CachedSampleStack cached = new(
+            Array.AsReadOnly(["frame"]),
+            frameLocations: null,
+            resolvedFrameCount: 1);
+
+        for (int index = 0; index < 16; index++)
+        {
+            SampleStack first = cached.GetOrCreateSample(1.0, index, index.ToString(), $"process-{index}");
+            SampleStack second = cached.GetOrCreateSample(1.0, index, index.ToString(), $"process-{index}");
+            second.Should().BeSameAs(first);
+        }
+
+        SampleStack overflow = cached.GetOrCreateSample(1.0, 16, "16", "process-16");
+        cached.GetOrCreateSample(1.0, 16, "16", "process-16").Should().NotBeSameAs(overflow);
+        cached.CachedSampleVariantCount.Should().Be(16);
+    }
+
+    [TestMethod]
+    public void GetInitialSampleCapacity_UnfilteredEventPipeRead_UsesPersistedStackCount()
+    {
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(
+            FixturePath("threadpool.nettrace"),
+            out _);
+
+        int capacity = Readers.TraceLogReader.GetInitialSampleCapacity(
+            traceLog,
+            TraceFormat.NetTrace,
+            includesAllProcesses: true,
+            activityScoped: false,
+            timeScoped: false);
+
+        capacity.Should().Be(11587);
+    }
+
+    [TestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(true, true, false)]
+    [DataRow(true, false, true)]
+    public void GetInitialSampleCapacity_ScopedRead_DoesNotPreallocate(
+        bool includesAllProcesses,
+        bool activityScoped,
+        bool timeScoped)
+    {
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(
+            FixturePath("threadpool.nettrace"),
+            out _);
+
+        int capacity = Readers.TraceLogReader.GetInitialSampleCapacity(
+            traceLog,
+            TraceFormat.NetTrace,
+            includesAllProcesses,
+            activityScoped,
+            timeScoped);
+
+        capacity.Should().Be(0);
+    }
+
+    [TestMethod]
+    [DataRow(-1, 1, 1, 0)]
+    [DataRow(0, 0, 0, 0)]
+    [DataRow(2, 1, 2, 0)]
+    [DataRow(2, 2, 1, 0)]
+    [DataRow(1_999_999, 1_999_999, 1_999_999, 1_999_999)]
+    [DataRow(2_000_000, 2_000_000, 2_000_000, 2_000_000)]
+    [DataRow(int.MaxValue, int.MaxValue, int.MaxValue, 2_000_000)]
+    public void BoundInitialSampleCapacity_ClampsPlausiblePersistedCounts(
+        int sampleCount,
+        int eventTypeCount,
+        int eventCount,
+        int expected)
+    {
+        Readers.TraceLogReader.BoundInitialSampleCapacity(sampleCount, eventTypeCount, eventCount)
+            .Should().Be(expected);
+    }
+
+    [TestMethod]
     public void Load_HighReuseCpuTrace_ReusesReadOnlyPayloadsAndPreservesSourceCounts()
     {
         string path = FixturePath("threadpool.nettrace");
@@ -421,22 +508,44 @@ public sealed class TraceLoaderTests
         Readers.TraceReadResult result = reader.Read(path, AppContext.BaseDirectory);
 
         result.Samples.Should().HaveCount(11587);
+        result.Samples.Should().BeOfType<List<SampleStack>>();
+        ((List<SampleStack>)result.Samples).Capacity.Should().Be(11587);
         result.Samples.All(HasCompletePayload).Should().BeTrue();
 
         Dictionary<IReadOnlyList<string>, SampleStack> observed = new(ReferenceEqualityComparer.Instance);
+        Dictionary<(IReadOnlyList<string>, double, string, string), SampleStack> sampleObjects = [];
         SampleStack? first = null;
         SampleStack? repeated = null;
+        bool observedRepeatedSample = false;
         foreach (SampleStack sample in result.Samples)
         {
+            (IReadOnlyList<string>, double, string, string) key = (
+                sample.Frames,
+                sample.Weight,
+                sample.Thread,
+                sample.Process);
+
+            if (sampleObjects.TryGetValue(key, out SampleStack? existingSample))
+            {
+                sample.Should().BeSameAs(existingSample);
+                observedRepeatedSample = true;
+            }
+            else
+            {
+                sampleObjects.Add(key, sample);
+            }
+
             if (observed.TryGetValue(sample.Frames, out first))
             {
                 repeated = sample;
-                break;
             }
-
-            observed.Add(sample.Frames, sample);
+            else
+            {
+                observed.Add(sample.Frames, sample);
+            }
         }
 
+        observedRepeatedSample.Should().BeTrue();
         repeated.Should().NotBeNull();
         repeated!.Frames.Should().BeSameAs(first!.Frames);
         repeated.FrameLocations.Should().BeSameAs(first.FrameLocations);

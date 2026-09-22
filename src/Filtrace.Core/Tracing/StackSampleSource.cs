@@ -47,7 +47,8 @@ public sealed class StackSampleSource
     public MetricInfo Metric { get; }
 
     /// <summary>
-    ///  The normalized weighted sample stacks.
+    ///  The normalized weighted sample-stack records. Equivalent records may reference
+    ///  the same immutable <see cref="SampleStack"/> instance.
     /// </summary>
     public IReadOnlyList<SampleStack> Samples { get; }
 

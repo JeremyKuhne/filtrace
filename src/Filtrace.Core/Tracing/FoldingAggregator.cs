@@ -54,6 +54,7 @@ public sealed partial class FoldingAggregator
     private const int CallerRowScaffoldTokens = 16;
     private const int LineRowScaffoldTokens = 19;
     private const int HeatLineScaffoldTokens = 27;
+    private const int MaximumFoldClassificationCacheEntries = 4096;
 
     private readonly StackSampleSource _source;
     private readonly IReadOnlyList<SampleStack> _samples;
@@ -177,6 +178,7 @@ public sealed partial class FoldingAggregator
     public RankingResult SelfTime(string rootFrame, IReadOnlyList<string> foldPatterns, int top)
     {
         Regex[] fold = FrameNames.CompileFoldPatterns(foldPatterns);
+        Dictionary<string, (string ShortName, bool IsFolded)> foldClassifications = new(StringComparer.Ordinal);
         Dictionary<string, double> selfTime = new(StringComparer.Ordinal);
         double total = 0.0;
         int contributingRecordCount = 0;
@@ -194,12 +196,24 @@ public sealed partial class FoldingAggregator
             contributingRecordCount++;
 
             int leafIdx = frames.Count - 1;
-            while (leafIdx > startIdx && FrameNames.IsFolded(ShortOf(frames[leafIdx]), fold))
+            string? leaf = null;
+            while (leafIdx > startIdx)
             {
+                (string ShortName, bool IsFolded) classification = GetFoldClassification(
+                    frames[leafIdx],
+                    fold,
+                    foldClassifications);
+
+                if (!classification.IsFolded)
+                {
+                    leaf = classification.ShortName;
+                    break;
+                }
+
                 leafIdx--;
             }
 
-            string leaf = ShortOf(frames[leafIdx]);
+            leaf ??= ShortOf(frames[leafIdx]);
             selfTime.TryGetValue(leaf, out double current);
             selfTime[leaf] = current + sample.Weight;
         }
@@ -209,6 +223,26 @@ public sealed partial class FoldingAggregator
             rootFrame,
             RankRows(selfTime, total, top),
             AvailableRecordCount(contributingRecordCount));
+    }
+
+    private (string ShortName, bool IsFolded) GetFoldClassification(
+        string frame,
+        Regex[] foldPatterns,
+        Dictionary<string, (string ShortName, bool IsFolded)> cache)
+    {
+        if (cache.TryGetValue(frame, out (string ShortName, bool IsFolded) classification))
+        {
+            return classification;
+        }
+
+        string shortName = ShortOf(frame);
+        classification = (shortName, FrameNames.IsFolded(shortName, foldPatterns));
+        if (cache.Count < MaximumFoldClassificationCacheEntries)
+        {
+            cache.Add(frame, classification);
+        }
+
+        return classification;
     }
 
     /// <summary>
