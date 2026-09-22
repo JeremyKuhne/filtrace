@@ -95,7 +95,8 @@ it may run analyzer code from a different build. A/B work uses one fixed locally
 built baseline CLI to analyze both arms.
 
 `Filtrace.PerfWorkload` produces parameterized CPU and nested-activity traces for
-the Track D scale corpus. Smoke both modes directly:
+the historical Track D scale corpus. These commands are reusable when a new
+performance question independently selects this harness. Smoke both modes directly:
 
 ```pwsh
 dotnet run -c Release --project benchmarks/Filtrace.PerfWorkload -- cpu --workers 2 --duration-ms 500 --depth 5
@@ -127,10 +128,10 @@ Run a dry no-op reconstruction while iterating on the harness:
   -NoBuild
 ```
 
-This dry smoke checks reconstruction plumbing once; it is not performance
-evidence. Merge the complete measurement harness before choosing a baseline,
+This dry smoke checks reconstruction plumbing once; it is not performance evidence.
+For a newly authorized A/B, freeze one harness revision before choosing a baseline,
 then run fresh baseline and candidate measurements from the same benchmark tree.
-Add fixed-analyzer profiles to a retained A/B run with:
+Add fixed-analyzer profiles to that retained A/B with:
 
 ```pwsh
 $inputCorpusDirectory = 'artifacts/perf-inputs/<corpus-id>'
