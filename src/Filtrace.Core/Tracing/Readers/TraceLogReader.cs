@@ -275,7 +275,17 @@ internal abstract partial class TraceLogReader : ITraceReader
         Dictionary<int, string> threadLabels = [];
         Dictionary<int, ProcessLabelCacheEntry> processLabels = [];
 
-        List<SampleStack> samples = [];
+        bool includesAllProcesses = resolvedScope.ProcessInstanceIndexes is null
+            || resolvedScope.ProcessInstanceIndexes.Count == traceLog.Processes.Count;
+
+        int sampleCapacity = GetInitialSampleCapacity(
+            traceLog,
+            format,
+            includesAllProcesses,
+            activityScoped: activitySamples is not null,
+            timeScoped: window is { IsBounded: true });
+
+        List<SampleStack> samples = new(sampleCapacity);
         long totalFrames = 0;
         long resolvedFrames = 0;
         List<string> leafToRoot = [];
@@ -512,12 +522,12 @@ internal abstract partial class TraceLogReader : ITraceReader
             string process = processEntry?.GetLabel(processName)
                 ?? ProcessLabelCacheEntry.CreateLabel(processId, processName);
 
-            samples.Add(new SampleStack(
-                frames,
-                cpuWeighting?.GetSampleWeight() ?? 1.0,
-                thread,
-                locations,
-                process));
+            double weight = cpuWeighting?.GetSampleWeight() ?? 1.0;
+            SampleStack sample = cachedStack is null
+                ? new SampleStack(frames, weight, thread, locations, process)
+                : cachedStack.GetOrCreateSample(weight, threadId, thread, process);
+
+            samples.Add(sample);
 
             if (stackCacheProbe is not null
                 && ++stackCacheProbeSamples == StackCacheProbeSampleCount)

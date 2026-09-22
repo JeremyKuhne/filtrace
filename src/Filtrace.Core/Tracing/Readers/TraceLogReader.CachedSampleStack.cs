@@ -12,11 +12,13 @@ internal abstract partial class TraceLogReader
     /// <param name="frames">The immutable outermost-first frame names.</param>
     /// <param name="frameLocations">The optional immutable outermost-first source locations.</param>
     /// <param name="resolvedFrameCount">The number of frames whose method name resolved.</param>
-    private sealed class CachedSampleStack(
+    internal sealed class CachedSampleStack(
         IReadOnlyList<string> frames,
         IReadOnlyList<string>? frameLocations,
         int resolvedFrameCount)
     {
+        private Dictionary<(double Weight, int ThreadId, string Process), SampleStack>? _samples;
+
         /// <summary>
         ///  Gets the outermost-first frame names.
         /// </summary>
@@ -38,9 +40,42 @@ internal abstract partial class TraceLogReader
         public int ReusedSampleCount { get; private set; }
 
         /// <summary>
+        ///  Gets the number of retained sample variants.
+        /// </summary>
+        internal int CachedSampleVariantCount => _samples?.Count ?? 0;
+
+        /// <summary>
+        ///  Gets or creates an immutable sample object for one weight, thread, and process combination.
+        /// </summary>
+        /// <param name="weight">The sample weight in the source metric's unit.</param>
+        /// <param name="threadId">The sampled operating-system thread identifier.</param>
+        /// <param name="thread">The canonical rendered thread label.</param>
+        /// <param name="process">The canonical rendered process label.</param>
+        /// <returns>A shared sample while the bounded variant cache has capacity; otherwise a new sample.</returns>
+        public SampleStack GetOrCreateSample(double weight, int threadId, string thread, string process)
+        {
+            _samples ??= [];
+            (double Weight, int ThreadId, string Process) key = (weight, threadId, process);
+            if (_samples.TryGetValue(key, out SampleStack? sample))
+            {
+                return sample;
+            }
+
+            sample = new SampleStack(Frames, weight, thread, FrameLocations, process);
+            if (CanCacheSampleVariant(_samples.Count))
+            {
+                _samples.Add(key, sample);
+            }
+
+            return sample;
+        }
+
+        /// <summary>
         ///  Adds one sample that reused this cached payload after its creation.
         /// </summary>
         public void ObserveReuse() =>
             ReusedSampleCount = ReusedSampleCount == int.MaxValue ? int.MaxValue : ReusedSampleCount + 1;
+
     }
+
 }

@@ -8,6 +8,7 @@ internal abstract partial class TraceLogReader
 {
     private const int StackCacheProbeSampleCount = 512;
     private const int MaximumCachedSampleStacks = 4096;
+    private const int MaximumCachedSampleVariants = 16;
     private const int MaximumCachedFrameIdentities = SourceResolutionTracker.MaxTrackedMethods;
 
     /// <summary>
@@ -29,6 +30,14 @@ internal abstract partial class TraceLogReader
     /// <returns><see langword="true"/> when another index can be tracked.</returns>
     internal static bool CanTrackSampleStack(int cachedStackCount) =>
         cachedStackCount < MaximumCachedSampleStacks;
+
+    /// <summary>
+    ///  Determines whether another sample variant can be retained for one cached stack.
+    /// </summary>
+    /// <param name="cachedVariantCount">The current number of retained variants.</param>
+    /// <returns><see langword="true"/> when another variant can be retained.</returns>
+    internal static bool CanCacheSampleVariant(int cachedVariantCount) =>
+        cachedVariantCount < MaximumCachedSampleVariants;
 
     /// <summary>
     ///  Determines whether another rendered frame identity can be retained for reuse and aggregate accounting.
