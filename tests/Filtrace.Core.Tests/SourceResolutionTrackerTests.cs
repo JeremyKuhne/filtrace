@@ -217,6 +217,65 @@ public sealed class SourceResolutionTrackerTests
     }
 
     [TestMethod]
+    public void ObserveManagedFrameCounts_SaturationPreservesMappedAndUnmappedEvidence()
+    {
+        const int ExpectedMappedFrames = int.MaxValue - 1;
+        const string ExpectedModule = "ModuleA (2147483646/2147483647 mapped)";
+        const string ExpectedMethod = "ModuleA!Run (2147483646/2147483647 mapped)";
+        SourceResolutionTracker tracker = new(symbolsDirectory: null, localSymbolPath: null);
+
+        tracker.ObserveManagedFrameCounts(
+            methodKey: 1,
+            module: null,
+            moduleName: "ModuleA",
+            methodName: "Run",
+            mappedFrames: int.MaxValue,
+            unmappedFrames: 1);
+
+        SourceResolutionInfo source = tracker.CreateInfo();
+
+        source.SampledManagedFrameCount.Should().Be(int.MaxValue);
+        source.MappedManagedFrameCount.Should().Be(ExpectedMappedFrames);
+        source.UnmappedNamedManagedFrameCount.Should().Be(1);
+        source.HighestUnmappedModules.Should().Equal(ExpectedModule);
+        source.HighestUnmappedMethods.Should().Equal(ExpectedMethod);
+    }
+
+    [TestMethod]
+    public void RegisterManagedFrameIdentity_PreservesModuleQuotaOrderUntilCountsFlush()
+    {
+        SourceResolutionTracker tracker = new(symbolsDirectory: null, localSymbolPath: null);
+        for (int index = 0; index < SourceResolutionTracker.MaxTrackedModules; index++)
+        {
+            tracker.RegisterManagedFrameIdentity(
+                index,
+                module: null,
+                $"Early{index}",
+                "Run");
+        }
+
+        tracker.ObserveManagedFrame(
+            SourceResolutionTracker.MaxTrackedModules,
+            module: null,
+            "Late",
+            "Run",
+            sourceMapped: false);
+
+        tracker.ObserveManagedFrameCounts(
+            methodKey: 0,
+            module: null,
+            moduleName: "Early0",
+            methodName: "Run",
+            mappedFrames: 0,
+            unmappedFrames: 5);
+
+        SourceResolutionInfo source = tracker.CreateInfo();
+
+        source.HighestUnmappedModules.Should().ContainSingle("Early0 (0/5 mapped)");
+        source.HighestUnmappedModules.Should().NotContain(static module => module.StartsWith("Late", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void ObserveManagedFrame_TooManyMethods_MakesUniqueCountsUnavailable()
     {
         SourceResolutionTracker tracker = new(symbolsDirectory: null, localSymbolPath: null);
@@ -224,7 +283,7 @@ public sealed class SourceResolutionTrackerTests
         {
             tracker.ObserveManagedFrame(
                 methodKey,
-                    module: null,
+                module: null,
                 "ModuleA",
                 "Run",
                 sourceMapped: false);

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
+
 namespace Filtrace.Tracing;
 
 [TestClass]
@@ -9,6 +11,16 @@ public sealed class TraceLoaderTests
 {
     private static string FixturePath(string name) =>
         Path.Join(AppContext.BaseDirectory, "Fixtures", name);
+
+    private static bool HasCompletePayload(SampleStack sample)
+    {
+        if (sample.Frames.Count == 0 || sample.FrameLocations is null)
+        {
+            return false;
+        }
+
+        return sample.Thread.Length > 0 && sample.Process.Length > 0;
+    }
 
     [TestMethod]
     public void Load_MissingFile_ThrowsFileNotFound()
@@ -246,6 +258,199 @@ public sealed class TraceLoaderTests
         }
 
         observedRepeatedLabel.Should().BeTrue();
+    }
+
+    [TestMethod]
+    [DataRow("activity.nettrace")]
+    [DataRow("threadpool.nettrace")]
+    public void Load_RepeatedCpuSamples_ReusesThreadAndProcessLabels(string fixture)
+    {
+        TraceLoader loader = new();
+        LoadedTrace trace = loader.Load(FixturePath(fixture), TraceMetric.Cpu);
+        Dictionary<string, string> threads = new(StringComparer.Ordinal);
+        Dictionary<string, string> processes = new(StringComparer.Ordinal);
+        bool observedRepeatedThread = false;
+        bool observedRepeatedProcess = false;
+
+        foreach (SampleStack sample in trace.Source.Samples)
+        {
+            if (threads.TryGetValue(sample.Thread, out string? thread))
+            {
+                sample.Thread.Should().BeSameAs(thread);
+                observedRepeatedThread = true;
+            }
+            else
+            {
+                threads.Add(sample.Thread, sample.Thread);
+            }
+
+            if (processes.TryGetValue(sample.Process, out string? process))
+            {
+                sample.Process.Should().BeSameAs(process);
+                observedRepeatedProcess = true;
+            }
+            else
+            {
+                processes.Add(sample.Process, sample.Process);
+            }
+        }
+
+        observedRepeatedThread.Should().BeTrue();
+        observedRepeatedProcess.Should().BeTrue();
+    }
+
+    [TestMethod]
+    [DataRow(4095, true)]
+    [DataRow(4096, false)]
+    public void CanCacheThreadLabel_BoundsRetainedThreadLabels(int cachedLabelCount, bool expected)
+    {
+        Readers.TraceLogReader.CanCacheThreadLabel(cachedLabelCount).Should().Be(expected);
+    }
+
+    [TestMethod]
+    [DataRow(4095, true)]
+    [DataRow(4096, false)]
+    public void CanCacheProcessLabel_BoundsRetainedProcessLabels(int cachedLabelCount, bool expected)
+    {
+        Readers.TraceLogReader.CanCacheProcessLabel(cachedLabelCount).Should().Be(expected);
+    }
+
+    [TestMethod]
+    [DataRow(7, true)]
+    [DataRow(8, false)]
+    public void CanCacheReusedProcessName_BoundsNamesPerProcessId(int cachedNameCount, bool expected)
+    {
+        Readers.ProcessLabelCacheEntry.CanCacheReusedProcessName(cachedNameCount)
+            .Should().Be(expected);
+    }
+
+    [TestMethod]
+    public void ProcessLabelCacheEntry_PreservesPidReuseAndInvariantEdgeLabels()
+    {
+        CultureInfo originalCulture = CultureInfo.CurrentCulture;
+        CultureInfo originalUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("ar-SA");
+            CultureInfo.CurrentUICulture = CultureInfo.CurrentCulture;
+            Readers.ProcessLabelCacheEntry labels = new(42, "first");
+
+            string first = labels.GetLabel("first");
+            string firstAgain = labels.GetLabel("first");
+            string second = labels.GetLabel("second");
+            string secondAgain = labels.GetLabel("second");
+
+            first.Should().Be("first(42)").And.BeSameAs(firstAgain);
+            second.Should().Be("second(42)").And.BeSameAs(secondAgain);
+            second.Should().NotBeSameAs(first);
+            Readers.ProcessLabelCacheEntry.CreateLabel(-1, string.Empty).Should().Be("-1");
+            Readers.ProcessLabelCacheEntry.CreateLabel(-1, "Process").Should().Be("Process(-1)");
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
+    }
+
+    [TestMethod]
+    public void ProcessLabelCacheEntry_NinthAlternateNameRendersWithoutRetention()
+    {
+        Readers.ProcessLabelCacheEntry labels = new(42, "primary");
+        for (int index = 1; index <= 8; index++)
+        {
+            labels.GetLabel($"alternate-{index}").Should().Be($"alternate-{index}(42)");
+        }
+
+        labels.CachedAlternateNameCount.Should().Be(8);
+        string ninth = labels.GetLabel("alternate-9");
+        string ninthAgain = labels.GetLabel("alternate-9");
+
+        ninth.Should().Be("alternate-9(42)").And.NotBeSameAs(ninthAgain);
+        labels.CachedAlternateNameCount.Should().Be(8);
+    }
+
+    [TestMethod]
+    public void ProcessLabelCacheEntry_OverCapFallbackPreservesRendering()
+    {
+        Readers.TraceLogReader.CanCacheThreadLabel(4096).Should().BeFalse();
+        Readers.TraceLogReader.CanCacheProcessLabel(4096).Should().BeFalse();
+
+        int threadId = -42;
+        string thread = threadId.ToString(CultureInfo.InvariantCulture);
+        string process = Readers.ProcessLabelCacheEntry.CreateLabel(-42, "worker");
+
+        thread.Should().Be("-42");
+        process.Should().Be("worker(-42)");
+    }
+
+    [TestMethod]
+    [DataRow(511, 1, false)]
+    [DataRow(512, 256, true)]
+    [DataRow(512, 257, false)]
+    public void ShouldCacheSampleStacks_RequiresCompletedHighReuseProbe(
+        int sampleCount,
+        int distinctStackCount,
+        bool expected)
+    {
+        Readers.TraceLogReader.ShouldCacheSampleStacks(sampleCount, distinctStackCount).Should().Be(expected);
+    }
+
+    [TestMethod]
+    [DataRow(4095, true)]
+    [DataRow(4096, false)]
+    public void CanTrackSampleStack_BoundsRetainedStackMetadata(int cachedStackCount, bool expected)
+    {
+        Readers.TraceLogReader.CanTrackSampleStack(cachedStackCount).Should().Be(expected);
+    }
+
+    [TestMethod]
+    [DataRow(16383, true)]
+    [DataRow(16384, false)]
+    public void CanCacheFrameIdentity_BoundsRetainedFrameMetadata(int cachedFrameCount, bool expected)
+    {
+        Readers.TraceLogReader.CanCacheFrameIdentity(cachedFrameCount).Should().Be(expected);
+    }
+
+    [TestMethod]
+    public void Load_HighReuseCpuTrace_ReusesReadOnlyPayloadsAndPreservesSourceCounts()
+    {
+        string path = FixturePath("threadpool.nettrace");
+        Readers.NetTraceReader reader = new();
+
+        Readers.TraceReadResult result = reader.Read(path, AppContext.BaseDirectory);
+
+        result.Samples.Should().HaveCount(11587);
+        result.Samples.All(HasCompletePayload).Should().BeTrue();
+
+        Dictionary<IReadOnlyList<string>, SampleStack> observed = new(ReferenceEqualityComparer.Instance);
+        SampleStack? first = null;
+        SampleStack? repeated = null;
+        foreach (SampleStack sample in result.Samples)
+        {
+            if (observed.TryGetValue(sample.Frames, out first))
+            {
+                repeated = sample;
+                break;
+            }
+
+            observed.Add(sample.Frames, sample);
+        }
+
+        repeated.Should().NotBeNull();
+        repeated!.Frames.Should().BeSameAs(first!.Frames);
+        repeated.FrameLocations.Should().BeSameAs(first.FrameLocations);
+        IList<string> sharedFrames = (IList<string>)repeated.Frames;
+        sharedFrames.IsReadOnly.Should().BeTrue();
+        Action mutate = () => sharedFrames[0] = "changed";
+        mutate.Should().Throw<NotSupportedException>();
+
+        SourceResolutionInfo source = result.SourceResolution!;
+        source.SampledManagedFrameCount.Should().Be(94330);
+        source.MappedManagedFrameCount.Should().Be(0);
+        source.SampledManagedMethodCount.Should().Be(201);
+        source.SourceMappedManagedMethodCount.Should().Be(0);
+        source.UnmappedNamedManagedFrameCount.Should().Be(94330);
     }
 
     [TestMethod]
