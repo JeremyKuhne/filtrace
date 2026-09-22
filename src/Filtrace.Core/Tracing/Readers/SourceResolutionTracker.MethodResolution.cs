@@ -18,13 +18,23 @@ internal sealed partial class SourceResolutionTracker
         public string? Name { get; } = name;
 
         /// <summary>
-        ///  Gets or sets the saturating count of sampled frames attributed to this method.
+        ///  Gets the saturating count of sampled frames attributed to this method.
         /// </summary>
-        public int SampledFrames { get; set; }
+        public int SampledFrames => SaturatingAdd(MappedFrames, UnmappedFrames);
 
         /// <summary>
-        ///  Gets or sets the saturating subset of sampled frames that resolved to source.
+        ///  Gets or sets the saturating count of sampled frames that resolved to source.
         /// </summary>
         public int MappedFrames { get; set; }
+
+        /// <summary>
+        ///  Gets or sets the saturating count of sampled frames that did not resolve to source.
+        /// </summary>
+        public int UnmappedFrames { get; set; }
+
+        /// <summary>
+        ///  Gets the mapped count scaled to preserve both categories when their combined count exceeds <see cref="int.MaxValue"/>.
+        /// </summary>
+        public int ReportedMappedFrames => GetReportedMappedFrames(MappedFrames, UnmappedFrames);
     }
 }

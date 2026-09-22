@@ -25,14 +25,24 @@ internal sealed partial class SourceResolutionTracker
         public TraceModuleFile? Module { get; } = module;
 
         /// <summary>
-        ///  Gets or sets the saturating count of sampled frames attributed to the module.
+        ///  Gets the saturating count of sampled frames attributed to the module.
         /// </summary>
-        public int SampledFrames { get; set; }
+        public int SampledFrames => SaturatingAdd(MappedFrames, UnmappedFrames);
 
         /// <summary>
-        ///  Gets or sets the saturating subset of frames that resolved to source.
+        ///  Gets or sets the saturating count of frames that resolved to source.
         /// </summary>
         public int MappedFrames { get; set; }
+
+        /// <summary>
+        ///  Gets or sets the saturating count of frames that did not resolve to source.
+        /// </summary>
+        public int UnmappedFrames { get; set; }
+
+        /// <summary>
+        ///  Gets the mapped count scaled to preserve both categories when their combined count exceeds <see cref="int.MaxValue"/>.
+        /// </summary>
+        public int ReportedMappedFrames => GetReportedMappedFrames(MappedFrames, UnmappedFrames);
 
         /// <summary>
         ///  Gets or sets the strongest local PDB identity outcome established for the module.

@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using System.Globalization;
+using System.Runtime.InteropServices;
 
 namespace Filtrace.Tracing.Readers;
 
@@ -26,8 +27,11 @@ namespace Filtrace.Tracing.Readers;
 ///   raw sample counts rather than being presented as milliseconds.
 ///  </para>
 /// </remarks>
-internal abstract class TraceLogReader : ITraceReader
+internal abstract partial class TraceLogReader : ITraceReader
 {
+    private const int MaximumCachedThreadLabels = 4096;
+    private const int MaximumCachedProcessLabels = 4096;
+
     /// <inheritdoc/>
     public abstract TraceFormat Format { get; }
 
@@ -263,7 +267,13 @@ internal abstract class TraceLogReader : ITraceReader
         IReadOnlyList<string> scopeWarnings = resolvedScope.Warnings;
         AnalysisEventCounter analysisEvents = new();
         Dictionary<int, string>? locationCache = resolveSourceLocations ? [] : null;
-        Dictionary<(string Module, string Method), string> frameNameCache = [];
+        Dictionary<FrameIdentity, FrameNameCacheEntry> frameNameCache = [];
+        Dictionary<(string Module, string Method), string> canonicalFrameNames = [];
+        Dictionary<int, CachedSampleStack?>? sampleStackCache = null;
+        HashSet<int>? stackCacheProbe = [];
+        int stackCacheProbeSamples = 0;
+        Dictionary<int, string> threadLabels = [];
+        Dictionary<int, ProcessLabelCacheEntry> processLabels = [];
 
         List<SampleStack> samples = [];
         long totalFrames = 0;
@@ -319,83 +329,223 @@ internal abstract class TraceLogReader : ITraceReader
                 continue;
             }
 
-            TraceCallStack? callStack = data.CallStack();
-            if (callStack is null)
+            CallStackIndex callStackIndex = data.CallStackIndex();
+            if (callStackIndex == CallStackIndex.Invalid)
             {
                 continue;
             }
 
-            leafToRoot.Clear();
-            leafToRootLocations?.Clear();
-            for (CallStackIndex frameIndex = callStack.CallStackIndex;
-                frameIndex != CallStackIndex.Invalid;
-                frameIndex = traceLog.CallStacks.Caller(frameIndex))
+            int stackKey = (int)callStackIndex;
+            stackCacheProbe?.Add(stackKey);
+            Dictionary<int, CachedSampleStack?>? activeStackCache = sampleStackCache;
+            CachedSampleStack? cachedStack = null;
+            bool seenBefore = activeStackCache is not null && activeStackCache.TryGetValue(stackKey, out cachedStack);
+            IReadOnlyList<string> frames;
+            IReadOnlyList<string>? locations;
+            if (cachedStack is null)
             {
-                TraceCodeAddress address = traceLog.CodeAddresses[traceLog.CallStacks.CodeAddressIndex(frameIndex)];
-                string method = address.FullMethodName;
-                string module = address.ModuleName;
-
-                totalFrames++;
-                if (!string.IsNullOrEmpty(method))
+                leafToRoot.Clear();
+                leafToRootLocations?.Clear();
+                int resolvedStackFrames = 0;
+                for (CallStackIndex frameIndex = callStackIndex;
+                    frameIndex != CallStackIndex.Invalid;
+                    frameIndex = traceLog.CallStacks.Caller(frameIndex))
                 {
-                    resolvedFrames++;
-                }
+                    TraceCodeAddress address = traceLog.CodeAddresses[traceLog.CallStacks.CodeAddressIndex(frameIndex)];
+                    TraceMethod? traceMethod = address.Method;
+                    TraceModuleFile? addressModule = address.ModuleFile;
+                    string method = traceMethod?.FullMethodName ?? string.Empty;
+                    string module = addressModule?.Name ?? string.Empty;
+                    int methodKey = (int)(traceMethod?.MethodIndex ?? MethodIndex.Invalid);
+                    FrameIdentity frameIdentity = new(
+                        (int)(addressModule?.ModuleFileIndex ?? ModuleFileIndex.Invalid),
+                        methodKey);
 
-                if (!frameNameCache.TryGetValue((module, method), out string? name))
-                {
-                    if (string.IsNullOrEmpty(method))
+                    if (!string.IsNullOrEmpty(method))
                     {
-                        name = $"{(string.IsNullOrEmpty(module) ? "?" : module)}!?";
+                        resolvedStackFrames++;
+                    }
+
+                    ref FrameNameCacheEntry entry = ref CollectionsMarshal.GetValueRefOrAddDefault(
+                        frameNameCache,
+                        frameIdentity,
+                        out bool exists);
+
+                    bool retainFrameIdentity = exists || CanCacheFrameIdentity(frameNameCache.Count - 1);
+                    TraceModuleFile? methodModule = traceMethod?.MethodModuleFile ?? addressModule;
+                    string name;
+                    if (retainFrameIdentity)
+                    {
+                        if (!exists)
+                        {
+                            name = GetFrameName(canonicalFrameNames, module, method, retain: true);
+                            entry = new FrameNameCacheEntry(
+                                name,
+                                methodKey,
+                                methodModule,
+                                methodModule?.Name ?? module,
+                                method);
+
+                            if (traceMethod is not null)
+                            {
+                                sourceResolution.RegisterManagedFrameIdentity(
+                                    methodKey,
+                                    methodModule,
+                                    methodModule?.Name ?? module,
+                                    method);
+                            }
+                        }
+                        else
+                        {
+                            name = entry.Name;
+                        }
                     }
                     else
                     {
-                        name = string.IsNullOrEmpty(module) ? method : $"{module}!{method}";
+                        frameNameCache.Remove(frameIdentity);
+                        name = GetFrameName(canonicalFrameNames, module, method, retain: false);
                     }
 
-                    frameNameCache.Add((module, method), name);
+                    leafToRoot.Add(name);
+                    string location = string.Empty;
+                    if (locationCache is not null)
+                    {
+                        location = ResolveLocation(symbolReader, address, locationCache);
+                        leafToRootLocations!.Add(location);
+                    }
+
+                    if (traceMethod is not null)
+                    {
+                        if (retainFrameIdentity)
+                        {
+                            entry.Observe(
+                                sampledFrames: 1,
+                                mappedFrames: location.Length > 0 ? 1 : 0);
+                        }
+                        else
+                        {
+                            sourceResolution.ObserveManagedFrame(
+                                methodKey,
+                                methodModule,
+                                methodModule?.Name ?? module,
+                                method,
+                                sourceMapped: location.Length > 0);
+                        }
+                    }
                 }
 
-                leafToRoot.Add(name);
-                string location = string.Empty;
-                if (locationCache is not null)
+                if (leafToRoot.Count == 0)
                 {
-                    location = ResolveLocation(symbolReader, address, locationCache);
-                    leafToRootLocations!.Add(location);
+                    continue;
                 }
 
-                sourceResolution.Observe(address, method, location.Length > 0);
-            }
-
-            if (leafToRoot.Count == 0)
-            {
-                continue;
-            }
-
-            int count = leafToRoot.Count;
-            string[] frames = new string[count];
-            string[]? locations = leafToRootLocations is null ? null : new string[count];
-            for (int i = 0; i < count; i++)
-            {
-                frames[i] = leafToRoot[count - 1 - i];
-                if (locations is not null)
+                int count = leafToRoot.Count;
+                string[] frameArray = new string[count];
+                string[]? locationArray = leafToRootLocations is null ? null : new string[count];
+                for (int i = 0; i < count; i++)
                 {
-                    locations[i] = leafToRootLocations![count - 1 - i];
+                    frameArray[i] = leafToRoot[count - 1 - i];
+                    if (locationArray is not null)
+                    {
+                        locationArray[i] = leafToRootLocations![count - 1 - i];
+                    }
                 }
+
+                if (seenBefore)
+                {
+                    cachedStack = new CachedSampleStack(
+                        Array.AsReadOnly(frameArray),
+                        locationArray is null ? null : Array.AsReadOnly(locationArray),
+                        resolvedStackFrames);
+
+                    activeStackCache![stackKey] = cachedStack;
+                    frames = cachedStack.Frames;
+                    locations = cachedStack.FrameLocations;
+                }
+                else
+                {
+                    if (activeStackCache is not null && CanTrackSampleStack(activeStackCache.Count))
+                    {
+                        activeStackCache.Add(stackKey, value: null);
+                    }
+
+                    frames = frameArray;
+                    locations = locationArray;
+                }
+
+                totalFrames += count;
+                resolvedFrames += resolvedStackFrames;
+            }
+            else
+            {
+                frames = cachedStack.Frames;
+                locations = cachedStack.FrameLocations;
+                totalFrames += frames.Count;
+                resolvedFrames += cachedStack.ResolvedFrameCount;
+                cachedStack.ObserveReuse();
             }
 
             // Tag the sample with its owning process so a multi-process trace can be
             // reasoned about per process; empty resolves to just the numeric id. IDs are
             // formatted invariantly so the labels stay ASCII-stable across locales.
+            int threadId = data.ThreadID;
+            if (!threadLabels.TryGetValue(threadId, out string? thread))
+            {
+                thread = threadId.ToString(CultureInfo.InvariantCulture);
+                if (CanCacheThreadLabel(threadLabels.Count))
+                {
+                    threadLabels.Add(threadId, thread);
+                }
+            }
+
+            int processId = data.ProcessID;
             string processName = data.ProcessName;
-            string pid = data.ProcessID.ToString(CultureInfo.InvariantCulture);
-            string process = string.IsNullOrEmpty(processName) ? pid : $"{processName}({pid})";
+            if (!processLabels.TryGetValue(processId, out ProcessLabelCacheEntry? processEntry))
+            {
+                if (CanCacheProcessLabel(processLabels.Count))
+                {
+                    processEntry = new ProcessLabelCacheEntry(processId, processName);
+                    processLabels.Add(processId, processEntry);
+                }
+            }
+
+            string process = processEntry?.GetLabel(processName)
+                ?? ProcessLabelCacheEntry.CreateLabel(processId, processName);
 
             samples.Add(new SampleStack(
                 frames,
                 cpuWeighting?.GetSampleWeight() ?? 1.0,
-                data.ThreadID.ToString(CultureInfo.InvariantCulture),
+                thread,
                 locations,
                 process));
+
+            if (stackCacheProbe is not null
+                && ++stackCacheProbeSamples == StackCacheProbeSampleCount)
+            {
+                sampleStackCache = CreateSampleStackCache(stackCacheProbeSamples, stackCacheProbe);
+                stackCacheProbe = null;
+            }
+        }
+
+        ObserveCachedStackReuses(
+            traceLog,
+            sampleStackCache,
+            frameNameCache,
+            locationCache,
+            sourceResolution);
+
+        foreach (FrameNameCacheEntry entry in frameNameCache.Values)
+        {
+            if (entry.MethodKey != (int)MethodIndex.Invalid)
+            {
+                sourceResolution.ObserveManagedFrameCounts(
+                    entry.MethodKey,
+                    entry.Module,
+                    entry.ModuleName,
+                    entry.MethodName,
+                    entry.MappedFrames,
+                    entry.UnmappedFrames);
+            }
         }
 
         bool timeWeightsEstablished = cpuWeighting?.HasCompleteIntervalEvidence == true;
@@ -552,6 +702,22 @@ internal abstract class TraceLogReader : ITraceReader
             AppliedTimeWindow = window
         };
     }
+
+    /// <summary>
+    ///  Determines whether another thread label can be retained for reference sharing.
+    /// </summary>
+    /// <param name="cachedLabelCount">The current number of retained thread labels.</param>
+    /// <returns><see langword="true"/> when another label can be retained.</returns>
+    internal static bool CanCacheThreadLabel(int cachedLabelCount) =>
+        cachedLabelCount < MaximumCachedThreadLabels;
+
+    /// <summary>
+    ///  Determines whether another process identifier can be retained for label sharing.
+    /// </summary>
+    /// <param name="cachedLabelCount">The current number of retained process identifiers.</param>
+    /// <returns><see langword="true"/> when another identifier can be retained.</returns>
+    internal static bool CanCacheProcessLabel(int cachedLabelCount) =>
+        cachedLabelCount < MaximumCachedProcessLabels;
 
     // Joins the applied-scope phrases into one clause: "A" for one, "A and B" for two,
     // and "A, B, and C" for three, so an empty-result warning can name every scope that
