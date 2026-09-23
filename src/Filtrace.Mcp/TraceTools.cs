@@ -1401,21 +1401,22 @@ public sealed class TraceTools
     [McpServerTool(Name = "trace_processes", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
         "List every process by CPU-sample weight without auto-scoping; use a process value in later queries. "
-            + "Single-process inputs return one row.")]
+            + "Single-process inputs return one row. Does not inspect frame/source quality; use trace_info for that.")]
     public static AnalysisResult<ProcessListResult> Processes(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path)
     {
-        // The inventory's whole purpose is to reveal every process, so it opts out of
-        // the busiest-process auto-scope the ranking tools default to.
-        LoadedTrace trace = Load(store, path, symbols: null, TraceMetric.Cpu, ScopeRequest.AllProcesses);
-        TraceInfo info = trace.Info;
-        ProcessListResult processes = trace.Aggregator.Processes();
+        ProcessInventorySnapshot inventory = ReadProcessInventory(store, path);
 
         return new AnalysisResult<ProcessListResult>(
-            processes,
-            info.Warnings,
-            context: AnalysisContext.ForTrace("processes", trace));
+            inventory.Result,
+            inventory.Warnings,
+            context: new AnalysisContext("processes")
+            {
+                Metric = "cpu",
+                Unit = inventory.Metric.Unit,
+                CpuSampling = inventory.CpuSampling
+            });
     }
 
     /// <summary>
@@ -2034,6 +2035,26 @@ public sealed class TraceTools
                 or ArgumentException)
         {
             // A missing, unreadable, or malformed .etl surfaces as a clean tool error.
+            throw new McpException(ex.Message);
+        }
+    }
+
+    private static ProcessInventorySnapshot ReadProcessInventory(TraceStore store, string path)
+    {
+        try
+        {
+            return store.GetProcessInventory(path);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or JsonException
+                or KeyNotFoundException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
+        {
             throw new McpException(ex.Message);
         }
     }

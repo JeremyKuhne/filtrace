@@ -4,6 +4,7 @@
 
 using Filtrace.Output;
 using Filtrace.Tracing;
+using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Cli;
 
@@ -34,24 +35,34 @@ internal static class ProcessesExecutor
     /// <returns>A process exit code (see <see cref="ExitCodes"/>).</returns>
     public static int Run(ProcessesRequest request, TextWriter output, TextWriter error)
     {
-        if (!TraceExecution.TryLoad(
-            request.Path,
-            TraceMetric.Cpu,
-            symbols: null,
-            error,
-            out LoadedTrace? trace,
-            ScopeRequest.AllProcesses))
+        ProcessInventorySnapshot inventory;
+        try
         {
+            inventory = new ProcessInventoryProvider().Read(request.Path);
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or System.Text.Json.JsonException
+                or KeyNotFoundException
+                or InvalidOperationException
+                or FormatException
+                or ArgumentException)
+        {
+            error.WriteLine(ex.Message);
             return ExitCodes.InputError;
         }
 
-        TraceInfo info = trace.Info;
-        ProcessListResult processes = trace.Aggregator.Processes();
-
         AnalysisResult<ProcessListResult> envelope = new(
-            processes,
-            TraceExecution.ResultWarnings(info),
-            context: AnalysisContext.ForTrace("processes", trace));
+            inventory.Result,
+            inventory.Warnings,
+            context: new AnalysisContext("processes")
+            {
+                Metric = "cpu",
+                Unit = inventory.Metric.Unit,
+                CpuSampling = inventory.CpuSampling
+            });
 
         if (request.Format == OutputFormat.Json)
         {
@@ -59,7 +70,7 @@ internal static class ProcessesExecutor
         }
         else
         {
-            ProcessesTextRenderer.Render(envelope, info, trace.Aggregator.Metric, output);
+            ProcessesTextRenderer.Render(envelope, inventory, output);
         }
 
         return ExitCodes.Success;
