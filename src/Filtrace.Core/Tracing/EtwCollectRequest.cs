@@ -30,14 +30,16 @@ public sealed class EtwCollectRequest
     public string? WorkingDirectory { get; init; }
 
     /// <summary>
-    ///  Whether to append a bounded CLR naming rundown for managed processes that were
-    ///  already running when collection began. Defaults to <see langword="false"/>.
+    ///  Whether to append a CLR naming rundown for managed processes that were already
+    ///  running when collection began. Defaults to <see langword="false"/>.
     /// </summary>
     /// <remarks>
     ///  <para>
-    ///   Rundown is machine-wide and can add hundreds of megabytes plus several seconds.
-    ///   Use it only when sampled work runs in a persistent managed server outside the
-    ///   launched process tree. It does not apply to <see cref="CollectProfile.DiskIo"/>.
+    ///   Rundown is machine-wide and can add hundreds of megabytes. Quiescence polling is
+    ///   bounded to 30 seconds, but the subsequent ETL merge has no timeout and can extend
+    ///   total duration beyond that bound. Use rundown only when sampled work runs in a
+    ///   persistent managed server outside the launched process tree. It cannot be combined
+    ///   with <see cref="CollectProfile.DiskIo"/> or <see cref="MaxSizeMB"/>.
     ///  </para>
     /// </remarks>
     public bool Rundown { get; init; }
