@@ -106,8 +106,7 @@ internal static partial class CliTelemetryCommand
                 options.Scenario,
                 options.Arguments,
                 options.TracePath,
-                trace,
-                pathComparison);
+                trace);
 
             EnsureOutputDoesNotAliasCustomInputs(output, sharedArguments, pathComparison);
         }
@@ -365,8 +364,7 @@ internal static partial class CliTelemetryCommand
         string scenario,
         IReadOnlyList<string> arguments,
         string requestedTrace,
-        string trace,
-        StringComparison pathComparison)
+        string trace)
     {
         if (!IsRecordId(scenario))
         {
@@ -391,8 +389,7 @@ internal static partial class CliTelemetryCommand
                     $"Custom argument {index} is invalid or exceeds {MaximumCustomArgumentLength} characters.");
             }
 
-            if (string.Equals(argument, requestedTrace, StringComparison.Ordinal)
-                || string.Equals(argument, trace, pathComparison))
+            if (string.Equals(argument, requestedTrace, StringComparison.Ordinal))
             {
                 resolved[index] = trace;
                 traceReferenced = true;
@@ -438,7 +435,7 @@ internal static partial class CliTelemetryCommand
                 continue;
             }
 
-            if (File.Exists(candidate) && string.Equals(candidate, output, pathComparison))
+            if (string.Equals(candidate, output, pathComparison) && File.Exists(candidate))
             {
                 throw new ArgumentException(
                     $"Telemetry output '{output}' must not overwrite a custom command input.");

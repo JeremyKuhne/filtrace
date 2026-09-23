@@ -49,14 +49,40 @@ function Assert-TelemetryFailure(
         $invocation.Add($argument)
     }
 
-    [object[]] $diagnostic = @(& $DotnetPath @invocation 2>&1)
-    [int] $exitCode = $LASTEXITCODE
+    [System.Management.Automation.PSVariable] $nativeErrorPreference = Get-Variable `
+        -Name PSNativeCommandUseErrorActionPreference `
+        -ErrorAction SilentlyContinue
+    [object] $savedNativeErrorPreference = if ($null -eq $nativeErrorPreference) {
+        $null
+    }
+    else {
+        $nativeErrorPreference.Value
+    }
+    [object[]] $diagnostic = @()
+    [int] $exitCode = 0
+    try {
+        if ($null -ne $nativeErrorPreference) {
+            Set-Variable -Name PSNativeCommandUseErrorActionPreference -Value $false
+        }
+
+        $diagnostic = @(& $DotnetPath @invocation 2>&1)
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        if ($null -ne $nativeErrorPreference) {
+            Set-Variable `
+                -Name PSNativeCommandUseErrorActionPreference `
+                -Value $savedNativeErrorPreference
+        }
+    }
+
     Assert-True ($exitCode -ne 0) "Telemetry failure '$Scenario' exited zero."
     Assert-True `
         (($diagnostic -join [Environment]::NewLine).Contains(
             $ExpectedMessage,
             [StringComparison]::Ordinal)) `
         "Telemetry failure '$Scenario' did not report '$ExpectedMessage'."
+    $global:LASTEXITCODE = 0
 }
 
 [string] $temporaryRoot = Join-Path `
@@ -737,6 +763,7 @@ try {
     foreach ($argument in @(
         'info',
         $probeTrace,
+        $probeTrace.ToUpperInvariant(),
         '',
         'argument with spaces',
         'argument "with quotes"',
