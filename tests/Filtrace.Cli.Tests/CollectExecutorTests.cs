@@ -320,11 +320,14 @@ public sealed class CollectExecutorTests
             OutputFormat.Text,
             output,
             error,
-            (_, _, _) => Result(processExitCode: 0, profile: CollectProfile.DiskIO));
+            (_, _, _) => Result(
+                processExitCode: 0,
+                profile: CollectProfile.DiskIO,
+                processIds: [42, 84]));
 
         exit.Should().Be(ExitCodes.Success);
         output.ToString().Should().Contain("report \"").And.Contain("--kind diskio");
-        output.ToString().Should().Contain("lifecycle \"").And.Contain("--pid 42");
+        output.ToString().Should().Contain("lifecycle \"").And.Contain("--pid 42,84");
         output.ToString().Should().Contain("cpu sample disabled");
         output.ToString().Should().NotContain("rank \"");
         output.ToString().Should().NotContain("classify \"");
@@ -670,25 +673,32 @@ public sealed class CollectExecutorTests
     private static EtwCollectResult Result(
         int processExitCode,
         CpuSampleInterval? cpuSample = null,
-        CollectProfile profile = CollectProfile.Cpu) => new()
+        CollectProfile profile = CollectProfile.Cpu,
+        int[]? processIds = null)
     {
-        OutputPath = Path.GetFullPath("out.etl"),
-        ProcessId = 42,
-        ProcessName = "noisy-child",
-        ProcessExitCode = processExitCode,
-        Invocations =
+        processIds ??= [42];
+        List<EtwInvocation> invocations =
         [
-            new EtwInvocation(
-                1,
-                42,
+            .. processIds.Select((processId, index) => new EtwInvocation(
+                index + 1,
+                processId,
                 processExitCode,
-                DateTimeOffset.UnixEpoch,
-                DateTimeOffset.UnixEpoch.AddMilliseconds(1))
-        ],
-        FileSizeBytes = 1,
-        Profile = profile,
-        KernelKeywords = "Process",
-        ClrKeywords = "none",
-        CpuSample = cpuSample ?? new CpuSampleInterval(1.0, 1.0, 0.1221, 100.0),
-    };
+                DateTimeOffset.UnixEpoch.AddMilliseconds(index),
+                DateTimeOffset.UnixEpoch.AddMilliseconds(index + 1)))
+        ];
+
+        return new()
+        {
+            OutputPath = Path.GetFullPath("out.etl"),
+            ProcessId = invocations[0].ProcessId,
+            ProcessName = "noisy-child",
+            ProcessExitCode = processExitCode,
+            Invocations = invocations,
+            FileSizeBytes = 1,
+            Profile = profile,
+            KernelKeywords = "Process",
+            ClrKeywords = "none",
+            CpuSample = cpuSample ?? new CpuSampleInterval(1.0, 1.0, 0.1221, 100.0),
+        };
+    }
 }

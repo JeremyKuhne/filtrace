@@ -152,8 +152,12 @@ internal static class CollectExecutor
             output.WriteLine("Next-step filtrace commands:");
             if (request.Profile == CollectProfile.DiskIO)
             {
+                string processIds = string.Join(
+                    ",",
+                    result.Invocations.Select(static invocation => invocation.ProcessId).Distinct());
+
                 output.WriteLine($"  filtrace report \"{trace}\" --kind diskio");
-                output.WriteLine($"  filtrace lifecycle \"{trace}\" --pid {result.ProcessId}");
+                output.WriteLine($"  filtrace lifecycle \"{trace}\" --pid {processIds}");
             }
             else
             {

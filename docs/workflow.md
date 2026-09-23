@@ -36,22 +36,24 @@ my code?", or "which process is this?" - otherwise an EventPipe trace is the
 lighter, no-elevation choice. Reading an `.etl` through filtrace is Windows-only;
 direct `.etlx` input is not part of the current CLI or MCP surface.
 
-A machine-wide `.etl` also grows fast, so keep the capture lean. `filtrace collect`
-enables only the sampled-profile, process, thread, and image-load kernel keywords and
-stacks only the sampled events; it never turns on the File/Disk or network keywords,
-whose system-wide *name* rundown enumerates every open file on the machine - hundreds
-of thousands of events that dominate the trace no matter how short the window. On the
-CLR side it enables only what an `.etl` analysis reads: the keywords that name managed
-methods, plus GC and exception events for the timeline lanes. It never asks for heap
-survival/movement, bulk type, or CLR event-stack data, which no `.etl` analysis reads
-and which every process on the box would pay for. Choose
+A machine-wide `.etl` also grows fast, so keep the capture lean. The
+CPU-producing `filtrace collect` profiles enable only the sampled-profile,
+process, thread, and image-load kernel keywords and stack only the sampled
+events; they never turn on the File/Disk or network keywords, whose system-wide
+*name* rundown enumerates every open file on the machine - hundreds of thousands
+of events that dominate the trace no matter how short the window. On the CLR
+side those profiles enable only what an `.etl` analysis reads: the keywords that
+name managed methods, plus GC and exception events for the timeline lanes. They
+never ask for heap survival/movement, bulk type, or CLR event-stack data, which
+no `.etl` analysis reads and which every process on the box would pay for. Choose
 the provider set with `--profile`: `cpu` (the default), `threadtime` (adds the
-context-switch and dispatcher keywords for wall-clock time, and is the most expensive),
-`startup` (keeps only the CLR keywords that name managed methods, for a short
-process where instrumentation must not change what it measures), or `diskio`
-(physical DiskIO/DiskIOInit plus the DiskFileIO name rundown, with no CPU sampler,
-stacks, verbose FileIO, or CLR events). Bound an open-ended run with `--duration`
-(by time) or `--max-size-mb` (a circular buffer that keeps the last N MB).
+context-switch and dispatcher keywords for wall-clock time, and is the most
+expensive), `startup` (keeps only the CLR keywords that name managed methods, for
+a short process where instrumentation must not change what it measures), or
+`diskio` (switches to physical DiskIO/DiskIOInit plus the DiskFileIO name
+rundown, with no CPU sampler, stacks, verbose FileIO, or CLR events). Bound an
+open-ended run with `--duration` (by time) or `--max-size-mb` (a circular buffer
+that keeps the last N MB).
 
 At the default 1 ms interval a 30-100 ms command yields only tens of samples, so lower
 `--cpu-ms`. Windows honors sub-millisecond sampling - measured down to **0.1221 ms** on

@@ -5,19 +5,17 @@ core-pin: local
 
 # Filtrace repository overlay
 
-## Current source-build capture extension
+## Built-in physical-disk capture
 
-This checkout adds a minimal built-in physical-disk recorder:
+The canonical guide documents the built-in minimal physical-disk recorder:
 
 ```pwsh
 filtrace collect --launch <executable> --output <trace.etl> --profile diskio
 filtrace report <trace.etl> --kind diskio --format json
 ```
 
-This supersedes the shared guide's statement that an external recorder is always
-required for disk I/O. The profile enables Process, Thread, DiskIO, DiskIOInit,
-and DiskFileIO only. It omits sampled CPU, context switches, stacks, verbose
-FileIO, and CLR events.
+The profile enables Process, Thread, DiskIO, DiskIOInit, and DiskFileIO only. It
+omits sampled CPU, context switches, stacks, verbose FileIO, and CLR events.
 
 The trace and report remain machine-wide. Write the ETL to a different volume
 when recorder writes must not contend with the workload volume, read warnings
