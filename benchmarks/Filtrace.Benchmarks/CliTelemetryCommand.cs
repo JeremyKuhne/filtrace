@@ -435,13 +435,24 @@ internal static partial class CliTelemetryCommand
                 continue;
             }
 
-            if (string.Equals(candidate, output, pathComparison) && File.Exists(candidate))
+            bool aliasesInput = string.Equals(candidate, output, pathComparison);
+            bool aliasesEtlx = IsTracePath(candidate)
+                && string.Equals(
+                    Path.GetFullPath(TraceConverter.EtlxPathFor(candidate)),
+                    output,
+                    pathComparison);
+
+            if ((aliasesInput || aliasesEtlx) && File.Exists(candidate))
             {
                 throw new ArgumentException(
-                    $"Telemetry output '{output}' must not overwrite a custom command input.");
+                    $"Telemetry output '{output}' must not overwrite a custom command input or its ETLX cache.");
             }
         }
     }
+
+    private static bool IsTracePath(string path) =>
+        path.EndsWith(".etl", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsRecordId(string value)
     {

@@ -950,10 +950,25 @@ try {
         $aliasInput `
         $blockingProcess `
         @('diff', $probeTrace, $aliasInput) `
-        'must not overwrite a custom command input'
+        'must not overwrite a custom command input or its ETLX cache'
     Assert-True `
         ((Get-FileHash -LiteralPath $aliasInput -Algorithm SHA256).Hash -ceq $aliasHash) `
         'Rejected telemetry output alias changed the second input trace.'
+    [string] $aliasCache = "$aliasInput.etlx"
+    [System.IO.File]::WriteAllText($aliasCache, 'existing secondary cache', $utf8)
+    [string] $aliasCacheHash = (Get-FileHash -LiteralPath $aliasCache -Algorithm SHA256).Hash
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'alias-input-cache' `
+        $probeTrace `
+        $aliasCache `
+        $blockingProcess `
+        @('diff', $probeTrace, $aliasInput) `
+        'must not overwrite a custom command input or its ETLX cache'
+    Assert-True `
+        ((Get-FileHash -LiteralPath $aliasCache -Algorithm SHA256).Hash -ceq $aliasCacheHash) `
+        'Rejected telemetry output alias changed the second input ETLX cache.'
 
     [string[]] $tooManyArguments = @('info', $probeTrace)
     while ($tooManyArguments.Count -lt 65) {

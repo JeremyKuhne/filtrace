@@ -84,6 +84,7 @@ Custom mode performs no cache preparation, so prepare or remove ETLX state befor
 the campaign according to the scenario being measured. Tokens pass through
 `ProcessStartInfo.ArgumentList`; no shell parses or rejoins them. The telemetry
 output must not alias any existing file supplied as a direct command token.
+For `.etl` and `.nettrace` inputs, it must not alias the derived ETLX cache either.
 
 Telemetry accepts the implemented single-trace and manifest scenario names,
 including `cache-convert-warm`, `cache-convert-cold`, `batch-8`, `info-cold`,
