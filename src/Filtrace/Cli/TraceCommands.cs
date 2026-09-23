@@ -1475,10 +1475,15 @@ internal sealed class TraceCommands
     ///  directory.
     /// </param>
     /// <param name="rundown">
-    ///  Append a bounded machine-wide CLR naming rundown for persistent managed servers
-    ///  that were already running when capture began. Can add hundreds of megabytes and
-    ///  polls for quiescence for up to 30 seconds before an unbounded ETL merge; not valid
-    ///  with <c>diskio</c>.
+    ///  Append a bounded CLR naming rundown for persistent managed servers that were
+    ///  already running when capture began. Machine-wide unless rundown pids are given.
+    ///  Can add hundreds of megabytes and polls for quiescence for up to 30 seconds
+    ///  before an unbounded ETL merge; not valid with <c>diskio</c> or
+    ///  <c>max-size-mb</c>.
+    /// </param>
+    /// <param name="rundownPid">
+    ///  Exact managed process ids to retain during rundown; omit for machine-wide naming.
+    ///  Requires the rundown option.
     /// </param>
     /// <param name="cpuMs">
     ///  CPU sample interval in milliseconds for <c>cpu</c>, <c>threadtime</c>, and
@@ -1500,9 +1505,11 @@ internal sealed class TraceCommands
     /// <remarks>
     ///  Reproduces a PerfView-style capture with TraceEvent's session API, so no external
     ///  recorder is needed. A launch capture needs no CLR rundown; managed frames resolve
-    ///  from the live JIT events. The written .etl is machine-wide, so CPU/thread-time
-    ///  commands scope to the launched process. The diskio profile instead records the
-    ///  minimal physical disk and file-name keywords and omits CPU sampling and CLR events.
+    ///  from the live JIT events. Use <c>--rundown-pid</c> when the exact persistent
+    ///  processes are known so their naming pass is not machine-wide. The written .etl is
+    ///  machine-wide, so CPU/thread-time commands scope to the launched process. The diskio
+    ///  profile instead records the minimal physical disk and file-name keywords and omits
+    ///  CPU sampling and CLR events.
     /// </remarks>
     [Command("collect")]
     public int Collect(
@@ -1512,6 +1519,7 @@ internal sealed class TraceCommands
         string launchArgs = "",
         string workingDirectory = "",
         bool rundown = false,
+        int[]? rundownPid = null,
         [Range(CpuSampleBounds.MinimumAcceptedMSec, CpuSampleBounds.MaximumAcceptedMSec)] double cpuMs = 1.0,
         [Range(0, int.MaxValue)] int duration = 0,
         [Range(1, 1000)] int iterations = 1,
@@ -1536,6 +1544,12 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
+        if (rundownPid is { Length: > 0 } && !rundown)
+        {
+            Console.Error.WriteLine("--rundown-pid requires --rundown.");
+            return ExitCodes.UsageError;
+        }
+
         string? requestedWorkingDirectory = workingDirectory;
         if (string.IsNullOrWhiteSpace(requestedWorkingDirectory))
         {
@@ -1548,6 +1562,7 @@ internal sealed class TraceCommands
             LaunchArguments = launchArgs,
             WorkingDirectory = requestedWorkingDirectory,
             Rundown = rundown,
+            RundownProcessIds = rundownPid ?? [],
             Profile = resolved,
             CpuSampleMSec = cpuMs,
             DurationSeconds = duration > 0 ? duration : null,

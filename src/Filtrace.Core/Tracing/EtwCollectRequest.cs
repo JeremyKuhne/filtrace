@@ -35,14 +35,22 @@ public sealed class EtwCollectRequest
     /// </summary>
     /// <remarks>
     ///  <para>
-    ///   Rundown is machine-wide and can add hundreds of megabytes. Quiescence polling is
-    ///   bounded to 30 seconds, but the subsequent ETL merge has no timeout and can extend
-    ///   total duration beyond that bound. Use rundown only when sampled work runs in a
-    ///   persistent managed server outside the launched process tree. It cannot be combined
-    ///   with <see cref="CollectProfile.DiskIo"/> or <see cref="MaxSizeMB"/>.
+    ///   Rundown is machine-wide unless <see cref="RundownProcessIds"/> supplies exact
+    ///   target processes, and can add hundreds of megabytes. Quiescence polling is
+    ///   bounded to 30 seconds, but the subsequent ETL merge has no timeout and can
+    ///   extend total duration beyond that bound. Use rundown only when sampled work
+    ///   runs in a persistent managed server outside the launched process tree. It
+    ///   cannot be combined with <see cref="CollectProfile.DiskIo"/> or
+    ///   <see cref="MaxSizeMB"/>.
     ///  </para>
     /// </remarks>
     public bool Rundown { get; init; }
+
+    /// <summary>
+    ///  Exact process ids whose CLR naming events the optional rundown retains. Empty
+    ///  keeps the machine-wide rundown. Requires <see cref="Rundown"/>.
+    /// </summary>
+    public IReadOnlyList<int> RundownProcessIds { get; init; } = [];
 
     /// <summary>
     ///  The provider set the capture enables. Defaults to <see cref="CollectProfile.Cpu"/>.

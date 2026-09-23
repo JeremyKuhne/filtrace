@@ -412,6 +412,19 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_CollectRundownPidWithoutRundown_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(
+            "collect",
+            "--launch", "app.exe",
+            "--output", "out.etl",
+            "--rundown-pid", "42");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--rundown-pid requires --rundown");
+    }
+
+    [TestMethod]
     public void Run_ProcessAndAllProcesses_ReturnsUsageError()
     {
         // The two scope options are mutually exclusive; the conflict is caught before
