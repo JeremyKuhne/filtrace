@@ -19,18 +19,27 @@ internal sealed record CaptureProviders(
     ClrTraceEventParser.Keywords ClrKeywords,
     TraceEventLevel ClrLevel)
 {
-    // The kernel events every profile needs: the sampled profiler itself, plus the
-    // process, thread, and image-load events that let the reader attribute a sample to a
-    // process and a module. Deliberately NOT KernelTraceEventParser.Keywords.Default,
+    // The kernel events every CPU-producing profile needs: the sampled profiler itself,
+    // plus the process, thread, and image-load events that let the reader attribute a
+    // sample to a process and a module. Deliberately NOT KernelTraceEventParser.Keywords.Default,
     // which also carries DiskIO, DiskFileIO, DiskIOInit, NetworkTCPIP, MemoryHardFaults,
-    // and ProcessCounters - machine-wide traffic no filtrace analysis of a `collect`
-    // capture reads, and whose DiskFileIO name rundown alone enumerates every open file
-    // on the box.
+    // and ProcessCounters - machine-wide traffic the CPU-producing profiles do not read,
+    // and whose DiskFileIO name rundown alone enumerates every open file on the box.
     private const KernelTraceEventParser.Keywords CpuKernelKeywords =
         KernelTraceEventParser.Keywords.Process
             | KernelTraceEventParser.Keywords.Thread
             | KernelTraceEventParser.Keywords.ImageLoad
             | KernelTraceEventParser.Keywords.Profile;
+
+    // Physical completion events, their issuing-thread correlation, and the file-name
+    // rundown needed to turn file keys into paths. Deliberately excludes verbose FileIO:
+    // that provider can lose millions of machine-wide events in seconds.
+    private const KernelTraceEventParser.Keywords DiskIoKernelKeywords =
+        KernelTraceEventParser.Keywords.Process
+            | KernelTraceEventParser.Keywords.Thread
+            | KernelTraceEventParser.Keywords.DiskIO
+            | KernelTraceEventParser.Keywords.DiskIOInit
+            | KernelTraceEventParser.Keywords.DiskFileIO;
 
     // Just enough of the CLR to keep managed frames readable: Jit and NGen name the
     // methods, Loader names their modules, and JittedMethodILToNativeMap carries the
@@ -87,6 +96,12 @@ internal sealed record CaptureProviders(
             KernelTraceEventParser.Keywords.Profile,
             NamingClrKeywords,
             TraceEventLevel.Verbose),
+
+        CollectProfile.DiskIo => new(
+            DiskIoKernelKeywords,
+            KernelTraceEventParser.Keywords.None,
+            0,
+            TraceEventLevel.Always),
 
         _ => throw new ArgumentOutOfRangeException(nameof(profile), profile, "Unknown capture profile.")
     };

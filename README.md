@@ -216,14 +216,21 @@ filtrace rank app.etl --metric cpu --process MyApp --native-symbols   # name the
 
 | Command | Purpose | Example |
 |---|---|---|
-| `collect` | Launch an executable and record a CPU / thread-time `.etl` | `filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl --profile threadtime` |
+| `collect` | Launch an executable and record a CPU, thread-time, startup, or physical disk-I/O `.etl` | `filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl --profile threadtime` |
 
 ```pwsh
 filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl              # CPU
 filtrace collect --launch dotnet --launch-args MyApp.dll --output tt.etl --profile threadtime
 filtrace collect --launch MyApp.exe --output start.etl --profile startup                # low perturbation
+filtrace collect --launch MyApp.exe --output io.etl --profile diskio                    # physical disk/files
 filtrace collect --launch MyApp.exe --output ring.etl --max-size-mb 512                 # bounded ring buffer
 ```
+
+The `diskio` profile enables only physical DiskIO/DiskIOInit events, process/thread
+attribution, and the DiskFileIO name rundown. It deliberately omits CPU sampling,
+stacks, verbose FileIO, and CLR events. ETW and the disk report are machine-wide;
+write the trace to a different volume when recorder writes must not contend with
+the workload volume.
 
 With `--format json`, stdout contains only the capture-result JSON; identified
 subject stdout and stderr are forwarded to stderr. The command still exits successfully

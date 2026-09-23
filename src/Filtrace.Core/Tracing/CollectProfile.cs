@@ -42,4 +42,13 @@ public enum CollectProfile
     ///  path, or a native/AOT parent whose runtime events are noise.
     /// </summary>
     Startup,
+
+    /// <summary>
+    ///  Physical disk reads and writes plus the file-name rundown needed to attribute
+    ///  them. This profile intentionally omits CPU sampling, stacks, context switches,
+    ///  verbose FileIO operations, and the CLR provider. ETW records it machine-wide,
+    ///  so write the output trace to a different volume when recorder I/O must not
+    ///  contaminate the workload volume.
+    /// </summary>
+    DiskIo,
 }

@@ -91,7 +91,7 @@ internal static class CollectExecutor
             // Report the collector's configured clamp without claiming that the trace
             // established the interval applied to every sample.
             List<string> warnings = [];
-            if (result.CpuSample.Clamped)
+            if (result.Profile != CollectProfile.DiskIo && result.CpuSample.Clamped)
             {
                 warnings.Add(
                     $"Requested a {FormatMSec(result.CpuSample.RequestedMSec)} ms sample interval, but this "
@@ -122,9 +122,19 @@ internal static class CollectExecutor
 
             // What the session actually enabled, so a trace can be audited after the fact
             // rather than inferred from the verb that wrote it.
+            string sample;
+            if (result.Profile == CollectProfile.DiskIo)
+            {
+                sample = "cpu sample disabled";
+            }
+            else
+            {
+                sample = $"cpu sample {FormatMSec(result.CpuSample.EffectiveMSec)} ms";
+            }
+
             output.WriteLine(
                     $"  profile {result.Profile.ToString().ToLowerInvariant()}; kernel {result.KernelKeywords}; "
-                        + $"clr {result.ClrKeywords}; cpu sample {FormatMSec(result.CpuSample.EffectiveMSec)} ms");
+                        + $"clr {result.ClrKeywords}; {sample}");
 
             foreach (string warning in warnings)
             {
@@ -140,14 +150,29 @@ internal static class CollectExecutor
 
             output.WriteLine();
             output.WriteLine("Next-step filtrace commands:");
-            output.WriteLine($"  filtrace processes \"{trace}\"");
-            output.WriteLine($"  filtrace rank \"{trace}\" --metric cpu --process \"{result.ProcessName}\"");
-            if (request.Profile == CollectProfile.ThreadTime)
+            if (request.Profile == CollectProfile.DiskIo)
             {
-                output.WriteLine($"  filtrace rank \"{trace}\" --metric threadtime --process \"{result.ProcessName}\"");
+                string processIds = string.Join(
+                    ",",
+                    result.Invocations.Select(static invocation => invocation.ProcessId).Distinct());
+
+                output.WriteLine($"  filtrace report \"{trace}\" --kind diskio");
+                output.WriteLine($"  filtrace lifecycle \"{trace}\" --pid {processIds}");
+            }
+            else
+            {
+                output.WriteLine($"  filtrace processes \"{trace}\"");
+                output.WriteLine($"  filtrace rank \"{trace}\" --metric cpu --process \"{result.ProcessName}\"");
+                if (request.Profile == CollectProfile.ThreadTime)
+                {
+                    output.WriteLine(
+                        $"  filtrace rank \"{trace}\" --metric threadtime --process \"{result.ProcessName}\"");
+                }
+
+                output.WriteLine(
+                    $"  filtrace classify \"{trace}\" --process \"{result.ProcessName}\" --native-symbols");
             }
 
-            output.WriteLine($"  filtrace classify \"{trace}\" --process \"{result.ProcessName}\" --native-symbols");
             return ExitCodes.Success;
         }
         catch (Exception ex) when (

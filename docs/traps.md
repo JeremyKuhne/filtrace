@@ -113,20 +113,20 @@ embeds the marked block below verbatim in its
    ETW kernel tracing is machine-wide, so the wrong keywords balloon the file: the
    File/Disk *name* rundowns enumerate every open file on the box (hundreds of
    thousands of events that dwarf the workload) no matter how short the window.
-   `filtrace collect` enables only the sampled-profile, process, thread, and image-load
-   kernel keywords - never the File/Disk or network ones - and stacks just the sampled
-   events, so prefer it and bound open-ended runs with `--duration` or `--max-size-mb`
-   (a circular buffer keeping the last N MB). Its CLR keywords are narrowed the same way,
-   to managed-method naming plus the GC and exception events the timeline lanes read.
+   The CPU-producing `filtrace collect` profiles enable only the sampled-profile,
+   process, thread, and image-load kernel keywords - never the File/Disk or network
+   ones - and stack just the sampled events. Their CLR keywords are narrowed to
+   managed-method naming plus the GC and exception events the timeline lanes read.
    Pick the set with `--profile`: `cpu` (default), `threadtime` (adds context switches,
    the most expensive), or `startup`, which keeps only the managed-naming keywords - use
    it when instrumentation must not change a short process's lifetime, and expect the GC,
    contention, and exception analyses to have no events.
-   A `diskio` capture needs the File/Disk keywords, and `filtrace collect` has no
-   switch for them: that capture comes from another recorder (PerfView, `wpr`, or a
-   custom BenchmarkDotNet `EtwProfilerConfig` enabling `DiskIO` / `DiskFileIO`; plain
-   `-p ETW` is CPU-only), so expect the system-wide rundown there and trim it down
-   afterward. To focus a big capture on your code, scope at *analysis* time with
+   For physical disk I/O, `--profile diskio` switches to Process, Thread, DiskIO,
+   DiskIOInit, and the DiskFileIO name rundown while omitting sampled CPU, stacks,
+   verbose FileIO, and CLR events. The capture is still machine-wide and includes the
+   recorder's own writes, so write the ETL to a different volume when possible.
+   External recorders remain appropriate when a broader provider set is required.
+   To focus a big capture on your code, scope at *analysis* time with
    `--process` or `--pid` (lossless - it keeps
    managed stacks); physically trimming the file by relogging is a transport-only
    optimization that currently drops JITted managed frames.

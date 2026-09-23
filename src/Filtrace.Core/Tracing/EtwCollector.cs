@@ -14,20 +14,19 @@ namespace Filtrace.Tracing;
 /// </summary>
 /// <remarks>
 ///  <para>
-///   A single session enables the kernel CPU (and, for thread time, context-switch) events
-///   with stacks, plus the CLR events that name managed methods. Because a launch capture
-///   starts tracing before the process exists, every method is jitted (and its name logged)
-///   after tracing begins, so the live method events resolve the managed frames with no CLR
-///   rundown pass. Cross-machine native-symbol injection (the PerfView "merge" step) is a
-///   deliberate follow-up; on the capture machine <c>--native-symbols</c> already names
-///   native frames.
+///   CPU and thread-time profiles enable sampled CPU (plus context switches for thread
+///   time) with stacks and the CLR events that name managed methods. Because a launch
+///   capture starts tracing before the process exists, every method is jitted (and its name
+///   logged) after tracing begins, so the live method events resolve the managed frames
+///   with no CLR rundown pass. Cross-machine native-symbol injection (the PerfView "merge"
+///   step) is a deliberate follow-up; on the capture machine <c>--native-symbols</c>
+///   already names native frames.
 ///  </para>
 ///  <para>
-///   Which providers a capture enables is chosen by <see cref="CollectProfile"/>. No profile
-///   enables the disk, network, or memory keywords: ETW is machine-wide, so those are paid
-///   for by the whole box, and no analysis of a <c>collect</c> capture reads them. A
-///   <c>diskio</c> capture therefore has to come from a recorder that asks for them
-///   explicitly.
+///   The disk-I/O profile is separate: it enables only process/thread attribution,
+///   physical disk completion/init events, and the file-name rundown. It deliberately
+///   omits sampled CPU, stacks, verbose FileIO, and CLR events so a machine-wide disk
+///   capture pays only for data the disk report reads.
 ///  </para>
 ///  <para>
 ///   ETW kernel tracing is Windows-only and needs Administrator; both are checked up front
@@ -146,8 +145,6 @@ public static class EtwCollector
             File.Delete(outputPath);
         }
 
-        // ThreadTime = Default | ContextSwitch | Dispatcher; Default already carries the
-        // Profile (CPU sampling), Process, Thread, and ImageLoad keywords.
         CaptureProviders providers = CaptureProviders.For(request.Profile);
 
         string processName = Path.GetFileNameWithoutExtension(request.LaunchExecutable);

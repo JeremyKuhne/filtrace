@@ -21,13 +21,13 @@ public sealed class CaptureProvidersTests
     [DataRow(CollectProfile.Cpu)]
     [DataRow(CollectProfile.ThreadTime)]
     [DataRow(CollectProfile.Startup)]
-    public void For_AnyProfile_EnablesNoMachineWideDiskOrNetworkKeywords(CollectProfile profile)
+    public void For_NonDiskProfile_EnablesNoMachineWideDiskOrNetworkKeywords(CollectProfile profile)
     {
         CaptureProviders providers = CaptureProviders.For(profile);
 
         // KernelTraceEventParser.Keywords.Default carries all of these, and the DiskFileIO
-        // name rundown alone enumerates every open file on the box. No filtrace analysis of
-        // a collect capture reads them, so no profile may pay for them.
+        // name rundown alone enumerates every open file on the box. CPU-producing profiles
+        // do not read them, so none of those profiles should pay for them.
         (providers.KernelKeywords & MachineWideNoise).Should().Be(
             KernelTraceEventParser.Keywords.None,
             "a machine-wide capture pays for every keyword across the whole box");
@@ -37,7 +37,7 @@ public sealed class CaptureProvidersTests
     [DataRow(CollectProfile.Cpu)]
     [DataRow(CollectProfile.ThreadTime)]
     [DataRow(CollectProfile.Startup)]
-    public void For_AnyProfile_EnablesTheSamplerAndProcessAttribution(CollectProfile profile)
+    public void For_CpuProfile_EnablesTheSamplerAndProcessAttribution(CollectProfile profile)
     {
         CaptureProviders providers = CaptureProviders.For(profile);
 
@@ -53,6 +53,7 @@ public sealed class CaptureProvidersTests
     [DataRow(CollectProfile.Cpu)]
     [DataRow(CollectProfile.ThreadTime)]
     [DataRow(CollectProfile.Startup)]
+    [DataRow(CollectProfile.DiskIo)]
     public void For_AnyProfile_StacksOnlyKeywordsItEnabled(CollectProfile profile)
     {
         CaptureProviders providers = CaptureProviders.For(profile);
@@ -80,7 +81,7 @@ public sealed class CaptureProvidersTests
     [DataRow(CollectProfile.Cpu)]
     [DataRow(CollectProfile.ThreadTime)]
     [DataRow(CollectProfile.Startup)]
-    public void For_AnyProfile_EnablesNoUnreadClrKeywords(CollectProfile profile)
+    public void For_ClrProfile_EnablesNoUnreadClrKeywords(CollectProfile profile)
     {
         CaptureProviders providers = CaptureProviders.For(profile);
 
@@ -107,7 +108,7 @@ public sealed class CaptureProvidersTests
     [DataRow(CollectProfile.Cpu)]
     [DataRow(CollectProfile.ThreadTime)]
     [DataRow(CollectProfile.Startup)]
-    public void For_AnyProfile_EnablesTheManagedNamingKeywords(CollectProfile profile)
+    public void For_ClrProfile_EnablesTheManagedNamingKeywords(CollectProfile profile)
     {
         CaptureProviders providers = CaptureProviders.For(profile);
 
@@ -158,10 +159,30 @@ public sealed class CaptureProvidersTests
     }
 
     [TestMethod]
+    public void For_DiskIo_EnablesOnlyPhysicalDiskAndFileNameEvents()
+    {
+        CaptureProviders providers = CaptureProviders.For(CollectProfile.DiskIo);
+        KernelTraceEventParser.Keywords expected =
+            KernelTraceEventParser.Keywords.Process
+                | KernelTraceEventParser.Keywords.Thread
+                | KernelTraceEventParser.Keywords.DiskIO
+                | KernelTraceEventParser.Keywords.DiskIOInit
+                | KernelTraceEventParser.Keywords.DiskFileIO;
+
+        providers.KernelKeywords.Should().Be(expected);
+        providers.StackKeywords.Should().Be(KernelTraceEventParser.Keywords.None);
+        providers.KernelKeywords.Should().NotHaveFlag(KernelTraceEventParser.Keywords.FileIO);
+        providers.KernelKeywords.Should().NotHaveFlag(KernelTraceEventParser.Keywords.FileIOInit);
+        providers.KernelKeywords.Should().NotHaveFlag(KernelTraceEventParser.Keywords.Profile);
+        providers.ClrKeywords.Should().Be(0);
+        providers.EnablesClr.Should().BeFalse();
+    }
+
+    [TestMethod]
     [DataRow(CollectProfile.Cpu)]
     [DataRow(CollectProfile.ThreadTime)]
     [DataRow(CollectProfile.Startup)]
-    public void For_AnyProfile_EnablesClrAtVerbose(CollectProfile profile)
+    public void For_ClrProfile_EnablesClrAtVerbose(CollectProfile profile)
     {
         CaptureProviders providers = CaptureProviders.For(profile);
 
