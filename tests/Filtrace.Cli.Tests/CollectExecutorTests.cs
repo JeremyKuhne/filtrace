@@ -327,6 +327,7 @@ public sealed class CollectExecutorTests
         JsonElement resultElement = document.RootElement.GetProperty("result");
         int processExitCode = resultElement.GetProperty("processExitCode").GetInt32();
         processExitCode.Should().Be(7);
+        resultElement.GetProperty("workingDirectory").GetString().Should().Be(Path.GetFullPath("."));
         output.ToString().Should().NotContain("not-the-capture");
         error.ToString().Should().Contain("{\"result\":\"not-the-capture\"}");
         error.ToString().Should().Contain("failed noisily");
@@ -357,6 +358,7 @@ public sealed class CollectExecutorTests
 
         exit.Should().Be(ExitCodes.Success);
         output.ToString().Should().Contain("Captured");
+        output.ToString().Should().Contain($"working directory {Path.GetFullPath(".")}");
         error.ToString().Should().BeEmpty();
     }
 
