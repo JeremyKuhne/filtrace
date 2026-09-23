@@ -829,13 +829,21 @@ internal sealed class TraceCommands
     ///  -n, Maximum detail rows; omit for the selected report's default. Threadpool has no detail rows.
     /// </param>
     /// <param name="format">Render format: text or json.</param>
+    /// <param name="process">For diskio, process-name substring choosing I/O issuers.</param>
+    /// <param name="pid">For diskio, exact process ids choosing I/O issuers.</param>
+    /// <param name="children">For diskio, whether issuer scope includes descendants.</param>
+    /// <param name="time">For diskio, completion-time window in trace-relative milliseconds.</param>
     /// <returns>A process exit code.</returns>
     [Command("report")]
     public int Report(
         [Argument] string trace,
         ReportKind kind,
         int? top = null,
-        OutputFormat format = OutputFormat.Text)
+        OutputFormat format = OutputFormat.Text,
+        string process = "",
+        int[]? pid = null,
+        Children children = Children.Include,
+        string time = "")
     {
         if (!Enum.IsDefined(kind))
         {
@@ -846,6 +854,19 @@ internal sealed class TraceCommands
         if (top is < 0)
         {
             Console.Error.WriteLine("The --top option must be zero or greater.");
+            return ExitCodes.UsageError;
+        }
+
+        bool hasDiskScope = process.Length > 0
+            || pid is not null
+            || children != Children.Include
+            || time.Length > 0;
+
+        if (kind != ReportKind.Diskio && hasDiskScope)
+        {
+            Console.Error.WriteLine(
+                "The --process, --pid, --children, and --time options apply only to --kind diskio.");
+
             return ExitCodes.UsageError;
         }
 
@@ -876,8 +897,36 @@ internal sealed class TraceCommands
                     Console.Error);
 
             case ReportKind.Diskio:
+                ScopeRequest scope = ScopeRequest.AllProcesses;
+                if (process.Length > 0 || pid is not null)
+                {
+                    if (!RankRequestFactory.TryResolveScope(
+                        process,
+                        pid,
+                        children,
+                        allProcesses: false,
+                        out scope,
+                        out string? scopeError))
+                    {
+                        Console.Error.WriteLine(scopeError);
+                        return ExitCodes.UsageError;
+                    }
+                }
+                else if (children != Children.Include)
+                {
+                    Console.Error.WriteLine("--children requires --process or --pid for diskio.");
+                    return ExitCodes.UsageError;
+                }
+
+                if (!TimeWindow.TryParse(time, out double? startMSec, out double? endMSec, out string? timeError))
+                {
+                    Console.Error.WriteLine(timeError);
+                    return ExitCodes.UsageError;
+                }
+
+                scope = scope.WithTimeWindow(startMSec, endMSec);
                 return DiskIoExecutor.Run(
-                    new DiskIoRequest(trace, top ?? 25, format),
+                    new DiskIoRequest(trace, top ?? 25, format, scope),
                     Console.Out,
                     Console.Error);
 
@@ -896,6 +945,10 @@ internal sealed class TraceCommands
     ///  -n, Maximum number of per-file rows to show, ranked by disk time, or 0 for the totals alone.
     /// </param>
     /// <param name="format">Render format: text or json.</param>
+    /// <param name="process">Process-name substring choosing I/O issuers.</param>
+    /// <param name="pid">Exact process ids choosing I/O issuers.</param>
+    /// <param name="children">Whether issuer scope includes descendants.</param>
+    /// <param name="time">Completion-time window in trace-relative milliseconds.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
     ///  A structured report, not a stack ranking. Physical disk events are recorded after
@@ -907,10 +960,14 @@ internal sealed class TraceCommands
     public int DiskIo(
         [Argument] string trace,
         [Range(0, int.MaxValue)] int top = 25,
-        OutputFormat format = OutputFormat.Text)
+        OutputFormat format = OutputFormat.Text,
+        string process = "",
+        int[]? pid = null,
+        Children children = Children.Include,
+        string time = "")
     {
         WriteAliasNotice("diskio", "filtrace report <trace> --kind diskio");
-        return Report(trace, ReportKind.Diskio, top, format);
+        return Report(trace, ReportKind.Diskio, top, format, process, pid, children, time);
     }
 
     /// <summary>

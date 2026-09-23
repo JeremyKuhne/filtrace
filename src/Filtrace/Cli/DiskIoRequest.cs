@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Tracing;
+
 namespace Filtrace.Cli;
 
 /// <summary>
@@ -18,7 +20,9 @@ namespace Filtrace.Cli;
 /// <param name="Path">The trace file path.</param>
 /// <param name="Top">Maximum number of per-file rows to show, ranked by disk service time.</param>
 /// <param name="Format">The render format.</param>
+/// <param name="Scope">The process and completion-time scope.</param>
 internal sealed record DiskIoRequest(
     string Path,
     int Top,
-    OutputFormat Format);
+    OutputFormat Format,
+    ScopeRequest Scope);

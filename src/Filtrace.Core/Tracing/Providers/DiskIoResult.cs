@@ -5,9 +5,10 @@
 namespace Filtrace.Tracing.Providers;
 
 /// <summary>
-///  The disk I/O report for an ETW trace: the physical disk reads and writes recorded
-///  in the trace (across every process it captured), aggregated by file - the answer to
-///  "is my code really waiting on the disk, and which files does it hit?"
+///  The disk I/O report for an ETW trace: the selected physical disk reads and writes,
+///  aggregated by file. An unscoped report covers every process; a process-scoped
+///  report covers completions correlated to IRPs directly issued by the selected
+///  process instances.
 /// </summary>
 /// <remarks>
 ///  <para>

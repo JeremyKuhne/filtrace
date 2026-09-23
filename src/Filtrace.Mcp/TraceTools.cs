@@ -1021,6 +1021,10 @@ public sealed class TraceTools
     /// </summary>
     /// <param name="path">Path to the trace file.</param>
     /// <param name="top">Maximum per-file rows to return, ranked by disk time, or 0 for the totals alone.</param>
+    /// <param name="process">Process-name substring choosing I/O issuers.</param>
+    /// <param name="pid">Exact process ids choosing I/O issuers.</param>
+    /// <param name="children">Whether issuer scope includes descendants.</param>
+    /// <param name="time">Completion-time window in trace-relative milliseconds.</param>
     /// <returns>The disk-I/O report envelope.</returns>
     [McpServerTool(Name = "trace_diskio", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
@@ -1028,16 +1032,40 @@ public sealed class TraceTools
             + ".nettrace and speedscope are rejected.")]
     public static AnalysisResult<DiskIoResult> DiskIo(
         [Description("Path to a Windows ETW .etl trace file.")] string path,
-        [Description("Maximum number of per-file rows to return, ranked by disk service time.")] int top = 25)
+        [Description("Maximum per-file rows.")] int top = 25,
+        [Description("I/O issuer process-name substring.")] string process = "",
+        [Description("Exact I/O issuer process ids.")] int[]? pid = null,
+        [Description("Include issuer descendants.")] bool children = true,
+        [Description("Completion-time window: start,end ms.")] string time = "")
     {
         RequireNonNegativeTop(top);
-        DiskIoResult full = ReadDiskIo(path);
+        bool hasSelector = !string.IsNullOrEmpty(process) || pid is { Length: > 0 };
+        if (!hasSelector && !children)
+        {
+            throw new McpException("children requires process or pid for disk I/O.");
+        }
+
+        ScopeRequest scope = hasSelector
+            ? ResolveScope(process, pid, children)!
+            : ScopeRequest.AllProcesses;
+
+        if (!TimeWindow.TryParse(time, out double? startMSec, out double? endMSec, out string? timeError))
+        {
+            throw new McpException(timeError);
+        }
+
+        scope = scope.WithTimeWindow(startMSec, endMSec);
+        DiskIoResult full = ReadDiskIo(
+            path,
+            scope,
+            out AppliedProcessScope appliedScope,
+            out IReadOnlyList<string> scopeWarnings);
 
         // Keep the full aggregate summary, but bound the per-file detail by both the
         // requested row count and the token budget. An empty report is conveyed by the
         // empty file list, like the other reports.
         DiskIoResult report = DiskIoProvider.LimitDetail(full, top, out string? warning);
-        List<string> warnings = [];
+        List<string> warnings = [.. scopeWarnings];
         if (warning is not null)
         {
             warnings.Add(warning);
@@ -1046,7 +1074,7 @@ public sealed class TraceTools
         return new AnalysisResult<DiskIoResult>(
             report,
             warnings,
-            context: new AnalysisContext("diskio"));
+            context: AnalysisContext.ForScope("diskio", appliedScope, scope.Window));
     }
 
     /// <summary>
@@ -1909,16 +1937,45 @@ public sealed class TraceTools
     ///  Reads the disk I/O report for a Windows ETW <c>.etl</c> trace, applying the format
     ///  guardrail and mapping the provider's failure modes to a clean <see cref="McpException"/>.
     /// </summary>
-    private static DiskIoResult ReadDiskIo(string path)
+    private static DiskIoResult ReadDiskIo(
+        string path,
+        ScopeRequest scope,
+        out AppliedProcessScope appliedProcessScope,
+        out IReadOnlyList<string> scopeWarnings)
+    {
+        AppliedProcessScope? resolvedScope = null;
+        IReadOnlyList<string>? resolvedWarnings = null;
+        DiskIoResult result = ReadDiskIo(
+            path,
+            () => new DiskIoProvider().Read(
+                path,
+                scope,
+                out resolvedScope,
+                out resolvedWarnings));
+
+        appliedProcessScope = resolvedScope!;
+        scopeWarnings = resolvedWarnings!;
+        return result;
+    }
+
+    /// <summary>
+    ///  Executes a deferred disk-I/O read after validating its trace format and maps
+    ///  malformed-trace failures to the MCP error contract.
+    /// </summary>
+    /// <param name="path">The trace path used for format validation.</param>
+    /// <param name="read">The deferred disk-I/O read.</param>
+    /// <returns>The disk-I/O report.</returns>
+    internal static DiskIoResult ReadDiskIo(string path, Func<DiskIoResult> read)
     {
         RequireEtl(path, "disk I/O report");
-
+        ArgumentNullException.ThrowIfNull(read);
         try
         {
-            return new DiskIoProvider().Read(path);
+            return read();
         }
         catch (Exception ex) when (
             ex is IOException
+                or InvalidDataException
                 or UnauthorizedAccessException
                 or NotSupportedException
                 or InvalidOperationException

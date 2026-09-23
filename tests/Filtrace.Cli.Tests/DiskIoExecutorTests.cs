@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Tracing;
+using Filtrace.Tracing.Providers;
+
 namespace Filtrace.Cli;
 
 [TestClass]
@@ -18,8 +21,14 @@ public sealed partial class DiskIoExecutorTests
     // A .nettrace carries no kernel disk events; the ETL guardrail rejects it.
     private static string Alloc => FixturePath("alloc.nettrace");
 
-    private static DiskIoRequest Request(string path, int top = 25, OutputFormat format = OutputFormat.Text) =>
-        new(path, top, format);
+    private static DiskIoRequest Request(
+        string path,
+        int top = 25,
+        OutputFormat format = OutputFormat.Text,
+        ScopeRequest? scope = null)
+    {
+        return new(path, top, format, scope ?? ScopeRequest.AllProcesses);
+    }
 
     private static (int Exit, string Out, string Error) Run(DiskIoRequest request)
     {
@@ -57,6 +66,37 @@ public sealed partial class DiskIoExecutorTests
         json.Should().Contain("\"schemaVersion\"");
         json.Should().Contain("\"writeCount\"");
         json.Should().Contain("\"files\"");
+    }
+
+    [TestMethod]
+    public void Run_ExactPidScope_ReportsScopeAndKeepsIssuedWrites()
+    {
+        (int exit, string output, _) = Run(Request(
+            DiskIo,
+            format: OutputFormat.Json,
+            scope: ScopeRequest.ForProcessIds([11112])));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("\"processMode\":\"ids\"");
+        int writeCount = int.Parse(WriteCountPropertyRegex().Match(output).Groups[1].Value);
+        writeCount.Should().BeGreaterThan(0);
+    }
+
+    [TestMethod]
+    public void TryReadEtlReport_InvalidData_ReturnsInputError()
+    {
+        StringWriter error = new();
+
+        bool success = TraceExecution.TryReadEtlReport(
+            DiskIo,
+            "disk I/O",
+            static () => throw new InvalidDataException("too many outstanding IRPs"),
+            error,
+            out DiskIoResult? result);
+
+        success.Should().BeFalse();
+        result.Should().BeNull();
+        error.ToString().Should().Contain("too many outstanding IRPs");
     }
 
     [TestMethod]

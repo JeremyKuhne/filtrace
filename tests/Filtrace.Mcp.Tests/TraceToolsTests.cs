@@ -1389,6 +1389,45 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void DiskIo_ExactPidScope_UsesIssuerCorrelation()
+    {
+        AnalysisResult<DiskIoResult> envelope = TraceTools.DiskIo(
+            FixturePath(DiskIoTrace),
+            pid: [11112],
+            children: true);
+
+        envelope.Result.WriteCount.Should().BeGreaterThan(0);
+        AnalysisScopeContext scope = envelope.Context!.Scope!;
+        scope.ProcessMode.Should().Be("ids");
+        scope.RequestedProcessIds.Should().Equal(11112);
+        envelope.Warnings.Should().Contain(w => w.Contains("issuer IRPs", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void DiskIo_TimeWindow_ReportsWindowAndNoCompletions()
+    {
+        AnalysisResult<DiskIoResult> envelope = TraceTools.DiskIo(
+            FixturePath(DiskIoTrace),
+            time: "1000000,");
+
+        envelope.Result.ReadCount.Should().Be(0);
+        envelope.Result.WriteCount.Should().Be(0);
+        envelope.Context!.Scope!.FromMs.Should().Be(1_000_000);
+    }
+
+    [TestMethod]
+    public void ReadDiskIo_InvalidData_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.ReadDiskIo(
+            FixturePath(DiskIoTrace),
+            static () => throw new InvalidDataException("too many outstanding IRPs"));
+
+        act.Should().Throw<McpException>().WithMessage("too many outstanding IRPs");
+    }
+
+    [TestMethod]
     public void DiskIo_NonEtlInput_ThrowsMcpException()
     {
         // The disk I/O report reads kernel ETW events; a .nettrace or speedscope is

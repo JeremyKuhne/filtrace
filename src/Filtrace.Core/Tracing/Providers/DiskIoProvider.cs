@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Output;
+using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Tracing.Providers;
 
@@ -30,6 +31,8 @@ namespace Filtrace.Tracing.Providers;
 /// </remarks>
 public sealed partial class DiskIoProvider
 {
+    private const int MaximumTrackedIssuedIrps = 1024 * 1024;
+
     // The JSON scaffolding around one file record - the property names, the punctuation,
     // and the numeric byte, count, and service-time fields - which the per-record
     // estimate adds to the file name.
@@ -42,9 +45,37 @@ public sealed partial class DiskIoProvider
     /// <returns>The disk I/O report, or an empty report when the trace carries no disk events.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="FileNotFoundException">The file does not exist.</exception>
-    public DiskIoResult Read(string path)
+    public DiskIoResult Read(string path) =>
+        Read(
+            path,
+            ScopeRequest.AllProcesses,
+            out _,
+            out _);
+
+    /// <summary>
+    ///  Reads a process- and time-scoped disk I/O report from an ETW trace.
+    /// </summary>
+    /// <param name="path">The <c>.etl</c> file path.</param>
+    /// <param name="scope">
+    ///  The process tree and completion-time window to keep. Process scope is resolved
+    ///  from <c>DiskIOInit</c> issuer events and correlated to completions by IRP.
+    /// </param>
+    /// <param name="appliedProcessScope">The exact process scope resolved against the trace.</param>
+    /// <param name="scopeWarnings">
+    ///  Selector ambiguity, missing-id, event-loss, applied-scope, and empty-result warnings.
+    /// </param>
+    /// <returns>The scoped disk I/O report, or an empty report when no completion remains.</returns>
+    /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="scope"/> is <see langword="null"/>.</exception>
+    /// <exception cref="FileNotFoundException">The file does not exist.</exception>
+    public DiskIoResult Read(
+        string path,
+        ScopeRequest scope,
+        out AppliedProcessScope appliedProcessScope,
+        out IReadOnlyList<string> scopeWarnings)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
+        ArgumentNullException.ThrowIfNull(scope);
 
         string fullPath = Path.GetFullPath(path);
         if (!File.Exists(fullPath))
@@ -53,6 +84,27 @@ public sealed partial class DiskIoProvider
         }
 
         using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(fullPath, out _);
+        ScopeResolution resolvedScope = ProcessTree.ResolveScope(traceLog, scope);
+        appliedProcessScope = resolvedScope.AppliedScope;
+        List<string> warnings = [.. resolvedScope.Warnings];
+        TraceLogReader.AddEventLossWarning(warnings, traceLog.EventsLost);
+        if (resolvedScope.Phrase is not null)
+        {
+            warnings.Add(
+                $"Scoped disk I/O to {resolvedScope.Phrase} by correlating DiskIOInit issuer IRPs "
+                    + "to completions; completion process ids were not used. This is issuer scope, "
+                    + "not causal workload ownership: deferred file-system/cache write-back issued "
+                    + "by System is included only when System is selected; Idle-issued I/O appears "
+                    + "only in an unscoped report.");
+        }
+
+        if (scope.Window is TimeWindow appliedWindow && appliedWindow.IsBounded)
+        {
+            warnings.Add($"Scoped disk I/O to the {appliedWindow} completion-time window.");
+        }
+
+        scopeWarnings = warnings;
+        HashSet<ulong>? includedIrps = resolvedScope.ProcessInstanceIndexes is null ? null : [];
 
         Dictionary<string, FileTally> byFile = new(StringComparer.OrdinalIgnoreCase);
         int readCount = 0;
@@ -60,13 +112,35 @@ public sealed partial class DiskIoProvider
         long totalReadBytes = 0;
         long totalWriteBytes = 0;
         double totalDiskMs = 0;
+        int correlatedCompletionCount = 0;
 
         foreach (TraceEvent data in traceLog.Events)
         {
+            if (data is DiskIOInitTraceData init)
+            {
+                if (includedIrps is not null)
+                {
+                    TrackIssuedIrp(includedIrps, init.Irp, resolvedScope.Includes(init));
+                }
+
+                continue;
+            }
+
             // DiskIOTraceData is the completion event for a physical read or write (the
             // separate *Init events, which carry no transfer size, are DiskIOInitTraceData
             // and are skipped here). The opcode name distinguishes the direction.
             if (data is not DiskIOTraceData disk)
+            {
+                continue;
+            }
+
+            if (includedIrps is not null && !includedIrps.Remove(disk.Irp))
+            {
+                continue;
+            }
+
+            correlatedCompletionCount++;
+            if (scope.Window is TimeWindow window && !window.Contains(disk.TimeStampRelativeMSec))
             {
                 continue;
             }
@@ -120,6 +194,25 @@ public sealed partial class DiskIoProvider
                 .ThenBy(static record => record.FileName, StringComparer.OrdinalIgnoreCase)
         ];
 
+        if (includedIrps is not null && readCount == 0 && writeCount == 0)
+        {
+            if (correlatedCompletionCount > 0
+                && scope.Window is TimeWindow { IsBounded: true })
+            {
+                warnings.Add(
+                    "No physical disk completions remained after applying the selected issuer "
+                        + $"and completion-time scopes; {correlatedCompletionCount:N0} correlated "
+                        + "completion(s) fell outside the time window.");
+            }
+            else
+            {
+                warnings.Add(
+                    "No physical disk completions correlated to the selected issuer scope. "
+                        + "The processes may have issued no direct physical I/O, deferred write-back "
+                        + "may belong to System, or the capture may omit DiskIOInit events.");
+            }
+        }
+
         return new DiskIoResult(
             readCount,
             writeCount,
@@ -130,11 +223,47 @@ public sealed partial class DiskIoProvider
     }
 
     /// <summary>
+    ///  Determines whether another outstanding scoped issuer IRP can be retained.
+    /// </summary>
+    /// <param name="trackedIrpCount">The current distinct outstanding IRP count.</param>
+    /// <returns><see langword="true"/> when another IRP can be tracked.</returns>
+    internal static bool CanTrackIssuedIrp(int trackedIrpCount) =>
+        trackedIrpCount < MaximumTrackedIssuedIrps;
+
+    /// <summary>
+    ///  Replaces the tracked ownership of an IRP when an init event reuses its address.
+    /// </summary>
+    /// <param name="includedIrps">Outstanding IRPs issued by the selected process scope.</param>
+    /// <param name="irp">The initialized IRP address.</param>
+    /// <param name="includedIssuer">Whether this init belongs to the selected process scope.</param>
+    internal static void TrackIssuedIrp(
+        HashSet<ulong> includedIrps,
+        ulong irp,
+        bool includedIssuer)
+    {
+        ArgumentNullException.ThrowIfNull(includedIrps);
+
+        includedIrps.Remove(irp);
+        if (!includedIssuer)
+        {
+            return;
+        }
+
+        if (!CanTrackIssuedIrp(includedIrps.Count))
+        {
+            throw new InvalidDataException(
+                $"Disk I/O issuer scope exceeded the {MaximumTrackedIssuedIrps:N0}-IRP safety limit.");
+        }
+
+        includedIrps.Add(irp);
+    }
+
+    /// <summary>
     ///  Limits a report's per-file detail to the heaviest files that fit both
     ///  <paramref name="top"/> and <see cref="OutputBudget.DefaultRowBudgetTokens"/>,
     ///  leaving the aggregate summary untouched.
     /// </summary>
-    /// <param name="report">The full report, as returned by <see cref="Read"/>.</param>
+    /// <param name="report">The full report, as returned by <see cref="Read(string)"/>.</param>
     /// <param name="top">
     ///  The caller's maximum detail row count. Must be non-negative; zero keeps the
     ///  aggregate summary and drops every file row.
@@ -150,7 +279,7 @@ public sealed partial class DiskIoProvider
     ///   costs about 60 estimated tokens, so a caller-supplied row cap alone stops holding
     ///   the response under the ceiling at roughly 400 files - well within reach of a
     ///   machine-wide capture, though no committed fixture is broad enough to reach it.
-    ///   <see cref="Read"/> already ranks the files by disk time, so the order is kept.
+    ///   <see cref="Read(string)"/> already ranks the files by disk time, so the order is kept.
     ///  </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="report"/> is <see langword="null"/>.</exception>

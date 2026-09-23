@@ -81,6 +81,93 @@ public sealed class DiskIoProviderTests
     }
 
     [TestMethod]
+    public void Read_DiskIoFixture_ProcessScopeUsesIssuingIrp()
+    {
+        DiskIoResult result = new DiskIoProvider().Read(
+            FixturePath("diskio.etl"),
+            ScopeRequest.ForProcessIds([11112], includeChildren: true),
+            out AppliedProcessScope appliedScope,
+            out IReadOnlyList<string> warnings);
+
+        result.WriteCount.Should().BeGreaterThan(0);
+        result.Files.Should().Contain(f => f.FileName.Contains("block", StringComparison.OrdinalIgnoreCase));
+        appliedScope.Mode.Should().Be("ids");
+        warnings.Should().ContainSingle().Which.Should().Contain("issuer IRPs");
+    }
+
+    [TestMethod]
+    public void Read_DiskIoFixture_MissingProcessScopeYieldsEmptyReport()
+    {
+        DiskIoResult result = new DiskIoProvider().Read(
+            FixturePath("diskio.etl"),
+            ScopeRequest.ForProcess("no-such-process"),
+            out _,
+            out IReadOnlyList<string> warnings);
+
+        result.ReadCount.Should().Be(0);
+        result.WriteCount.Should().Be(0);
+        result.Files.Should().BeEmpty();
+        warnings.Should().Contain(w => w.Contains("No physical disk completions", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Read_DiskIoFixture_TimeWindowCanExcludeEveryCompletion()
+    {
+        DiskIoResult result = new DiskIoProvider().Read(
+            FixturePath("diskio.etl"),
+            ScopeRequest.AllProcesses.WithTimeWindow(1_000_000, endMSec: null),
+            out _,
+            out _);
+
+        result.ReadCount.Should().Be(0);
+        result.WriteCount.Should().Be(0);
+        result.Files.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void Read_DiskIoFixture_IssuerWindowExplainsExcludedCompletions()
+    {
+        DiskIoResult result = new DiskIoProvider().Read(
+            FixturePath("diskio.etl"),
+            ScopeRequest.ForProcessIds([11112]).WithTimeWindow(1_000_000, endMSec: null),
+            out _,
+            out IReadOnlyList<string> warnings);
+
+        result.ReadCount.Should().Be(0);
+        result.WriteCount.Should().Be(0);
+        warnings.Should().Contain(w => w.Contains("fell outside the time window", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void TrackIssuedIrp_OutOfScopeReuseClearsPriorOwnership()
+    {
+        HashSet<ulong> includedIrps = [42];
+
+        DiskIoProvider.TrackIssuedIrp(includedIrps, 42, includedIssuer: false);
+
+        includedIrps.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void TrackIssuedIrp_InScopeReuseReplacesPriorOwnership()
+    {
+        HashSet<ulong> includedIrps = [42];
+
+        DiskIoProvider.TrackIssuedIrp(includedIrps, 42, includedIssuer: true);
+
+        includedIrps.Should().Equal(42);
+    }
+
+    [TestMethod]
+    [DataRow(0, true)]
+    [DataRow(1_048_575, true)]
+    [DataRow(1_048_576, false)]
+    public void CanTrackIssuedIrp_BoundsOutstandingScopeState(int trackedIrpCount, bool expected)
+    {
+        DiskIoProvider.CanTrackIssuedIrp(trackedIrpCount).Should().Be(expected);
+    }
+
+    [TestMethod]
     public void Read_DiskIoFixture_PerFileTalliesSumToTheTotals()
     {
         DiskIoResult result = LoadDiskIo();

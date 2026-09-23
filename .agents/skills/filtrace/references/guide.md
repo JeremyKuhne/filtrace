@@ -203,13 +203,20 @@ Run `filtrace <verb> --help` for the full option set of any verb.
 **Implemented scope inventory:**
 
 - **Named process:** CLI `info`, `rank`, `source`, `callers`, `tree`, `classify`,
-  `timeline`, `diff`, `batch`, and `export`; MCP
+  `timeline`, `diff`, `batch`, `export`, and `report` (for `--kind diskio`); MCP
   `trace_info`, `trace_rank`, `trace_callers`, `trace_lines`, `trace_heatmap`,
   `trace_tree`, `trace_classify`, `trace_timeline`, `trace_diff`, `trace_batch`, and
-  `trace_export`. These auto-scope a multi-process `.etl` to the busiest process tree.
+  `trace_export`, plus `trace_diskio`. Every listed surface except the disk report
+  auto-scopes a multi-process `.etl` to the busiest process tree.
   Run `processes` / `trace_processes` first to inspect the capture, then set
   `--process <name>` / `process` to override. CLI commands expose `--all-processes`
-  where an aggregate is supported; MCP has no all-process aggregate.
+  where an aggregate is supported. Stack-backed MCP analyses have no all-process
+  aggregate; `trace_diskio` is the exception and, like the CLI disk report, remains
+  machine-wide by default. When scoped, disk reports correlate `DiskIOInit` issuer
+  IRPs to completions because a completion PID may be System or Idle. This is direct
+  issuer scope, not causal ownership: deferred file-system/cache write-back issued
+  by System is included only when System is selected, while Idle-issued I/O appears
+  only in an unscoped report.
 - **Exact process ids:** the same commands and tools accept `--pid <id>[,<id>]`
   (comma-separated, not repeated) / `pid` instead of a name. A name substring is right
   for discovery, but a common host name such as `dotnet` matches every unrelated
@@ -222,6 +229,9 @@ Run `filtrace <verb> --help` for the full option set of any verb.
   shapes put the measured work in a child the host launched. Pass `exclude` to separate
   a parent's own CPU from a child runtime's; without it a native host's own cost is
   blended with the CoreCLR frames of the child it launched.
+- **Disk completion time:** CLI `report --kind diskio` and MCP `trace_diskio`
+  accept `--time <start>,<end>` / `time`. The window filters completion timestamps
+  after issuer-process IRP correlation; either bound may be open.
 - **Invocation roots:** CLI `lifecycle` and MCP `trace_lifecycle` take the same
   `--process` / `--pid` selectors, but each matched process instance is one invocation
   and descendants always follow, so neither takes `--children` or `--all-processes`.
