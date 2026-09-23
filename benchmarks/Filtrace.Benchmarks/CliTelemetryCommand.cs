@@ -108,6 +108,8 @@ internal static partial class CliTelemetryCommand
                 options.TracePath,
                 trace,
                 pathComparison);
+
+            EnsureOutputDoesNotAliasCustomInputs(output, sharedArguments, pathComparison);
         }
         else if (!definition!.Cold)
         {
@@ -414,6 +416,34 @@ internal static partial class CliTelemetryCommand
         }
 
         return resolved;
+    }
+
+    private static void EnsureOutputDoesNotAliasCustomInputs(
+        string output,
+        IReadOnlyList<string> arguments,
+        StringComparison pathComparison)
+    {
+        foreach (string argument in arguments)
+        {
+            string candidate;
+            try
+            {
+                candidate = Path.GetFullPath(argument);
+            }
+            catch (Exception ex) when (
+                ex is ArgumentException
+                    or NotSupportedException
+                    or PathTooLongException)
+            {
+                continue;
+            }
+
+            if (File.Exists(candidate) && string.Equals(candidate, output, pathComparison))
+            {
+                throw new ArgumentException(
+                    $"Telemetry output '{output}' must not overwrite a custom command input.");
+            }
+        }
     }
 
     private static bool IsRecordId(string value)

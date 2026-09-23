@@ -82,7 +82,8 @@ caller-selected record identifier, and one token must exactly match `--trace`.
 That trace token is normalized to its absolute path in the retained launch record.
 Custom mode performs no cache preparation, so prepare or remove ETLX state before
 the campaign according to the scenario being measured. Tokens pass through
-`ProcessStartInfo.ArgumentList`; no shell parses or rejoins them.
+`ProcessStartInfo.ArgumentList`; no shell parses or rejoins them. The telemetry
+output must not alias any existing file supplied as a direct command token.
 
 Telemetry accepts the implemented single-trace and manifest scenario names,
 including `cache-convert-warm`, `cache-convert-cold`, `batch-8`, `info-cold`,

@@ -24,6 +24,41 @@ function Write-Json([string] $Path, [object] $Value) {
     [System.IO.File]::WriteAllText($Path, "$json`n", $utf8)
 }
 
+function Assert-TelemetryFailure(
+    [string] $DotnetPath,
+    [string] $BenchmarkDll,
+    [string] $Scenario,
+    [string] $Trace,
+    [string] $Output,
+    [string] $Filtrace,
+    [string[]] $ChildArguments,
+    [string] $ExpectedMessage) {
+    [System.Collections.Generic.List[string]] $invocation = [System.Collections.Generic.List[string]]::new()
+    foreach ($argument in @(
+        $BenchmarkDll,
+        '--cli-telemetry',
+        '--scenario', $Scenario,
+        '--trace', $Trace,
+        '--output', $Output,
+        '--iterations', '1',
+        '--filtrace', $Filtrace)) {
+        $invocation.Add($argument)
+    }
+    foreach ($argument in $ChildArguments) {
+        $invocation.Add('--argument')
+        $invocation.Add($argument)
+    }
+
+    [object[]] $diagnostic = @(& $DotnetPath @invocation 2>&1)
+    [int] $exitCode = $LASTEXITCODE
+    Assert-True ($exitCode -ne 0) "Telemetry failure '$Scenario' exited zero."
+    Assert-True `
+        (($diagnostic -join [Environment]::NewLine).Contains(
+            $ExpectedMessage,
+            [StringComparison]::Ordinal)) `
+        "Telemetry failure '$Scenario' did not report '$ExpectedMessage'."
+}
+
 [string] $temporaryRoot = Join-Path `
     ([System.IO.Path]::GetTempPath()) `
     "filtrace-trackd-contract-$([Guid]::NewGuid().ToString('N'))"
@@ -696,7 +731,22 @@ try {
     [string] $probeOutput = Join-Path $temporaryRoot 'elapsed-probe.json'
     [string] $readyPath = Join-Path $temporaryRoot 'elapsed-probe.ready'
     [string] $releasePath = Join-Path $temporaryRoot 'elapsed-probe.release'
-    [string[]] $expectedProbeArguments = @('info', $probeTrace, '--format', 'json')
+    [string] $argumentsPath = Join-Path $temporaryRoot 'elapsed-probe-arguments.json'
+    [System.Collections.Generic.List[string]] $probeArguments =
+        [System.Collections.Generic.List[string]]::new()
+    foreach ($argument in @(
+        'info',
+        $probeTrace,
+        '',
+        'argument with spaces',
+        'argument "with quotes"',
+        ('x' * 8192))) {
+        $probeArguments.Add($argument)
+    }
+    while ($probeArguments.Count -lt 64) {
+        $probeArguments.Add("token-$($probeArguments.Count)")
+    }
+    [string[]] $expectedProbeArguments = $probeArguments.ToArray()
     [System.Management.Automation.CommandInfo] $dotnetCommand = @(
         Get-Command dotnet -CommandType Application -ErrorAction Stop)[0]
 
@@ -742,15 +792,16 @@ try {
         '--trace', $probeTrace,
         '--output', $probeOutput,
         '--iterations', '1',
-        '--filtrace', $blockingProcess,
-        '--argument', $expectedProbeArguments[0],
-        '--argument', $expectedProbeArguments[1],
-        '--argument', $expectedProbeArguments[2],
-        '--argument', $expectedProbeArguments[3])) {
+        '--filtrace', $blockingProcess)) {
+        $probeStart.ArgumentList.Add($argument)
+    }
+    foreach ($argument in $expectedProbeArguments) {
+        $probeStart.ArgumentList.Add('--argument')
         $probeStart.ArgumentList.Add($argument)
     }
     $probeStart.Environment['FILTRACE_ELAPSED_READY_PATH'] = $readyPath
     $probeStart.Environment['FILTRACE_ELAPSED_RELEASE_PATH'] = $releasePath
+    $probeStart.Environment['FILTRACE_ELAPSED_ARGUMENTS_PATH'] = $argumentsPath
 
     [System.Diagnostics.Process] $probeProcess = [System.Diagnostics.Process]::new()
     $probeProcess.StartInfo = $probeStart
@@ -846,12 +897,86 @@ try {
     Assert-True `
         ((@($probeLaunch.arguments) -join "`0") -ceq ($expectedProbeArguments -join "`0")) `
         'Exact-argument telemetry did not retain the requested child argument tokens.'
+    [string[]] $receivedProbeArguments = @(
+        Get-Content -LiteralPath $argumentsPath -Raw | ConvertFrom-Json)
+    Assert-True `
+        (($receivedProbeArguments -join "`0") -ceq ($expectedProbeArguments -join "`0")) `
+        'Exact-argument telemetry did not preserve the child process argument vector.'
     Assert-True `
         ($probeLaunch.launchToExitMilliseconds -ge $heldOpen.Elapsed.TotalMilliseconds) `
         'Launch-to-exit telemetry did not contain the synchronized child wait.'
     Assert-True `
         ($probeLaunch.launchToExitMilliseconds -ne $probeLaunch.totalProcessorMilliseconds) `
         'Launch-to-exit telemetry did not remain distinct from child CPU time.'
+
+    [string] $benchmarkDll = Join-Path `
+        $root `
+        'benchmarks/Filtrace.Benchmarks/bin/Release/net10.0/Filtrace.Benchmarks.dll'
+    [string] $aliasInput = Join-Path $temporaryRoot 'alias-input.nettrace'
+    Copy-Item -LiteralPath $probeTrace -Destination $aliasInput
+    [string] $aliasHash = (Get-FileHash -LiteralPath $aliasInput -Algorithm SHA256).Hash
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'alias-input' `
+        $probeTrace `
+        $aliasInput `
+        $blockingProcess `
+        @('diff', $probeTrace, $aliasInput) `
+        'must not overwrite a custom command input'
+    Assert-True `
+        ((Get-FileHash -LiteralPath $aliasInput -Algorithm SHA256).Hash -ceq $aliasHash) `
+        'Rejected telemetry output alias changed the second input trace.'
+
+    [string[]] $tooManyArguments = @('info', $probeTrace)
+    while ($tooManyArguments.Count -lt 65) {
+        $tooManyArguments += "token-$($tooManyArguments.Count)"
+    }
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'too-many-arguments' `
+        $probeTrace `
+        (Join-Path $temporaryRoot 'too-many-arguments.json') `
+        $blockingProcess `
+        $tooManyArguments `
+        'at most 64 argument tokens'
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'too-long-argument' `
+        $probeTrace `
+        (Join-Path $temporaryRoot 'too-long-argument.json') `
+        $blockingProcess `
+        @('info', $probeTrace, ('x' * 8193)) `
+        'exceeds 8192 characters'
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'invalid/id' `
+        $probeTrace `
+        (Join-Path $temporaryRoot 'invalid-id.json') `
+        $blockingProcess `
+        @('info', $probeTrace) `
+        'custom scenario must match'
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'write-operation' `
+        $probeTrace `
+        (Join-Path $temporaryRoot 'write-operation.json') `
+        $blockingProcess `
+        @('collect', $probeTrace) `
+        'requires a read-only canonical operation'
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'missing-trace-token' `
+        $probeTrace `
+        (Join-Path $temporaryRoot 'missing-trace-token.json') `
+        $blockingProcess `
+        @('info', 'other.nettrace') `
+        'must contain the exact path supplied by --trace'
 
     [string] $firstCommandDirectory = Join-Path $temporaryRoot 'path-first'
     [string] $secondCommandDirectory = Join-Path $temporaryRoot 'path-second'

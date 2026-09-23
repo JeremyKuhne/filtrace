@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using System.Diagnostics;
+using System.Text.Json;
 
 namespace Filtrace.BlockingProcess;
 
@@ -13,15 +14,22 @@ internal static class Program
 {
     private const string ReadyPathVariable = "FILTRACE_ELAPSED_READY_PATH";
     private const string ReleasePathVariable = "FILTRACE_ELAPSED_RELEASE_PATH";
+    private const string ArgumentsPathVariable = "FILTRACE_ELAPSED_ARGUMENTS_PATH";
     private static readonly TimeSpan s_selfDeadline = TimeSpan.FromSeconds(30);
 
     /// <summary>
     ///  Publishes readiness, waits for release, and writes bounded successful output.
     /// </summary>
-    public static void Main()
+    /// <param name="args">Arguments to retain when the parent requests argv evidence.</param>
+    public static void Main(string[] args)
     {
         string readyPath = GetRequiredPath(ReadyPathVariable);
         string releasePath = GetRequiredPath(ReleasePathVariable);
+        string? argumentsPath = Environment.GetEnvironmentVariable(ArgumentsPathVariable);
+        if (!string.IsNullOrEmpty(argumentsPath))
+        {
+            File.WriteAllText(argumentsPath, JsonSerializer.Serialize(args));
+        }
 
         File.WriteAllText(readyPath, string.Empty);
         Stopwatch wait = Stopwatch.StartNew();
