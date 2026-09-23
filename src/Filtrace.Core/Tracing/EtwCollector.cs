@@ -61,6 +61,9 @@ public static class EtwCollector
     /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">A required field is missing.</exception>
     /// <exception cref="ArgumentOutOfRangeException">A numeric field is out of range.</exception>
+    /// <exception cref="DirectoryNotFoundException">
+    ///  <see cref="EtwCollectRequest.WorkingDirectory"/> does not resolve to an existing directory.
+    /// </exception>
     /// <exception cref="PlatformNotSupportedException">Not running on Windows.</exception>
     /// <exception cref="UnauthorizedAccessException">Not elevated.</exception>
     public static EtwCollectResult Collect(EtwCollectRequest request) =>
