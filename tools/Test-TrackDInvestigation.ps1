@@ -696,6 +696,7 @@ try {
     [string] $probeOutput = Join-Path $temporaryRoot 'elapsed-probe.json'
     [string] $readyPath = Join-Path $temporaryRoot 'elapsed-probe.ready'
     [string] $releasePath = Join-Path $temporaryRoot 'elapsed-probe.release'
+    [string[]] $expectedProbeArguments = @('info', $probeTrace, '--format', 'json')
     [System.Management.Automation.CommandInfo] $dotnetCommand = @(
         Get-Command dotnet -CommandType Application -ErrorAction Stop)[0]
 
@@ -737,11 +738,15 @@ try {
         'run', '-c', 'Release', '--no-build',
         '--project', 'benchmarks/Filtrace.Benchmarks', '--',
         '--cli-telemetry',
-        '--scenario', 'info-warm',
+        '--scenario', 'exact-argv-probe',
         '--trace', $probeTrace,
         '--output', $probeOutput,
         '--iterations', '1',
-        '--filtrace', $blockingProcess)) {
+        '--filtrace', $blockingProcess,
+        '--argument', $expectedProbeArguments[0],
+        '--argument', $expectedProbeArguments[1],
+        '--argument', $expectedProbeArguments[2],
+        '--argument', $expectedProbeArguments[3])) {
         $probeStart.ArgumentList.Add($argument)
     }
     $probeStart.Environment['FILTRACE_ELAPSED_READY_PATH'] = $readyPath
@@ -835,6 +840,12 @@ try {
     [object] $probeReport = Get-Content -LiteralPath $probeOutput -Raw | ConvertFrom-Json
     [object] $probeLaunch = @($probeReport.launches)[0]
     Assert-True ($probeReport.schemaVersion -eq 2) 'Elapsed probe did not write telemetry schema 2.'
+    Assert-True `
+        ($probeReport.scenario -ceq 'exact-argv-probe') `
+        'Exact-argument telemetry did not retain its scenario identifier.'
+    Assert-True `
+        ((@($probeLaunch.arguments) -join "`0") -ceq ($expectedProbeArguments -join "`0")) `
+        'Exact-argument telemetry did not retain the requested child argument tokens.'
     Assert-True `
         ($probeLaunch.launchToExitMilliseconds -ge $heldOpen.Elapsed.TotalMilliseconds) `
         'Launch-to-exit telemetry did not contain the synchronized child wait.'

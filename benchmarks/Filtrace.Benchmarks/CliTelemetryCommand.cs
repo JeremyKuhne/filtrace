@@ -15,6 +15,14 @@ internal static partial class CliTelemetryCommand
 {
     private const int DefaultIterations = 25;
     private const int MaximumIterations = 100;
+    private const int MaximumCustomArguments = 64;
+    private const int MaximumCustomArgumentLength = 8192;
+    private static readonly HashSet<string> CustomReadOnlyOperations = new(
+        [
+            "info", "rank", "source", "report", "callers", "processes",
+            "lifecycle", "tree", "classify", "timeline", "diff", "batch", "events"
+        ],
+        StringComparer.Ordinal);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -27,7 +35,7 @@ internal static partial class CliTelemetryCommand
     /// </summary>
     public const string Usage =
         "Usage: --cli-telemetry --scenario NAME --trace PATH --output PATH "
-            + "[--iterations N] [--filtrace PATH]";
+            + "[--iterations N] [--filtrace PATH] [--argument TOKEN ...]";
 
     /// <summary>
     ///  Detects the private telemetry mode before BenchmarkDotNet parses the arguments.
@@ -58,6 +66,11 @@ internal static partial class CliTelemetryCommand
             options.FiltracePath ?? CliProcessRunner.FindFiltraceExecutable());
 
         string trace = Path.GetFullPath(options.TracePath);
+        if (!File.Exists(trace))
+        {
+            throw new FileNotFoundException("The telemetry trace does not exist.", trace);
+        }
+
         string output = Path.GetFullPath(options.OutputPath);
         string etlx = Path.GetFullPath(TraceConverter.EtlxPathFor(trace));
         StringComparison pathComparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
@@ -79,11 +92,24 @@ internal static partial class CliTelemetryCommand
             throw new ArgumentException($"Telemetry output '{output}' must name a file.");
         }
 
-        CliScenarioDefinition definition = CliBenchmarkScenarios.Get(options.Scenario);
+        bool custom = options.Arguments.Count > 0;
+        CliScenarioDefinition? definition = custom
+            ? null
+            : CliBenchmarkScenarios.Get(options.Scenario);
+
         CliManifestCorpus? warmCorpus = null;
         EmbeddedPdbCorpus? symbolCorpus = null;
         string[]? sharedArguments = null;
-        if (!definition.Cold)
+        if (custom)
+        {
+            sharedArguments = ResolveCustomArguments(
+                options.Scenario,
+                options.Arguments,
+                options.TracePath,
+                trace,
+                pathComparison);
+        }
+        else if (!definition!.Cold)
         {
             if (definition.IsManifest)
             {
@@ -118,7 +144,7 @@ internal static partial class CliTelemetryCommand
                 TraceConverter.Convert(trace);
             }
         }
-        else if (!definition.IsManifest)
+        else if (!definition!.IsManifest)
         {
             // Validate a single-trace cold scenario before launching.
             _ = CliBenchmarkScenarios.CreateArguments(definition, trace);
@@ -130,14 +156,14 @@ internal static partial class CliTelemetryCommand
             for (int iteration = 1; iteration <= options.Iterations; iteration++)
             {
                 CliProcessTelemetry launch;
-                if (!definition.Cold)
+                if (custom || !definition!.Cold)
                 {
                     launch = await CliProcessRunner.RunTelemetryAsync(
                         executable,
                         sharedArguments!,
                             iteration).ConfigureAwait(continueOnCapturedContext: false);
                 }
-                else if (definition.IsManifest)
+                else if (definition!.IsManifest)
                 {
                     launch = await RunColdManifestAsync(
                         executable,
@@ -270,6 +296,7 @@ internal static partial class CliTelemetryCommand
         string? trace = null;
         string? output = null;
         string? filtrace = null;
+        List<string> arguments = [];
         int iterations = DefaultIterations;
         for (int index = 1; index < args.Length; index++)
         {
@@ -306,6 +333,9 @@ internal static partial class CliTelemetryCommand
                     }
 
                     break;
+                case "--argument":
+                    arguments.Add(value);
+                    break;
                 default:
                     throw new ArgumentException($"Unknown option or value '{name} {value}'.");
             }
@@ -326,7 +356,75 @@ internal static partial class CliTelemetryCommand
                 $"Iterations must be in [1, {MaximumIterations}].");
         }
 
-        return new TelemetryOptions(scenario, trace, output, filtrace, iterations);
+        return new TelemetryOptions(scenario, trace, output, filtrace, iterations, arguments);
+    }
+
+    private static string[] ResolveCustomArguments(
+        string scenario,
+        IReadOnlyList<string> arguments,
+        string requestedTrace,
+        string trace,
+        StringComparison pathComparison)
+    {
+        if (!IsRecordId(scenario))
+        {
+            throw new ArgumentException(
+                "A custom scenario must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}.");
+        }
+
+        if (arguments.Count > MaximumCustomArguments)
+        {
+            throw new ArgumentException(
+                $"A custom scenario supports at most {MaximumCustomArguments} argument tokens.");
+        }
+
+        string[] resolved = new string[arguments.Count];
+        bool traceReferenced = false;
+        for (int index = 0; index < arguments.Count; index++)
+        {
+            string argument = arguments[index];
+            if (argument.Length > MaximumCustomArgumentLength || argument.IndexOf('\0') >= 0)
+            {
+                throw new ArgumentException(
+                    $"Custom argument {index} is invalid or exceeds {MaximumCustomArgumentLength} characters.");
+            }
+
+            if (string.Equals(argument, requestedTrace, StringComparison.Ordinal)
+                || string.Equals(argument, trace, pathComparison))
+            {
+                resolved[index] = trace;
+                traceReferenced = true;
+            }
+            else
+            {
+                resolved[index] = argument;
+            }
+        }
+
+        if (resolved.Length == 0 || !CustomReadOnlyOperations.Contains(resolved[0]))
+        {
+            throw new ArgumentException(
+                "Custom telemetry requires a read-only canonical operation as its first argument.");
+        }
+
+        if (!traceReferenced)
+        {
+            throw new ArgumentException(
+                "Custom telemetry arguments must contain the exact path supplied by --trace.");
+        }
+
+        return resolved;
+    }
+
+    private static bool IsRecordId(string value)
+    {
+        if (value.Length is < 1 or > 64 || !char.IsAsciiLetterOrDigit(value[0]))
+        {
+            return false;
+        }
+
+        return value.AsSpan(1).IndexOfAnyExcept(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-") < 0;
     }
 
 }
