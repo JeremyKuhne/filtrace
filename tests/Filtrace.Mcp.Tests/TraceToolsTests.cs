@@ -1389,6 +1389,22 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void DiskIo_ExactPidScope_UsesIssuerCorrelation()
+    {
+        AnalysisResult<DiskIoResult> envelope = TraceTools.DiskIo(
+            FixturePath(DiskIoTrace),
+            pid: [11112],
+            children: true);
+
+        envelope.Result.WriteCount.Should().BeGreaterThan(0);
+        AnalysisScopeContext scope = envelope.Context!.Scope!;
+        scope.ProcessMode.Should().Be("ids");
+        scope.RequestedProcessIds.Should().Equal(11112);
+        envelope.Warnings.Should().Contain(w => w.Contains("issuer IRPs", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void DiskIo_NonEtlInput_ThrowsMcpException()
     {
         // The disk I/O report reads kernel ETW events; a .nettrace or speedscope is

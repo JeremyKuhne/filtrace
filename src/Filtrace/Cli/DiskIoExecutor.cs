@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Output;
+using Filtrace.Tracing;
 using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Cli;
@@ -46,10 +47,16 @@ internal static class DiskIoExecutor
             return ExitCodes.UsageError;
         }
 
+        AppliedProcessScope? appliedProcessScope = null;
+        IReadOnlyList<string> scopeWarnings = [];
         if (!TraceExecution.TryReadEtlReport(
             request.Path,
             "disk I/O",
-            () => new DiskIoProvider().Read(request.Path),
+            () => new DiskIoProvider().Read(
+                request.Path,
+                request.Scope,
+                out appliedProcessScope,
+                out scopeWarnings),
             error,
             out DiskIoResult? full))
         {
@@ -60,7 +67,7 @@ internal static class DiskIoExecutor
         // requested row count and the token budget. The empty case is shown by the
         // renderer (and the empty file list in JSON), like the other reports.
         DiskIoResult report = DiskIoProvider.LimitDetail(full, request.Top, out string? warning);
-        List<string> warnings = [];
+        List<string> warnings = [.. scopeWarnings];
         if (warning is not null)
         {
             warnings.Add(warning);
@@ -69,7 +76,10 @@ internal static class DiskIoExecutor
         AnalysisResult<DiskIoResult> envelope = new(
             report,
             warnings,
-            context: new AnalysisContext("diskio"));
+            context: AnalysisContext.ForScope(
+                "diskio",
+                appliedProcessScope ?? AppliedProcessScope.AllProcesses,
+                request.Scope.Window));
 
         if (request.Format == OutputFormat.Json)
         {

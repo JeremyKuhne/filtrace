@@ -106,6 +106,32 @@ public sealed record AnalysisContext(string Operation)
         };
     }
 
+    /// <summary>
+    ///  Builds context for a structured operation with process and time scope.
+    /// </summary>
+    /// <param name="operation">The surface-neutral operation name.</param>
+    /// <param name="processScope">The exact process scope applied by the provider.</param>
+    /// <param name="window">The applied time window, or <see langword="null"/>.</param>
+    /// <returns>The populated analysis context.</returns>
+    public static AnalysisContext ForScope(
+        string operation,
+        AppliedProcessScope processScope,
+        TimeWindow? window)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(operation);
+        ArgumentNullException.ThrowIfNull(processScope);
+
+        return new AnalysisContext(operation)
+        {
+            Scope = AnalysisScopeContext.Create(
+                root: "",
+                processScope,
+                activityName: null,
+                window,
+                rootCoverage: null)
+        };
+    }
+
     private static string MetricSelector(MetricInfo metric) => metric.Name switch
     {
         "CPU" => "cpu",

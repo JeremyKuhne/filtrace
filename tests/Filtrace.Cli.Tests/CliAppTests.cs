@@ -1372,6 +1372,28 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_ReportDiskIoWithPid_ReportsScopedFiles()
+    {
+        (int exit, string output, _) = Run(
+            "report", DiskIo, "--kind", "diskio", "--pid", "11112", "--format", "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("\"processMode\":\"ids\"");
+        output.Should().Contain("\"writeCount\":").And.NotContain("\"writeCount\":0");
+    }
+
+    [TestMethod]
+    public void Run_ReportNonDiskWithProcessScope_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(
+            "report", Alloc, "--kind", "gc", "--process", "app");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("apply only to --kind diskio");
+    }
+
+    [TestMethod]
     public void Run_GcStatsAlias_MatchesReportAndWarns()
     {
         (int reportExit, string reportOutput, _) = Run(
