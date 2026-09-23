@@ -318,6 +318,7 @@ public sealed partial class FoldingAggregator
     public RankingResult InclusiveTime(string rootFrame, IReadOnlyList<string> foldPatterns, int top)
     {
         Regex[] fold = FrameNames.CompileFoldPatterns(foldPatterns);
+        Dictionary<string, (string ShortName, bool IsFolded)> foldClassifications = new(StringComparer.Ordinal);
         Dictionary<string, double> inclTime = new(StringComparer.Ordinal);
         HashSet<string> seen = new(StringComparer.Ordinal);
         double total = 0.0;
@@ -338,12 +339,17 @@ public sealed partial class FoldingAggregator
 
             for (int fi = startIdx; fi < frames.Count; fi++)
             {
-                string name = ShortOf(frames[fi]);
-                if (FrameNames.IsFolded(name, fold))
+                (string ShortName, bool IsFolded) classification = GetFoldClassification(
+                    frames[fi],
+                    fold,
+                    foldClassifications);
+
+                if (classification.IsFolded)
                 {
                     continue;
                 }
 
+                string name = classification.ShortName;
                 if (seen.Add(name))
                 {
                     inclTime.TryGetValue(name, out double current);
