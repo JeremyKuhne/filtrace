@@ -36,6 +36,10 @@ namespace Filtrace.Tracing.Providers;
 /// </remarks>
 public sealed partial class ThreadTimeProvider
 {
+    // A dense reference array avoids a dictionary lookup in the per-frame hot loop.
+    // Cap it at about 8 MB of references on x64 for adversarial high-cardinality traces.
+    private const int MaximumCachedFrameNames = 1024 * 1024;
+
     // The thread-time computer roots each stack at a process pseudo-frame formatted
     // "Process<bits> <name> (<pid>) Args: <args>" and a thread pseudo-frame
     // "Thread (<tid>) CPU=<n>ms (<name>)". These extract the ids and a clean label.
@@ -144,6 +148,7 @@ public sealed partial class ThreadTimeProvider
 
         List<SampleStack> samples = [];
         List<string> leafToRoot = [];
+        string?[] frameNames = new string?[Math.Min(stackSource.CallFrameIndexLimit, MaximumCachedFrameNames)];
 
         stackSource.ForEach(sample =>
         {
@@ -166,7 +171,25 @@ public sealed partial class ThreadTimeProvider
                 index = stackSource.GetCallerIndex(index))
             {
                 StackSourceFrameIndex frameIndex = stackSource.GetFrameIndex(index);
-                leafToRoot.Add(stackSource.GetFrameName(frameIndex, fullModulePath: false));
+                int frameKey = (int)frameIndex;
+                string frame;
+                if ((uint)frameKey < (uint)frameNames.Length)
+                {
+                    string? cachedFrame = frameNames[frameKey];
+                    if (cachedFrame is null)
+                    {
+                        cachedFrame = stackSource.GetFrameName(frameIndex, fullModulePath: false);
+                        frameNames[frameKey] = cachedFrame;
+                    }
+
+                    frame = cachedFrame;
+                }
+                else
+                {
+                    frame = stackSource.GetFrameName(frameIndex, fullModulePath: false);
+                }
+
+                leafToRoot.Add(frame);
             }
 
             if (leafToRoot.Count == 0)
