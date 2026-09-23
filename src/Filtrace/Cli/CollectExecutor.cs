@@ -113,10 +113,9 @@ internal static class CollectExecutor
             }
 
             string trace = result.OutputPath;
-
-            output.WriteLine(
-                    $"Captured {result.FileSizeBytes:N0} bytes to {trace} "
-                        + $"(process {result.ProcessName} [{result.ProcessId}] exited {result.ProcessExitCode}).");
+            string processResult = $"{result.ProcessName} [{result.ProcessId}] exited {result.ProcessExitCode}";
+            output.WriteLine($"Captured {result.FileSizeBytes:N0} bytes to {trace} (process {processResult}).");
+            output.WriteLine($"  working directory {result.WorkingDirectory}");
 
             WriteInvocationSummary(result, output);
 

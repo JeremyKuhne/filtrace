@@ -61,6 +61,9 @@ public static class EtwCollector
     /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">A required field is missing.</exception>
     /// <exception cref="ArgumentOutOfRangeException">A numeric field is out of range.</exception>
+    /// <exception cref="DirectoryNotFoundException">
+    ///  <see cref="EtwCollectRequest.WorkingDirectory"/> does not resolve to an existing directory.
+    /// </exception>
     /// <exception cref="PlatformNotSupportedException">Not running on Windows.</exception>
     /// <exception cref="UnauthorizedAccessException">Not elevated.</exception>
     public static EtwCollectResult Collect(EtwCollectRequest request) =>
@@ -112,6 +115,8 @@ public static class EtwCollector
                 $"The iteration count must be between 1 and {MaxIterations}.");
         }
 
+        string workingDirectory = ResolveWorkingDirectory(request.WorkingDirectory);
+
         if (!OperatingSystem.IsWindows())
         {
             throw new PlatformNotSupportedException(
@@ -124,12 +129,36 @@ public static class EtwCollector
                 "ETW capture needs Administrator. Re-run elevated.");
         }
 
-        return CollectCore(request, standardOutput, standardError);
+        return CollectCore(request, workingDirectory, standardOutput, standardError);
+    }
+
+    /// <summary>
+    ///  Resolves and validates the directory inherited by capture subjects.
+    /// </summary>
+    /// <param name="workingDirectory">The requested directory, or empty to inherit the collector directory.</param>
+    /// <returns>The validated absolute directory.</returns>
+    /// <exception cref="DirectoryNotFoundException">The resolved directory does not exist.</exception>
+    internal static string ResolveWorkingDirectory(string? workingDirectory)
+    {
+        string requested = workingDirectory ?? "";
+        if (string.IsNullOrWhiteSpace(requested))
+        {
+            requested = Environment.CurrentDirectory;
+        }
+
+        string resolved = Path.GetFullPath(requested);
+        if (!Directory.Exists(resolved))
+        {
+            throw new DirectoryNotFoundException($"Working directory does not exist: '{resolved}'.");
+        }
+
+        return resolved;
     }
 
     [SupportedOSPlatform("windows")]
     private static EtwCollectResult CollectCore(
         EtwCollectRequest request,
+        string workingDirectory,
         TextWriter? standardOutput,
         TextWriter? standardError)
     {
@@ -185,6 +214,7 @@ public static class EtwCollector
             ProcessStartInfo startInfo = new(request.LaunchExecutable)
             {
                 Arguments = request.LaunchArguments,
+                WorkingDirectory = workingDirectory,
                 UseShellExecute = false,
             };
 
@@ -214,6 +244,7 @@ public static class EtwCollector
             OutputPath = outputPath,
             ProcessId = invocations[0].ProcessId,
             ProcessName = processName,
+            WorkingDirectory = workingDirectory,
             ProcessExitCode = reported.ExitCode,
             Invocations = invocations,
             FileSizeBytes = fileSize,

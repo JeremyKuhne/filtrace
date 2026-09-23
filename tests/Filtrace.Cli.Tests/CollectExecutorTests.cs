@@ -49,6 +49,21 @@ public sealed class CollectExecutorTests
     }
 
     [TestMethod]
+    public void Collect_WorkingDirectoryMissing_ThrowsDirectoryNotFound()
+    {
+        string missing = Path.Join(Path.GetTempPath(), $"filtrace-missing-{Guid.NewGuid():N}");
+
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            WorkingDirectory = missing,
+            OutputPath = "out.etl",
+        });
+
+        act.Should().Throw<DirectoryNotFoundException>().WithMessage($"*{missing}*");
+    }
+
+    [TestMethod]
     public void Run_WhenNotElevated_ReportsCleanError()
     {
         // When a real capture could run there is no clean-error to observe; the elevated
@@ -114,6 +129,47 @@ public sealed class CollectExecutorTests
             {
                 File.Delete(outputPath);
             }
+        }
+    }
+
+    [TestMethod]
+    public void Run_WhenElevated_UsesExplicitWorkingDirectory()
+    {
+        if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
+        {
+            Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
+        }
+
+        string workingDirectory = Path.Join(Path.GetTempPath(), $"filtrace-cwd-{Guid.NewGuid():N}");
+        string markerPath = Path.Join(workingDirectory, "cwd.txt");
+        string outputPath = Path.Join(Path.GetTempPath(), $"filtrace-cwd-{Guid.NewGuid():N}.etl");
+        Directory.CreateDirectory(workingDirectory);
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "cmd.exe",
+            LaunchArguments = "/c cd > cwd.txt",
+            WorkingDirectory = workingDirectory,
+            Profile = CollectProfile.Startup,
+            OutputPath = outputPath,
+            DurationSeconds = 60,
+        };
+
+        try
+        {
+            EtwCollectResult result = EtwCollector.Collect(request);
+
+            result.ProcessExitCode.Should().Be(0);
+            result.WorkingDirectory.Should().Be(Path.GetFullPath(workingDirectory));
+            File.ReadAllText(markerPath).Trim().Should().Be(workingDirectory);
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+
+            Directory.Delete(workingDirectory, recursive: true);
         }
     }
 
@@ -216,6 +272,7 @@ public sealed class CollectExecutorTests
             OutputPath = "out.etl",
             ProcessId = 42,
             ProcessName = "app",
+            WorkingDirectory = Path.GetFullPath("."),
             ProcessExitCode = 0,
             Invocations =
             [
@@ -270,6 +327,7 @@ public sealed class CollectExecutorTests
         JsonElement resultElement = document.RootElement.GetProperty("result");
         int processExitCode = resultElement.GetProperty("processExitCode").GetInt32();
         processExitCode.Should().Be(7);
+        resultElement.GetProperty("workingDirectory").GetString().Should().Be(Path.GetFullPath("."));
         output.ToString().Should().NotContain("not-the-capture");
         error.ToString().Should().Contain("{\"result\":\"not-the-capture\"}");
         error.ToString().Should().Contain("failed noisily");
@@ -300,6 +358,7 @@ public sealed class CollectExecutorTests
 
         exit.Should().Be(ExitCodes.Success);
         output.ToString().Should().Contain("Captured");
+        output.ToString().Should().Contain($"working directory {Path.GetFullPath(".")}");
         error.ToString().Should().BeEmpty();
     }
 
@@ -692,6 +751,7 @@ public sealed class CollectExecutorTests
             OutputPath = Path.GetFullPath("out.etl"),
             ProcessId = invocations[0].ProcessId,
             ProcessName = "noisy-child",
+            WorkingDirectory = Path.GetFullPath("."),
             ProcessExitCode = processExitCode,
             Invocations = invocations,
             FileSizeBytes = 1,
