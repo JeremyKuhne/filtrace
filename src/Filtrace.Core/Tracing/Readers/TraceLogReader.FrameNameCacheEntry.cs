@@ -14,7 +14,7 @@ internal abstract partial class TraceLogReader
     /// <param name="module">The module metadata used for source-quality reporting.</param>
     /// <param name="moduleName">The module name used for source-quality reporting.</param>
     /// <param name="methodName">The method name used for source-quality reporting.</param>
-    private struct FrameNameCacheEntry(
+    private sealed class FrameNameCacheEntry(
         string name,
         int methodKey,
         TraceModuleFile? module,

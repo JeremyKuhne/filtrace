@@ -10,6 +10,7 @@ internal abstract partial class TraceLogReader
     private const int MaximumCachedSampleStacks = 4096;
     private const int MaximumCachedSampleVariants = 16;
     private const int MaximumCachedFrameIdentities = SourceResolutionTracker.MaxTrackedMethods;
+    private const int MaximumCachedCodeAddresses = 1024 * 1024;
 
     /// <summary>
     ///  Determines whether a bounded probe has enough repeated stack indices to amortize retained frame lists.
@@ -109,13 +110,11 @@ internal abstract partial class TraceLogReader
                     && locationCache.TryGetValue((int)address.CodeAddressIndex, out string? location)
                     && location.Length > 0;
 
-                if (frameNameCache.TryGetValue(frameIdentity, out FrameNameCacheEntry entry))
+                if (frameNameCache.TryGetValue(frameIdentity, out FrameNameCacheEntry? entry))
                 {
                     entry.Observe(
                         cachedStack.ReusedSampleCount,
                         sourceMapped ? cachedStack.ReusedSampleCount : 0);
-
-                    frameNameCache[frameIdentity] = entry;
                 }
                 else
                 {
