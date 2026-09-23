@@ -1405,6 +1405,19 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void DiskIo_TimeWindow_ReportsWindowAndNoCompletions()
+    {
+        AnalysisResult<DiskIoResult> envelope = TraceTools.DiskIo(
+            FixturePath(DiskIoTrace),
+            time: "1000000,");
+
+        envelope.Result.ReadCount.Should().Be(0);
+        envelope.Result.WriteCount.Should().Be(0);
+        envelope.Context!.Scope!.FromMs.Should().Be(1_000_000);
+    }
+
+    [TestMethod]
     public void ReadDiskIo_InvalidData_ThrowsMcpException()
     {
         Action act = () => TraceTools.ReadDiskIo(

@@ -1384,6 +1384,22 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_ReportDiskIoWithTime_ReportsWindowAndNoCompletions()
+    {
+        (int exit, string output, _) = Run(
+            "report", DiskIo, "--kind", "diskio", "--time", "1000000,", "--format", "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement root = document.RootElement;
+        root.GetProperty("result").GetProperty("readCount").GetInt32().Should().Be(0);
+        root.GetProperty("result").GetProperty("writeCount").GetInt32().Should().Be(0);
+        root.GetProperty("context").GetProperty("scope").GetProperty("fromMs")
+            .GetDouble().Should().Be(1_000_000);
+    }
+
+    [TestMethod]
     public void Run_ReportNonDiskWithProcessScope_ReturnsUsageError()
     {
         (int exit, _, string error) = Run(

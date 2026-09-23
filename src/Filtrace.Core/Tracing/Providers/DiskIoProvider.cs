@@ -61,7 +61,9 @@ public sealed partial class DiskIoProvider
     ///  from <c>DiskIOInit</c> issuer events and correlated to completions by IRP.
     /// </param>
     /// <param name="appliedProcessScope">The exact process scope resolved against the trace.</param>
-    /// <param name="scopeWarnings">Selector ambiguity and missing-id warnings.</param>
+    /// <param name="scopeWarnings">
+    ///  Selector ambiguity, missing-id, event-loss, applied-scope, and empty-result warnings.
+    /// </param>
     /// <returns>The scoped disk I/O report, or an empty report when no completion remains.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is <see langword="null"/> or empty.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="scope"/> is <see langword="null"/>.</exception>

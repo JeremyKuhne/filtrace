@@ -507,11 +507,12 @@ defaults to scenario scope and lets you tighten further:
   auto-scopes a multi-process `.etl` to the busiest process tree.
   Run `processes` / `trace_processes` first to inspect the capture, then set
   `--process <name>` / `process` to override. CLI commands expose `--all-processes`
-  where an aggregate is supported; MCP has no all-process aggregate. Disk reports
-  remain machine-wide by default; when scoped, they correlate `DiskIOInit` issuer
-  IRPs to completions because a completion PID may be System or Idle. This is
-  direct issuer scope, not causal ownership: deferred file-system/cache write-back
-  issued by System or Idle is excluded.
+  where an aggregate is supported. Stack-backed MCP analyses have no all-process
+  aggregate; `trace_diskio` is the exception and, like the CLI disk report, remains
+  machine-wide by default. When scoped, disk reports correlate `DiskIOInit` issuer
+  IRPs to completions because a completion PID may be System or Idle. This is direct
+  issuer scope, not causal ownership: deferred file-system/cache write-back issued
+  by System or Idle is excluded.
 - **Exact process ids:** the same commands and tools accept `--pid <id>[,<id>]`
   (comma-separated, not repeated) / `pid` instead of a name. A name substring is right
   for discovery, but a common host name such as `dotnet` matches every unrelated
