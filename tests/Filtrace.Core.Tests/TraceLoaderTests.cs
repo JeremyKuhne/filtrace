@@ -422,6 +422,29 @@ public sealed class TraceLoaderTests
     }
 
     [TestMethod]
+    public void AddEventLossWarning_Zero_DoesNotAddWarning()
+    {
+        List<string> warnings = [];
+
+        Readers.TraceLogReader.AddEventLossWarning(warnings, eventsLost: 0);
+
+        warnings.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void AddEventLossWarning_Positive_AddsIncompleteAnalysisWarning()
+    {
+        List<string> warnings = [];
+
+        Readers.TraceLogReader.AddEventLossWarning(warnings, eventsLost: 1_707_738);
+
+        warnings.Should().ContainSingle()
+            .Which.Should().Be(
+                "Trace records report 1707738 lost events; "
+                    + "analysis is incomplete and must not be treated as a complete profile.");
+    }
+
+    [TestMethod]
     public void CachedSampleStack_RetainsOnlyFirstSixteenSampleVariants()
     {
         Readers.TraceLogReader.CachedSampleStack cached = new(

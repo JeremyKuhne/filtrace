@@ -248,8 +248,10 @@ are named for them:
 
 1. **Orient.** Read the trace's format, sample count, and symbol-resolution rate
   first (`filtrace info` / `trace_info`). A rate below **0.8** fires a quality
-  warning: inspect the unresolved rows before trusting frame names. Managed method
-  names normally come from CLR rundown; `--symbols <build-output-dir>` supplies
+  warning: inspect the unresolved rows before trusting frame names. A positive
+  lost-event warning means the capture is incomplete and its counts cannot be
+  treated as a complete profile. Managed method names normally come from CLR
+  rundown; `--symbols <build-output-dir>` supplies
   matching PDBs for source lines, not a replacement for missing rundown. Unresolved
   native ETW frames can also depress the aggregate rate while managed-method
   rankings remain usable; use `--native-symbols` when the native runtime split

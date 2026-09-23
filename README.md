@@ -94,7 +94,7 @@ config and tool workflow.
 
 | Command | Purpose | Example |
 |---|---|---|
-| `info` | Format, sample count, symbol-resolution rate, supported analyses, and per-analysis capture/event state | `filtrace info app.nettrace` |
+| `info` | Format, sample count, lost-event and symbol-quality warnings, supported analyses, and per-analysis capture/event state | `filtrace info app.nettrace` |
 
 **Ranking** - rank stacks by a metric:
 
