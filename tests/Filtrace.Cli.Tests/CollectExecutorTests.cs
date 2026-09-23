@@ -164,7 +164,7 @@ public sealed class CollectExecutorTests
                 .TotalMatched.Should().Be(0, "startup drops the GC keyword");
 
             new EventQueryProvider().Query(outputPath, nameFilter: "FileIO/Name", take: 1)
-                .TotalMatched.Should().Be(0, "no profile enables the file-name rundown");
+                .TotalMatched.Should().Be(0, "the startup profile omits the file-name rundown");
         }
         finally
         {
@@ -304,6 +304,34 @@ public sealed class CollectExecutorTests
     }
 
     [TestMethod]
+    public void Run_DiskIOProfile_PrintsOnlyApplicableNextSteps()
+    {
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "child.exe",
+            OutputPath = "out.etl",
+            Profile = CollectProfile.DiskIO,
+        };
+
+        StringWriter output = new();
+        StringWriter error = new();
+        int exit = CollectExecutor.Run(
+            request,
+            OutputFormat.Text,
+            output,
+            error,
+            (_, _, _) => Result(processExitCode: 0, profile: CollectProfile.DiskIO));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.ToString().Should().Contain("report \"").And.Contain("--kind diskio");
+        output.ToString().Should().Contain("lifecycle \"").And.Contain("--pid 42");
+        output.ToString().Should().Contain("cpu sample disabled");
+        output.ToString().Should().NotContain("rank \"");
+        output.ToString().Should().NotContain("classify \"");
+        error.ToString().Should().BeEmpty();
+    }
+
+    [TestMethod]
     public void Run_ClampedInterval_ReportsConfiguredValueWithoutClaimingObservedUnits()
     {
         EtwCollectRequest request = new()
@@ -329,6 +357,34 @@ public sealed class CollectExecutorTests
         warning.Should().Contain("collector configured the interval at 0.1221 ms");
         warning.Should().Contain("cpuSampling provenance");
         warning.Should().NotContain("capture sampled at");
+    }
+
+    [TestMethod]
+    public void Run_DiskIOProfile_DoesNotWarnAboutUnusedCpuInterval()
+    {
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "child.exe",
+            OutputPath = "out.etl",
+            Profile = CollectProfile.DiskIO,
+        };
+
+        StringWriter output = new();
+        StringWriter error = new();
+        int exit = CollectExecutor.Run(
+            request,
+            OutputFormat.Json,
+            output,
+            error,
+            (_, _, _) => Result(
+                processExitCode: 0,
+                cpuSample: new CpuSampleInterval(0.0625, 0.1221, 0.1221, 100.0),
+                profile: CollectProfile.DiskIO));
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output.ToString());
+        document.RootElement.GetProperty("warnings").GetArrayLength().Should().Be(0);
+        error.ToString().Should().BeEmpty();
     }
 
     [TestMethod]
@@ -611,7 +667,10 @@ public sealed class CollectExecutorTests
         act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
-    private static EtwCollectResult Result(int processExitCode, CpuSampleInterval? cpuSample = null) => new()
+    private static EtwCollectResult Result(
+        int processExitCode,
+        CpuSampleInterval? cpuSample = null,
+        CollectProfile profile = CollectProfile.Cpu) => new()
     {
         OutputPath = Path.GetFullPath("out.etl"),
         ProcessId = 42,
@@ -627,7 +686,7 @@ public sealed class CollectExecutorTests
                 DateTimeOffset.UnixEpoch.AddMilliseconds(1))
         ],
         FileSizeBytes = 1,
-        Profile = CollectProfile.Cpu,
+        Profile = profile,
         KernelKeywords = "Process",
         ClrKeywords = "none",
         CpuSample = cpuSample ?? new CpuSampleInterval(1.0, 1.0, 0.1221, 100.0),

@@ -77,7 +77,9 @@ public sealed class EtwCollectResult
     ///  <para>
     ///   This is configuration provenance, not evidence of the physical interval for
     ///   every sample. CPU analysis derives time weights from recorded interval events
-    ///   and uses raw sample counts when that evidence is incomplete.
+    ///   and uses raw sample counts when that evidence is incomplete. The value is
+    ///   retained but does not apply when <see cref="Profile"/> is
+    ///   <see cref="CollectProfile.DiskIO"/>, which enables no CPU sampler.
     ///  </para>
     /// </remarks>
     public required CpuSampleInterval CpuSample { get; init; }

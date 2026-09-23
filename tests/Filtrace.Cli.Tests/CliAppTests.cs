@@ -380,7 +380,7 @@ public sealed class CliAppTests
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("Unknown profile 'bogus'");
-        error.Should().Contain("cpu, threadtime, startup");
+        error.Should().Contain("cpu, threadtime, startup, diskio");
     }
 
     [TestMethod]

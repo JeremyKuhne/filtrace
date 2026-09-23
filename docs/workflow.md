@@ -47,10 +47,11 @@ survival/movement, bulk type, or CLR event-stack data, which no `.etl` analysis 
 and which every process on the box would pay for. Choose
 the provider set with `--profile`: `cpu` (the default), `threadtime` (adds the
 context-switch and dispatcher keywords for wall-clock time, and is the most expensive),
-or `startup` (keeps only the CLR keywords that name managed methods, for a short
-process where instrumentation must not change what it measures). Bound an open-ended
-run with `--duration` (by time) or `--max-size-mb` (a circular buffer that keeps the
-last N MB).
+`startup` (keeps only the CLR keywords that name managed methods, for a short
+process where instrumentation must not change what it measures), or `diskio`
+(physical DiskIO/DiskIOInit plus the DiskFileIO name rundown, with no CPU sampler,
+stacks, verbose FileIO, or CLR events). Bound an open-ended run with `--duration`
+(by time) or `--max-size-mb` (a circular buffer that keeps the last N MB).
 
 At the default 1 ms interval a 30-100 ms command yields only tens of samples, so lower
 `--cpu-ms`. Windows honors sub-millisecond sampling - measured down to **0.1221 ms** on
@@ -61,13 +62,13 @@ but those settings alone do not prove the physical interval recorded in the trac
 milliseconds only when the analyzer version and trace establish interval-aware weights
 with recorded provenance; older fixed-weight output and unknown intervals are qualified
 sample counts/weights instead.
-Only a `diskio` capture needs those File/Disk keywords, and `collect` has
-no switch for them: that capture comes from another recorder (PerfView, `wpr`, or
-a custom BenchmarkDotNet `EtwProfilerConfig` enabling `DiskIO` / `DiskFileIO`;
-plain `-p ETW` is CPU-only), so expect the rundown there and trim it down afterward. Narrow
-the analysis to your code with `--process` (lossless, so managed stacks survive) rather
-than physically shrinking the file (see
-[filtrace-etl-trimming.md](filtrace-etl-trimming.md)).
+Use `collect --profile diskio` for the minimal physical-disk provider set. The
+capture and `report --kind diskio` are machine-wide, and the recorder's own ETL
+writes are visible, so write the trace to a different volume when possible and
+report the workload-path rows separately from recorder/unrelated I/O. External
+recorders remain supported when a broader provider set is required. Narrow CPU
+and thread-time analysis with `--process` or `--pid`; physical relogging remains a
+transport-only optimization (see [filtrace-etl-trimming.md](filtrace-etl-trimming.md)).
 
 For CPU EventPipe capture, current `dotnet-trace` uses the
 `dotnet-common,dotnet-sampled-thread-time` profile pair. Profile names have changed

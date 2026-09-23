@@ -1406,11 +1406,11 @@ internal sealed class TraceCommands
     /// <param name="launch">Path to the executable to launch and trace (the built app, never 'dotnet run').</param>
     /// <param name="output">Path of the .etl file to write.</param>
     /// <param name="profile">
-    ///  Providers to enable: cpu (default), threadtime (adds context switches for wall-clock time), or startup (low-perturbation; only the CLR keywords that name managed methods).
+    ///  Providers to enable: cpu (default), threadtime (adds context switches for wall-clock time), startup (low-perturbation CPU), or diskio (physical disk/file-name events without CPU sampling).
     /// </param>
     /// <param name="launchArgs">Arguments passed to the launched executable, as one command-line string.</param>
     /// <param name="cpuMs">
-    ///  CPU sample interval in milliseconds; sub-millisecond is what makes a 30-100 ms command rankable. Clamped to the range this machine reports as honored, and a clamp is reported with that range.
+    ///  CPU sample interval in milliseconds for cpu, threadtime, and startup; ignored by diskio. Sub-millisecond is what makes a 30-100 ms command rankable. Clamped to the range this machine reports as honored, and a clamp is reported with that range.
     /// </param>
     /// <param name="duration">
     ///  Optional cap on capture length in seconds, applied to each launch; 0 (default) waits for each to exit.
@@ -1426,9 +1426,9 @@ internal sealed class TraceCommands
     /// <remarks>
     ///  Reproduces a PerfView-style capture with TraceEvent's session API, so no external
     ///  recorder is needed. A launch capture needs no CLR rundown; managed frames resolve
-    ///  from the live JIT events. The written .etl is machine-wide, so the printed commands
-    ///  scope to the launched process with --process. No profile enables the disk or network
-    ///  keywords, so a diskio capture must come from a recorder that asks for them.
+    ///  from the live JIT events. The written .etl is machine-wide, so CPU/thread-time
+    ///  commands scope to the launched process. The diskio profile instead records the
+    ///  minimal physical disk and file-name keywords and omits CPU sampling and CLR events.
     /// </remarks>
     [Command("collect")]
     public int Collect(
@@ -1444,7 +1444,7 @@ internal sealed class TraceCommands
     {
         if (!TryResolveCollectProfile(profile, out CollectProfile resolved))
         {
-            Console.Error.WriteLine($"Unknown profile '{profile}'. Supported capture profiles: cpu, threadtime, startup.");
+            Console.Error.WriteLine($"Unknown profile '{profile}'. Supported capture profiles: cpu, threadtime, startup, diskio.");
             return ExitCodes.UsageError;
         }
 
@@ -1476,6 +1476,9 @@ internal sealed class TraceCommands
                 return true;
             case "startup":
                 result = CollectProfile.Startup;
+                return true;
+            case "diskio":
+                result = CollectProfile.DiskIO;
                 return true;
             default:
                 result = CollectProfile.Cpu;
