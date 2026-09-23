@@ -50,5 +50,5 @@ public enum CollectProfile
     ///  so write the output trace to a different volume when recorder I/O must not
     ///  contaminate the workload volume.
     /// </summary>
-    DiskIO,
+    DiskIo,
 }

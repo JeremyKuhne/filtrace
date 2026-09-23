@@ -310,7 +310,7 @@ public sealed class CollectExecutorTests
         {
             LaunchExecutable = "child.exe",
             OutputPath = "out.etl",
-            Profile = CollectProfile.DiskIO,
+            Profile = CollectProfile.DiskIo,
         };
 
         StringWriter output = new();
@@ -322,7 +322,7 @@ public sealed class CollectExecutorTests
             error,
             (_, _, _) => Result(
                 processExitCode: 0,
-                profile: CollectProfile.DiskIO,
+                profile: CollectProfile.DiskIo,
                 processIds: [42, 84]));
 
         exit.Should().Be(ExitCodes.Success);
@@ -369,7 +369,7 @@ public sealed class CollectExecutorTests
         {
             LaunchExecutable = "child.exe",
             OutputPath = "out.etl",
-            Profile = CollectProfile.DiskIO,
+            Profile = CollectProfile.DiskIo,
         };
 
         StringWriter output = new();
@@ -382,7 +382,7 @@ public sealed class CollectExecutorTests
             (_, _, _) => Result(
                 processExitCode: 0,
                 cpuSample: new CpuSampleInterval(0.0625, 0.1221, 0.1221, 100.0),
-                profile: CollectProfile.DiskIO));
+                profile: CollectProfile.DiskIo));
 
         exit.Should().Be(ExitCodes.Success);
         using JsonDocument document = JsonDocument.Parse(output.ToString());

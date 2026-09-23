@@ -91,7 +91,7 @@ internal static class CollectExecutor
             // Report the collector's configured clamp without claiming that the trace
             // established the interval applied to every sample.
             List<string> warnings = [];
-            if (result.Profile != CollectProfile.DiskIO && result.CpuSample.Clamped)
+            if (result.Profile != CollectProfile.DiskIo && result.CpuSample.Clamped)
             {
                 warnings.Add(
                     $"Requested a {FormatMSec(result.CpuSample.RequestedMSec)} ms sample interval, but this "
@@ -123,7 +123,7 @@ internal static class CollectExecutor
             // What the session actually enabled, so a trace can be audited after the fact
             // rather than inferred from the verb that wrote it.
             string sample;
-            if (result.Profile == CollectProfile.DiskIO)
+            if (result.Profile == CollectProfile.DiskIo)
             {
                 sample = "cpu sample disabled";
             }
@@ -150,7 +150,7 @@ internal static class CollectExecutor
 
             output.WriteLine();
             output.WriteLine("Next-step filtrace commands:");
-            if (request.Profile == CollectProfile.DiskIO)
+            if (request.Profile == CollectProfile.DiskIo)
             {
                 string processIds = string.Join(
                     ",",

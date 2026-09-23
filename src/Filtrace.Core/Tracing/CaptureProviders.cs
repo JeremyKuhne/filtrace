@@ -97,7 +97,7 @@ internal sealed record CaptureProviders(
             NamingClrKeywords,
             TraceEventLevel.Verbose),
 
-        CollectProfile.DiskIO => new(
+        CollectProfile.DiskIo => new(
             DiskIoKernelKeywords,
             KernelTraceEventParser.Keywords.None,
             0,

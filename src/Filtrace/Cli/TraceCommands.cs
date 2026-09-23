@@ -1478,7 +1478,7 @@ internal sealed class TraceCommands
                 result = CollectProfile.Startup;
                 return true;
             case "diskio":
-                result = CollectProfile.DiskIO;
+                result = CollectProfile.DiskIo;
                 return true;
             default:
                 result = CollectProfile.Cpu;

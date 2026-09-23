@@ -53,7 +53,7 @@ public sealed class CaptureProvidersTests
     [DataRow(CollectProfile.Cpu)]
     [DataRow(CollectProfile.ThreadTime)]
     [DataRow(CollectProfile.Startup)]
-    [DataRow(CollectProfile.DiskIO)]
+    [DataRow(CollectProfile.DiskIo)]
     public void For_AnyProfile_StacksOnlyKeywordsItEnabled(CollectProfile profile)
     {
         CaptureProviders providers = CaptureProviders.For(profile);
@@ -159,9 +159,9 @@ public sealed class CaptureProvidersTests
     }
 
     [TestMethod]
-    public void For_DiskIO_EnablesOnlyPhysicalDiskAndFileNameEvents()
+    public void For_DiskIo_EnablesOnlyPhysicalDiskAndFileNameEvents()
     {
-        CaptureProviders providers = CaptureProviders.For(CollectProfile.DiskIO);
+        CaptureProviders providers = CaptureProviders.For(CollectProfile.DiskIo);
         KernelTraceEventParser.Keywords expected =
             KernelTraceEventParser.Keywords.Process
                 | KernelTraceEventParser.Keywords.Thread
