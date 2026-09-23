@@ -215,7 +215,8 @@ Run `filtrace <verb> --help` for the full option set of any verb.
   machine-wide by default. When scoped, disk reports correlate `DiskIOInit` issuer
   IRPs to completions because a completion PID may be System or Idle. This is direct
   issuer scope, not causal ownership: deferred file-system/cache write-back issued
-  by System or Idle is included only when that issuer is selected.
+  by System is included only when System is selected, while Idle-issued I/O appears
+  only in an unscoped report.
 - **Exact process ids:** the same commands and tools accept `--pid <id>[,<id>]`
   (comma-separated, not repeated) / `pid` instead of a name. A name substring is right
   for discovery, but a common host name such as `dotnet` matches every unrelated

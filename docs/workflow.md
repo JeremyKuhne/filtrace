@@ -80,10 +80,10 @@ Use `collect --profile diskio` for the minimal physical-disk provider set. The
 capture and unscoped `report --kind diskio` result are machine-wide, and the
 recorder's own ETL writes are visible, so write the trace to a different volume
 when possible. Scope a report to direct issuers with `--process` or `--pid`, and
-to completion time with `--time`; deferred System/Idle write-back remains outside
-the scope unless that issuer is explicitly selected. External recorders remain
-supported when a broader provider set is required. Physical relogging remains a
-transport-only optimization (see
+to completion time with `--time`; deferred System write-back remains outside the
+scope unless System is selected, while Idle-issued I/O appears only in an unscoped
+report. External recorders remain supported when a broader provider set is
+required. Physical relogging remains a transport-only optimization (see
 [filtrace-etl-trimming.md](filtrace-etl-trimming.md)).
 
 For CPU EventPipe capture, current `dotnet-trace` uses the
@@ -513,7 +513,8 @@ defaults to scenario scope and lets you tighten further:
   machine-wide by default. When scoped, disk reports correlate `DiskIOInit` issuer
   IRPs to completions because a completion PID may be System or Idle. This is direct
   issuer scope, not causal ownership: deferred file-system/cache write-back issued
-  by System or Idle is included only when that issuer is selected.
+  by System is included only when System is selected, while Idle-issued I/O appears
+  only in an unscoped report.
 - **Exact process ids:** the same commands and tools accept `--pid <id>[,<id>]`
   (comma-separated, not repeated) / `pid` instead of a name. A name substring is right
   for discovery, but a common host name such as `dotnet` matches every unrelated
