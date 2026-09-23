@@ -69,6 +69,8 @@ TraceEvent's derived maximum-buffer count permits roughly 641 MiB, and the
 resulting rundown can add hundreds of megabytes. Require zero lost events before
 trusting the recovered method names. It is not valid with `--profile diskio` or
 `--max-size-mb`.
+A targeted process must be running before capture and remain the same process
+through rundown; exit or PID reuse fails explicitly.
 
 At the default 1 ms interval a 30-100 ms command yields only tens of samples, so lower
 `--cpu-ms`. Windows honors sub-millisecond sampling - measured down to **0.1221 ms** on

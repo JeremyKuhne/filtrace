@@ -155,6 +155,33 @@ public sealed class CollectExecutorTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Collect_MissingRundownProcess_ThrowsBeforeCreatingOutput()
+    {
+        if (!EtwCollector.IsElevated)
+        {
+            Assert.Inconclusive("ETW capture needs Administrator; not available here.");
+        }
+
+        string output = Path.Join(
+            Path.GetTempPath(),
+            $"filtrace-missing-rundown-process-{Guid.NewGuid():N}.etl");
+
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = output,
+            Rundown = true,
+            RundownProcessIds = [int.MaxValue],
+        });
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*{int.MaxValue}*not running*");
+
+        File.Exists(output).Should().BeFalse();
+    }
+
+    [TestMethod]
     public void Run_WhenNotElevated_ReportsCleanError()
     {
         // When a real capture could run there is no clean-error to observe; the elevated

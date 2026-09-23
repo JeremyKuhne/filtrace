@@ -258,6 +258,9 @@ public static class EtwCollector
         TextWriter? standardOutput,
         TextWriter? standardError)
     {
+        IReadOnlyDictionary<int, long> rundownProcessStarts =
+            ResolveRundownProcessStarts(rundownProcessIds);
+
         string outputPath = Path.GetFullPath(request.OutputPath);
         string? outputDirectory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(outputDirectory))
@@ -331,7 +334,11 @@ public static class EtwCollector
 
         if (request.Rundown)
         {
-            rundown = CaptureRundownAndMerge(outputPath, sessionName, rundownProcessIds);
+            rundown = CaptureRundownAndMerge(
+                outputPath,
+                sessionName,
+                rundownProcessIds,
+                rundownProcessStarts);
         }
 
         long fileSize = File.Exists(outputPath) ? new FileInfo(outputPath).Length : 0;
@@ -362,7 +369,8 @@ public static class EtwCollector
     private static RundownCaptureInfo CaptureRundownAndMerge(
         string outputPath,
         string sessionName,
-        IReadOnlyList<int> processIds)
+        IReadOnlyList<int> processIds,
+        IReadOnlyDictionary<int, long> processStarts)
     {
         string token = Guid.NewGuid().ToString("N");
         string rundownPath = $"{outputPath}.rundown-{token}.etl";
@@ -426,6 +434,7 @@ public static class EtwCollector
                 rundownSize = new FileInfo(rundownPath).Length;
             }
 
+            ValidateRundownProcessStarts(processStarts);
             if (!quiet)
             {
                 double timeoutSeconds = RundownMaxPolls * s_rundownPollInterval.TotalSeconds;
@@ -452,6 +461,64 @@ public static class EtwCollector
         {
             File.Delete(rundownPath);
             File.Delete(mergedPath);
+        }
+    }
+
+    private static IReadOnlyDictionary<int, long> ResolveRundownProcessStarts(
+        IReadOnlyList<int> processIds)
+    {
+        ArgumentNullException.ThrowIfNull(processIds);
+        Dictionary<int, long> starts = new(processIds.Count);
+        foreach (int processId in processIds)
+        {
+            try
+            {
+                using Process process = Process.GetProcessById(processId);
+                if (process.HasExited)
+                {
+                    throw new InvalidOperationException(
+                        $"Rundown process id {processId} exited before capture began.");
+                }
+
+                starts.Add(processId, process.StartTime.ToUniversalTime().Ticks);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidOperationException(
+                    $"Rundown process id {processId} is not running before capture begins.",
+                    ex);
+            }
+        }
+
+        return starts;
+    }
+
+    private static void ValidateRundownProcessStarts(IReadOnlyDictionary<int, long> expectedStarts)
+    {
+        foreach ((int processId, long expectedStart) in expectedStarts)
+        {
+            try
+            {
+                using Process process = Process.GetProcessById(processId);
+                if (process.HasExited)
+                {
+                    throw new InvalidOperationException(
+                        $"Rundown process id {processId} exited before CLR rundown completed.");
+                }
+
+                long actualStart = process.StartTime.ToUniversalTime().Ticks;
+                if (actualStart != expectedStart)
+                {
+                    throw new InvalidOperationException(
+                        $"Rundown process id {processId} was reused before CLR rundown completed.");
+                }
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidOperationException(
+                    $"Rundown process id {processId} exited before CLR rundown completed.",
+                    ex);
+            }
         }
     }
 
