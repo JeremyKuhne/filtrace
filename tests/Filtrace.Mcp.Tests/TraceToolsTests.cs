@@ -116,6 +116,21 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Info_EtlTrace_AllProcessesDoesNotWarnAboutScope()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<TraceInfoView> envelope = TraceTools.Info(
+            store,
+            FixturePath(Etw),
+            allProcesses: true);
+
+        envelope.Warnings.Should().NotContain(
+            warning => warning.Contains("Scoped to", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void Info_CaptureMetadata_ReportsEnabledZeroAndDisabled()
     {
         TraceStore store = new();

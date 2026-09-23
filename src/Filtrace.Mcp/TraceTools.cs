@@ -50,8 +50,9 @@ public sealed class TraceTools
         string symbols = "",
         string process = "",
         int[]? pid = null,
-        bool children = true) =>
-            InfoAsync(store, path, symbols, process, pid, children).GetAwaiter().GetResult();
+        bool children = true,
+        bool allProcesses = false) =>
+            InfoAsync(store, path, symbols, process, pid, children, allProcesses).GetAwaiter().GetResult();
 
     /// <summary>
     ///  Loads a trace and returns its format, total weight, sample count, frame-name
@@ -67,6 +68,7 @@ public sealed class TraceTools
     ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
     /// </param>
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
+    /// <param name="allProcesses">Read every process instead of automatic process scope.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The trace summary envelope.</returns>
     [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
@@ -85,13 +87,15 @@ public sealed class TraceTools
         int[]? pid = null,
         [Description("Follow descendants of the matched processes.")]
         bool children = true,
+        [Description("Read every process; excludes process and pid.")]
+        bool allProcesses = false,
         CancellationToken cancellationToken = default)
     {
         TraceStoreLoadResult load = await LoadAsync(
             store,
             path,
             NullIfEmpty(symbols),
-            scope: ResolveScope(process, pid, children),
+            scope: ResolveScope(process, pid, children, allProcesses),
             cancellationToken: cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 
         TraceInfo info = load.Trace.Info;

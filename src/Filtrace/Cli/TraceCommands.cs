@@ -35,6 +35,7 @@ internal sealed class TraceCommands
     ///  Scope a multi-process .etl to the tree whose name contains this; omit to auto-scope to the busiest.
     /// </param>
     /// <param name="pid">Scope to these exact process ids (comma-separated); mutually exclusive with --process.</param>
+    /// <param name="allProcesses">Read every process instead of auto-scoping to the busiest.</param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
@@ -42,10 +43,9 @@ internal sealed class TraceCommands
     ///  sampled source/PDB quality, the busiest threads, available analyses, and
     ///  quality warnings. It is the CLI counterpart of the <c>trace_info</c> tool -
     ///  run it first. Frame names normally come from CLR rundown; source lines require
-    ///  exact matching PDBs in <c>--symbols</c>. Like that tool it
-    ///  takes an optional <c>--process</c> or <c>--pid</c> selector (no
-    ///  <c>--all-processes</c> opt-out); use the <c>processes</c> verb to see every
-    ///  process in a machine-wide capture.
+    ///  exact matching PDBs in <c>--symbols</c>. Like that tool it takes an optional
+    ///  <c>--process</c> or <c>--pid</c> selector, or <c>--all-processes</c> to
+    ///  inspect capture-wide quality without automatic process scope.
     /// </remarks>
     [Command("info")]
     public int Info(
@@ -57,6 +57,7 @@ internal sealed class TraceCommands
         string[]? requireEvents = null,
         string process = "",
         int[]? pid = null,
+        bool allProcesses = false,
         Children children = Children.Include)
     {
         if (!InfoQualityPolicy.TryCreate(
@@ -71,9 +72,9 @@ internal sealed class TraceCommands
         }
 
         // Mirror the trace_info tool's scope resolution: an explicit selector scopes to
-        // those process trees, and no selector auto-scopes a multi-process capture to the
-        // busiest. There is no all-processes opt-out here (run `processes` to list them).
-        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses: false, out ScopeRequest scope, out string? scopeError))
+        // those process trees, no selector auto-scopes to the busiest, and all-processes
+        // opts out of that default.
+        if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
             return ExitCodes.UsageError;

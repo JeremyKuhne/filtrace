@@ -210,8 +210,9 @@ Run `filtrace <verb> --help` for the full option set of any verb.
   auto-scopes a multi-process `.etl` to the busiest process tree.
   Run `processes` / `trace_processes` first to inspect the capture, then set
   `--process <name>` / `process` to override. CLI commands expose `--all-processes`
-  where an aggregate is supported. Stack-backed MCP analyses have no all-process
-  aggregate; `trace_diskio` is the exception and, like the CLI disk report, remains
+  where an aggregate is supported; MCP `trace_info` and `trace_rank` expose
+  `allProcesses`. Other stack-backed MCP analyses have no all-process aggregate;
+  `trace_diskio` is the exception and, like the CLI disk report, remains
   machine-wide by default. When scoped, disk reports correlate `DiskIOInit` issuer
   IRPs to completions because a completion PID may be System or Idle. This is direct
   issuer scope, not causal ownership: deferred file-system/cache write-back issued
