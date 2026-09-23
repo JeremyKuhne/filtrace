@@ -94,7 +94,7 @@ public sealed partial class DiskIoProvider
                 $"Scoped disk I/O to {resolvedScope.Phrase} by correlating DiskIOInit issuer IRPs "
                     + "to completions; completion process ids were not used. This is issuer scope, "
                     + "not causal workload ownership: deferred file-system/cache write-back issued "
-                    + "by System or Idle is excluded.");
+                    + "by System or Idle is included only when that issuer is selected.");
         }
 
         if (scope.Window is TimeWindow appliedWindow && appliedWindow.IsBounded)
