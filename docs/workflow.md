@@ -54,6 +54,9 @@ a short process where instrumentation must not change what it measures), or
 rundown, with no CPU sampler, stacks, verbose FileIO, or CLR events). Bound an
 open-ended run with `--duration` (by time) or `--max-size-mb` (a circular buffer
 that keeps the last N MB).
+Use `--working-directory <path>` when the subject resolves repository-relative
+build files or configuration; the structured capture result records the absolute
+directory used by every launch.
 
 At the default 1 ms interval a 30-100 ms command yields only tens of samples, so lower
 `--cpu-ms`. Windows honors sub-millisecond sampling - measured down to **0.1221 ms** on

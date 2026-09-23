@@ -21,3 +21,7 @@ The trace and report remain machine-wide. Write the ETL to a different volume
 when recorder writes must not contend with the workload volume, read warnings
 first, and separate workload-path rows from recorder and unrelated system I/O.
 Use an external recorder only when the question needs a broader provider set.
+
+For any captured command that depends on relative paths, pass
+`--working-directory <path>` instead of changing the agent shell's own directory.
+The capture result records the resolved absolute directory.

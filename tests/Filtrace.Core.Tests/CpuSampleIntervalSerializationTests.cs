@@ -17,6 +17,7 @@ public sealed class CpuSampleIntervalSerializationTests
             OutputPath = "out.etl",
             ProcessId = 1,
             ProcessName = "app",
+            WorkingDirectory = Path.GetFullPath("."),
             ProcessExitCode = 0,
             Invocations = [new EtwInvocation(1, 1, 0, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch)],
             FileSizeBytes = 1,

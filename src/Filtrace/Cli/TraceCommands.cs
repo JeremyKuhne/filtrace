@@ -1399,18 +1399,28 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Record a Windows ETW (.etl) trace of a launched executable, then print the analysis
-    ///  commands the capture unlocks. Windows-only and requires Administrator; for an
-    ///  EventPipe (.nettrace) capture use dotnet-trace (cross-platform).
+    ///  Record a Windows ETW trace of a launched executable. Windows-only and requires
+    ///  Administrator; use dotnet-trace for cross-platform EventPipe capture.
     /// </summary>
-    /// <param name="launch">Path to the executable to launch and trace (the built app, never 'dotnet run').</param>
-    /// <param name="output">Path of the .etl file to write.</param>
+    /// <param name="launch">
+    ///  Path to the executable to launch and trace (the built app, never <c>dotnet run</c>).
+    /// </param>
+    /// <param name="output">Path of the <c>.etl</c> file to write.</param>
     /// <param name="profile">
-    ///  Providers to enable: cpu (default), threadtime (adds context switches for wall-clock time), startup (low-perturbation CPU), or diskio (physical disk/file-name events without CPU sampling).
+    ///  Providers to enable: <c>cpu</c> (default), <c>threadtime</c> (adds context
+    ///  switches for wall-clock time), <c>startup</c> (low-perturbation CPU), or
+    ///  <c>diskio</c> (physical disk/file-name events without CPU sampling).
     /// </param>
     /// <param name="launchArgs">Arguments passed to the launched executable, as one command-line string.</param>
+    /// <param name="workingDirectory">
+    ///  Directory the launched process starts in; empty inherits the collector's current
+    ///  directory.
+    /// </param>
     /// <param name="cpuMs">
-    ///  CPU sample interval in milliseconds for cpu, threadtime, and startup; ignored by diskio. Sub-millisecond is what makes a 30-100 ms command rankable. Clamped to the range this machine reports as honored, and a clamp is reported with that range.
+    ///  CPU sample interval in milliseconds for <c>cpu</c>, <c>threadtime</c>, and
+    ///  <c>startup</c>; ignored by <c>diskio</c>. Sub-millisecond is what makes a
+    ///  30-100 ms command rankable. Clamped to the range this machine reports as honored,
+    ///  and a clamp is reported with that range.
     /// </param>
     /// <param name="duration">
     ///  Optional cap on capture length in seconds, applied to each launch; 0 (default) waits for each to exit.
@@ -1436,6 +1446,7 @@ internal sealed class TraceCommands
         string output,
         string profile = "cpu",
         string launchArgs = "",
+        string workingDirectory = "",
         [Range(CpuSampleBounds.MinimumAcceptedMSec, CpuSampleBounds.MaximumAcceptedMSec)] double cpuMs = 1.0,
         [Range(0, int.MaxValue)] int duration = 0,
         [Range(1, 1000)] int iterations = 1,
@@ -1448,10 +1459,17 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
+        string? requestedWorkingDirectory = workingDirectory;
+        if (string.IsNullOrWhiteSpace(requestedWorkingDirectory))
+        {
+            requestedWorkingDirectory = null;
+        }
+
         EtwCollectRequest request = new()
         {
             LaunchExecutable = launch,
             LaunchArguments = launchArgs,
+            WorkingDirectory = requestedWorkingDirectory,
             Profile = resolved,
             CpuSampleMSec = cpuMs,
             DurationSeconds = duration > 0 ? duration : null,

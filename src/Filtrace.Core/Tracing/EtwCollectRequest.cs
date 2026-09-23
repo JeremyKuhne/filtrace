@@ -23,6 +23,13 @@ public sealed class EtwCollectRequest
     public string LaunchArguments { get; init; } = "";
 
     /// <summary>
+    ///  The directory the launched process starts in. Relative paths resolve against the
+    ///  collector's current directory. <see langword="null"/> or empty inherits the
+    ///  collector's current directory.
+    /// </summary>
+    public string? WorkingDirectory { get; init; }
+
+    /// <summary>
     ///  The provider set the capture enables. Defaults to <see cref="CollectProfile.Cpu"/>.
     /// </summary>
     public CollectProfile Profile { get; init; } = CollectProfile.Cpu;

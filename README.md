@@ -223,8 +223,12 @@ filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl      
 filtrace collect --launch dotnet --launch-args MyApp.dll --output tt.etl --profile threadtime
 filtrace collect --launch MyApp.exe --output start.etl --profile startup                # low perturbation
 filtrace collect --launch MyApp.exe --output io.etl --profile diskio                    # physical disk/files
+filtrace collect --launch cmd.exe --launch-args "/d /c build.cmd" --working-directory C:\src\app --output build.etl
 filtrace collect --launch MyApp.exe --output ring.etl --max-size-mb 512                 # bounded ring buffer
 ```
+
+`--working-directory` sets and records the absolute directory inherited by every
+subject launch. Omit it to inherit the collector's current directory.
 
 The `diskio` profile enables only physical DiskIO/DiskIOInit events, process/thread
 attribution, and the DiskFileIO name rundown. It deliberately omits CPU sampling,

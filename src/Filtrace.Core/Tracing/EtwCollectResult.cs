@@ -32,6 +32,12 @@ public sealed class EtwCollectResult
     public required string ProcessName { get; init; }
 
     /// <summary>
+    ///  The absolute working directory used for every launched process, or empty on a
+    ///  result constructed by an older caller.
+    /// </summary>
+    public string WorkingDirectory { get; init; } = "";
+
+    /// <summary>
     ///  The launched process's exit code, or <c>-1</c> if it was terminated at the
     ///  duration cap.
     /// </summary>
