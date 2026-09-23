@@ -17,10 +17,11 @@ filtrace report <trace.etl> --kind diskio --format json
 The profile enables Process, Thread, DiskIO, DiskIOInit, and DiskFileIO only. It
 omits sampled CPU, context switches, stacks, verbose FileIO, and CLR events.
 
-The trace and report remain machine-wide. Write the ETL to a different volume
-when recorder writes must not contend with the workload volume, read warnings
-first, and separate workload-path rows from recorder and unrelated system I/O.
-Use an external recorder only when the question needs a broader provider set.
+The capture and unscoped report remain machine-wide. Write the ETL to a different
+volume when recorder writes must not contend with the workload volume. Scope a
+report to direct issuers with `--process` or `--pid`, and to completion time with
+`--time`; read the direct-issuer warning before attributing totals. Use an
+external recorder only when the question needs a broader provider set.
 
 For any captured command that depends on relative paths, pass
 `--working-directory <path>` instead of changing the agent shell's own directory.

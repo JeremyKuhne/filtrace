@@ -125,6 +125,40 @@ public sealed class DiskIoProviderTests
     }
 
     [TestMethod]
+    public void Read_DiskIoFixture_IssuerWindowExplainsExcludedCompletions()
+    {
+        DiskIoResult result = new DiskIoProvider().Read(
+            FixturePath("diskio.etl"),
+            ScopeRequest.ForProcessIds([11112]).WithTimeWindow(1_000_000, endMSec: null),
+            out _,
+            out IReadOnlyList<string> warnings);
+
+        result.ReadCount.Should().Be(0);
+        result.WriteCount.Should().Be(0);
+        warnings.Should().Contain(w => w.Contains("fell outside the time window", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void TrackIssuedIrp_OutOfScopeReuseClearsPriorOwnership()
+    {
+        HashSet<ulong> includedIrps = [42];
+
+        DiskIoProvider.TrackIssuedIrp(includedIrps, 42, includedIssuer: false);
+
+        includedIrps.Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void TrackIssuedIrp_InScopeReuseReplacesPriorOwnership()
+    {
+        HashSet<ulong> includedIrps = [42];
+
+        DiskIoProvider.TrackIssuedIrp(includedIrps, 42, includedIssuer: true);
+
+        includedIrps.Should().Equal(42);
+    }
+
+    [TestMethod]
     [DataRow(0, true)]
     [DataRow(1_048_575, true)]
     [DataRow(1_048_576, false)]

@@ -77,12 +77,13 @@ milliseconds only when the analyzer version and trace establish interval-aware w
 with recorded provenance; older fixed-weight output and unknown intervals are qualified
 sample counts/weights instead.
 Use `collect --profile diskio` for the minimal physical-disk provider set. The
-capture and `report --kind diskio` are machine-wide, and the recorder's own ETL
-writes are visible, so write the trace to a different volume when possible and
-report the workload-path rows separately from recorder/unrelated I/O. External
-recorders remain supported when a broader provider set is required. Narrow CPU
-and thread-time analysis with `--process` or `--pid`; physical relogging remains a
-transport-only optimization (see [filtrace-etl-trimming.md](filtrace-etl-trimming.md)).
+capture and unscoped `report --kind diskio` result are machine-wide, and the
+recorder's own ETL writes are visible, so write the trace to a different volume
+when possible. Scope a report to direct issuers with `--process` or `--pid`, and
+to completion time with `--time`; deferred System/Idle write-back remains outside
+direct issuer scope. External recorders remain supported when a broader provider
+set is required. Physical relogging remains a transport-only optimization (see
+[filtrace-etl-trimming.md](filtrace-etl-trimming.md)).
 
 For CPU EventPipe capture, current `dotnet-trace` uses the
 `dotnet-common,dotnet-sampled-thread-time` profile pair. Profile names have changed

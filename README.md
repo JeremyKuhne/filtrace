@@ -251,9 +251,10 @@ is not valid with `--profile diskio` or `--max-size-mb`; inspect the capture and
 
 The `diskio` profile enables only physical DiskIO/DiskIOInit events, process/thread
 attribution, and the DiskFileIO name rundown. It deliberately omits CPU sampling,
-stacks, verbose FileIO, and CLR events. ETW and the disk report are machine-wide;
-write the trace to a different volume when recorder writes must not contend with
-the workload volume.
+stacks, verbose FileIO, and CLR events. The capture and unscoped disk report are
+machine-wide; write the trace to a different volume when recorder writes must not
+contend with the workload volume. Scope a report to direct issuers with
+`--process` or `--pid`, and to completion time with `--time`.
 
 With `--format json`, stdout contains only the capture-result JSON; identified
 subject stdout and stderr are forwarded to stderr. The command still exits successfully

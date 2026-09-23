@@ -108,20 +108,15 @@ public sealed partial class DiskIoProvider
         long totalReadBytes = 0;
         long totalWriteBytes = 0;
         double totalDiskMs = 0;
+        int correlatedCompletionCount = 0;
 
         foreach (TraceEvent data in traceLog.Events)
         {
             if (data is DiskIOInitTraceData init)
             {
-                if (includedIrps is not null && resolvedScope.Includes(init))
+                if (includedIrps is not null)
                 {
-                    if (!CanTrackIssuedIrp(includedIrps.Count) && !includedIrps.Contains(init.Irp))
-                    {
-                        throw new InvalidDataException(
-                            $"Disk I/O issuer scope exceeded the {MaximumTrackedIssuedIrps:N0}-IRP safety limit.");
-                    }
-
-                    includedIrps.Add(init.Irp);
+                    TrackIssuedIrp(includedIrps, init.Irp, resolvedScope.Includes(init));
                 }
 
                 continue;
@@ -140,6 +135,7 @@ public sealed partial class DiskIoProvider
                 continue;
             }
 
+            correlatedCompletionCount++;
             if (scope.Window is TimeWindow window && !window.Contains(disk.TimeStampRelativeMSec))
             {
                 continue;
@@ -196,10 +192,21 @@ public sealed partial class DiskIoProvider
 
         if (includedIrps is not null && readCount == 0 && writeCount == 0)
         {
-            warnings.Add(
-                "No physical disk completions correlated to the selected issuer scope. "
-                    + "The processes may have issued no direct physical I/O, deferred write-back "
-                    + "may belong to System, or the capture may omit DiskIOInit events.");
+            if (correlatedCompletionCount > 0
+                && scope.Window is TimeWindow { IsBounded: true })
+            {
+                warnings.Add(
+                    "No physical disk completions remained after applying the selected issuer "
+                        + $"and completion-time scopes; {correlatedCompletionCount:N0} correlated "
+                        + "completion(s) fell outside the time window.");
+            }
+            else
+            {
+                warnings.Add(
+                    "No physical disk completions correlated to the selected issuer scope. "
+                        + "The processes may have issued no direct physical I/O, deferred write-back "
+                        + "may belong to System, or the capture may omit DiskIOInit events.");
+            }
         }
 
         return new DiskIoResult(
@@ -218,6 +225,34 @@ public sealed partial class DiskIoProvider
     /// <returns><see langword="true"/> when another IRP can be tracked.</returns>
     internal static bool CanTrackIssuedIrp(int trackedIrpCount) =>
         trackedIrpCount < MaximumTrackedIssuedIrps;
+
+    /// <summary>
+    ///  Replaces the tracked ownership of an IRP when an init event reuses its address.
+    /// </summary>
+    /// <param name="includedIrps">Outstanding IRPs issued by the selected process scope.</param>
+    /// <param name="irp">The initialized IRP address.</param>
+    /// <param name="includedIssuer">Whether this init belongs to the selected process scope.</param>
+    internal static void TrackIssuedIrp(
+        HashSet<ulong> includedIrps,
+        ulong irp,
+        bool includedIssuer)
+    {
+        ArgumentNullException.ThrowIfNull(includedIrps);
+
+        includedIrps.Remove(irp);
+        if (!includedIssuer)
+        {
+            return;
+        }
+
+        if (!CanTrackIssuedIrp(includedIrps.Count))
+        {
+            throw new InvalidDataException(
+                $"Disk I/O issuer scope exceeded the {MaximumTrackedIssuedIrps:N0}-IRP safety limit.");
+        }
+
+        includedIrps.Add(irp);
+    }
 
     /// <summary>
     ///  Limits a report's per-file detail to the heaviest files that fit both
