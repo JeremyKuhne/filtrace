@@ -38,6 +38,12 @@ public sealed class EtwCollectResult
     public string WorkingDirectory { get; init; } = "";
 
     /// <summary>
+    ///  CLR naming-rundown provenance, or <see langword="null"/> when rundown was not
+    ///  requested.
+    /// </summary>
+    public RundownCaptureInfo? Rundown { get; init; }
+
+    /// <summary>
     ///  The launched process's exit code, or <c>-1</c> if it was terminated at the
     ///  duration cap.
     /// </summary>

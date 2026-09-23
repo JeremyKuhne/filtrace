@@ -112,7 +112,7 @@ contract and the no-LLM gate.
   `command` and `description` members, optional literal `mode: "sync"`, and an
   optional integer `initial_wait` from 1 through 120; every other argument member is
   rejected. The successful completion
-  must contain filtrace schema 17 and an operation matching the executed read-only
+  must contain filtrace schema 18 and an operation matching the executed read-only
   verb. Its result must also contain an operation-specific typed anchor such as
   rank rows, callers, a report count, events, processes, or a tree root; an empty
   result object is not successful evidence. The parser retains only explicitly
@@ -207,7 +207,7 @@ fall through to the normal deny. Conservative consumption is intentional: if an
 allowed command never appears in the transcript, ledger/transcript mismatch rejects
 the iteration. Successful PowerShell results must use the observed object with equal
 `content` and `detailedContent`, one JSON payload, and the exact trailing
-`<shellId: N completed with exit code 0>` line before schema-17 and operation checks.
+`<shellId: N completed with exit code 0>` line before schema-18 and operation checks.
 
 The native `skill` tool is not shell execution and does not use the PowerShell
 hook. Its display result can be shorter than the source, so `detailedContent` is

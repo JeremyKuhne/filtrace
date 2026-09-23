@@ -19,6 +19,15 @@ internal sealed record CaptureProviders(
     ClrTraceEventParser.Keywords ClrKeywords,
     TraceEventLevel ClrLevel)
 {
+    /// <summary>
+    ///  The minimal CLR rundown set that names already-JITted managed methods and modules.
+    /// </summary>
+    internal const ClrRundownTraceEventParser.Keywords NamingRundownClrKeywords =
+        ClrRundownTraceEventParser.Keywords.Jit
+            | ClrRundownTraceEventParser.Keywords.JittedMethodILToNativeMap
+            | ClrRundownTraceEventParser.Keywords.Loader
+            | ClrRundownTraceEventParser.Keywords.StartEnumeration;
+
     // The kernel events every CPU-producing profile needs: the sampled profiler itself,
     // plus the process, thread, and image-load events that let the reader attribute a
     // sample to a process and a module. Deliberately NOT KernelTraceEventParser.Keywords.Default,

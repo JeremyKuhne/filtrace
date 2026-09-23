@@ -384,6 +384,34 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_CollectDiskIOWithRundown_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(
+            "collect",
+            "--launch", "app.exe",
+            "--output", "out.etl",
+            "--profile", "diskio",
+            "--rundown");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--rundown cannot be combined with --profile diskio");
+    }
+
+    [TestMethod]
+    public void Run_CollectRundownWithSizeCap_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(
+            "collect",
+            "--launch", "app.exe",
+            "--output", "out.etl",
+            "--rundown",
+            "--max-size-mb", "512");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--rundown cannot be combined with --max-size-mb");
+    }
+
+    [TestMethod]
     public void Run_ProcessAndAllProcesses_ReturnsUsageError()
     {
         // The two scope options are mutually exclusive; the conflict is caught before
@@ -725,7 +753,7 @@ public sealed class CliAppTests
         json.Should().NotContain("\n");
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
-        root.GetProperty("schemaVersion").GetInt32().Should().Be(17);
+        root.GetProperty("schemaVersion").GetInt32().Should().Be(18);
         root.GetProperty("result").GetProperty("processes").GetArrayLength().Should().BeGreaterThan(0);
         JsonElement context = root.GetProperty("context");
         context.GetProperty("metric").GetString().Should().Be("cpu");

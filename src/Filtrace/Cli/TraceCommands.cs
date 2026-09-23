@@ -1416,6 +1416,12 @@ internal sealed class TraceCommands
     ///  Directory the launched process starts in; empty inherits the collector's current
     ///  directory.
     /// </param>
+    /// <param name="rundown">
+    ///  Append a bounded machine-wide CLR naming rundown for persistent managed servers
+    ///  that were already running when capture began. Can add hundreds of megabytes and
+    ///  polls for quiescence for up to 30 seconds before an unbounded ETL merge; not valid
+    ///  with <c>diskio</c>.
+    /// </param>
     /// <param name="cpuMs">
     ///  CPU sample interval in milliseconds for <c>cpu</c>, <c>threadtime</c>, and
     ///  <c>startup</c>; ignored by <c>diskio</c>. Sub-millisecond is what makes a
@@ -1447,6 +1453,7 @@ internal sealed class TraceCommands
         string profile = "cpu",
         string launchArgs = "",
         string workingDirectory = "",
+        bool rundown = false,
         [Range(CpuSampleBounds.MinimumAcceptedMSec, CpuSampleBounds.MaximumAcceptedMSec)] double cpuMs = 1.0,
         [Range(0, int.MaxValue)] int duration = 0,
         [Range(1, 1000)] int iterations = 1,
@@ -1456,6 +1463,18 @@ internal sealed class TraceCommands
         if (!TryResolveCollectProfile(profile, out CollectProfile resolved))
         {
             Console.Error.WriteLine($"Unknown profile '{profile}'. Supported capture profiles: cpu, threadtime, startup, diskio.");
+            return ExitCodes.UsageError;
+        }
+
+        if (rundown && resolved == CollectProfile.DiskIo)
+        {
+            Console.Error.WriteLine("--rundown cannot be combined with --profile diskio.");
+            return ExitCodes.UsageError;
+        }
+
+        if (rundown && maxSizeMb > 0)
+        {
+            Console.Error.WriteLine("--rundown cannot be combined with --max-size-mb.");
             return ExitCodes.UsageError;
         }
 
@@ -1470,6 +1489,7 @@ internal sealed class TraceCommands
             LaunchExecutable = launch,
             LaunchArguments = launchArgs,
             WorkingDirectory = requestedWorkingDirectory,
+            Rundown = rundown,
             Profile = resolved,
             CpuSampleMSec = cpuMs,
             DurationSeconds = duration > 0 ? duration : null,

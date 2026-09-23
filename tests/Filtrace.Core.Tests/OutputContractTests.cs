@@ -112,7 +112,7 @@ public sealed class OutputContractTests
 
         using JsonDocument document = JsonDocument.Parse(OutputJson.Serialize(envelope));
         JsonElement root = document.RootElement;
-        root.GetProperty("schemaVersion").GetInt32().Should().Be(17);
+        root.GetProperty("schemaVersion").GetInt32().Should().Be(18);
         JsonElement cpuSampling = root.GetProperty("context").GetProperty("cpuSampling");
         cpuSampling.GetProperty("weightUnit").GetString().Should().Be("ms");
         cpuSampling.GetProperty("source").GetString().Should().Be("etw-perfinfo");
@@ -156,7 +156,7 @@ public sealed class OutputContractTests
         string json = OutputJson.Serialize(envelope);
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
-        root.GetProperty("schemaVersion").GetInt32().Should().Be(17);
+        root.GetProperty("schemaVersion").GetInt32().Should().Be(18);
         JsonElement cpuSampling = root.GetProperty("context").GetProperty("cpuSampling");
         cpuSampling.GetProperty("intervals").GetArrayLength().Should().Be(CpuSampleWeighting.MaximumRetainedIntervalSegments);
         cpuSampling.GetProperty("omittedIntervalSegmentCount").GetInt32().Should().Be(40_000);

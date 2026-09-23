@@ -1192,9 +1192,9 @@ function Get-ValidatedProfileResult(
     if (
         $null -eq $schemaProperty -or
         -not (Test-FiniteJsonNumber $schemaProperty.Value) -or
-        [double]$schemaProperty.Value -notin @(16, 17)
+        [double]$schemaProperty.Value -notin @(16, 17, 18)
     ) {
-        throw "Profile analysis '$AnalysisName' query '$($Query.id)' did not return supported schema 16 or 17."
+        throw "Profile analysis '$AnalysisName' query '$($Query.id)' did not return supported schema 16, 17, or 18."
     }
     [int] $schemaVersion = [int]$schemaProperty.Value
 
@@ -1231,7 +1231,7 @@ function Get-ValidatedProfileResult(
             ($AnalysisName -ceq 'alloc' -and [string]$unitProperty.Value -cne 'bytes') -or
             ($AnalysisName -ceq 'cpu' -and $schemaVersion -eq 16 -and
                 [string]$unitProperty.Value -cne 'ms') -or
-            ($AnalysisName -ceq 'cpu' -and $schemaVersion -eq 17 -and
+            ($AnalysisName -ceq 'cpu' -and $schemaVersion -ge 17 -and
                 [string]$unitProperty.Value -cnotin @('ms', 'samples'))
         ) {
             throw "Profile analysis '$AnalysisName' query '$($Query.id)' returned the wrong rank context."
@@ -1469,9 +1469,9 @@ function Get-AnalysisEvidence(
     if (
         $null -eq $schemaProperty -or
         -not (Test-FiniteJsonNumber $schemaProperty.Value) -or
-        [double]$schemaProperty.Value -notin @(16, 17)
+        [double]$schemaProperty.Value -notin @(16, 17, 18)
     ) {
-        throw "Profile analysis '$AnalysisName' did not return supported info schema 16 or 17."
+        throw "Profile analysis '$AnalysisName' did not return supported info schema 16, 17, or 18."
     }
     [int] $schemaVersion = [int]$schemaProperty.Value
     [object] $validatedInfoWarnings = Get-ValidatedProfileWarnings `
@@ -1526,7 +1526,7 @@ function Get-AnalysisEvidence(
     if ($AnalysisName -ceq 'cpu') {
         [string] $infoWeightUnit = 'ms'
         [long] $retainedSampleCount = 0
-        if ($schemaVersion -eq 17) {
+        if ($schemaVersion -ge 17) {
             [object] $sampleCountProperty = $resultProperty.Value.PSObject.Properties['sampleCount']
             if ($null -eq $sampleCountProperty) {
                 throw "Profile analysis '$AnalysisName' info omitted its retained sample count."
