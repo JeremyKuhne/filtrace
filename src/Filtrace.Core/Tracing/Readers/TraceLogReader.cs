@@ -601,6 +601,7 @@ internal abstract partial class TraceLogReader : ITraceReader
         }
 
         List<string> warnings = [.. scopeWarnings];
+        AddEventLossWarning(warnings, traceLog.EventsLost);
         if (timeWeightsEstablished)
         {
             warnings.Add(
@@ -711,6 +712,21 @@ internal abstract partial class TraceLogReader : ITraceReader
             AppliedActivityName = activityName,
             AppliedTimeWindow = window
         };
+    }
+
+    /// <summary>
+    ///  Adds a capture-wide warning when the trace reports dropped events.
+    /// </summary>
+    /// <param name="warnings">The warning collection to update.</param>
+    /// <param name="eventsLost">The lost-event count retained by the trace log.</param>
+    internal static void AddEventLossWarning(List<string> warnings, int eventsLost)
+    {
+        if (eventsLost > 0)
+        {
+            warnings.Add(
+                $"Trace records report {eventsLost.ToString(CultureInfo.InvariantCulture)} lost events; "
+                    + "analysis is incomplete and must not be treated as a complete profile.");
+        }
     }
 
     /// <summary>
