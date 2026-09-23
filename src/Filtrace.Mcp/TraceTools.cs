@@ -1943,18 +1943,39 @@ public sealed class TraceTools
         out AppliedProcessScope appliedProcessScope,
         out IReadOnlyList<string> scopeWarnings)
     {
-        RequireEtl(path, "disk I/O report");
-
-        try
-        {
-            return new DiskIoProvider().Read(
+        AppliedProcessScope? resolvedScope = null;
+        IReadOnlyList<string>? resolvedWarnings = null;
+        DiskIoResult result = ReadDiskIo(
+            path,
+            () => new DiskIoProvider().Read(
                 path,
                 scope,
-                out appliedProcessScope,
-                out scopeWarnings);
+                out resolvedScope,
+                out resolvedWarnings));
+
+        appliedProcessScope = resolvedScope!;
+        scopeWarnings = resolvedWarnings!;
+        return result;
+    }
+
+    /// <summary>
+    ///  Executes a deferred disk-I/O read after validating its trace format and maps
+    ///  malformed-trace failures to the MCP error contract.
+    /// </summary>
+    /// <param name="path">The trace path used for format validation.</param>
+    /// <param name="read">The deferred disk-I/O read.</param>
+    /// <returns>The disk-I/O report.</returns>
+    internal static DiskIoResult ReadDiskIo(string path, Func<DiskIoResult> read)
+    {
+        RequireEtl(path, "disk I/O report");
+        ArgumentNullException.ThrowIfNull(read);
+        try
+        {
+            return read();
         }
         catch (Exception ex) when (
             ex is IOException
+                or InvalidDataException
                 or UnauthorizedAccessException
                 or NotSupportedException
                 or InvalidOperationException

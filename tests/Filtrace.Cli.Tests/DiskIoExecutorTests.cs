@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Tracing;
+using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Cli;
 
@@ -79,6 +80,23 @@ public sealed partial class DiskIoExecutorTests
         output.Should().Contain("\"processMode\":\"ids\"");
         int writeCount = int.Parse(WriteCountPropertyRegex().Match(output).Groups[1].Value);
         writeCount.Should().BeGreaterThan(0);
+    }
+
+    [TestMethod]
+    public void TryReadEtlReport_InvalidData_ReturnsInputError()
+    {
+        StringWriter error = new();
+
+        bool success = TraceExecution.TryReadEtlReport(
+            DiskIo,
+            "disk I/O",
+            static () => throw new InvalidDataException("too many outstanding IRPs"),
+            error,
+            out DiskIoResult? result);
+
+        success.Should().BeFalse();
+        result.Should().BeNull();
+        error.ToString().Should().Contain("too many outstanding IRPs");
     }
 
     [TestMethod]

@@ -236,6 +236,7 @@ internal static class TraceExecution
         }
         catch (Exception ex) when (
             ex is IOException
+                or InvalidDataException
                 or UnauthorizedAccessException
                 or NotSupportedException
                 or InvalidOperationException

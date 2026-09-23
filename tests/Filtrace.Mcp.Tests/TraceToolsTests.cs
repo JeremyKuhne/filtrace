@@ -1405,6 +1405,16 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void ReadDiskIo_InvalidData_ThrowsMcpException()
+    {
+        Action act = () => TraceTools.ReadDiskIo(
+            FixturePath(DiskIoTrace),
+            static () => throw new InvalidDataException("too many outstanding IRPs"));
+
+        act.Should().Throw<McpException>().WithMessage("too many outstanding IRPs");
+    }
+
+    [TestMethod]
     public void DiskIo_NonEtlInput_ThrowsMcpException()
     {
         // The disk I/O report reads kernel ETW events; a .nettrace or speedscope is
