@@ -664,6 +664,43 @@ public sealed class CollectExecutorTests
     }
 
     [TestMethod]
+    public void Run_ScopedRundown_SuggestsExactProcessAnalysis()
+    {
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "child.exe",
+            OutputPath = "out.etl",
+            Profile = CollectProfile.ThreadTime,
+            Rundown = true,
+            RundownProcessIds = [42, 84],
+        };
+
+        RundownCaptureInfo rundown = new(
+            FileSizeBytes: 123_456,
+            EventsLost: 0,
+            PollCount: 2,
+            DurationMilliseconds: 4_321)
+        {
+            ProcessIds = [42, 84],
+        };
+
+        StringWriter output = new();
+        int exit = CollectExecutor.Run(
+            request,
+            OutputFormat.Text,
+            output,
+            TextWriter.Null,
+            (_, _, _) => Result(processExitCode: 0, profile: CollectProfile.ThreadTime, rundown: rundown));
+
+        exit.Should().Be(ExitCodes.Success);
+        output.ToString().Should().Contain(
+            "rank \"").And.Contain("--metric cpu --pid 42,84 --children exclude");
+
+        output.ToString().Should().Contain(
+            "--metric threadtime --pid 42,84 --children exclude");
+    }
+
+    [TestMethod]
     public void Run_WhenElevated_SubMillisecondInterval_SamplesMoreDensely()
     {
         if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
