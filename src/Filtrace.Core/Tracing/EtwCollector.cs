@@ -119,7 +119,7 @@ public static class EtwCollector
                 $"The iteration count must be between 1 and {MaxIterations}.");
         }
 
-        if (request.Rundown && request.Profile == CollectProfile.DiskIO)
+        if (request.Rundown && request.Profile == CollectProfile.DiskIo)
         {
             throw new ArgumentException(
                 "CLR rundown cannot be combined with the diskio profile, which enables no CLR or CPU data.",

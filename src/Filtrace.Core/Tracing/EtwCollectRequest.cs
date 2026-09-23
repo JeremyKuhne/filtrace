@@ -37,7 +37,7 @@ public sealed class EtwCollectRequest
     ///  <para>
     ///   Rundown is machine-wide and can add hundreds of megabytes plus several seconds.
     ///   Use it only when sampled work runs in a persistent managed server outside the
-    ///   launched process tree. It does not apply to <see cref="CollectProfile.DiskIO"/>.
+    ///   launched process tree. It does not apply to <see cref="CollectProfile.DiskIo"/>.
     ///  </para>
     /// </remarks>
     public bool Rundown { get; init; }

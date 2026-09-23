@@ -71,7 +71,7 @@ public sealed class CollectExecutorTests
         {
             LaunchExecutable = "app.exe",
             OutputPath = "out.etl",
-            Profile = CollectProfile.DiskIO,
+            Profile = CollectProfile.DiskIo,
             Rundown = true,
         });
 

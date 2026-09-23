@@ -1465,7 +1465,7 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        if (rundown && resolved == CollectProfile.DiskIO)
+        if (rundown && resolved == CollectProfile.DiskIo)
         {
             Console.Error.WriteLine("--rundown cannot be combined with --profile diskio.");
             return ExitCodes.UsageError;
