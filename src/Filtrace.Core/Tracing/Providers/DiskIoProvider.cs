@@ -85,6 +85,7 @@ public sealed partial class DiskIoProvider
         ScopeResolution resolvedScope = ProcessTree.ResolveScope(traceLog, scope);
         appliedProcessScope = resolvedScope.AppliedScope;
         List<string> warnings = [.. resolvedScope.Warnings];
+        TraceLogReader.AddEventLossWarning(warnings, traceLog.EventsLost);
         if (resolvedScope.Phrase is not null)
         {
             warnings.Add(
