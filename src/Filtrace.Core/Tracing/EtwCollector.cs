@@ -35,6 +35,8 @@ namespace Filtrace.Tracing;
 /// </remarks>
 public static class EtwCollector
 {
+    // TraceEvent converts this request to ETW minimum buffers and permits the pool to
+    // grow to roughly 641 MiB through its derived maximum-buffer count.
     private const int RundownBufferSizeMB = 512;
     private const int RundownMaxPolls = 15;
     private static readonly TimeSpan s_rundownPollInterval = TimeSpan.FromSeconds(2);
