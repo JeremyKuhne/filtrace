@@ -1419,7 +1419,8 @@ internal sealed class TraceCommands
     /// <param name="rundown">
     ///  Append a bounded machine-wide CLR naming rundown for persistent managed servers
     ///  that were already running when capture began. Can add hundreds of megabytes and
-    ///  up to 30 seconds; not valid with <c>diskio</c>.
+    ///  polls for quiescence for up to 30 seconds before an unbounded ETL merge; not valid
+    ///  with <c>diskio</c>.
     /// </param>
     /// <param name="cpuMs">
     ///  CPU sample interval in milliseconds for <c>cpu</c>, <c>threadtime</c>, and

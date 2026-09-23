@@ -321,7 +321,9 @@ public static class EtwCollector
                     previousLength = length;
                 }
 
-                eventsLost = rundown.EventsLost;
+                rundown.Stop(noThrow: false);
+                using ETWTraceEventSource rundownSource = new(rundownPath);
+                eventsLost = rundownSource.EventsLost;
                 rundownSize = new FileInfo(rundownPath).Length;
             }
 

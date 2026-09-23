@@ -103,8 +103,11 @@ public sealed class AnalysisResult<T>
     ///   Version 17 added CPU sample-weight provenance and permits raw sample units
     ///   when a trace does not establish its sampling interval.
     ///  </para>
+    ///  <para>
+    ///   Version 18 added capture working-directory and optional CLR rundown provenance.
+    ///  </para>
     /// </remarks>
-    public const int CurrentSchemaVersion = 17;
+    public const int CurrentSchemaVersion = 18;
 
     /// <summary>
     ///  Initializes a new <see cref="AnalysisResult{T}"/>.

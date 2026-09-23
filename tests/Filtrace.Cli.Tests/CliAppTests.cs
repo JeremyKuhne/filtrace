@@ -753,7 +753,7 @@ public sealed class CliAppTests
         json.Should().NotContain("\n");
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
-        root.GetProperty("schemaVersion").GetInt32().Should().Be(17);
+        root.GetProperty("schemaVersion").GetInt32().Should().Be(18);
         root.GetProperty("result").GetProperty("processes").GetArrayLength().Should().BeGreaterThan(0);
         JsonElement context = root.GetProperty("context");
         context.GetProperty("metric").GetString().Should().Be("cpu");

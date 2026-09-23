@@ -159,7 +159,7 @@ internal static class Program
 
             string[] availableAnalyses = ["cpu", "alloc", "gcstats"];
             Dictionary<string, object> info = new();
-            info["schemaVersion"] = 17;
+            info["schemaVersion"] = 18;
             if (mode != "analysis-missing-warnings")
             {
                 info["warnings"] = GetWarnings(mode);
@@ -282,7 +282,7 @@ internal static class Program
 
         object envelope = new
         {
-            schemaVersion = 17,
+            schemaVersion = 18,
             warnings,
             context,
             result
@@ -339,7 +339,7 @@ internal static class Program
 
         if (mode == "gc-absent")
         {
-            Console.WriteLine("{\"schemaVersion\":17,\"warnings\":[],\"context\":{\"operation\":\"gc\"}}");
+            Console.WriteLine("{\"schemaVersion\":18,\"warnings\":[],\"context\":{\"operation\":\"gc\"}}");
             return;
         }
 
@@ -381,7 +381,7 @@ internal static class Program
 
         object envelope = new
         {
-            schemaVersion = 17,
+            schemaVersion = 18,
             warnings = Array.Empty<object>(),
             context = new
             {

@@ -80,7 +80,7 @@ latency, call allocation volume retained memory, or hide evidence limitations.
 
 1. **Establish units.** Record the analyzer version/capability, CPU record count,
    sampling semantics, known recorded interval provenance, and clock/operation
-   boundary. In schema 17, inspect `result.cpuSampling` from `info`; for `rank`,
+   boundary. In schema 17 and later, inspect `result.cpuSampling` from `info`; for `rank`,
    inspect `context.unit` and `context.cpuSampling`. `diff` and `batch` do not
    summarize that provenance, so inspect `info` or `rank` for each input before
    comparing it. Require `timeWeightsEstablished` before interpreting CPU weights

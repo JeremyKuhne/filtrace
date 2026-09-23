@@ -224,7 +224,7 @@ filtrace collect --launch dotnet --launch-args MyApp.dll --output tt.etl --profi
 filtrace collect --launch MyApp.exe --output start.etl --profile startup                # low perturbation
 filtrace collect --launch MyApp.exe --output io.etl --profile diskio                    # physical disk/files
 filtrace collect --launch cmd.exe --launch-args "/d /c build.cmd" --working-directory C:\src\app --output build.etl
-filtrace collect --launch build.cmd --output build.etl --rundown                        # persistent CLR servers
+filtrace collect --launch cmd.exe --launch-args "/d /c build.cmd" --output build.etl --rundown # persistent CLR servers
 filtrace collect --launch MyApp.exe --output ring.etl --max-size-mb 512                 # bounded ring buffer
 ```
 
@@ -234,10 +234,11 @@ subject launch. Omit it to inherit the collector's current directory.
 `--rundown` appends and merges a separate minimal CLR naming rundown after the
 launched command exits. Use it only when captured CPU belongs to managed servers
 that were already running and remain alive, such as compiler/build servers. The
-opt-in pass is machine-wide, reserves up to 512 MB of ETW buffers, waits up to
-30 seconds for quiescence, and can add hundreds of megabytes. It is not valid
-with `--profile diskio` or `--max-size-mb`; inspect the capture and `info`
-lost-event warnings before trusting resolved names.
+opt-in pass is machine-wide, reserves up to 512 MB of ETW buffers, limits
+quiescence polling to 30 seconds, and can add hundreds of megabytes. The
+subsequent ETL merge can extend total duration beyond that polling bound. Rundown
+is not valid with `--profile diskio` or `--max-size-mb`; inspect the capture and
+`info` lost-event warnings before trusting resolved names.
 
 The `diskio` profile enables only physical DiskIO/DiskIOInit events, process/thread
 attribution, and the DiskFileIO name rundown. It deliberately omits CPU sampling,

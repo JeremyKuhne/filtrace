@@ -902,7 +902,7 @@ function Test-AgentEvalCliResult($Result, [string] $ExpectedOperation) {
     [string[]] $members = @($payload.PSObject.Properties.Name)
     if ($members -cnotcontains 'schemaVersion' -or
         ($payload.schemaVersion -isnot [int] -and $payload.schemaVersion -isnot [long]) -or
-        [long]$payload.schemaVersion -ne 17 -or
+        [long]$payload.schemaVersion -ne 18 -or
         $members -cnotcontains 'context' -or $payload.context -isnot [pscustomobject] -or
         @($payload.context.PSObject.Properties.Name) -cnotcontains 'operation' -or
         $payload.context.operation -isnot [string] -or

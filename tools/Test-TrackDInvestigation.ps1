@@ -367,12 +367,12 @@ try {
     [object[]] $invalidCpuSamplingCases = @(
         [pscustomobject]@{ Name = 'future-info-schema'; Mutate = {
             param($info, $rank)
-            $info.schemaVersion = 18
-        }; Message = 'supported info schema 16 or 17' },
+            $info.schemaVersion = 19
+        }; Message = 'supported info schema 16, 17, or 18' },
         [pscustomobject]@{ Name = 'future-rank-schema'; Mutate = {
             param($info, $rank)
-            $rank.schemaVersion = 18
-        }; Message = 'supported schema 16 or 17' },
+            $rank.schemaVersion = 19
+        }; Message = 'supported schema 16, 17, or 18' },
         [pscustomobject]@{ Name = 'unknown-info-unit'; Mutate = {
             param($info, $rank)
             $info.result.cpuSampling.weightUnit = 'ticks'
@@ -446,11 +446,11 @@ try {
             'Valid numeric profile counts or schema identifiers were rejected or changed.'
     }
     [object[]] $invalidProfileNumbers = @(
-        @{ Member = 'schemaVersion'; Value = $null; Message = 'supported info schema 16 or 17' },
-        @{ Member = 'schemaVersion'; Value = '17'; Message = 'supported info schema 16 or 17' },
-        @{ Member = 'schemaVersion'; Value = $true; Message = 'supported info schema 16 or 17' },
-        @{ Member = 'schemaVersion'; Value = 17.4; Message = 'supported info schema 16 or 17' },
-        @{ Member = 'schemaVersion'; Value = [double]::PositiveInfinity; Message = 'supported info schema 16 or 17' },
+        @{ Member = 'schemaVersion'; Value = $null; Message = 'supported info schema 16, 17, or 18' },
+        @{ Member = 'schemaVersion'; Value = '17'; Message = 'supported info schema 16, 17, or 18' },
+        @{ Member = 'schemaVersion'; Value = $true; Message = 'supported info schema 16, 17, or 18' },
+        @{ Member = 'schemaVersion'; Value = 17.4; Message = 'supported info schema 16, 17, or 18' },
+        @{ Member = 'schemaVersion'; Value = [double]::PositiveInfinity; Message = 'supported info schema 16, 17, or 18' },
         @{ Member = 'eventCount'; Value = $null; Message = 'valid event count' },
         @{ Member = 'eventCount'; Value = '128'; Message = 'valid event count' },
         @{ Member = 'eventCount'; Value = $true; Message = 'valid event count' },
@@ -496,7 +496,7 @@ try {
     Assert-True `
         (Test-Path -LiteralPath $realEventPipeTrace -PathType Leaf) `
         "Real analyzer smoke requires the EventPipe fixture at '$realEventPipeTrace'."
-    [string] $realAnalysisDirectory = Join-Path $temporaryRoot 'real-schema17-analysis'
+    [string] $realAnalysisDirectory = Join-Path $temporaryRoot 'real-schema18-analysis'
     [System.IO.Directory]::CreateDirectory($realAnalysisDirectory) | Out-Null
     [string] $realInfoPath = Join-Path $realAnalysisDirectory 'info.json'
     [string] $realInfoErrorPath = Join-Path $realAnalysisDirectory 'info.stderr.txt'
@@ -506,7 +506,7 @@ try {
         $realAnalyzer `
         @('info', $realEventPipeTrace, '--format', 'json') `
         $root `
-        'real schema 17 info smoke' `
+        'real schema 18 info smoke' `
         $realInfoPath `
         $realInfoErrorPath
     $null = Invoke-NativeText `
@@ -519,7 +519,7 @@ try {
             '--top', '20',
             '--format', 'json') `
         $root `
-        'real schema 17 rank smoke' `
+        'real schema 18 rank smoke' `
         $realRankPath `
         $realRankErrorPath
     Write-Json (Join-Path $realAnalysisDirectory 'run.json') ([ordered]@{
@@ -543,7 +543,7 @@ try {
         'cpu' `
         $true
     Assert-True `
-        ($realCliEvidence.schemaVersion -eq 17 -and
+        ($realCliEvidence.schemaVersion -eq 18 -and
             $realCliEvidence.weightUnit -ceq 'samples' -and
             $realCliEvidence.cpuSampling.source -ceq 'unavailable' -and
             -not $realCliEvidence.cpuSampling.timeWeightsEstablished -and
@@ -1383,7 +1383,7 @@ try {
             [pscustomobject]@{ Name = 'analysis-nonzero'; Mode = 'analysis-nonzero'; Message = 'exited with code 9' },
             [pscustomobject]@{ Name = 'analysis-malformed'; Mode = 'analysis-malformed'; Message = 'did not complete' },
             [pscustomobject]@{ Name = 'gc-absent'; Mode = 'gc-absent'; Message = 'omitted context or result' },
-            [pscustomobject]@{ Name = 'gc-malformed'; Mode = 'gc-malformed'; Message = 'did not return supported schema 16 or 17' },
+            [pscustomobject]@{ Name = 'gc-malformed'; Mode = 'gc-malformed'; Message = 'did not return supported schema 16, 17, or 18' },
             [pscustomobject]@{ Name = 'gc-missing-records'; Mode = 'gc-missing-records'; Message = 'omitted GC records' },
             [pscustomobject]@{ Name = 'gc-scalar-records'; Mode = 'gc-scalar-records'; Message = 'omitted GC records' })
         foreach ($case in $postMeasurementFailures) {

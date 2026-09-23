@@ -714,13 +714,13 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
         if ($completionSucceeded) {
             $completionData.result = @(
                     [string] $schemaVersion = if ($mode -eq 'unknown-cli-schema') {
-                        '16'
+                        '17'
                     }
                     elseif ($mode -eq 'fractional-cli-schema') {
-                        '17.0'
+                        '18.0'
                     }
                     else {
-                        '17'
+                        '18'
                     }
                     [string] $resultJson = if ($mode -eq 'scalar-cli-result') {
                         '"forged"'
@@ -734,8 +734,8 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
                     [string] $json = "{`"schemaVersion`":$schemaVersion,`"context`":{`"operation`":`"$reportedOperation`"},`"result`":$resultJson}"
                     if ($mode -eq 'duplicate-cli-root-member') {
                         $json = $json.Replace(
-                            '"schemaVersion":17,',
-                            '"schemaVersion":16,"schemaVersion":17,')
+                            '"schemaVersion":18,',
+                            '"schemaVersion":17,"schemaVersion":18,')
                     }
                     elseif ($mode -eq 'duplicate-cli-context-member') {
                         $json = $json.Replace(

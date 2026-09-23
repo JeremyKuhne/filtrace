@@ -6,6 +6,8 @@ using System.Text.Json;
 using Filtrace.Output;
 using Filtrace.Tracing;
 using Filtrace.Tracing.Providers;
+using Microsoft.Diagnostics.Tracing;
+using Microsoft.Diagnostics.Tracing.Parsers.Clr;
 
 namespace Filtrace.Cli;
 
@@ -199,6 +201,65 @@ public sealed class CollectExecutorTests
             }
 
             Directory.Delete(workingDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Collect_WhenElevated_RundownMergesAndCleansTemporaryFiles()
+    {
+        if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
+        {
+            Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
+        }
+
+        string outputPath = Path.Join(Path.GetTempPath(), $"filtrace-rundown-{Guid.NewGuid():N}.etl");
+        string directory = Path.GetDirectoryName(outputPath)!;
+        string fileName = Path.GetFileName(outputPath);
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "cmd.exe",
+            LaunchArguments = "/c exit 0",
+            OutputPath = outputPath,
+            Profile = CollectProfile.Startup,
+            Rundown = true,
+            DurationSeconds = 60,
+        };
+
+        try
+        {
+            EtwCollectResult result = EtwCollector.Collect(request);
+
+            result.Rundown.Should().NotBeNull();
+            result.Rundown!.FileSizeBytes.Should().BeGreaterThan(0);
+            result.Rundown.PollCount.Should().BeInRange(2, 15);
+            result.Rundown.DurationMilliseconds.Should().BeGreaterThan(0);
+            File.Exists(outputPath).Should().BeTrue();
+
+            int rundownEvents = 0;
+            using (ETWTraceEventSource source = new(outputPath))
+            {
+                source.Dynamic.All += data =>
+                {
+                    if (data.ProviderGuid == ClrRundownTraceEventParser.ProviderGuid)
+                    {
+                        rundownEvents++;
+                    }
+                };
+
+                source.Process();
+            }
+
+            rundownEvents.Should().BeGreaterThan(0);
+            Directory.GetFiles(directory, $"{fileName}.rundown-*.etl").Should().BeEmpty();
+            Directory.GetFiles(directory, $"{fileName}.merged-*.etl").Should().BeEmpty();
+        }
+        finally
+        {
+            File.Delete(outputPath);
+            foreach (string temporaryPath in Directory.EnumerateFiles(directory, $"{fileName}.*-*.etl"))
+            {
+                File.Delete(temporaryPath);
+            }
         }
     }
 
