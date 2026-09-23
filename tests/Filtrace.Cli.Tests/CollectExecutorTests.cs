@@ -46,6 +46,7 @@ public sealed class CollectExecutorTests
         };
 
         request.Profile.Should().Be(CollectProfile.Cpu);
+        request.Rundown.Should().BeFalse();
     }
 
     [TestMethod]
@@ -61,6 +62,34 @@ public sealed class CollectExecutorTests
         });
 
         act.Should().Throw<DirectoryNotFoundException>().WithMessage($"*{missing}*");
+    }
+
+    [TestMethod]
+    public void Collect_DiskIOWithRundown_ThrowsArgument()
+    {
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+            Profile = CollectProfile.DiskIO,
+            Rundown = true,
+        });
+
+        act.Should().Throw<ArgumentException>().WithMessage("*diskio*");
+    }
+
+    [TestMethod]
+    public void Collect_RundownWithSizeCap_ThrowsArgument()
+    {
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+            Rundown = true,
+            MaxSizeMB = 512,
+        });
+
+        act.Should().Throw<ArgumentException>().WithMessage("*size cap*");
     }
 
     [TestMethod]
@@ -328,6 +357,7 @@ public sealed class CollectExecutorTests
         int processExitCode = resultElement.GetProperty("processExitCode").GetInt32();
         processExitCode.Should().Be(7);
         resultElement.GetProperty("workingDirectory").GetString().Should().Be(Path.GetFullPath("."));
+        resultElement.TryGetProperty("rundown", out _).Should().BeFalse();
         output.ToString().Should().NotContain("not-the-capture");
         error.ToString().Should().Contain("{\"result\":\"not-the-capture\"}");
         error.ToString().Should().Contain("failed noisily");
@@ -446,6 +476,43 @@ public sealed class CollectExecutorTests
         exit.Should().Be(ExitCodes.Success);
         using JsonDocument document = JsonDocument.Parse(output.ToString());
         document.RootElement.GetProperty("warnings").GetArrayLength().Should().Be(0);
+        error.ToString().Should().BeEmpty();
+    }
+
+    [TestMethod]
+    public void Run_Rundown_ReportsProvenanceAndLoss()
+    {
+        EtwCollectRequest request = new()
+        {
+            LaunchExecutable = "child.exe",
+            OutputPath = "out.etl",
+            Rundown = true,
+        };
+
+        RundownCaptureInfo rundown = new(
+            FileSizeBytes: 123_456,
+            EventsLost: 7,
+            PollCount: 2,
+            DurationMilliseconds: 4_321);
+
+        StringWriter output = new();
+        StringWriter error = new();
+        int exit = CollectExecutor.Run(
+            request,
+            OutputFormat.Json,
+            output,
+            error,
+            (_, _, _) => Result(processExitCode: 0, rundown: rundown));
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output.ToString());
+        JsonElement root = document.RootElement;
+        root.GetProperty("warnings")[0].GetProperty("message").GetString()
+            .Should().Contain("CLR rundown reported 7 lost events");
+
+        root.GetProperty("result").GetProperty("rundown").GetProperty("fileSizeBytes")
+            .GetInt64().Should().Be(123_456);
+
         error.ToString().Should().BeEmpty();
     }
 
@@ -733,7 +800,8 @@ public sealed class CollectExecutorTests
         int processExitCode,
         CpuSampleInterval? cpuSample = null,
         CollectProfile profile = CollectProfile.Cpu,
-        int[]? processIds = null)
+        int[]? processIds = null,
+        RundownCaptureInfo? rundown = null)
     {
         processIds ??= [42];
         List<EtwInvocation> invocations =
@@ -752,6 +820,7 @@ public sealed class CollectExecutorTests
             ProcessId = invocations[0].ProcessId,
             ProcessName = "noisy-child",
             WorkingDirectory = Path.GetFullPath("."),
+            Rundown = rundown,
             ProcessExitCode = processExitCode,
             Invocations = invocations,
             FileSizeBytes = 1,

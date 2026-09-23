@@ -30,6 +30,19 @@ public sealed class EtwCollectRequest
     public string? WorkingDirectory { get; init; }
 
     /// <summary>
+    ///  Whether to append a bounded CLR naming rundown for managed processes that were
+    ///  already running when collection began. Defaults to <see langword="false"/>.
+    /// </summary>
+    /// <remarks>
+    ///  <para>
+    ///   Rundown is machine-wide and can add hundreds of megabytes plus several seconds.
+    ///   Use it only when sampled work runs in a persistent managed server outside the
+    ///   launched process tree. It does not apply to <see cref="CollectProfile.DiskIO"/>.
+    ///  </para>
+    /// </remarks>
+    public bool Rundown { get; init; }
+
+    /// <summary>
     ///  The provider set the capture enables. Defaults to <see cref="CollectProfile.Cpu"/>.
     /// </summary>
     public CollectProfile Profile { get; init; } = CollectProfile.Cpu;

@@ -179,6 +179,22 @@ public sealed class CaptureProvidersTests
     }
 
     [TestMethod]
+    public void NamingRundownClrKeywords_EnableOnlyExistingManagedCodeNames()
+    {
+        CaptureProviders.NamingRundownClrKeywords.Should().Be(
+            ClrRundownTraceEventParser.Keywords.Jit
+                | ClrRundownTraceEventParser.Keywords.JittedMethodILToNativeMap
+                | ClrRundownTraceEventParser.Keywords.Loader
+                | ClrRundownTraceEventParser.Keywords.StartEnumeration);
+
+        CaptureProviders.NamingRundownClrKeywords.Should().NotHaveFlag(
+            ClrRundownTraceEventParser.Keywords.GC);
+
+        CaptureProviders.NamingRundownClrKeywords.Should().NotHaveFlag(
+            ClrRundownTraceEventParser.Keywords.StopEnumeration);
+    }
+
+    [TestMethod]
     [DataRow(CollectProfile.Cpu)]
     [DataRow(CollectProfile.ThreadTime)]
     [DataRow(CollectProfile.Startup)]

@@ -101,6 +101,13 @@ internal static class CollectExecutor
                         + "cpuSampling provenance for the units applied to CPU weights.");
             }
 
+            if (result.Rundown is { EventsLost: > 0 } rundownWithLoss)
+            {
+                warnings.Add(
+                    $"CLR rundown reported {rundownWithLoss.EventsLost.ToString(CultureInfo.InvariantCulture)} "
+                        + "lost events; managed names may be incomplete.");
+            }
+
             if (format == OutputFormat.Json)
             {
                 output.WriteLine(OutputJson.Serialize(new AnalysisResult<EtwCollectResult>(
@@ -116,6 +123,12 @@ internal static class CollectExecutor
             string processResult = $"{result.ProcessName} [{result.ProcessId}] exited {result.ProcessExitCode}";
             output.WriteLine($"Captured {result.FileSizeBytes:N0} bytes to {trace} (process {processResult}).");
             output.WriteLine($"  working directory {result.WorkingDirectory}");
+            if (result.Rundown is RundownCaptureInfo rundown)
+            {
+                output.WriteLine(
+                    $"  CLR rundown {rundown.FileSizeBytes:N0} bytes, {rundown.PollCount} poll(s), "
+                        + $"{rundown.DurationMilliseconds:N0} ms, {rundown.EventsLost} event(s) lost");
+            }
 
             WriteInvocationSummary(result, output);
 

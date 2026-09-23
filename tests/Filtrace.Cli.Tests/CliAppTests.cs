@@ -384,6 +384,34 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_CollectDiskIOWithRundown_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(
+            "collect",
+            "--launch", "app.exe",
+            "--output", "out.etl",
+            "--profile", "diskio",
+            "--rundown");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--rundown cannot be combined with --profile diskio");
+    }
+
+    [TestMethod]
+    public void Run_CollectRundownWithSizeCap_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(
+            "collect",
+            "--launch", "app.exe",
+            "--output", "out.etl",
+            "--rundown",
+            "--max-size-mb", "512");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--rundown cannot be combined with --max-size-mb");
+    }
+
+    [TestMethod]
     public void Run_ProcessAndAllProcesses_ReturnsUsageError()
     {
         // The two scope options are mutually exclusive; the conflict is caught before

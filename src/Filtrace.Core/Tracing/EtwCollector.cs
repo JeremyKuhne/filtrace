@@ -35,6 +35,10 @@ namespace Filtrace.Tracing;
 /// </remarks>
 public static class EtwCollector
 {
+    private const int RundownBufferSizeMB = 512;
+    private const int RundownMaxPolls = 15;
+    private static readonly TimeSpan s_rundownPollInterval = TimeSpan.FromSeconds(2);
+
     /// <summary>
     ///  Whether ETW capture is available on this OS (Windows only).
     /// </summary>
@@ -115,6 +119,20 @@ public static class EtwCollector
                 $"The iteration count must be between 1 and {MaxIterations}.");
         }
 
+        if (request.Rundown && request.Profile == CollectProfile.DiskIO)
+        {
+            throw new ArgumentException(
+                "CLR rundown cannot be combined with the diskio profile, which enables no CLR or CPU data.",
+                nameof(request));
+        }
+
+        if (request.Rundown && request.MaxSizeMB is not null)
+        {
+            throw new ArgumentException(
+                "CLR rundown cannot be combined with a circular size cap because the merged rundown would exceed that bound.",
+                nameof(request));
+        }
+
         string workingDirectory = ResolveWorkingDirectory(request.WorkingDirectory);
 
         if (!OperatingSystem.IsWindows())
@@ -180,6 +198,7 @@ public static class EtwCollector
         string sessionName = $"filtrace-collect-{Environment.ProcessId}";
 
         List<EtwInvocation> invocations = new(request.Iterations);
+        RundownCaptureInfo? rundown = null;
 
         // The applied rate cannot be read back: TraceEventSession.CpuSampleIntervalMSec
         // returns the field it was assigned, and the OS echoes any value it was given
@@ -232,6 +251,11 @@ public static class EtwCollector
             }
         }
 
+        if (request.Rundown)
+        {
+            rundown = CaptureRundownAndMerge(outputPath, sessionName);
+        }
+
         long fileSize = File.Exists(outputPath) ? new FileInfo(outputPath).Length : 0;
 
         // Surface a failure rather than the last result, so a caller reading the single
@@ -245,6 +269,7 @@ public static class EtwCollector
             ProcessId = invocations[0].ProcessId,
             ProcessName = processName,
             WorkingDirectory = workingDirectory,
+            Rundown = rundown,
             ProcessExitCode = reported.ExitCode,
             Invocations = invocations,
             FileSizeBytes = fileSize,
@@ -253,6 +278,77 @@ public static class EtwCollector
             ClrKeywords = providers.EnablesClr ? providers.ClrKeywords.ToString() : "none",
             CpuSample = cpuSample,
         };
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static RundownCaptureInfo CaptureRundownAndMerge(string outputPath, string sessionName)
+    {
+        string token = Guid.NewGuid().ToString("N");
+        string rundownPath = $"{outputPath}.rundown-{token}.etl";
+        string mergedPath = $"{outputPath}.merged-{token}.etl";
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        int polls = 0;
+        int eventsLost = 0;
+        long rundownSize = 0;
+
+        try
+        {
+            long previousLength = -1;
+            bool quiet = false;
+            using (TraceEventSession rundown = new($"{sessionName}-rundown", rundownPath)
+            {
+                StopOnDispose = true,
+                BufferSizeMB = RundownBufferSizeMB,
+            })
+            {
+                rundown.EnableProvider(
+                    ClrRundownTraceEventParser.ProviderGuid,
+                    TraceEventLevel.Verbose,
+                    (ulong)CaptureProviders.NamingRundownClrKeywords);
+
+                while (polls < RundownMaxPolls)
+                {
+                    polls++;
+                    Thread.Sleep(s_rundownPollInterval);
+                    rundown.Flush();
+                    long length = new FileInfo(rundownPath).Length;
+                    if (length == previousLength)
+                    {
+                        quiet = true;
+                        break;
+                    }
+
+                    previousLength = length;
+                }
+
+                eventsLost = rundown.EventsLost;
+                rundownSize = new FileInfo(rundownPath).Length;
+            }
+
+            if (!quiet)
+            {
+                double timeoutSeconds = RundownMaxPolls * s_rundownPollInterval.TotalSeconds;
+                throw new InvalidOperationException($"CLR rundown did not become quiet within {timeoutSeconds:0} seconds.");
+            }
+
+            TraceEventSession.Merge(
+                [outputPath, rundownPath],
+                mergedPath,
+                TraceEventMergeOptions.None);
+
+            File.Replace(mergedPath, outputPath, destinationBackupFileName: null);
+            stopwatch.Stop();
+            return new RundownCaptureInfo(
+                rundownSize,
+                eventsLost,
+                polls,
+                stopwatch.Elapsed.TotalMilliseconds);
+        }
+        finally
+        {
+            File.Delete(rundownPath);
+            File.Delete(mergedPath);
+        }
     }
 
 }

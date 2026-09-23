@@ -57,6 +57,13 @@ that keeps the last N MB).
 Use `--working-directory <path>` when the subject resolves repository-relative
 build files or configuration; the structured capture result records the absolute
 directory used by every launch.
+Use `--rundown` only when important sampled work runs in persistent managed
+servers that predate capture and remain alive after the launched command exits.
+Filtrace records a separate minimal CLR naming rundown, waits up to 30 seconds,
+and merges it into the capture. This machine-wide opt-in can reserve 512 MB of
+buffers and add hundreds of megabytes; require zero lost events before trusting
+the recovered method names. Rundown is not valid with `--profile diskio` or
+`--max-size-mb`.
 
 At the default 1 ms interval a 30-100 ms command yields only tens of samples, so lower
 `--cpu-ms`. Windows honors sub-millisecond sampling - measured down to **0.1221 ms** on
