@@ -247,7 +247,7 @@ subject launch. Omit it to inherit the collector's current directory.
 `--rundown` appends and merges a separate minimal CLR naming rundown after the
 launched command exits. Use it only when captured CPU belongs to managed servers
 that were already running and remain alive, such as compiler/build servers. The
-opt-in pass is machine-wide by default; pass up to 256 comma-separated exact ids
+opt-in pass is machine-wide by default; pass up to 8 comma-separated exact ids
 to `--rundown-pid` to filter CLR naming events when the target servers are already
 known. The capture result records that filter. Rundown requests 512 MB of ETW
 buffers, and TraceEvent's derived maximum-buffer count permits the pool to grow

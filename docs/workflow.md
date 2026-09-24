@@ -63,7 +63,7 @@ Filtrace records a separate minimal CLR naming rundown, limits quiescence pollin
 to 30 seconds, and then merges it into the capture. The merge can extend total
 duration beyond that polling bound. The pass is machine-wide by default; when prior
 evidence identifies the exact persistent servers, pass
-`--rundown-pid <id>[,<id>]` (up to 256 ids) to filter their CLR events and retain
+`--rundown-pid <id>[,<id>]` (up to 8 ids) to filter their CLR events and retain
 those ids in capture provenance. Rundown requests 512 MB of ETW buffers;
 TraceEvent's derived maximum-buffer count permits roughly 641 MiB, and the
 resulting rundown can add hundreds of megabytes. Require zero lost events before

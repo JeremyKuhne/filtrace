@@ -10,6 +10,11 @@ namespace Filtrace.Tracing;
 public sealed class EtwCollectRequest
 {
     /// <summary>
+    ///  Maximum exact process ids supported by the Windows ETW provider filter.
+    /// </summary>
+    public const int MaximumRundownProcessIds = 8;
+
+    /// <summary>
     ///  The executable to launch and trace. The capture spans the process's whole
     ///  lifetime, so launching the built app directly (never <c>dotnet run</c>) keeps the
     ///  trace on the app rather than a build or launcher host.
@@ -48,7 +53,9 @@ public sealed class EtwCollectRequest
 
     /// <summary>
     ///  Exact process ids whose CLR naming events the optional rundown retains. Empty
-    ///  keeps the machine-wide rundown. Requires <see cref="Rundown"/>.
+    ///  keeps the machine-wide rundown. At most
+    ///  <see cref="MaximumRundownProcessIds"/> ids are supported by the ETW provider
+    ///  filter. Requires <see cref="Rundown"/>.
     /// </summary>
     public IReadOnlyList<int> RundownProcessIds { get; init; } = [];
 

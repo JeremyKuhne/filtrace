@@ -11,6 +11,27 @@ namespace Filtrace.Core.Tests;
 public sealed class EtwChildProcessTests
 {
     [TestMethod]
+    public void EnsureRundownProcessFilteringSupported_FilterUnavailable_ThrowsPlatform()
+    {
+        Action action = () => EtwCollector.EnsureRundownProcessFilteringSupported(
+            processIdCount: 1,
+            filteringSupported: false);
+
+        action.Should().Throw<PlatformNotSupportedException>()
+            .WithMessage("*Windows 8.1*Windows Server 2012 R2*");
+    }
+
+    [TestMethod]
+    public void EnsureRundownProcessFilteringSupported_NoFilterRequested_DoesNotThrow()
+    {
+        Action action = () => EtwCollector.EnsureRundownProcessFilteringSupported(
+            processIdCount: 0,
+            filteringSupported: false);
+
+        action.Should().NotThrow();
+    }
+
+    [TestMethod]
     [DataRow(2_147_484)]
     [DataRow(int.MaxValue)]
     public void Collect_DurationExceedsWaitLimit_RejectsBeforeLaunch(int durationSeconds)

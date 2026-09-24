@@ -146,10 +146,12 @@ public sealed class CollectExecutorTests
             LaunchExecutable = "app.exe",
             OutputPath = "out.etl",
             Rundown = true,
-            RundownProcessIds = Enumerable.Range(1, 257).ToArray(),
+            RundownProcessIds =
+                Enumerable.Range(1, EtwCollectRequest.MaximumRundownProcessIds + 1).ToArray(),
         });
 
-        act.Should().Throw<ArgumentOutOfRangeException>().WithMessage("*At most 256*");
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithMessage($"*At most {EtwCollectRequest.MaximumRundownProcessIds}*");
     }
 
     [TestMethod]

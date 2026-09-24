@@ -40,7 +40,6 @@ public static class EtwCollector
     private const int RundownBufferSizeMB = 512;
     private const int RundownProviderEnableTimeoutMSec = 10_000;
     private const int RundownMaxPolls = 15;
-    private const int MaximumRundownProcessIds = 256;
     private static readonly TimeSpan s_rundownPollInterval = TimeSpan.FromSeconds(2);
 
     /// <summary>
@@ -146,6 +145,10 @@ public static class EtwCollector
                 "ETW capture is Windows-only. Use an EventPipe capture (dotnet-trace) on this OS.");
         }
 
+        EnsureRundownProcessFilteringSupported(
+            rundownProcessIds.Length,
+            TraceEventProviderOptions.FilteringSupported);
+
         if (TraceEventSession.IsElevated() != true)
         {
             throw new UnauthorizedAccessException(
@@ -170,12 +173,12 @@ public static class EtwCollector
                 nameof(request));
         }
 
-        if (request.RundownProcessIds.Count > MaximumRundownProcessIds)
+        if (request.RundownProcessIds.Count > EtwCollectRequest.MaximumRundownProcessIds)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(request.RundownProcessIds),
                 request.RundownProcessIds.Count,
-                $"At most {MaximumRundownProcessIds} rundown process ids may be specified.");
+                $"At most {EtwCollectRequest.MaximumRundownProcessIds} rundown process ids may be specified.");
         }
 
         int[] processIds = new int[request.RundownProcessIds.Count];
@@ -202,6 +205,26 @@ public static class EtwCollector
         }
 
         return processIds;
+    }
+
+    /// <summary>
+    ///  Rejects a requested PID filter when the host ETW version cannot apply it.
+    /// </summary>
+    /// <param name="processIdCount">Number of requested exact process ids.</param>
+    /// <param name="filteringSupported">Whether the host supports ETW provider filters.</param>
+    /// <exception cref="PlatformNotSupportedException">
+    ///  One or more process ids were requested on a host without ETW provider filtering.
+    /// </exception>
+    internal static void EnsureRundownProcessFilteringSupported(
+        int processIdCount,
+        bool filteringSupported)
+    {
+        if (processIdCount > 0 && !filteringSupported)
+        {
+            throw new PlatformNotSupportedException(
+                "PID-scoped CLR rundown requires ETW provider filtering, available on "
+                    + "Windows 8.1 / Windows Server 2012 R2 or later.");
+        }
     }
 
     /// <summary>

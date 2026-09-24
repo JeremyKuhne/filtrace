@@ -1482,8 +1482,8 @@ internal sealed class TraceCommands
     ///  <c>max-size-mb</c>.
     /// </param>
     /// <param name="rundownPid">
-    ///  Exact managed process ids to retain during rundown; omit for machine-wide naming.
-    ///  Requires the rundown option.
+    ///  Up to eight exact managed process ids to retain during rundown; omit for
+    ///  machine-wide naming. Requires the rundown option.
     /// </param>
     /// <param name="cpuMs">
     ///  CPU sample interval in milliseconds for <c>cpu</c>, <c>threadtime</c>, and
@@ -1544,9 +1544,9 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
-        if (rundownPid is { Length: > 0 } && !rundown)
+        if (!TryValidateRundownProcessIds(rundown, rundownPid, out string? rundownPidError))
         {
-            Console.Error.WriteLine("--rundown-pid requires --rundown.");
+            Console.Error.WriteLine(rundownPidError);
             return ExitCodes.UsageError;
         }
 
@@ -1572,6 +1572,52 @@ internal sealed class TraceCommands
         };
 
         return CollectExecutor.Run(request, format, Console.Out, Console.Error);
+    }
+
+    private static bool TryValidateRundownProcessIds(
+        bool rundown,
+        int[]? processIds,
+        out string? error)
+    {
+        if (processIds is not { Length: > 0 })
+        {
+            error = null;
+            return true;
+        }
+
+        if (!rundown)
+        {
+            error = "--rundown-pid requires --rundown.";
+            return false;
+        }
+
+        if (processIds.Length > EtwCollectRequest.MaximumRundownProcessIds)
+        {
+            error =
+                "--rundown-pid accepts at most "
+                    + $"{EtwCollectRequest.MaximumRundownProcessIds} process ids.";
+
+            return false;
+        }
+
+        HashSet<int> seen = [];
+        foreach (int processId in processIds)
+        {
+            if (processId <= 0)
+            {
+                error = "--rundown-pid values must be positive.";
+                return false;
+            }
+
+            if (!seen.Add(processId))
+            {
+                error = $"--rundown-pid {processId} was specified more than once.";
+                return false;
+            }
+        }
+
+        error = null;
+        return true;
     }
 
     // Resolve the collect --profile selector to its provider set.

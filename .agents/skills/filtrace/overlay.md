@@ -33,7 +33,7 @@ naming rundown after the command exits, limits quiescence polling to 30 seconds,
 and then merges it into the ETL; the merge can extend total duration beyond that
 polling bound. Use this only when the server remains alive. Rundown is
 machine-wide by default; when prior evidence identifies the exact servers, pass
-`--rundown-pid <id>[,<id>]` (up to 256 ids) to filter the naming events and
+`--rundown-pid <id>[,<id>]` (up to 8 ids) to filter the naming events and
 retain those ids in capture provenance. It requests 512 MB of ETW buffers,
 permits roughly 641 MiB through TraceEvent's derived maximum-buffer count, and
 can add hundreds of megabytes. It is invalid with `--profile diskio` or
