@@ -49,6 +49,7 @@ public sealed class CollectExecutorTests
 
         request.Profile.Should().Be(CollectProfile.Cpu);
         request.Rundown.Should().BeFalse();
+        request.RundownProcessIds.Should().BeEmpty();
     }
 
     [TestMethod]
@@ -92,6 +93,65 @@ public sealed class CollectExecutorTests
         });
 
         act.Should().Throw<ArgumentException>().WithMessage("*size cap*");
+    }
+
+    [TestMethod]
+    public void Collect_RundownProcessIdsWithoutRundown_ThrowsArgument()
+    {
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+            RundownProcessIds = [42],
+        });
+
+        act.Should().Throw<ArgumentException>().WithMessage("*require CLR rundown*");
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(-1)]
+    public void Collect_NonPositiveRundownProcessId_ThrowsArgument(int processId)
+    {
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+            Rundown = true,
+            RundownProcessIds = [processId],
+        });
+
+        act.Should().Throw<ArgumentOutOfRangeException>().WithMessage("*must be positive*");
+    }
+
+    [TestMethod]
+    public void Collect_DuplicateRundownProcessId_ThrowsArgument()
+    {
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+            Rundown = true,
+            RundownProcessIds = [42, 42],
+        });
+
+        act.Should().Throw<ArgumentException>().WithMessage("*specified more than once*");
+    }
+
+    [TestMethod]
+    public void Collect_TooManyRundownProcessIds_ThrowsArgument()
+    {
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = "out.etl",
+            Rundown = true,
+            RundownProcessIds =
+                Enumerable.Range(1, EtwCollectRequest.MaximumRundownProcessIds + 1).ToArray(),
+        });
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithMessage($"*At most {EtwCollectRequest.MaximumRundownProcessIds}*");
     }
 
     [TestMethod]
@@ -207,6 +267,17 @@ public sealed class CollectExecutorTests
     [TestMethod]
     public void Collect_WhenElevated_RundownMergesAndCleansTemporaryFiles()
     {
+        AssertRundownCapture([]);
+    }
+
+    [TestMethod]
+    public void Collect_WhenElevated_PidScopedRundownFiltersEvents()
+    {
+        AssertRundownCapture([Environment.ProcessId]);
+    }
+
+    private static void AssertRundownCapture(IReadOnlyList<int> processIds)
+    {
         if (!EtwCollector.IsSupported || !EtwCollector.IsElevated)
         {
             Assert.Inconclusive("ETW capture needs Windows + Administrator; not available here.");
@@ -222,6 +293,7 @@ public sealed class CollectExecutorTests
             OutputPath = outputPath,
             Profile = CollectProfile.Startup,
             Rundown = true,
+            RundownProcessIds = processIds,
             DurationSeconds = 60,
         };
 
@@ -233,9 +305,11 @@ public sealed class CollectExecutorTests
             result.Rundown!.FileSizeBytes.Should().BeGreaterThan(0);
             result.Rundown.PollCount.Should().BeInRange(2, 15);
             result.Rundown.DurationMilliseconds.Should().BeGreaterThan(0);
+            result.Rundown.ProcessIds.Should().Equal(processIds);
             File.Exists(outputPath).Should().BeTrue();
 
             int rundownEvents = 0;
+            HashSet<int> rundownEventProcessIds = [];
             using (ETWTraceEventSource source = new(outputPath))
             {
                 source.Dynamic.All += data =>
@@ -243,6 +317,7 @@ public sealed class CollectExecutorTests
                     if (data.ProviderGuid == ClrRundownTraceEventParser.ProviderGuid)
                     {
                         rundownEvents++;
+                        rundownEventProcessIds.Add(data.ProcessID);
                     }
                 };
 
@@ -250,6 +325,11 @@ public sealed class CollectExecutorTests
             }
 
             rundownEvents.Should().BeGreaterThan(0);
+            if (processIds.Count > 0)
+            {
+                rundownEventProcessIds.Should().Equal(processIds);
+            }
+
             Directory.GetFiles(directory, $"{fileName}.rundown-*.etl").Should().BeEmpty();
             Directory.GetFiles(directory, $"{fileName}.merged-*.etl").Should().BeEmpty();
         }
@@ -554,7 +634,10 @@ public sealed class CollectExecutorTests
             FileSizeBytes: 123_456,
             EventsLost: 7,
             PollCount: 2,
-            DurationMilliseconds: 4_321);
+            DurationMilliseconds: 4_321)
+        {
+            ProcessIds = [42, 84],
+        };
 
         StringWriter output = new();
         StringWriter error = new();
@@ -573,6 +656,9 @@ public sealed class CollectExecutorTests
 
         root.GetProperty("result").GetProperty("rundown").GetProperty("fileSizeBytes")
             .GetInt64().Should().Be(123_456);
+
+        root.GetProperty("result").GetProperty("rundown").GetProperty("processIds")
+            .EnumerateArray().Select(static value => value.GetInt32()).Should().Equal(42, 84);
 
         error.ToString().Should().BeEmpty();
     }

@@ -15,4 +15,10 @@ public sealed record RundownCaptureInfo(
     long FileSizeBytes,
     int EventsLost,
     int PollCount,
-    double DurationMilliseconds);
+    double DurationMilliseconds)
+{
+    /// <summary>
+    ///  The exact process ids retained by the CLR provider, or empty for machine-wide rundown.
+    /// </summary>
+    public IReadOnlyList<int> ProcessIds { get; init; } = [];
+}

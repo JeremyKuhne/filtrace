@@ -128,6 +128,11 @@ internal static class CollectExecutor
                 output.WriteLine(
                     $"  CLR rundown {rundown.FileSizeBytes:N0} bytes, {rundown.PollCount} poll(s), "
                         + $"{rundown.DurationMilliseconds:N0} ms, {rundown.EventsLost} event(s) lost");
+
+                if (rundown.ProcessIds.Count > 0)
+                {
+                    output.WriteLine($"    process ids {string.Join(", ", rundown.ProcessIds)}");
+                }
             }
 
             WriteInvocationSummary(result, output);

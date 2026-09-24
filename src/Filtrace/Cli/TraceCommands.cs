@@ -1475,10 +1475,15 @@ internal sealed class TraceCommands
     ///  directory.
     /// </param>
     /// <param name="rundown">
-    ///  Append a bounded machine-wide CLR naming rundown for persistent managed servers
-    ///  that were already running when capture began. Can add hundreds of megabytes and
-    ///  polls for quiescence for up to 30 seconds before an unbounded ETL merge; not valid
-    ///  with <c>diskio</c>.
+    ///  Append a bounded CLR naming rundown for persistent managed servers that were
+    ///  already running when capture began. Machine-wide unless rundown pids are given.
+    ///  Can add hundreds of megabytes and polls for quiescence for up to 30 seconds
+    ///  before an unbounded ETL merge; not valid with <c>diskio</c> or
+    ///  <c>max-size-mb</c>.
+    /// </param>
+    /// <param name="rundownPid">
+    ///  Up to eight exact managed process ids to retain during rundown; omit for
+    ///  machine-wide naming. Requires the rundown option.
     /// </param>
     /// <param name="cpuMs">
     ///  CPU sample interval in milliseconds for <c>cpu</c>, <c>threadtime</c>, and
@@ -1500,9 +1505,11 @@ internal sealed class TraceCommands
     /// <remarks>
     ///  Reproduces a PerfView-style capture with TraceEvent's session API, so no external
     ///  recorder is needed. A launch capture needs no CLR rundown; managed frames resolve
-    ///  from the live JIT events. The written .etl is machine-wide, so CPU/thread-time
-    ///  commands scope to the launched process. The diskio profile instead records the
-    ///  minimal physical disk and file-name keywords and omits CPU sampling and CLR events.
+    ///  from the live JIT events. Use <c>--rundown-pid</c> when the exact persistent
+    ///  processes are known so their naming pass is not machine-wide. The written .etl is
+    ///  machine-wide, so CPU/thread-time commands scope to the launched process. The diskio
+    ///  profile instead records the minimal physical disk and file-name keywords and omits
+    ///  CPU sampling and CLR events.
     /// </remarks>
     [Command("collect")]
     public int Collect(
@@ -1512,6 +1519,7 @@ internal sealed class TraceCommands
         string launchArgs = "",
         string workingDirectory = "",
         bool rundown = false,
+        int[]? rundownPid = null,
         [Range(CpuSampleBounds.MinimumAcceptedMSec, CpuSampleBounds.MaximumAcceptedMSec)] double cpuMs = 1.0,
         [Range(0, int.MaxValue)] int duration = 0,
         [Range(1, 1000)] int iterations = 1,
@@ -1536,6 +1544,12 @@ internal sealed class TraceCommands
             return ExitCodes.UsageError;
         }
 
+        if (!TryValidateRundownProcessIds(rundown, rundownPid, out string? rundownPidError))
+        {
+            Console.Error.WriteLine(rundownPidError);
+            return ExitCodes.UsageError;
+        }
+
         string? requestedWorkingDirectory = workingDirectory;
         if (string.IsNullOrWhiteSpace(requestedWorkingDirectory))
         {
@@ -1548,6 +1562,7 @@ internal sealed class TraceCommands
             LaunchArguments = launchArgs,
             WorkingDirectory = requestedWorkingDirectory,
             Rundown = rundown,
+            RundownProcessIds = rundownPid ?? [],
             Profile = resolved,
             CpuSampleMSec = cpuMs,
             DurationSeconds = duration > 0 ? duration : null,
@@ -1557,6 +1572,52 @@ internal sealed class TraceCommands
         };
 
         return CollectExecutor.Run(request, format, Console.Out, Console.Error);
+    }
+
+    private static bool TryValidateRundownProcessIds(
+        bool rundown,
+        int[]? processIds,
+        out string? error)
+    {
+        if (processIds is not { Length: > 0 })
+        {
+            error = null;
+            return true;
+        }
+
+        if (!rundown)
+        {
+            error = "--rundown-pid requires --rundown.";
+            return false;
+        }
+
+        if (processIds.Length > EtwCollectRequest.MaximumRundownProcessIds)
+        {
+            error =
+                "--rundown-pid accepts at most "
+                    + $"{EtwCollectRequest.MaximumRundownProcessIds} process ids.";
+
+            return false;
+        }
+
+        HashSet<int> seen = [];
+        foreach (int processId in processIds)
+        {
+            if (processId <= 0)
+            {
+                error = "--rundown-pid values must be positive.";
+                return false;
+            }
+
+            if (!seen.Add(processId))
+            {
+                error = $"--rundown-pid {processId} was specified more than once.";
+                return false;
+            }
+        }
+
+        error = null;
+        return true;
     }
 
     // Resolve the collect --profile selector to its provider set.

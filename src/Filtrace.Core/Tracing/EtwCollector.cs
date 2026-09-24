@@ -136,6 +136,7 @@ public static class EtwCollector
                 nameof(request));
         }
 
+        int[] rundownProcessIds = ValidateRundownProcessIds(request);
         string workingDirectory = ResolveWorkingDirectory(request.WorkingDirectory);
 
         if (!OperatingSystem.IsWindows())
@@ -144,13 +145,86 @@ public static class EtwCollector
                 "ETW capture is Windows-only. Use an EventPipe capture (dotnet-trace) on this OS.");
         }
 
+        EnsureRundownProcessFilteringSupported(
+            rundownProcessIds.Length,
+            TraceEventProviderOptions.FilteringSupported);
+
         if (TraceEventSession.IsElevated() != true)
         {
             throw new UnauthorizedAccessException(
                 "ETW capture needs Administrator. Re-run elevated.");
         }
 
-        return CollectCore(request, workingDirectory, standardOutput, standardError);
+        return CollectCore(request, workingDirectory, rundownProcessIds, standardOutput, standardError);
+    }
+
+    private static int[] ValidateRundownProcessIds(EtwCollectRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request.RundownProcessIds);
+        if (request.RundownProcessIds.Count == 0)
+        {
+            return [];
+        }
+
+        if (!request.Rundown)
+        {
+            throw new ArgumentException(
+                "Rundown process ids require CLR rundown to be enabled.",
+                nameof(request));
+        }
+
+        if (request.RundownProcessIds.Count > EtwCollectRequest.MaximumRundownProcessIds)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(request.RundownProcessIds),
+                request.RundownProcessIds.Count,
+                $"At most {EtwCollectRequest.MaximumRundownProcessIds} rundown process ids may be specified.");
+        }
+
+        int[] processIds = new int[request.RundownProcessIds.Count];
+        HashSet<int> seen = [];
+        for (int index = 0; index < processIds.Length; index++)
+        {
+            int processId = request.RundownProcessIds[index];
+            if (processId <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(request.RundownProcessIds),
+                    processId,
+                    "Rundown process ids must be positive.");
+            }
+
+            if (!seen.Add(processId))
+            {
+                throw new ArgumentException(
+                    $"Rundown process id {processId} was specified more than once.",
+                    nameof(request));
+            }
+
+            processIds[index] = processId;
+        }
+
+        return processIds;
+    }
+
+    /// <summary>
+    ///  Rejects a requested PID filter when the host ETW version cannot apply it.
+    /// </summary>
+    /// <param name="processIdCount">Number of requested exact process ids.</param>
+    /// <param name="filteringSupported">Whether the host supports ETW provider filters.</param>
+    /// <exception cref="PlatformNotSupportedException">
+    ///  One or more process ids were requested on a host without ETW provider filtering.
+    /// </exception>
+    internal static void EnsureRundownProcessFilteringSupported(
+        int processIdCount,
+        bool filteringSupported)
+    {
+        if (processIdCount > 0 && !filteringSupported)
+        {
+            throw new PlatformNotSupportedException(
+                "PID-scoped CLR rundown requires ETW provider filtering, available on "
+                    + "Windows 8.1 / Windows Server 2012 R2 or later.");
+        }
     }
 
     /// <summary>
@@ -180,6 +254,7 @@ public static class EtwCollector
     private static EtwCollectResult CollectCore(
         EtwCollectRequest request,
         string workingDirectory,
+        IReadOnlyList<int> rundownProcessIds,
         TextWriter? standardOutput,
         TextWriter? standardError)
     {
@@ -256,7 +331,7 @@ public static class EtwCollector
 
         if (request.Rundown)
         {
-            rundown = CaptureRundownAndMerge(outputPath, sessionName);
+            rundown = CaptureRundownAndMerge(outputPath, sessionName, rundownProcessIds);
         }
 
         long fileSize = File.Exists(outputPath) ? new FileInfo(outputPath).Length : 0;
@@ -284,7 +359,10 @@ public static class EtwCollector
     }
 
     [SupportedOSPlatform("windows")]
-    private static RundownCaptureInfo CaptureRundownAndMerge(string outputPath, string sessionName)
+    private static RundownCaptureInfo CaptureRundownAndMerge(
+        string outputPath,
+        string sessionName,
+        IReadOnlyList<int> processIds)
     {
         string token = Guid.NewGuid().ToString("N");
         string rundownPath = $"{outputPath}.rundown-{token}.etl";
@@ -306,10 +384,26 @@ public static class EtwCollector
                 EnableProviderTimeoutMSec = RundownProviderEnableTimeoutMSec,
             })
             {
-                rundown.EnableProvider(
-                    ClrRundownTraceEventParser.ProviderGuid,
-                    TraceEventLevel.Verbose,
-                    (ulong)CaptureProviders.NamingRundownClrKeywords);
+                if (processIds.Count == 0)
+                {
+                    rundown.EnableProvider(
+                        ClrRundownTraceEventParser.ProviderGuid,
+                        TraceEventLevel.Verbose,
+                        (ulong)CaptureProviders.NamingRundownClrKeywords);
+                }
+                else
+                {
+                    TraceEventProviderOptions options = new()
+                    {
+                        ProcessIDFilter = processIds.ToArray(),
+                    };
+
+                    rundown.EnableProvider(
+                        ClrRundownTraceEventParser.ProviderGuid,
+                        TraceEventLevel.Verbose,
+                        (ulong)CaptureProviders.NamingRundownClrKeywords,
+                        options);
+                }
 
                 while (polls < RundownMaxPolls)
                 {
@@ -349,7 +443,10 @@ public static class EtwCollector
                 rundownSize,
                 eventsLost,
                 polls,
-                stopwatch.Elapsed.TotalMilliseconds);
+                stopwatch.Elapsed.TotalMilliseconds)
+            {
+                ProcessIds = processIds,
+            };
         }
         finally
         {

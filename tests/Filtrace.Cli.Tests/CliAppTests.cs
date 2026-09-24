@@ -412,6 +412,38 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_CollectRundownPidWithoutRundown_ReturnsUsageError()
+    {
+        (int exit, _, string error) = Run(
+            "collect",
+            "--launch", "app.exe",
+            "--output", "out.etl",
+            "--rundown-pid", "42");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain("--rundown-pid requires --rundown");
+    }
+
+    [TestMethod]
+    [DataRow("0", "values must be positive")]
+    [DataRow("42,42", "was specified more than once")]
+    [DataRow("1,2,3,4,5,6,7,8,9", "accepts at most 8")]
+    public void Run_CollectInvalidRundownPid_ReturnsUsageError(
+        string processIds,
+        string expectedError)
+    {
+        (int exit, _, string error) = Run(
+            "collect",
+            "--launch", "app.exe",
+            "--output", "out.etl",
+            "--rundown",
+            "--rundown-pid", processIds);
+
+        exit.Should().Be(ExitCodes.UsageError);
+        error.Should().Contain(expectedError);
+    }
+
+    [TestMethod]
     public void Run_ProcessAndAllProcesses_ReturnsUsageError()
     {
         // The two scope options are mutually exclusive; the conflict is caught before

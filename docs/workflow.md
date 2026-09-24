@@ -61,11 +61,14 @@ Use `--rundown` only when important sampled work runs in persistent managed
 servers that predate capture and remain alive after the launched command exits.
 Filtrace records a separate minimal CLR naming rundown, limits quiescence polling
 to 30 seconds, and then merges it into the capture. The merge can extend total
-duration beyond that polling bound. This machine-wide opt-in requests 512 MB of
-ETW buffers; TraceEvent's derived maximum-buffer count permits roughly 641 MiB,
-and the resulting rundown can add hundreds of megabytes. Require zero lost
-events before trusting the recovered method names. Rundown is not valid with
-`--profile diskio` or `--max-size-mb`.
+duration beyond that polling bound. The pass is machine-wide by default; when prior
+evidence identifies the exact persistent servers, pass
+`--rundown-pid <id>[,<id>]` (up to 8 ids) to filter their CLR events and retain
+those ids in capture provenance. Rundown requests 512 MB of ETW buffers;
+TraceEvent's derived maximum-buffer count permits roughly 641 MiB, and the
+resulting rundown can add hundreds of megabytes. Require zero lost events before
+trusting the recovered method names. It is not valid with `--profile diskio` or
+`--max-size-mb`.
 
 At the default 1 ms interval a 30-100 ms command yields only tens of samples, so lower
 `--cpu-ms`. Windows honors sub-millisecond sampling - measured down to **0.1221 ms** on
