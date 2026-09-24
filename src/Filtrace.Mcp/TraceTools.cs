@@ -50,9 +50,27 @@ public sealed class TraceTools
         string symbols = "",
         string process = "",
         int[]? pid = null,
+        bool children = true) =>
+            InfoAsync(store, path, symbols, process, pid, children).GetAwaiter().GetResult();
+
+    /// <inheritdoc cref="InfoToolAsync"/>
+    public static Task<AnalysisResult<TraceInfoView>> InfoAsync(
+        TraceStore store,
+        string path,
+        string symbols = "",
+        string process = "",
+        int[]? pid = null,
         bool children = true,
-        bool allProcesses = false) =>
-            InfoAsync(store, path, symbols, process, pid, children, allProcesses).GetAwaiter().GetResult();
+        CancellationToken cancellationToken = default) =>
+            InfoToolAsync(
+                store,
+                path,
+                symbols,
+                process,
+                pid,
+                children,
+                allProcesses: false,
+                cancellationToken);
 
     /// <summary>
     ///  Loads a trace and returns its format, total weight, sample count, frame-name
@@ -76,7 +94,7 @@ public sealed class TraceTools
         "Load a trace first. Returns format, weight, sample/thread counts, frame/source/PDB quality, analysis "
             + "availability, event counts, and etlxCacheState. captureStatus is enabled, disabled, or unknown; zero "
             + "is reported only when enablement is known.")]
-    public static async Task<AnalysisResult<TraceInfoView>> InfoAsync(
+    public static async Task<AnalysisResult<TraceInfoView>> InfoToolAsync(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
         [Description("Optional local build-output directory containing PDBs.")]
@@ -100,9 +118,14 @@ public sealed class TraceTools
 
         TraceInfo info = load.Trace.Info;
         TraceInfoView view = TraceInfoView.FromTraceInfo(info, load.EtlxCacheState);
+        view = TraceInfoView.LimitThreads(view, out string? budgetWarning);
+        IReadOnlyList<string> warnings = budgetWarning is null
+            ? info.Warnings
+            : [.. info.Warnings, budgetWarning];
+
         return new AnalysisResult<TraceInfoView>(
             view,
-            info.Warnings,
+            warnings,
             SteeringHints.ForTraceInfo(info),
             new AnalysisContext("info"));
     }

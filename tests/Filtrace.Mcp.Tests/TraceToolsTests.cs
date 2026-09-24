@@ -121,13 +121,40 @@ public sealed class TraceToolsTests
     {
         TraceStore store = new();
 
-        AnalysisResult<TraceInfoView> envelope = TraceTools.Info(
+        AnalysisResult<TraceInfoView> envelope = TraceTools.InfoToolAsync(
             store,
             FixturePath(Etw),
-            allProcesses: true);
+            allProcesses: true).GetAwaiter().GetResult();
 
         envelope.Warnings.Should().NotContain(
             warning => warning.Contains("Scoped to", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Info_CompatibilitySignaturesRemainAvailable()
+    {
+        typeof(TraceTools).GetMethod(
+            nameof(TraceTools.Info),
+            [
+                typeof(TraceStore),
+                typeof(string),
+                typeof(string),
+                typeof(string),
+                typeof(int[]),
+                typeof(bool)
+            ]).Should().NotBeNull();
+
+        typeof(TraceTools).GetMethod(
+            nameof(TraceTools.InfoAsync),
+            [
+                typeof(TraceStore),
+                typeof(string),
+                typeof(string),
+                typeof(string),
+                typeof(int[]),
+                typeof(bool),
+                typeof(CancellationToken)
+            ]).Should().NotBeNull();
     }
 
     [TestMethod]
