@@ -183,6 +183,7 @@ public sealed class CaptureProvidersTests
     {
         CaptureProviders.NamingRundownClrKeywords.Should().Be(
             ClrRundownTraceEventParser.Keywords.Jit
+                | ClrRundownTraceEventParser.Keywords.NGen
                 | ClrRundownTraceEventParser.Keywords.JittedMethodILToNativeMap
                 | ClrRundownTraceEventParser.Keywords.Loader
                 | ClrRundownTraceEventParser.Keywords.StartEnumeration);

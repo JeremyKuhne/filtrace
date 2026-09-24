@@ -127,22 +127,42 @@ public sealed record TraceInfoView(
     {
         ArgumentNullException.ThrowIfNull(view);
 
+        List<ThreadSampleInfo> boundedThreads = new(view.Threads.Count);
+        bool labelsTruncated = false;
+        foreach (ThreadSampleInfo thread in view.Threads)
+        {
+            string label = CaptureManifestOutput.BoundFrame(thread.Thread);
+            labelsTruncated |= !string.Equals(label, thread.Thread, StringComparison.Ordinal);
+            boundedThreads.Add(
+                ReferenceEquals(label, thread.Thread)
+                    ? thread
+                    : new ThreadSampleInfo(label, thread.SampleCount));
+        }
+
         List<ThreadSampleInfo> kept = OutputBudget.TakeWithinBudget(
-            view.Threads,
+            boundedThreads,
             static thread => OutputBudget.EstimateTokens(
                 OutputJson.SerializeThreadSampleInfo(thread)),
             OutputBudget.DefaultRowBudgetTokens,
             out bool truncated,
             takeAtLeastOne: false);
 
-        if (!truncated)
+        if (!truncated && !labelsTruncated)
         {
             warning = null;
             return view;
         }
 
-        warning =
-            $"Showing {kept.Count} of {view.Threads.Count} threads; more would exceed the response budget.";
+        warning = truncated
+            ? $"Showing {kept.Count} of {view.Threads.Count} threads; more would exceed the response budget."
+            : "";
+
+        if (labelsTruncated)
+        {
+            warning +=
+                $"{(warning.Length == 0 ? "" : " ")}One or more thread labels were truncated to "
+                    + $"{CaptureManifestOutput.MaxFrameLength} characters.";
+        }
 
         return view with { Threads = kept };
     }

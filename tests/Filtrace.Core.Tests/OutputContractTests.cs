@@ -785,7 +785,7 @@ public sealed class OutputContractTests
     }
 
     [TestMethod]
-    public void LimitThreads_OversizedEscapedLabel_DropsTheThread()
+    public void LimitThreads_OversizedEscapedLabel_BoundsTheThread()
     {
         ThreadSampleInfo[] threads = [new(new string('"', 75_000), 1)];
         TraceInfoView view = new(
@@ -802,9 +802,9 @@ public sealed class OutputContractTests
             bounded,
             warnings: warning is null ? [] : [warning]));
 
-        bounded.Threads.Should().BeEmpty();
-        warning.Should().Contain("Showing 0 of 1 threads")
-            .And.Contain("would exceed");
+        bounded.Threads.Should().ContainSingle();
+        bounded.Threads[0].Thread.Length.Should().Be(CaptureManifestOutput.MaxFrameLength);
+        warning.Should().Contain("thread labels were truncated");
 
         OutputBudget.EstimateTokens(json).Should().BeLessThanOrEqualTo(
             OutputBudget.DefaultCeilingTokens);

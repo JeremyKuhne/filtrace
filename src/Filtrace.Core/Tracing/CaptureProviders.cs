@@ -20,10 +20,12 @@ internal sealed record CaptureProviders(
     TraceEventLevel ClrLevel)
 {
     /// <summary>
-    ///  The minimal CLR rundown set that names already-JITted managed methods and modules.
+    ///  The minimal CLR rundown set that names existing JITted, NGen, and ReadyToRun
+    ///  managed methods and modules.
     /// </summary>
     internal const ClrRundownTraceEventParser.Keywords NamingRundownClrKeywords =
         ClrRundownTraceEventParser.Keywords.Jit
+            | ClrRundownTraceEventParser.Keywords.NGen
             | ClrRundownTraceEventParser.Keywords.JittedMethodILToNativeMap
             | ClrRundownTraceEventParser.Keywords.Loader
             | ClrRundownTraceEventParser.Keywords.StartEnumeration;
