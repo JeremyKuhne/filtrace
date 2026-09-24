@@ -268,6 +268,9 @@ internal abstract partial class TraceLogReader : ITraceReader
         AnalysisEventCounter analysisEvents = new();
         Dictionary<int, string>? locationCache = resolveSourceLocations ? [] : null;
         Dictionary<FrameIdentity, FrameNameCacheEntry> frameNameCache = [];
+        FrameNameCacheEntry?[] codeAddressFrames = new FrameNameCacheEntry?[
+            Math.Min(traceLog.CodeAddresses.Count, MaximumCachedCodeAddresses)];
+
         Dictionary<(string Module, string Method), string> canonicalFrameNames = [];
         Dictionary<int, CachedSampleStack?>? sampleStackCache = null;
         HashSet<int>? stackCacheProbe = [];
@@ -361,74 +364,107 @@ internal abstract partial class TraceLogReader : ITraceReader
                     frameIndex != CallStackIndex.Invalid;
                     frameIndex = traceLog.CallStacks.Caller(frameIndex))
                 {
-                    TraceCodeAddress address = traceLog.CodeAddresses[traceLog.CallStacks.CodeAddressIndex(frameIndex)];
-                    TraceMethod? traceMethod = address.Method;
-                    TraceModuleFile? addressModule = address.ModuleFile;
-                    string method = traceMethod?.FullMethodName ?? string.Empty;
-                    string module = addressModule?.Name ?? string.Empty;
-                    int methodKey = (int)(traceMethod?.MethodIndex ?? MethodIndex.Invalid);
-                    FrameIdentity frameIdentity = new(
-                        (int)(addressModule?.ModuleFileIndex ?? ModuleFileIndex.Invalid),
-                        methodKey);
+                    CodeAddressIndex codeAddressIndex = traceLog.CallStacks.CodeAddressIndex(frameIndex);
+                    int codeAddressKey = (int)codeAddressIndex;
+                    FrameNameCacheEntry? entry = (uint)codeAddressKey < (uint)codeAddressFrames.Length
+                        ? codeAddressFrames[codeAddressKey]
+                        : null;
+
+                    TraceCodeAddress? address = null;
+                    TraceMethod? traceMethod = null;
+                    TraceModuleFile? methodModule;
+                    string method;
+                    string module;
+                    int methodKey;
+                    string name;
+                    bool retainFrameIdentity;
+                    if (entry is not null)
+                    {
+                        methodModule = entry.Module;
+                        method = entry.MethodName;
+                        module = entry.ModuleName;
+                        methodKey = entry.MethodKey;
+                        name = entry.Name;
+                        retainFrameIdentity = true;
+                    }
+                    else
+                    {
+                        address = traceLog.CodeAddresses[codeAddressIndex];
+                        traceMethod = address.Method;
+                        TraceModuleFile? addressModule = address.ModuleFile;
+                        method = traceMethod?.FullMethodName ?? string.Empty;
+                        module = addressModule?.Name ?? string.Empty;
+                        methodKey = (int)(traceMethod?.MethodIndex ?? MethodIndex.Invalid);
+                        FrameIdentity frameIdentity = new(
+                            (int)(addressModule?.ModuleFileIndex ?? ModuleFileIndex.Invalid),
+                            methodKey);
+
+                        ref FrameNameCacheEntry? entrySlot = ref CollectionsMarshal.GetValueRefOrAddDefault(
+                            frameNameCache,
+                            frameIdentity,
+                            out bool exists);
+
+                        retainFrameIdentity = exists || CanCacheFrameIdentity(frameNameCache.Count - 1);
+                        methodModule = traceMethod?.MethodModuleFile ?? addressModule;
+                        if (retainFrameIdentity)
+                        {
+                            if (!exists)
+                            {
+                                name = GetFrameName(canonicalFrameNames, module, method, retain: true);
+                                entry = new FrameNameCacheEntry(
+                                    name,
+                                    methodKey,
+                                    methodModule,
+                                    methodModule?.Name ?? module,
+                                    method);
+
+                                entrySlot = entry;
+                                if (traceMethod is not null)
+                                {
+                                    sourceResolution.RegisterManagedFrameIdentity(
+                                        methodKey,
+                                        methodModule,
+                                        methodModule?.Name ?? module,
+                                        method);
+                                }
+                            }
+                            else
+                            {
+                                entry = entrySlot!;
+                                name = entry.Name;
+                            }
+
+                            if ((uint)codeAddressKey < (uint)codeAddressFrames.Length)
+                            {
+                                codeAddressFrames[codeAddressKey] = entry;
+                            }
+                        }
+                        else
+                        {
+                            frameNameCache.Remove(frameIdentity);
+                            name = GetFrameName(canonicalFrameNames, module, method, retain: false);
+                        }
+                    }
 
                     if (!string.IsNullOrEmpty(method))
                     {
                         resolvedStackFrames++;
                     }
 
-                    ref FrameNameCacheEntry entry = ref CollectionsMarshal.GetValueRefOrAddDefault(
-                        frameNameCache,
-                        frameIdentity,
-                        out bool exists);
-
-                    bool retainFrameIdentity = exists || CanCacheFrameIdentity(frameNameCache.Count - 1);
-                    TraceModuleFile? methodModule = traceMethod?.MethodModuleFile ?? addressModule;
-                    string name;
-                    if (retainFrameIdentity)
-                    {
-                        if (!exists)
-                        {
-                            name = GetFrameName(canonicalFrameNames, module, method, retain: true);
-                            entry = new FrameNameCacheEntry(
-                                name,
-                                methodKey,
-                                methodModule,
-                                methodModule?.Name ?? module,
-                                method);
-
-                            if (traceMethod is not null)
-                            {
-                                sourceResolution.RegisterManagedFrameIdentity(
-                                    methodKey,
-                                    methodModule,
-                                    methodModule?.Name ?? module,
-                                    method);
-                            }
-                        }
-                        else
-                        {
-                            name = entry.Name;
-                        }
-                    }
-                    else
-                    {
-                        frameNameCache.Remove(frameIdentity);
-                        name = GetFrameName(canonicalFrameNames, module, method, retain: false);
-                    }
-
                     leafToRoot.Add(name);
                     string location = string.Empty;
                     if (locationCache is not null)
                     {
+                        address ??= traceLog.CodeAddresses[codeAddressIndex];
                         location = ResolveLocation(symbolReader, address, locationCache);
                         leafToRootLocations!.Add(location);
                     }
 
-                    if (traceMethod is not null)
+                    if (methodKey != (int)MethodIndex.Invalid)
                     {
                         if (retainFrameIdentity)
                         {
-                            entry.Observe(
+                            entry!.Observe(
                                 sampledFrames: 1,
                                 mappedFrames: location.Length > 0 ? 1 : 0);
                         }
