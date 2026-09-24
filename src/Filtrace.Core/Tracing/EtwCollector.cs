@@ -43,7 +43,7 @@ public static class EtwCollector
     // TraceEvent converts this request to ETW minimum buffers and permits the pool to
     // grow to roughly 641 MiB through its derived maximum-buffer count.
     private const int RundownBufferSizeMB = 512;
-    private const int RundownProviderEnableTimeoutMSec = 10_000;
+    private const int RundownProviderEnableTimeoutMSec = 30_000;
     private const int RundownMaxPolls = 15;
     private static readonly TimeSpan s_rundownPollInterval = TimeSpan.FromSeconds(2);
 
@@ -393,7 +393,8 @@ public static class EtwCollector
             {
                 StopOnDispose = true,
                 BufferSizeMB = RundownBufferSizeMB,
-                // Keep provider activation synchronous before file-size stability polling.
+                // NGen/ReadyToRun enumeration can exceed TraceEvent's 10-second default.
+                // Keep activation synchronous and bounded before stability polling.
                 EnableProviderTimeoutMSec = RundownProviderEnableTimeoutMSec,
             })
             {

@@ -29,14 +29,14 @@ The capture result records the resolved absolute directory.
 
 When a launched command delegates sampled work to an already-running managed
 server, add `--rundown`. The collector appends a separately buffered minimal CLR
-naming rundown after the command exits, limits quiescence polling to 30 seconds,
-and then merges it into the ETL; the merge can extend total duration beyond that
-polling bound. Use this only when the server remains alive. Rundown is
+naming rundown after the command exits. Provider activation can take up to 30
+seconds, followed by up to 30 seconds of quiescence polling; the subsequent ETL
+merge has no timeout. Use this only when the server remains alive. Rundown is
 machine-wide by default; when prior evidence identifies the exact servers, pass
-`--rundown-pid <id>[,<id>]` (up to 8 ids) to filter the naming events and
-retain those ids in capture provenance. It requests 512 MB of ETW buffers,
-permits roughly 641 MiB through TraceEvent's derived maximum-buffer count, and
-can add hundreds of megabytes. It is invalid with `--profile diskio` or
-`--max-size-mb`. Require zero lost events before trusting the recovered names.
+`--rundown-pid <id>[,<id>]` (up to 8 ids) to filter the naming events and retain
+those ids in capture provenance. It requests 512 MB of ETW buffers, permits
+roughly 641 MiB through TraceEvent's derived maximum-buffer count, and can add
+hundreds of megabytes. It is invalid with `--profile diskio` or `--max-size-mb`.
+Require zero lost events before trusting the recovered names.
 A targeted process must be running before capture and remain the same process
 through rundown; exit or PID reuse fails explicitly.
