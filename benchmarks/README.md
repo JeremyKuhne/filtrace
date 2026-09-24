@@ -76,10 +76,8 @@ dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- `
   --argument json
 ```
 
-Custom telemetry accepts up to 64 exact tokens of at most 8,192 characters each
-and at most 12,000 characters in aggregate. The aggregate bound leaves headroom
-for platform command-line encoding and bounds repetition in a 100-launch report.
-The first token must be a canonical read-only analysis operation, its scenario is
+Custom telemetry accepts up to 64 exact tokens of at most 8,192 characters each.
+Its first token must be a canonical read-only analysis operation, its scenario is
 a caller-selected record identifier, and one token must exactly match `--trace`.
 That trace token is normalized to its absolute path in the retained launch record.
 Custom mode performs no cache preparation, so prepare or remove ETLX state before
