@@ -66,9 +66,10 @@ evidence identifies the exact persistent servers, pass
 `--rundown-pid <id>[,<id>]` (up to 8 ids) to filter their CLR events and retain
 those ids in capture provenance. Rundown requests 512 MB of ETW buffers;
 TraceEvent's derived maximum-buffer count permits roughly 641 MiB, and the
-resulting rundown can add hundreds of megabytes. Require zero lost events before
-trusting the recovered method names. It is not valid with `--profile diskio` or
-`--max-size-mb`.
+resulting rundown can add hundreds of megabytes. Provider activation can take up
+to 30 seconds, followed by up to 30 seconds of quiescence polling; the subsequent
+ETL merge has no timeout. Require zero lost events before trusting the recovered
+method names. It is not valid with `--profile diskio` or `--max-size-mb`.
 A targeted process must be running before capture and remain the same process
 through rundown; exit or PID reuse fails explicitly.
 

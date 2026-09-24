@@ -1477,9 +1477,9 @@ internal sealed class TraceCommands
     /// <param name="rundown">
     ///  Append a bounded CLR naming rundown for persistent managed servers that were
     ///  already running when capture began. Machine-wide unless rundown pids are given.
-    ///  Can add hundreds of megabytes and polls for quiescence for up to 30 seconds
-    ///  before an unbounded ETL merge; not valid with <c>diskio</c> or
-    ///  <c>max-size-mb</c>.
+    ///  Can add hundreds of megabytes; provider activation and quiescence polling can
+    ///  each take up to 30 seconds before an unbounded ETL merge. Not valid with
+    ///  <c>diskio</c> or <c>max-size-mb</c>.
     /// </param>
     /// <param name="rundownPid">
     ///  Up to eight exact managed process ids to retain during rundown; omit for

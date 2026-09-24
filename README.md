@@ -251,10 +251,11 @@ opt-in pass is machine-wide by default; pass up to 8 comma-separated exact ids
 to `--rundown-pid` to filter CLR naming events when the target servers are already
 known. The capture result records that filter. Rundown requests 512 MB of ETW
 buffers, and TraceEvent's derived maximum-buffer count permits the pool to grow
-to roughly 641 MiB. It limits quiescence polling to 30 seconds and can add
-hundreds of megabytes; the subsequent ETL merge can extend total duration beyond
-that polling bound. It is not valid with `--profile diskio` or `--max-size-mb`;
-inspect the capture and `info` lost-event warnings before trusting resolved names.
+to roughly 641 MiB. Provider activation can take up to 30 seconds, followed by up
+to 30 seconds of quiescence polling; the subsequent ETL merge has no timeout.
+Rundown can add hundreds of megabytes. It is not valid with `--profile diskio` or
+`--max-size-mb`; inspect the capture and `info` lost-event warnings before
+trusting resolved names.
 A targeted process must be running before capture and remain the same process
 through rundown; exit or PID reuse fails explicitly.
 

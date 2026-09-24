@@ -785,7 +785,7 @@ public sealed class OutputContractTests
     }
 
     [TestMethod]
-    public void LimitThreads_OversizedEscapedLabel_DropsTheThread()
+    public void LimitThreads_OversizedEscapedLabel_BoundsTheThread()
     {
         ThreadSampleInfo[] threads = [new(new string('"', 75_000), 1)];
         TraceInfoView view = new(
@@ -802,12 +802,33 @@ public sealed class OutputContractTests
             bounded,
             warnings: warning is null ? [] : [warning]));
 
-        bounded.Threads.Should().BeEmpty();
-        warning.Should().Contain("Showing 0 of 1 threads")
-            .And.Contain("would exceed");
+        bounded.Threads.Should().ContainSingle();
+        bounded.Threads[0].Thread.Length.Should().Be(CaptureManifestOutput.MaxFrameLength);
+        warning.Should().Contain("sanitized or truncated")
+            .And.Contain($"at most {CaptureManifestOutput.MaxFrameLength} characters");
 
         OutputBudget.EstimateTokens(json).Should().BeLessThanOrEqualTo(
             OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
+    public void LimitThreads_ControlCharacterLabel_ReportsSanitization()
+    {
+        TraceInfoView view = new(
+            "/traces/control-label.speedscope.json",
+            "Speedscope",
+            1.0,
+            1,
+            1.0,
+            [new ThreadSampleInfo("worker\t1", 1)],
+            ["cpu"]);
+
+        TraceInfoView bounded = TraceInfoView.LimitThreads(view, out string? warning);
+
+        bounded.Threads.Should().ContainSingle();
+        bounded.Threads[0].Thread.Should().Be("worker 1");
+        warning.Should().Contain("sanitized or truncated")
+            .And.Contain($"at most {CaptureManifestOutput.MaxFrameLength} characters");
     }
 
     [TestMethod]

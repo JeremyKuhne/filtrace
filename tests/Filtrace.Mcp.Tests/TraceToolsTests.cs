@@ -121,10 +121,8 @@ public sealed class TraceToolsTests
     {
         TraceStore store = new();
 
-        AnalysisResult<TraceInfoView> envelope = TraceTools.InfoToolAsync(
-            store,
-            FixturePath(Etw),
-            allProcesses: true).GetAwaiter().GetResult();
+        AnalysisResult<TraceInfoView> envelope =
+            TraceTools.InfoAllProcesses(store, FixturePath(Etw));
 
         envelope.Warnings.Should().NotContain(
             warning => warning.Contains("Scoped to", StringComparison.Ordinal));
@@ -155,6 +153,10 @@ public sealed class TraceToolsTests
                 typeof(bool),
                 typeof(CancellationToken)
             ]).Should().NotBeNull();
+
+        typeof(TraceTools).GetMethod(
+            nameof(TraceTools.DiskIo),
+            [typeof(string), typeof(int)]).Should().NotBeNull();
     }
 
     [TestMethod]
@@ -1434,7 +1436,7 @@ public sealed class TraceToolsTests
     [OSCondition(OperatingSystems.Windows)]
     public void DiskIo_ExactPidScope_UsesIssuerCorrelation()
     {
-        AnalysisResult<DiskIoResult> envelope = TraceTools.DiskIo(
+        AnalysisResult<DiskIoResult> envelope = TraceTools.DiskIoTool(
             FixturePath(DiskIoTrace),
             pid: [11112],
             children: true);
@@ -1450,7 +1452,7 @@ public sealed class TraceToolsTests
     [OSCondition(OperatingSystems.Windows)]
     public void DiskIo_TimeWindow_ReportsWindowAndNoCompletions()
     {
-        AnalysisResult<DiskIoResult> envelope = TraceTools.DiskIo(
+        AnalysisResult<DiskIoResult> envelope = TraceTools.DiskIoTool(
             FixturePath(DiskIoTrace),
             time: "1000000,");
 

@@ -53,6 +53,26 @@ public sealed class TraceTools
         bool children = true) =>
             InfoAsync(store, path, symbols, process, pid, children).GetAwaiter().GetResult();
 
+    /// <summary>
+    ///  Returns capture-wide trace information without automatic process scope.
+    /// </summary>
+    /// <param name="store">The trace cache.</param>
+    /// <param name="path">Path to the trace file.</param>
+    /// <param name="symbols">Optional local build-output directory containing PDBs.</param>
+    /// <returns>The capture-wide trace summary envelope.</returns>
+    public static AnalysisResult<TraceInfoView> InfoAllProcesses(
+        TraceStore store,
+        string path,
+        string symbols = "") =>
+            InfoToolAsync(
+                store,
+                path,
+                symbols,
+                process: "",
+                pid: null,
+                children: true,
+                allProcesses: true).GetAwaiter().GetResult();
+
     /// <inheritdoc cref="InfoToolAsync"/>
     public static Task<AnalysisResult<TraceInfoView>> InfoAsync(
         TraceStore store,
@@ -1042,6 +1062,10 @@ public sealed class TraceTools
             context: new AnalysisContext("threadpool"));
     }
 
+    /// <inheritdoc cref="DiskIoTool"/>
+    public static AnalysisResult<DiskIoResult> DiskIo(string path, int top = 25) =>
+        DiskIoTool(path, top);
+
     /// <summary>
     ///  Returns the disk I/O report for a Windows ETW <c>.etl</c> trace: physical disk
     ///  reads and writes aggregated by file, ranked by disk service time.
@@ -1057,7 +1081,7 @@ public sealed class TraceTools
     [Description(
         "Physical disk reads/writes by file from Windows .etl: bytes, operation counts, and service time. "
             + ".nettrace and speedscope are rejected.")]
-    public static AnalysisResult<DiskIoResult> DiskIo(
+    public static AnalysisResult<DiskIoResult> DiskIoTool(
         [Description("Path to a Windows ETW .etl trace file.")] string path,
         [Description("Maximum per-file rows.")] int top = 25,
         [Description("I/O issuer process-name substring.")] string process = "",
