@@ -147,8 +147,39 @@ public sealed partial class ThreadTimeProvider
 #pragma warning restore CS0618
 
         List<SampleStack> samples = [];
-        List<string> leafToRoot = [];
+        List<StackSourceFrameIndex> leafToRoot = [];
         string?[] frameNames = new string?[Math.Min(stackSource.CallFrameIndexLimit, MaximumCachedFrameNames)];
+        Dictionary<StackSourceFrameIndex, (string Label, int ProcessId)> processFrames = [];
+
+        string GetCachedFrameName(StackSourceFrameIndex frameIndex)
+        {
+            int frameKey = (int)frameIndex;
+            if ((uint)frameKey >= (uint)frameNames.Length)
+            {
+                return stackSource.GetFrameName(frameIndex, fullModulePath: false);
+            }
+
+            string? frame = frameNames[frameKey];
+            if (frame is null)
+            {
+                frame = stackSource.GetFrameName(frameIndex, fullModulePath: false);
+                frameNames[frameKey] = frame;
+            }
+
+            return frame;
+        }
+
+        (string Label, int ProcessId) GetProcessFrame(StackSourceFrameIndex frameIndex)
+        {
+            if (!processFrames.TryGetValue(frameIndex, out (string Label, int ProcessId) processFrame))
+            {
+                string process = NormalizeProcessFrame(GetCachedFrameName(frameIndex), out int processId);
+                processFrame = (process, processId);
+                processFrames.Add(frameIndex, processFrame);
+            }
+
+            return processFrame;
+        }
 
         stackSource.ForEach(sample =>
         {
@@ -165,31 +196,50 @@ public sealed partial class ThreadTimeProvider
                 return;
             }
 
+            if (sample.StackIndex == StackSourceCallStackIndex.Invalid)
+            {
+                return;
+            }
+
+            (string Label, int ProcessId) processFrame = ("", -1);
+            if (resolvedScope.ProcessInstanceIndexes is not null)
+            {
+                StackSourceCallStackIndex rootIndex = sample.StackIndex;
+                while (true)
+                {
+                    StackSourceCallStackIndex callerIndex = stackSource.GetCallerIndex(rootIndex);
+                    if (callerIndex == StackSourceCallStackIndex.Invalid)
+                    {
+                        break;
+                    }
+
+                    rootIndex = callerIndex;
+                }
+
+                processFrame = GetProcessFrame(stackSource.GetFrameIndex(rootIndex));
+                if (resolvedScope.ProcessIds is not null
+                    && !resolvedScope.ProcessIds.Contains(processFrame.ProcessId))
+                {
+                    return;
+                }
+
+                EtlxTraceProcess? processInstance = processFrame.ProcessId < 0
+                    ? null
+                    : traceLog.Processes.GetProcess(processFrame.ProcessId, sample.TimeRelativeMSec);
+
+                if (!resolvedScope.Includes(processInstance))
+                {
+                    return;
+                }
+            }
+
             leafToRoot.Clear();
             for (StackSourceCallStackIndex index = sample.StackIndex;
                 index != StackSourceCallStackIndex.Invalid;
                 index = stackSource.GetCallerIndex(index))
             {
                 StackSourceFrameIndex frameIndex = stackSource.GetFrameIndex(index);
-                int frameKey = (int)frameIndex;
-                string frame;
-                if ((uint)frameKey < (uint)frameNames.Length)
-                {
-                    string? cachedFrame = frameNames[frameKey];
-                    if (cachedFrame is null)
-                    {
-                        cachedFrame = stackSource.GetFrameName(frameIndex, fullModulePath: false);
-                        frameNames[frameKey] = cachedFrame;
-                    }
-
-                    frame = cachedFrame;
-                }
-                else
-                {
-                    frame = stackSource.GetFrameName(frameIndex, fullModulePath: false);
-                }
-
-                leafToRoot.Add(frame);
+                leafToRoot.Add(frameIndex);
             }
 
             if (leafToRoot.Count == 0)
@@ -199,16 +249,9 @@ public sealed partial class ThreadTimeProvider
 
             // The process pseudo-frame is the outermost (last walked). Resolve it for
             // both the per-process label and the scope filter.
-            string rootFrame = leafToRoot[^1];
-            string process = NormalizeProcessFrame(rootFrame, out int pid);
-
-            EtlxTraceProcess? processInstance = pid < 0
-                ? null
-                : traceLog.Processes.GetProcess(pid, sample.TimeRelativeMSec);
-
-            if (!resolvedScope.Includes(processInstance))
+            if (resolvedScope.ProcessInstanceIndexes is null)
             {
-                return;
+                processFrame = GetProcessFrame(leafToRoot[^1]);
             }
 
             string thread = "";
@@ -216,7 +259,7 @@ public sealed partial class ThreadTimeProvider
             string[] frames = new string[count];
             for (int i = 0; i < count; i++)
             {
-                string frame = leafToRoot[count - 1 - i];
+                string frame = GetCachedFrameName(leafToRoot[count - 1 - i]);
 
                 // Clean the verbose process / thread pseudo-frames into stable labels so
                 // a ranking is not dominated by per-thread CPU annotations or a process
@@ -224,7 +267,7 @@ public sealed partial class ThreadTimeProvider
                 // leaf) pass through untouched.
                 if (i == 0)
                 {
-                    frame = process;
+                    frame = processFrame.Label;
                 }
                 else if (i == 1 && ThreadFrameRegex().Match(frame) is { Success: true } threadMatch)
                 {
@@ -235,7 +278,7 @@ public sealed partial class ThreadTimeProvider
                 frames[i] = frame;
             }
 
-            samples.Add(new SampleStack(frames, weight, thread, frameLocations: null, process));
+            samples.Add(new SampleStack(frames, weight, thread, frameLocations: null, processFrame.Label));
         });
 
         return new StackSampleSource(MetricInfo.ThreadTime, samples);
