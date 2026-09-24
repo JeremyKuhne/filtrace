@@ -35,11 +35,12 @@ Before raising a security finding, answer these questions in order:
 4. Would the proposed fix add per-event, per-frame, per-sample, or cardinality-scaled
    cost to legitimate multi-gigabyte analysis?
 
-If the scenario requires a deliberately crafted malicious trace and has no plausible
-trusted-artifact failure mode, classify it as outside the repository threat model.
-Do not turn it into production code, arbitrary input caps, randomized comparers,
-defensive copies, or exhaustive abuse tests. A generic reviewer's severity label
-does not override this threat model.
+If the scenario requires a deliberately crafted malicious trace, has no plausible
+trusted-artifact failure mode, and does not expose a concrete unsafe-memory or
+privilege-boundary flaw, classify it as outside the repository threat model. Do not
+turn it into production code, arbitrary input caps, randomized comparers, defensive
+copies, or exhaustive abuse tests. A generic reviewer's severity label does not
+override this threat model.
 
 ## In-scope review priorities
 
@@ -74,9 +75,10 @@ Do not harden for:
   operating system;
 - hostile remote MCP clients when the server remains a local stdio tool.
 
-Still report a concrete unsafe-memory or privilege-boundary flaw even if exploitation
-would require crafted input. Otherwise describe such a concern, when relevant, as an
-unsupported adversarial scenario rather than a vulnerability requiring a fix.
+Concrete unsafe-memory and privilege-boundary flaws remain in scope even if
+exploitation would require crafted input; report and remediate them. Otherwise
+describe such a concern, when relevant, as an unsupported adversarial scenario
+rather than a vulnerability requiring a fix.
 
 ## Performance gate
 
