@@ -23,6 +23,12 @@ internal static partial class CliTelemetryCommand
             "lifecycle", "tree", "classify", "timeline", "diff", "batch", "events"
         ],
         StringComparer.Ordinal);
+    private static readonly HashSet<string> CustomBooleanOptions = new(
+        [
+            "--strict", "--all-processes", "--benchmark", "--native-symbols",
+            "--no-fold", "-h", "--help", "--version"
+        ],
+        StringComparer.Ordinal);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -447,20 +453,84 @@ internal static partial class CliTelemetryCommand
             EnsureOutputDoesNotAliasInput(output, candidate, pathComparison);
         }
 
-        bool acceptsManifests = arguments[0] is "batch" or "diff";
-        if (!acceptsManifests)
-        {
-            return;
-        }
+        List<string> positionalArguments = ResolveCustomPositionalArguments(
+            arguments,
+            out bool hasCaseId);
 
+        if (arguments[0] == "batch" && positionalArguments.Count > 0)
+        {
+            EnsureOutputDoesNotAliasManifestInputs(
+                output,
+                positionalArguments[0],
+                pathComparison);
+        }
+        else if (arguments[0] == "diff"
+            && positionalArguments.Count > 1
+            && CaptureManifestReader.IsManifestPath(positionalArguments[0])
+            && CaptureManifestReader.IsManifestPath(positionalArguments[1]))
+        {
+            EnsureOutputDoesNotAliasManifestInputs(
+                output,
+                positionalArguments[0],
+                pathComparison);
+
+            EnsureOutputDoesNotAliasManifestInputs(
+                output,
+                positionalArguments[1],
+                pathComparison);
+        }
+        else if (arguments[0] == "rank"
+            && hasCaseId
+            && positionalArguments.Count > 0)
+        {
+            EnsureOutputDoesNotAliasManifestInputs(
+                output,
+                positionalArguments[0],
+                pathComparison);
+        }
+    }
+
+    private static List<string> ResolveCustomPositionalArguments(
+        IReadOnlyList<string> arguments,
+        out bool hasCaseId)
+    {
+        List<string> positionalArguments = [];
+        hasCaseId = false;
+        bool optionsEnded = false;
         for (int index = 1; index < arguments.Count; index++)
         {
             string argument = arguments[index];
-            if (CaptureManifestReader.IsManifestPath(argument) && File.Exists(argument))
+            if (optionsEnded)
             {
-                EnsureOutputDoesNotAliasManifestInputs(output, argument, pathComparison);
+                positionalArguments.Add(argument);
+                continue;
+            }
+
+            if (argument == "--")
+            {
+                optionsEnded = true;
+                continue;
+            }
+
+            if (argument.Length == 0 || argument[0] != '-')
+            {
+                positionalArguments.Add(argument);
+                continue;
+            }
+
+            int valueSeparator = argument.IndexOf('=');
+            string optionName = valueSeparator < 0
+                ? argument
+                : argument[..valueSeparator];
+
+            hasCaseId |= optionName == "--case-id";
+            if (valueSeparator < 0 && !CustomBooleanOptions.Contains(optionName))
+            {
+                index++;
             }
         }
+
+        return positionalArguments;
     }
 
     private static void EnsureOutputDoesNotAliasManifestInputs(

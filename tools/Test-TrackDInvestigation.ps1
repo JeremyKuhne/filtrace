@@ -993,14 +993,16 @@ try {
     })
     [string] $beforeManifestTraceHash =
         (Get-FileHash -LiteralPath $beforeManifestTrace -Algorithm SHA256).Hash
+    [string] $renamedBatchManifest = Join-Path $beforeManifestDirectory 'captures.json'
+    Copy-Item -LiteralPath $beforeManifest -Destination $renamedBatchManifest
     Assert-TelemetryFailure `
         $dotnetCommand.Source `
         $benchmarkDll `
         'manifest-trace-alias' `
-        $beforeManifest `
+        $renamedBatchManifest `
         $beforeManifestTrace `
         $blockingProcess `
-        @('batch', '--format', 'json', $beforeManifest) `
+        @('batch', '--format', 'json', $renamedBatchManifest) `
         'must not overwrite a custom command input or its ETLX cache'
     Assert-True `
         ((Get-FileHash -LiteralPath $beforeManifestTrace -Algorithm SHA256).Hash -ceq `
@@ -1030,6 +1032,29 @@ try {
         ((Get-FileHash -LiteralPath $afterManifestCache -Algorithm SHA256).Hash -ceq `
             $afterManifestCacheHash) `
         'Rejected telemetry output alias changed a manifest trace ETLX cache.'
+    [string] $beforeManifestCache = "$beforeManifestTrace.etlx"
+    [System.IO.File]::WriteAllText($beforeManifestCache, 'existing rank cache', $utf8)
+    [string] $beforeManifestCacheHash =
+        (Get-FileHash -LiteralPath $beforeManifestCache -Algorithm SHA256).Hash
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'manifest-rank-cache-alias' `
+        $beforeManifest `
+        $beforeManifestCache `
+        $blockingProcess `
+        @(
+            'rank',
+            '--case-id',
+            'before',
+            '--format',
+            'json',
+            $beforeManifest) `
+        'must not overwrite a custom command input or its ETLX cache'
+    Assert-True `
+        ((Get-FileHash -LiteralPath $beforeManifestCache -Algorithm SHA256).Hash -ceq `
+            $beforeManifestCacheHash) `
+        'Rejected telemetry output alias changed a rank manifest trace ETLX cache.'
 
     [string] $firstCommandDirectory = Join-Path $temporaryRoot 'path-first'
     [string] $secondCommandDirectory = Join-Path $temporaryRoot 'path-second'
