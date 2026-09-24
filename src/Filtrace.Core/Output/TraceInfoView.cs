@@ -47,8 +47,6 @@ public sealed record TraceInfoView(
     IReadOnlyList<string> AvailableAnalyses,
     string? EtlxCacheState = null)
 {
-    private const int ThreadRowScaffoldTokens = 24;
-
     /// <summary>
     ///  Capture status and observed source-record count for each selector in
     ///  <see cref="AvailableAnalyses"/>. Loader-produced views populate this;
@@ -131,9 +129,11 @@ public sealed record TraceInfoView(
 
         List<ThreadSampleInfo> kept = OutputBudget.TakeWithinBudget(
             view.Threads,
-            static thread => ThreadRowScaffoldTokens + OutputBudget.EstimateTokens(thread.Thread),
+            static thread => OutputBudget.EstimateTokens(
+                OutputJson.SerializeThreadSampleInfo(thread)),
             OutputBudget.DefaultRowBudgetTokens,
-            out bool truncated);
+            out bool truncated,
+            takeAtLeastOne: false);
 
         if (!truncated)
         {

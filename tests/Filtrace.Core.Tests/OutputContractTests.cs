@@ -785,6 +785,32 @@ public sealed class OutputContractTests
     }
 
     [TestMethod]
+    public void LimitThreads_OversizedEscapedLabel_DropsTheThread()
+    {
+        ThreadSampleInfo[] threads = [new(new string('"', 75_000), 1)];
+        TraceInfoView view = new(
+            "/traces/long-profile-name.speedscope.json",
+            "Speedscope",
+            1.0,
+            1,
+            1.0,
+            threads,
+            ["cpu"]);
+
+        TraceInfoView bounded = TraceInfoView.LimitThreads(view, out string? warning);
+        string json = OutputJson.Serialize(new AnalysisResult<TraceInfoView>(
+            bounded,
+            warnings: warning is null ? [] : [warning]));
+
+        bounded.Threads.Should().BeEmpty();
+        warning.Should().Contain("Showing 0 of 1 threads")
+            .And.Contain("would exceed");
+
+        OutputBudget.EstimateTokens(json).Should().BeLessThanOrEqualTo(
+            OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
     public void FromTraceInfo_InvalidInput_Throws()
     {
         Action nullInfo = () => TraceInfoView.FromTraceInfo(info: null!, etlxCacheState: null);
