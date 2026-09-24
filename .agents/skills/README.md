@@ -16,8 +16,8 @@ conventions belong in each sibling `overlay.md`.
 | [create-pr](create-pr/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.14.0` | Uses filtrace's explicit publishing boundary. |
 | [address-pr-feedback](address-pr-feedback/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.14.0` | Uses the same boundary for PR follow-up. |
 | [engineering-baseline](engineering-baseline/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.14.0` | Audits filtrace's .NET repository baseline without replacing its existing scaffold. |
-| [fuzz-testing](fuzz-testing/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.14.0` | Project-gated guidance for the untrusted manifest, metadata, and speedscope parsers. |
-| [security-review](security-review/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.14.0` | Focuses on untrusted trace and event input. |
+| [fuzz-testing](fuzz-testing/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.14.0` | Project-gated guidance for corruption testing of manifest, metadata, and speedscope parsers. |
+| [security-review](security-review/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.14.0` | Reviews corruption, attribution, artifact safety, and hot-path cost under trusted developer input. |
 | [performance-testing](performance-testing/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.14.0` | Binds the product benchmark project, hands profiles to filtrace, and applies staged fail-fast investigation budgets. |
 | [il-copy-inspection](il-copy-inspection/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.14.0` | Audits emitted struct copies in Release assemblies before runtime measurement. |
 | [code-comprehension](code-comprehension/SKILL.md) | `JeremyKuhne/agent-skills` | `v0.14.0` | Defers to filtrace's style rules and the analysis vocabulary. |
@@ -37,10 +37,11 @@ repository-wide engineering audits or scaffolding decisions.
 
 The complete `agent-skills` v0.14.0 portfolio was reviewed on 2026-08-06. The
 project-gated `fuzz-testing` core is vendored even though its harness is not built
-yet: filtrace owns JSON manifest, metadata, and speedscope parsers over untrusted
-input, so the project prerequisite is applicable future work rather than an
-unrelated domain. `il-copy-inspection` supplies the compiler-emitted-copy layer
-between the product benchmark project and runtime traces, while
+yet: filtrace owns JSON manifest, metadata, and speedscope parsers for trusted
+developer artifacts that may still be corrupt, truncated, or version-skewed, so
+the project prerequisite is applicable future work rather than an unrelated
+domain. `il-copy-inspection` supplies the compiler-emitted-copy layer between the
+product benchmark project and runtime traces, while
 `engineering-baseline` supplies the brownfield repository audit used to keep those
 build, test, performance, and agent surfaces coherent.
 
