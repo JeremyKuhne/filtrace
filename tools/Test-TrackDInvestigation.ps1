@@ -961,6 +961,76 @@ try {
         ((Get-FileHash -LiteralPath $aliasCache -Algorithm SHA256).Hash -ceq $aliasCacheHash) `
         'Rejected telemetry output alias changed the second input ETLX cache.'
 
+    [string] $beforeManifestDirectory = Join-Path $temporaryRoot 'before-manifest'
+    [string] $afterManifestDirectory = Join-Path $temporaryRoot 'after-manifest'
+    [System.IO.Directory]::CreateDirectory($beforeManifestDirectory) | Out-Null
+    [System.IO.Directory]::CreateDirectory($afterManifestDirectory) | Out-Null
+    [string] $beforeManifestTrace = Join-Path $beforeManifestDirectory 'before.nettrace'
+    [string] $afterManifestTrace = Join-Path $afterManifestDirectory 'after.nettrace'
+    Copy-Item -LiteralPath $probeTrace -Destination $beforeManifestTrace
+    Copy-Item -LiteralPath $probeTrace -Destination $afterManifestTrace
+    [string] $beforeManifest = Join-Path $beforeManifestDirectory 'manifest.json'
+    [string] $afterManifest = Join-Path $afterManifestDirectory 'manifest.json'
+    Write-Json $beforeManifest ([ordered]@{
+        schemaVersion = 1
+        cases = @([ordered]@{
+            id = 'before'
+            benchmark = 'Before'
+            parameters = ''
+            benchmarkDisplay = 'Before'
+            trace = 'before.nettrace'
+        })
+    })
+    Write-Json $afterManifest ([ordered]@{
+        schemaVersion = 1
+        cases = @([ordered]@{
+            id = 'after'
+            benchmark = 'After'
+            parameters = ''
+            benchmarkDisplay = 'After'
+            trace = 'after.nettrace'
+        })
+    })
+    [string] $beforeManifestTraceHash =
+        (Get-FileHash -LiteralPath $beforeManifestTrace -Algorithm SHA256).Hash
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'manifest-trace-alias' `
+        $beforeManifest `
+        $beforeManifestTrace `
+        $blockingProcess `
+        @('batch', '--format', 'json', $beforeManifest) `
+        'must not overwrite a custom command input or its ETLX cache'
+    Assert-True `
+        ((Get-FileHash -LiteralPath $beforeManifestTrace -Algorithm SHA256).Hash -ceq `
+            $beforeManifestTraceHash) `
+        'Rejected telemetry output alias changed a manifest trace.'
+    [string] $afterManifestCache = "$afterManifestTrace.etlx"
+    [System.IO.File]::WriteAllText($afterManifestCache, 'existing manifest cache', $utf8)
+    [string] $afterManifestCacheHash =
+        (Get-FileHash -LiteralPath $afterManifestCache -Algorithm SHA256).Hash
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'manifest-cache-alias' `
+        $beforeManifest `
+        $afterManifestCache `
+        $blockingProcess `
+        @(
+            'diff',
+            '--format',
+            'json',
+            $beforeManifest,
+            '--measure',
+            'self',
+            $afterManifest) `
+        'must not overwrite a custom command input or its ETLX cache'
+    Assert-True `
+        ((Get-FileHash -LiteralPath $afterManifestCache -Algorithm SHA256).Hash -ceq `
+            $afterManifestCacheHash) `
+        'Rejected telemetry output alias changed a manifest trace ETLX cache.'
+
     [string] $firstCommandDirectory = Join-Path $temporaryRoot 'path-first'
     [string] $secondCommandDirectory = Join-Path $temporaryRoot 'path-second'
     [System.IO.Directory]::CreateDirectory($firstCommandDirectory) | Out-Null

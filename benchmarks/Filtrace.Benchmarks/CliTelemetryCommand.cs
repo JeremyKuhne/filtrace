@@ -444,18 +444,53 @@ internal static partial class CliTelemetryCommand
                 continue;
             }
 
-            bool aliasesInput = string.Equals(candidate, output, pathComparison);
-            bool aliasesEtlx = IsTracePath(candidate)
-                && string.Equals(
-                    Path.GetFullPath(TraceConverter.EtlxPathFor(candidate)),
-                    output,
-                    pathComparison);
+            EnsureOutputDoesNotAliasInput(output, candidate, pathComparison);
+        }
 
-            if ((aliasesInput || aliasesEtlx) && File.Exists(candidate))
+        bool acceptsManifests = arguments[0] is "batch" or "diff";
+        if (!acceptsManifests)
+        {
+            return;
+        }
+
+        for (int index = 1; index < arguments.Count; index++)
+        {
+            string argument = arguments[index];
+            if (CaptureManifestReader.IsManifestPath(argument) && File.Exists(argument))
             {
-                throw new ArgumentException(
-                    $"Telemetry output '{output}' must not overwrite a custom command input or its ETLX cache.");
+                EnsureOutputDoesNotAliasManifestInputs(output, argument, pathComparison);
             }
+        }
+    }
+
+    private static void EnsureOutputDoesNotAliasManifestInputs(
+        string output,
+        string manifestPath,
+        StringComparison pathComparison)
+    {
+        CaptureManifest manifest = CaptureManifestReader.Read(manifestPath);
+        foreach (CaptureManifestCase captureCase in manifest.Cases)
+        {
+            EnsureOutputDoesNotAliasInput(output, captureCase.TracePath, pathComparison);
+        }
+    }
+
+    private static void EnsureOutputDoesNotAliasInput(
+        string output,
+        string candidate,
+        StringComparison pathComparison)
+    {
+        bool aliasesInput = string.Equals(candidate, output, pathComparison);
+        bool aliasesEtlx = IsTracePath(candidate)
+            && string.Equals(
+                Path.GetFullPath(TraceConverter.EtlxPathFor(candidate)),
+                output,
+                pathComparison);
+
+        if ((aliasesInput || aliasesEtlx) && File.Exists(candidate))
+        {
+            throw new ArgumentException(
+                $"Telemetry output '{output}' must not overwrite a custom command input or its ETLX cache.");
         }
     }
 
