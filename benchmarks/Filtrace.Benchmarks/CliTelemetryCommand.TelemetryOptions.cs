@@ -14,10 +14,12 @@ internal static partial class CliTelemetryCommand
     /// <param name="OutputPath">The JSON report path, which must not alias an input or executable.</param>
     /// <param name="FiltracePath">An explicit child executable, or <see langword="null"/> to discover it.</param>
     /// <param name="Iterations">The number of child launches to record.</param>
+    /// <param name="Arguments">Exact custom arguments, or empty to use the registered scenario.</param>
     private sealed record TelemetryOptions(
         string Scenario,
         string TracePath,
         string OutputPath,
         string? FiltracePath,
-        int Iterations);
+        int Iterations,
+        IReadOnlyList<string> Arguments);
 }

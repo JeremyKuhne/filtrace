@@ -55,6 +55,38 @@ dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- `
   --iterations 3
 ```
 
+To measure an exact canonical read-only command rather than a registered scenario,
+repeat `--argument` once for each child token:
+
+```pwsh
+$trace = (Resolve-Path "$telemetry/activity.nettrace").Path
+dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- `
+  --cli-telemetry `
+  --scenario threadtime-process-1234 `
+  --trace $trace `
+  --output "$telemetry/threadtime-process-1234.json" `
+  --iterations 3 `
+  --argument rank `
+  --argument $trace `
+  --argument --metric `
+  --argument threadtime `
+  --argument --pid `
+  --argument 1234 `
+  --argument --format `
+  --argument json
+```
+
+Custom telemetry accepts up to 64 exact tokens of at most 8,192 characters each.
+Its first token must be a canonical read-only analysis operation, its scenario is
+a caller-selected record identifier, and one token must exactly match `--trace`.
+That trace token is normalized to its absolute path in the retained launch record.
+Custom mode performs no cache preparation, so prepare or remove ETLX state before
+the campaign according to the scenario being measured. Tokens pass through
+`ProcessStartInfo.ArgumentList`; no shell parses or rejoins them. The telemetry
+output must not alias any existing file supplied as a direct command token, any
+trace referenced by a supplied capture manifest, or the derived ETLX cache for
+any `.etl` or `.nettrace` input.
+
 Telemetry accepts the implemented single-trace and manifest scenario names,
 including `cache-convert-warm`, `cache-convert-cold`, `batch-8`, `info-cold`,
 and `diff-cold-8`. The cache-convert scenarios run only `cache --action convert`:

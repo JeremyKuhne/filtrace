@@ -108,14 +108,16 @@ comes from Layer A. Child CPU and lifecycle evidence come from Layer C.
 
 After each retained timing run, run a separate untimed telemetry pass of 25 launches
 through the same process runner. `--cli-telemetry` supports the implemented warm and
-cold single-trace/batch/diff scenarios. It samples cumulative `TotalProcessorTime`,
-`PeakWorkingSet64`, and `PrivateMemorySize64` while each child is alive, then records
-the largest observed values, exact per-launch arguments, exit code, output lengths,
-and SHA-256 output digest in `cli-process.json`. Schema 2 also records monotonic
-launch-to-exit time from immediately before `Process.Start` through successful root
-process exit, before post-exit output draining and hashing. Warm launches reuse one
-prepared tree; each cold launch gets new trace/manifest paths and records those paths
-before cleanup.
+cold single-trace/batch/diff scenarios, or repeated `--argument TOKEN` options for an
+exact canonical read-only command. Exact-argument mode retains the supplied tokens
+without shell parsing and does not prepare cache state. It samples cumulative
+`TotalProcessorTime`, `PeakWorkingSet64`, and `PrivateMemorySize64` while each child
+is alive, then records the largest observed values, exact per-launch arguments, exit
+code, output lengths, and SHA-256 output digest in `cli-process.json`. Schema 2 also
+records monotonic launch-to-exit time from immediately before `Process.Start` through
+successful root process exit, before post-exit output draining and hashing. Warm
+launches reuse one prepared tree; each cold launch gets new trace/manifest paths and
+records those paths before cleanup.
 `PeakWorkingSet64` is resident memory, not total committed memory; report both memory
 fields with that distinction. Keep telemetry outside the timed BenchmarkDotNet method
 so querying process counters cannot become the measured workload. Capture child

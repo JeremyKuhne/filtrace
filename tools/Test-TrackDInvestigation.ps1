@@ -24,6 +24,67 @@ function Write-Json([string] $Path, [object] $Value) {
     [System.IO.File]::WriteAllText($Path, "$json`n", $utf8)
 }
 
+function Assert-TelemetryFailure(
+    [string] $DotnetPath,
+    [string] $BenchmarkDll,
+    [string] $Scenario,
+    [string] $Trace,
+    [string] $Output,
+    [string] $Filtrace,
+    [string[]] $ChildArguments,
+    [string] $ExpectedMessage) {
+    [System.Collections.Generic.List[string]] $invocation = [System.Collections.Generic.List[string]]::new()
+    foreach ($argument in @(
+        $BenchmarkDll,
+        '--cli-telemetry',
+        '--scenario', $Scenario,
+        '--trace', $Trace,
+        '--output', $Output,
+        '--iterations', '1',
+        '--filtrace', $Filtrace)) {
+        $invocation.Add($argument)
+    }
+    foreach ($argument in $ChildArguments) {
+        $invocation.Add('--argument')
+        $invocation.Add($argument)
+    }
+
+    [System.Management.Automation.PSVariable] $nativeErrorPreference = Get-Variable `
+        -Name PSNativeCommandUseErrorActionPreference `
+        -ErrorAction SilentlyContinue
+    [object] $savedNativeErrorPreference = if ($null -eq $nativeErrorPreference) {
+        $null
+    }
+    else {
+        $nativeErrorPreference.Value
+    }
+    [object[]] $diagnostic = @()
+    [int] $exitCode = 0
+    try {
+        if ($null -ne $nativeErrorPreference) {
+            Set-Variable -Name PSNativeCommandUseErrorActionPreference -Value $false
+        }
+
+        $diagnostic = @(& $DotnetPath @invocation 2>&1)
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        if ($null -ne $nativeErrorPreference) {
+            Set-Variable `
+                -Name PSNativeCommandUseErrorActionPreference `
+                -Value $savedNativeErrorPreference
+        }
+    }
+
+    Assert-True ($exitCode -ne 0) "Telemetry failure '$Scenario' exited zero."
+    Assert-True `
+        (($diagnostic -join [Environment]::NewLine).Contains(
+            $ExpectedMessage,
+            [StringComparison]::Ordinal)) `
+        "Telemetry failure '$Scenario' did not report '$ExpectedMessage'."
+    $global:LASTEXITCODE = 0
+}
+
 [string] $temporaryRoot = Join-Path `
     ([System.IO.Path]::GetTempPath()) `
     "filtrace-trackd-contract-$([Guid]::NewGuid().ToString('N'))"
@@ -696,6 +757,14 @@ try {
     [string] $probeOutput = Join-Path $temporaryRoot 'elapsed-probe.json'
     [string] $readyPath = Join-Path $temporaryRoot 'elapsed-probe.ready'
     [string] $releasePath = Join-Path $temporaryRoot 'elapsed-probe.release'
+    [string] $argumentsPath = Join-Path $temporaryRoot 'elapsed-probe-arguments.json'
+    [string[]] $expectedProbeArguments = @(
+        'info',
+        $probeTrace,
+        $probeTrace.ToUpperInvariant(),
+        '',
+        'argument with spaces',
+        'argument "with quotes"')
     [System.Management.Automation.CommandInfo] $dotnetCommand = @(
         Get-Command dotnet -CommandType Application -ErrorAction Stop)[0]
 
@@ -737,15 +806,20 @@ try {
         'run', '-c', 'Release', '--no-build',
         '--project', 'benchmarks/Filtrace.Benchmarks', '--',
         '--cli-telemetry',
-        '--scenario', 'info-warm',
+        '--scenario', 'exact-argv-probe',
         '--trace', $probeTrace,
         '--output', $probeOutput,
         '--iterations', '1',
         '--filtrace', $blockingProcess)) {
         $probeStart.ArgumentList.Add($argument)
     }
+    foreach ($argument in $expectedProbeArguments) {
+        $probeStart.ArgumentList.Add('--argument')
+        $probeStart.ArgumentList.Add($argument)
+    }
     $probeStart.Environment['FILTRACE_ELAPSED_READY_PATH'] = $readyPath
     $probeStart.Environment['FILTRACE_ELAPSED_RELEASE_PATH'] = $releasePath
+    $probeStart.Environment['FILTRACE_ELAPSED_ARGUMENTS_PATH'] = $argumentsPath
 
     [System.Diagnostics.Process] $probeProcess = [System.Diagnostics.Process]::new()
     $probeProcess.StartInfo = $probeStart
@@ -836,11 +910,151 @@ try {
     [object] $probeLaunch = @($probeReport.launches)[0]
     Assert-True ($probeReport.schemaVersion -eq 2) 'Elapsed probe did not write telemetry schema 2.'
     Assert-True `
+        ($probeReport.scenario -ceq 'exact-argv-probe') `
+        'Exact-argument telemetry did not retain its scenario identifier.'
+    Assert-True `
+        ((@($probeLaunch.arguments) -join "`0") -ceq ($expectedProbeArguments -join "`0")) `
+        'Exact-argument telemetry did not retain the requested child argument tokens.'
+    [string[]] $receivedProbeArguments = @(
+        Get-Content -LiteralPath $argumentsPath -Raw | ConvertFrom-Json)
+    Assert-True `
+        (($receivedProbeArguments -join "`0") -ceq ($expectedProbeArguments -join "`0")) `
+        'Exact-argument telemetry did not preserve the child process argument vector.'
+    Assert-True `
         ($probeLaunch.launchToExitMilliseconds -ge $heldOpen.Elapsed.TotalMilliseconds) `
         'Launch-to-exit telemetry did not contain the synchronized child wait.'
     Assert-True `
         ($probeLaunch.launchToExitMilliseconds -ne $probeLaunch.totalProcessorMilliseconds) `
         'Launch-to-exit telemetry did not remain distinct from child CPU time.'
+
+    [string] $benchmarkDll = Join-Path `
+        $root `
+        'benchmarks/Filtrace.Benchmarks/bin/Release/net10.0/Filtrace.Benchmarks.dll'
+    [string] $aliasInput = Join-Path $temporaryRoot 'alias-input.nettrace'
+    Copy-Item -LiteralPath $probeTrace -Destination $aliasInput
+    [string] $aliasHash = (Get-FileHash -LiteralPath $aliasInput -Algorithm SHA256).Hash
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'alias-input' `
+        $probeTrace `
+        $aliasInput `
+        $blockingProcess `
+        @('diff', $probeTrace, $aliasInput) `
+        'must not overwrite a custom command input or its ETLX cache'
+    Assert-True `
+        ((Get-FileHash -LiteralPath $aliasInput -Algorithm SHA256).Hash -ceq $aliasHash) `
+        'Rejected telemetry output alias changed the second input trace.'
+    [string] $aliasCache = "$aliasInput.etlx"
+    [System.IO.File]::WriteAllText($aliasCache, 'existing secondary cache', $utf8)
+    [string] $aliasCacheHash = (Get-FileHash -LiteralPath $aliasCache -Algorithm SHA256).Hash
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'alias-input-cache' `
+        $probeTrace `
+        $aliasCache `
+        $blockingProcess `
+        @('diff', $probeTrace, $aliasInput) `
+        'must not overwrite a custom command input or its ETLX cache'
+    Assert-True `
+        ((Get-FileHash -LiteralPath $aliasCache -Algorithm SHA256).Hash -ceq $aliasCacheHash) `
+        'Rejected telemetry output alias changed the second input ETLX cache.'
+
+    [string] $beforeManifestDirectory = Join-Path $temporaryRoot 'before-manifest'
+    [string] $afterManifestDirectory = Join-Path $temporaryRoot 'after-manifest'
+    [System.IO.Directory]::CreateDirectory($beforeManifestDirectory) | Out-Null
+    [System.IO.Directory]::CreateDirectory($afterManifestDirectory) | Out-Null
+    [string] $beforeManifestTrace = Join-Path $beforeManifestDirectory 'before.nettrace'
+    [string] $afterManifestTrace = Join-Path $afterManifestDirectory 'after.nettrace'
+    Copy-Item -LiteralPath $probeTrace -Destination $beforeManifestTrace
+    Copy-Item -LiteralPath $probeTrace -Destination $afterManifestTrace
+    [string] $beforeManifest = Join-Path $beforeManifestDirectory 'manifest.json'
+    [string] $afterManifest = Join-Path $afterManifestDirectory 'manifest.json'
+    Write-Json $beforeManifest ([ordered]@{
+        schemaVersion = 1
+        cases = @([ordered]@{
+            id = 'before'
+            benchmark = 'Before'
+            parameters = ''
+            benchmarkDisplay = 'Before'
+            trace = 'before.nettrace'
+        })
+    })
+    Write-Json $afterManifest ([ordered]@{
+        schemaVersion = 1
+        cases = @([ordered]@{
+            id = 'after'
+            benchmark = 'After'
+            parameters = ''
+            benchmarkDisplay = 'After'
+            trace = 'after.nettrace'
+        })
+    })
+    [string] $beforeManifestTraceHash =
+        (Get-FileHash -LiteralPath $beforeManifestTrace -Algorithm SHA256).Hash
+    [string] $renamedBatchManifest = Join-Path $beforeManifestDirectory 'captures.json'
+    Copy-Item -LiteralPath $beforeManifest -Destination $renamedBatchManifest
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'manifest-trace-alias' `
+        $renamedBatchManifest `
+        $beforeManifestTrace `
+        $blockingProcess `
+        @('batch', '--format', 'json', $renamedBatchManifest) `
+        'must not overwrite a custom command input or its ETLX cache'
+    Assert-True `
+        ((Get-FileHash -LiteralPath $beforeManifestTrace -Algorithm SHA256).Hash -ceq `
+            $beforeManifestTraceHash) `
+        'Rejected telemetry output alias changed a manifest trace.'
+    [string] $afterManifestCache = "$afterManifestTrace.etlx"
+    [System.IO.File]::WriteAllText($afterManifestCache, 'existing manifest cache', $utf8)
+    [string] $afterManifestCacheHash =
+        (Get-FileHash -LiteralPath $afterManifestCache -Algorithm SHA256).Hash
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'manifest-cache-alias' `
+        $beforeManifest `
+        $afterManifestCache `
+        $blockingProcess `
+        @(
+            'diff',
+            '--format',
+            'json',
+            $beforeManifest,
+            '--measure',
+            'self',
+            $afterManifest) `
+        'must not overwrite a custom command input or its ETLX cache'
+    Assert-True `
+        ((Get-FileHash -LiteralPath $afterManifestCache -Algorithm SHA256).Hash -ceq `
+            $afterManifestCacheHash) `
+        'Rejected telemetry output alias changed a manifest trace ETLX cache.'
+    [string] $beforeManifestCache = "$beforeManifestTrace.etlx"
+    [System.IO.File]::WriteAllText($beforeManifestCache, 'existing rank cache', $utf8)
+    [string] $beforeManifestCacheHash =
+        (Get-FileHash -LiteralPath $beforeManifestCache -Algorithm SHA256).Hash
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'manifest-rank-cache-alias' `
+        $beforeManifest `
+        $beforeManifestCache `
+        $blockingProcess `
+        @(
+            'rank',
+            '--case-id',
+            'before',
+            '--format',
+            'json',
+            $beforeManifest) `
+        'must not overwrite a custom command input or its ETLX cache'
+    Assert-True `
+        ((Get-FileHash -LiteralPath $beforeManifestCache -Algorithm SHA256).Hash -ceq `
+            $beforeManifestCacheHash) `
+        'Rejected telemetry output alias changed a rank manifest trace ETLX cache.'
 
     [string] $firstCommandDirectory = Join-Path $temporaryRoot 'path-first'
     [string] $secondCommandDirectory = Join-Path $temporaryRoot 'path-second'
