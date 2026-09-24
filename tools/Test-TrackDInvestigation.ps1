@@ -770,9 +770,18 @@ try {
         ('x' * 8192))) {
         $probeArguments.Add($argument)
     }
-    while ($probeArguments.Count -lt 64) {
+    while ($probeArguments.Count -lt 63) {
         $probeArguments.Add("token-$($probeArguments.Count)")
     }
+    [int] $probeArgumentCharacters = 0
+    foreach ($argument in $probeArguments) {
+        $probeArgumentCharacters += $argument.Length
+    }
+    [int] $finalArgumentLength = 12000 - $probeArgumentCharacters
+    Assert-True `
+        ($finalArgumentLength -ge 0 -and $finalArgumentLength -le 8192) `
+        'Exact aggregate argument boundary could not be constructed.'
+    $probeArguments.Add('z' * $finalArgumentLength)
     [string[]] $expectedProbeArguments = $probeArguments.ToArray()
     [System.Management.Automation.CommandInfo] $dotnetCommand = @(
         Get-Command dotnet -CommandType Application -ErrorAction Stop)[0]
@@ -992,6 +1001,15 @@ try {
         $blockingProcess `
         @('info', $probeTrace, ('x' * 8193)) `
         'exceeds 8192 characters'
+    Assert-TelemetryFailure `
+        $dotnetCommand.Source `
+        $benchmarkDll `
+        'too-many-argument-characters' `
+        $probeTrace `
+        (Join-Path $temporaryRoot 'too-many-argument-characters.json') `
+        $blockingProcess `
+        @('info', $probeTrace, ('x' * 8192), ('y' * 8192)) `
+        'at most 12000 total characters'
     Assert-TelemetryFailure `
         $dotnetCommand.Source `
         $benchmarkDll `

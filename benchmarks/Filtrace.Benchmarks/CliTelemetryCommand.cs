@@ -17,6 +17,7 @@ internal static partial class CliTelemetryCommand
     private const int MaximumIterations = 100;
     private const int MaximumCustomArguments = 64;
     private const int MaximumCustomArgumentLength = 8192;
+    private const int MaximumCustomArgumentCharacters = 12_000;
     private static readonly HashSet<string> CustomReadOnlyOperations = new(
         [
             "info", "rank", "source", "report", "callers", "processes",
@@ -380,6 +381,7 @@ internal static partial class CliTelemetryCommand
 
         string[] resolved = new string[arguments.Count];
         bool traceReferenced = false;
+        int totalCharacters = 0;
         for (int index = 0; index < arguments.Count; index++)
         {
             string argument = arguments[index];
@@ -389,15 +391,31 @@ internal static partial class CliTelemetryCommand
                     $"Custom argument {index} is invalid or exceeds {MaximumCustomArgumentLength} characters.");
             }
 
+            string resolvedArgument;
             if (string.Equals(argument, requestedTrace, StringComparison.Ordinal))
             {
-                resolved[index] = trace;
+                resolvedArgument = trace;
                 traceReferenced = true;
             }
             else
             {
-                resolved[index] = argument;
+                resolvedArgument = argument;
             }
+
+            if (resolvedArgument.Length > MaximumCustomArgumentLength)
+            {
+                throw new ArgumentException(
+                    $"Custom argument {index} exceeds {MaximumCustomArgumentLength} characters after path normalization.");
+            }
+
+            if (resolvedArgument.Length > MaximumCustomArgumentCharacters - totalCharacters)
+            {
+                throw new ArgumentException(
+                    $"Custom arguments support at most {MaximumCustomArgumentCharacters} total characters.");
+            }
+
+            totalCharacters += resolvedArgument.Length;
+            resolved[index] = resolvedArgument;
         }
 
         if (resolved.Length == 0 || !CustomReadOnlyOperations.Contains(resolved[0]))
