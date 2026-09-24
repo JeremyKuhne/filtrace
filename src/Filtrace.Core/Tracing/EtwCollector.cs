@@ -471,54 +471,67 @@ public static class EtwCollector
         Dictionary<int, long> starts = new(processIds.Count);
         foreach (int processId in processIds)
         {
-            try
-            {
-                using Process process = Process.GetProcessById(processId);
-                if (process.HasExited)
-                {
-                    throw new InvalidOperationException(
-                        $"Rundown process id {processId} exited before capture began.");
-                }
-
-                starts.Add(processId, process.StartTime.ToUniversalTime().Ticks);
-            }
-            catch (ArgumentException ex)
+            long? start = GetProcessStartTicks(processId);
+            if (start is null)
             {
                 throw new InvalidOperationException(
-                    $"Rundown process id {processId} is not running before capture begins.",
-                    ex);
+                    $"Rundown process id {processId} is not running before capture begins.");
             }
+
+            starts.Add(processId, start.Value);
         }
 
         return starts;
     }
 
-    private static void ValidateRundownProcessStarts(IReadOnlyDictionary<int, long> expectedStarts)
+    /// <summary>
+    ///  Verifies that every targeted process is still the same process after rundown.
+    /// </summary>
+    /// <param name="expectedStarts">Expected process start-time ticks keyed by process id.</param>
+    /// <param name="getProcessStartTicks">
+    ///  Resolves current process start-time ticks, or <see langword="null"/> when the
+    ///  process is no longer running.
+    /// </param>
+    /// <exception cref="ArgumentNullException">A required argument is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">A process exited or its id was reused.</exception>
+    internal static void ValidateRundownProcessStarts(
+        IReadOnlyDictionary<int, long> expectedStarts,
+        Func<int, long?> getProcessStartTicks)
     {
+        ArgumentNullException.ThrowIfNull(expectedStarts);
+        ArgumentNullException.ThrowIfNull(getProcessStartTicks);
+
         foreach ((int processId, long expectedStart) in expectedStarts)
         {
-            try
-            {
-                using Process process = Process.GetProcessById(processId);
-                if (process.HasExited)
-                {
-                    throw new InvalidOperationException(
-                        $"Rundown process id {processId} exited before CLR rundown completed.");
-                }
-
-                long actualStart = process.StartTime.ToUniversalTime().Ticks;
-                if (actualStart != expectedStart)
-                {
-                    throw new InvalidOperationException(
-                        $"Rundown process id {processId} was reused before CLR rundown completed.");
-                }
-            }
-            catch (ArgumentException ex)
+            long? actualStart = getProcessStartTicks(processId);
+            if (actualStart is null)
             {
                 throw new InvalidOperationException(
-                    $"Rundown process id {processId} exited before CLR rundown completed.",
-                    ex);
+                    $"Rundown process id {processId} exited before CLR rundown completed.");
             }
+
+            if (actualStart.Value != expectedStart)
+            {
+                throw new InvalidOperationException(
+                    $"Rundown process id {processId} was reused before CLR rundown completed.");
+            }
+        }
+    }
+
+    private static void ValidateRundownProcessStarts(
+        IReadOnlyDictionary<int, long> expectedStarts) =>
+            ValidateRundownProcessStarts(expectedStarts, GetProcessStartTicks);
+
+    private static long? GetProcessStartTicks(int processId)
+    {
+        try
+        {
+            using Process process = Process.GetProcessById(processId);
+            return process.HasExited ? null : process.StartTime.ToUniversalTime().Ticks;
+        }
+        catch (ArgumentException)
+        {
+            return null;
         }
     }
 

@@ -32,6 +32,32 @@ public sealed class EtwChildProcessTests
     }
 
     [TestMethod]
+    public void ValidateRundownProcessStarts_ExitedTarget_Throws()
+    {
+        Dictionary<int, long> expected = new() { [42] = 100 };
+
+        Action action = () => EtwCollector.ValidateRundownProcessStarts(
+            expected,
+            static _ => null);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*42*exited*");
+    }
+
+    [TestMethod]
+    public void ValidateRundownProcessStarts_ReusedTarget_Throws()
+    {
+        Dictionary<int, long> expected = new() { [42] = 100 };
+
+        Action action = () => EtwCollector.ValidateRundownProcessStarts(
+            expected,
+            static _ => 101);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*42*reused*");
+    }
+
+    [TestMethod]
     [DataRow(2_147_484)]
     [DataRow(int.MaxValue)]
     public void Collect_DurationExceedsWaitLimit_RejectsBeforeLaunch(int durationSeconds)
