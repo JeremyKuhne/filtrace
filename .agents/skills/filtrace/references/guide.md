@@ -213,8 +213,9 @@ Run `filtrace <verb> --help` for the full option set of any verb.
   where an aggregate is supported; MCP `trace_info` and `trace_rank` expose
   `allProcesses`. Capture-wide `info` / `trace_info` preserves whole-capture totals
   but budget-limits its busiest-thread detail with an explicit truncation warning.
-  Process inventory aggregates CPU ownership without materializing frames; use
-  `info` / `trace_info` for frame-name and source/PDB quality.
+  Process inventory aggregates ETL and EventPipe CPU ownership without
+  materializing frames; speedscope uses its full stack reader. Use `info` /
+  `trace_info` for frame-name and source/PDB quality.
   Other stack-backed MCP analyses have no all-process aggregate;
   `trace_diskio` is the exception and, like the CLI disk report, remains
   machine-wide by default. When scoped, disk reports correlate `DiskIOInit` issuer

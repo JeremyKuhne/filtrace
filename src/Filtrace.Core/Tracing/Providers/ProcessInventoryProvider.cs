@@ -8,12 +8,15 @@ using Filtrace.Tracing.Readers;
 namespace Filtrace.Tracing.Providers;
 
 /// <summary>
-///  Reads CPU ownership by process without materializing call-stack frames.
+///  Reads CPU ownership by process, scanning ETL and EventPipe samples without
+///  materializing call-stack frames and using the full stack reader for speedscope.
 /// </summary>
 public sealed class ProcessInventoryProvider
 {
     /// <summary>
     ///  Reads every process represented by CPU samples in <paramref name="path"/>.
+    ///  ETL and EventPipe inputs use the direct sample scan; speedscope uses the
+    ///  existing full-reader path.
     /// </summary>
     /// <param name="path">The trace path.</param>
     /// <returns>The process inventory and CPU-weight provenance.</returns>
