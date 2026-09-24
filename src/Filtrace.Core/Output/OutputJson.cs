@@ -6,6 +6,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using Filtrace.Tracing;
 
 namespace Filtrace.Output;
 
@@ -75,6 +76,22 @@ public static partial class OutputJson
             (JsonTypeInfo<AnalysisResult<T>>)s_options.GetTypeInfo(typeof(AnalysisResult<T>));
 
         return JsonSerializer.Serialize(result, typeInfo);
+    }
+
+    /// <summary>
+    ///  Serializes one thread row with the same source-generated metadata and encoder
+    ///  used by the enclosing trace-information response.
+    /// </summary>
+    /// <param name="thread">The thread row to serialize.</param>
+    /// <returns>The compact JSON row.</returns>
+    internal static string SerializeThreadSampleInfo(ThreadSampleInfo thread)
+    {
+        ArgumentNullException.ThrowIfNull(thread);
+
+        JsonTypeInfo<ThreadSampleInfo> typeInfo =
+            (JsonTypeInfo<ThreadSampleInfo>)s_options.GetTypeInfo(typeof(ThreadSampleInfo));
+
+        return JsonSerializer.Serialize(thread, typeInfo);
     }
 
     private static JsonSerializerOptions CreateOptions()

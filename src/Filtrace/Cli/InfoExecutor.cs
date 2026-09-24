@@ -49,9 +49,15 @@ internal static class InfoExecutor
         TraceInfo info = trace.Info;
         TraceInfoView view = TraceInfoView.FromTraceInfo(info, info.EtlxCacheState);
         InfoQualityPolicyResult policy = request.Policy.Evaluate(info);
-        IReadOnlyList<string> warnings = policy.Warnings.Count == 0
-            ? info.Warnings
-            : [.. info.Warnings, .. policy.Warnings];
+        List<string> warnings = [.. info.Warnings, .. policy.Warnings];
+        if (request.Format == OutputFormat.Json)
+        {
+            view = TraceInfoView.LimitThreads(view, out string? budgetWarning);
+            if (budgetWarning is not null)
+            {
+                warnings.Add(budgetWarning);
+            }
+        }
 
         AnalysisResult<TraceInfoView> envelope = new(
             view,

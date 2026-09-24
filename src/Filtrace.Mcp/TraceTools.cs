@@ -53,6 +53,25 @@ public sealed class TraceTools
         bool children = true) =>
             InfoAsync(store, path, symbols, process, pid, children).GetAwaiter().GetResult();
 
+    /// <inheritdoc cref="InfoToolAsync"/>
+    public static Task<AnalysisResult<TraceInfoView>> InfoAsync(
+        TraceStore store,
+        string path,
+        string symbols = "",
+        string process = "",
+        int[]? pid = null,
+        bool children = true,
+        CancellationToken cancellationToken = default) =>
+            InfoToolAsync(
+                store,
+                path,
+                symbols,
+                process,
+                pid,
+                children,
+                allProcesses: false,
+                cancellationToken);
+
     /// <summary>
     ///  Loads a trace and returns its format, total weight, sample count, frame-name
     ///  and source/PDB quality, per-thread sample counts, and quality warnings.
@@ -67,6 +86,7 @@ public sealed class TraceTools
     ///  Optional exact process ids to scope to; mutually exclusive with <paramref name="process"/>.
     /// </param>
     /// <param name="children">Whether the process scope follows the matched processes' descendants.</param>
+    /// <param name="allProcesses">Read every process instead of automatic process scope.</param>
     /// <param name="cancellationToken">Cancels while waiting for another same-trace MCP request.</param>
     /// <returns>The trace summary envelope.</returns>
     [McpServerTool(Name = "trace_info", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
@@ -74,7 +94,7 @@ public sealed class TraceTools
         "Load a trace first. Returns format, weight, sample/thread counts, frame/source/PDB quality, analysis "
             + "availability, event counts, and etlxCacheState. captureStatus is enabled, disabled, or unknown; zero "
             + "is reported only when enablement is known.")]
-    public static async Task<AnalysisResult<TraceInfoView>> InfoAsync(
+    public static async Task<AnalysisResult<TraceInfoView>> InfoToolAsync(
         TraceStore store,
         [Description("Path to a .speedscope.json, .nettrace, or .etl trace file.")] string path,
         [Description("Optional local build-output directory containing PDBs.")]
@@ -85,20 +105,27 @@ public sealed class TraceTools
         int[]? pid = null,
         [Description("Follow descendants of the matched processes.")]
         bool children = true,
+        [Description("Read every process; excludes process and pid.")]
+        bool allProcesses = false,
         CancellationToken cancellationToken = default)
     {
         TraceStoreLoadResult load = await LoadAsync(
             store,
             path,
             NullIfEmpty(symbols),
-            scope: ResolveScope(process, pid, children),
+            scope: ResolveScope(process, pid, children, allProcesses),
             cancellationToken: cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
 
         TraceInfo info = load.Trace.Info;
         TraceInfoView view = TraceInfoView.FromTraceInfo(info, load.EtlxCacheState);
+        view = TraceInfoView.LimitThreads(view, out string? budgetWarning);
+        IReadOnlyList<string> warnings = budgetWarning is null
+            ? info.Warnings
+            : [.. info.Warnings, budgetWarning];
+
         return new AnalysisResult<TraceInfoView>(
             view,
-            info.Warnings,
+            warnings,
             SteeringHints.ForTraceInfo(info),
             new AnalysisContext("info"));
     }

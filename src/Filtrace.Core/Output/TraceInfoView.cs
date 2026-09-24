@@ -112,6 +112,41 @@ public sealed record TraceInfoView(
         };
     }
 
+    /// <summary>
+    ///  Bounds the per-thread detail to the shared agent-output budget while retaining
+    ///  the complete capture totals and quality metadata.
+    /// </summary>
+    /// <param name="view">The complete trace information view.</param>
+    /// <param name="warning">
+    ///  The warning naming the retained and available thread counts, or
+    ///  <see langword="null"/> when every thread fit.
+    /// </param>
+    /// <returns>The bounded view, or <paramref name="view"/> when every thread fit.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="view"/> is <see langword="null"/>.</exception>
+    public static TraceInfoView LimitThreads(TraceInfoView view, out string? warning)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        List<ThreadSampleInfo> kept = OutputBudget.TakeWithinBudget(
+            view.Threads,
+            static thread => OutputBudget.EstimateTokens(
+                OutputJson.SerializeThreadSampleInfo(thread)),
+            OutputBudget.DefaultRowBudgetTokens,
+            out bool truncated,
+            takeAtLeastOne: false);
+
+        if (!truncated)
+        {
+            warning = null;
+            return view;
+        }
+
+        warning =
+            $"Showing {kept.Count} of {view.Threads.Count} threads; more would exceed the response budget.";
+
+        return view with { Threads = kept };
+    }
+
     private static string? CacheStateText(EtlxCacheStateValue? state) => state switch
     {
         EtlxCacheStateValue.Hit => "hit",

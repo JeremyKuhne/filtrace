@@ -847,6 +847,16 @@ public sealed class CliAppTests
 
     [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
+    public void Run_InfoAllProcesses_OnMachineWideCapture_DoesNotWarnAboutScope()
+    {
+        (int exit, string output, _) = Run("info", Etw, "--all-processes", "--format", "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().NotContain("\"code\":\"scope_applied\"");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
     public void Run_AllProcesses_OnMachineWideCapture_DoesNotWarn()
     {
         (int exit, string output, _) = Run("cpu", Etw, "--all-processes");

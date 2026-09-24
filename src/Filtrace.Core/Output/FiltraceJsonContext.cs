@@ -44,6 +44,7 @@ namespace Filtrace.Output;
 [JsonSerializable(typeof(AnalysisDiagnosticData))]
 [JsonSerializable(typeof(AnalysisNextStep))]
 [JsonSerializable(typeof(AnalysisNextStepArguments))]
+[JsonSerializable(typeof(ThreadSampleInfo))]
 [JsonSerializable(typeof(DiffRow))]
 [JsonSerializable(typeof(AnalysisResult<TraceInfoView>))]
 [JsonSerializable(typeof(AnalysisResult<EtwCollectResult>))]
