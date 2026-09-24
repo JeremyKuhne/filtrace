@@ -22,24 +22,22 @@ internal static class ProcessesTextRenderer
     ///  Renders the process-inventory envelope to <paramref name="output"/>.
     /// </summary>
     /// <param name="envelope">The process-inventory result, with its warnings.</param>
-    /// <param name="info">The loaded trace's metadata, for the banner line.</param>
-    /// <param name="metric">The metric the weights are measured in.</param>
+    /// <param name="inventory">The trace format and CPU-weight provenance.</param>
     /// <param name="output">The writer the text is rendered to.</param>
     public static void Render(
         AnalysisResult<ProcessListResult> envelope,
-        TraceInfo info,
-        MetricInfo metric,
+        ProcessInventorySnapshot inventory,
         TextWriter output)
     {
         ProcessListResult result = envelope.Result;
-        string unit = metric.Unit;
+        string unit = inventory.Metric.Unit;
 
         output.WriteLine(
-            $"{info.Format}  {info.SampleCount} samples  {info.TotalWeight:N1} {unit}  symbols {info.SymbolResolutionRate:P0}");
+            $"{inventory.Format}  {result.TotalSamples} samples  {result.TotalWeight:N1} {unit}");
 
         output.WriteLine();
         output.WriteLine(
-            $"processes by {metric.Name}  -  {result.TotalSamples} samples  {result.TotalWeight:N1} {unit}");
+            $"processes by {inventory.Metric.Name}  -  {result.TotalSamples} samples  {result.TotalWeight:N1} {unit}");
 
         output.WriteLine(
             $"  {"weight",WeightColumnWidth}  {"%",PercentColumnWidth}  {"samples",SamplesColumnWidth}  process");

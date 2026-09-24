@@ -5,6 +5,7 @@
 using System.Globalization;
 using Filtrace.Caching;
 using Filtrace.Tracing;
+using Filtrace.Tracing.Providers;
 
 namespace Filtrace.Server;
 
@@ -35,6 +36,7 @@ public sealed partial class TraceStore
     // are case-insensitive, Linux is case-sensitive, so distinct-by-case paths must
     // not be conflated there.
     private readonly LruCache<string, LoadedTrace> _cache;
+    private readonly LruCache<string, ProcessInventorySnapshot> _processInventoryCache;
 
     /// <summary>
     ///  Initializes a new <see cref="TraceStore"/> retaining at most
@@ -57,7 +59,25 @@ public sealed partial class TraceStore
             : StringComparer.OrdinalIgnoreCase;
 
         _cache = new LruCache<string, LoadedTrace>(capacity, pathComparer);
+        _processInventoryCache = new LruCache<string, ProcessInventorySnapshot>(
+            capacity,
+            pathComparer);
+
         _conversionGates = new Dictionary<string, ConversionGate>(pathComparer);
+    }
+
+    /// <summary>
+    ///  Returns the bounded process-inventory snapshot for <paramref name="path"/>,
+    ///  reading it on first use and reusing it for later MCP requests.
+    /// </summary>
+    /// <param name="path">The trace path.</param>
+    /// <returns>The cached process inventory.</returns>
+    public ProcessInventorySnapshot GetProcessInventory(string path)
+    {
+        string fullPath = Path.GetFullPath(path);
+        return _processInventoryCache.GetOrAdd(
+            fullPath,
+            static key => new ProcessInventoryProvider().Read(key));
     }
 
     /// <summary>

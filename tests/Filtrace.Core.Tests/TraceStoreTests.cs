@@ -36,6 +36,18 @@ public sealed class TraceStoreTests
     }
 
     [TestMethod]
+    public void GetProcessInventory_SamePath_ReturnsCachedInstance()
+    {
+        TraceStore store = new();
+        string path = FixturePath("threadpool.nettrace");
+
+        ProcessInventorySnapshot first = store.GetProcessInventory(path);
+        ProcessInventorySnapshot second = store.GetProcessInventory(path);
+
+        second.Should().BeSameAs(first);
+    }
+
+    [TestMethod]
     public async Task GetAsync_ConcurrentSameTrace_ConvertsOnceAndWaitsAsynchronously()
     {
         TraceStore store = new();
