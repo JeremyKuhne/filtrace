@@ -672,7 +672,7 @@ public sealed class CollectExecutorTests
             OutputPath = "out.etl",
             Profile = CollectProfile.ThreadTime,
             Rundown = true,
-            RundownProcessIds = [42, 84],
+            RundownProcessIds = [7, 8],
         };
 
         RundownCaptureInfo rundown = new(
@@ -698,6 +698,8 @@ public sealed class CollectExecutorTests
 
         output.ToString().Should().Contain(
             "--metric threadtime --pid 42,84 --children exclude");
+
+        output.ToString().Should().NotContain("--pid 7,8");
     }
 
     [TestMethod]
