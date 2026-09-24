@@ -255,6 +255,8 @@ to roughly 641 MiB. It limits quiescence polling to 30 seconds and can add
 hundreds of megabytes; the subsequent ETL merge can extend total duration beyond
 that polling bound. It is not valid with `--profile diskio` or `--max-size-mb`;
 inspect the capture and `info` lost-event warnings before trusting resolved names.
+A targeted process must be running before capture and remain the same process
+through rundown; exit or PID reuse fails explicitly.
 
 The `diskio` profile enables only physical DiskIO/DiskIOInit events, process/thread
 attribution, and the DiskFileIO name rundown. It deliberately omits CPU sampling,

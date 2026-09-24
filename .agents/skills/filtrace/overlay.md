@@ -38,3 +38,5 @@ retain those ids in capture provenance. It requests 512 MB of ETW buffers,
 permits roughly 641 MiB through TraceEvent's derived maximum-buffer count, and
 can add hundreds of megabytes. It is invalid with `--profile diskio` or
 `--max-size-mb`. Require zero lost events before trusting the recovered names.
+A targeted process must be running before capture and remain the same process
+through rundown; exit or PID reuse fails explicitly.

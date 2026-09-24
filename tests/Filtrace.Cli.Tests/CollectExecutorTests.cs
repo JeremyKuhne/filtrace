@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Diagnostics;
 using System.Text.Json;
 using Filtrace.Output;
 using Filtrace.Tracing;
@@ -152,6 +153,101 @@ public sealed class CollectExecutorTests
 
         act.Should().Throw<ArgumentOutOfRangeException>()
             .WithMessage($"*At most {EtwCollectRequest.MaximumRundownProcessIds}*");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Collect_MissingRundownProcess_ThrowsBeforeCreatingOutput()
+    {
+        if (!EtwCollector.IsElevated)
+        {
+            Assert.Inconclusive("ETW capture needs Administrator; not available here.");
+        }
+
+        string output = Path.Join(
+            Path.GetTempPath(),
+            $"filtrace-missing-rundown-process-{Guid.NewGuid():N}.etl");
+
+        Action act = () => EtwCollector.Collect(new EtwCollectRequest
+        {
+            LaunchExecutable = "app.exe",
+            OutputPath = output,
+            Rundown = true,
+            RundownProcessIds = [int.MaxValue],
+        });
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage($"*{int.MaxValue}*not running*");
+
+        File.Exists(output).Should().BeFalse();
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Collect_RundownProcessExits_CleansTemporaryFiles()
+    {
+        if (!EtwCollector.IsElevated)
+        {
+            Assert.Inconclusive("ETW capture needs Administrator; not available here.");
+        }
+
+        string workload = Path.Join(AppContext.BaseDirectory, "Filtrace.PerfWorkload.exe");
+        ProcessStartInfo startInfo = new(workload)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        startInfo.ArgumentList.Add("cpu");
+        startInfo.ArgumentList.Add("--duration-ms");
+        startInfo.ArgumentList.Add("3000");
+        startInfo.ArgumentList.Add("--workers");
+        startInfo.ArgumentList.Add("1");
+        startInfo.ArgumentList.Add("--depth");
+        startInfo.ArgumentList.Add("1");
+
+        using Process target = Process.Start(startInfo)!;
+        string output = Path.Join(
+            Path.GetTempPath(),
+            $"filtrace-exited-rundown-process-{Guid.NewGuid():N}.etl");
+
+        string directory = Path.GetDirectoryName(output)!;
+        string fileName = Path.GetFileName(output);
+        try
+        {
+            Action act = () => EtwCollector.Collect(new EtwCollectRequest
+            {
+                LaunchExecutable = "cmd.exe",
+                LaunchArguments = "/c exit 0",
+                OutputPath = output,
+                Profile = CollectProfile.Startup,
+                Rundown = true,
+                RundownProcessIds = [target.Id],
+                DurationSeconds = 60,
+            });
+
+            act.Should().Throw<InvalidOperationException>()
+                .WithMessage($"*{target.Id}*exited*");
+
+            target.WaitForExit();
+            File.Exists(output).Should().BeTrue();
+            Directory.GetFiles(directory, $"{fileName}.rundown-*.etl").Should().BeEmpty();
+            Directory.GetFiles(directory, $"{fileName}.merged-*.etl").Should().BeEmpty();
+        }
+        finally
+        {
+            if (!target.HasExited)
+            {
+                target.Kill(entireProcessTree: true);
+                target.WaitForExit();
+            }
+
+            File.Delete(output);
+            foreach (string temporaryPath in Directory.EnumerateFiles(directory, $"{fileName}.*-*.etl"))
+            {
+                File.Delete(temporaryPath);
+            }
+        }
     }
 
     [TestMethod]

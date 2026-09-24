@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.ComponentModel;
 using System.Diagnostics;
 using Filtrace.Tracing;
 
@@ -29,6 +30,71 @@ public sealed class EtwChildProcessTests
             filteringSupported: false);
 
         action.Should().NotThrow();
+    }
+
+    [TestMethod]
+    public void ValidateRundownProcessStarts_ExitedTarget_Throws()
+    {
+        Dictionary<int, long> expected = new() { [42] = 100 };
+
+        Action action = () => EtwCollector.ValidateRundownProcessStarts(
+            expected,
+            static _ => null);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*42*exited*");
+    }
+
+    [TestMethod]
+    public void ValidateRundownProcessStarts_ReusedTarget_Throws()
+    {
+        Dictionary<int, long> expected = new() { [42] = 100 };
+
+        Action action = () => EtwCollector.ValidateRundownProcessStarts(
+            expected,
+            static _ => 101);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*42*reused*");
+    }
+
+    [TestMethod]
+    public void GetProcessStartTicks_ProcessGoneException_ReturnsNull()
+    {
+        long? argument = EtwCollector.GetProcessStartTicks(
+            42,
+            static _ => throw new ArgumentException());
+
+        long? invalidOperation = EtwCollector.GetProcessStartTicks(
+            42,
+            static _ => throw new InvalidOperationException());
+
+        argument.Should().BeNull();
+        invalidOperation.Should().BeNull();
+    }
+
+    [TestMethod]
+    [DataRow(6)]
+    [DataRow(87)]
+    [DataRow(1168)]
+    public void GetProcessStartTicks_ProcessGoneNativeError_ReturnsNull(int nativeError)
+    {
+        long? start = EtwCollector.GetProcessStartTicks(
+            42,
+            _ => throw new Win32Exception(nativeError));
+
+        start.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void GetProcessStartTicks_AccessDenied_Rethrows()
+    {
+        Action action = () => EtwCollector.GetProcessStartTicks(
+            42,
+            static _ => throw new Win32Exception(5));
+
+        action.Should().Throw<Win32Exception>()
+            .Where(static exception => exception.NativeErrorCode == 5);
     }
 
     [TestMethod]

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.Versioning;
 
@@ -35,6 +36,10 @@ namespace Filtrace.Tracing;
 /// </remarks>
 public static class EtwCollector
 {
+    private const int ErrorInvalidHandle = 6;
+    private const int ErrorInvalidParameter = 87;
+    private const int ErrorNotFound = 1168;
+
     // TraceEvent converts this request to ETW minimum buffers and permits the pool to
     // grow to roughly 641 MiB through its derived maximum-buffer count.
     private const int RundownBufferSizeMB = 512;
@@ -258,6 +263,9 @@ public static class EtwCollector
         TextWriter? standardOutput,
         TextWriter? standardError)
     {
+        IReadOnlyDictionary<int, long> rundownProcessStarts =
+            ResolveRundownProcessStarts(rundownProcessIds);
+
         string outputPath = Path.GetFullPath(request.OutputPath);
         string? outputDirectory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(outputDirectory))
@@ -331,7 +339,11 @@ public static class EtwCollector
 
         if (request.Rundown)
         {
-            rundown = CaptureRundownAndMerge(outputPath, sessionName, rundownProcessIds);
+            rundown = CaptureRundownAndMerge(
+                outputPath,
+                sessionName,
+                rundownProcessIds,
+                rundownProcessStarts);
         }
 
         long fileSize = File.Exists(outputPath) ? new FileInfo(outputPath).Length : 0;
@@ -362,7 +374,8 @@ public static class EtwCollector
     private static RundownCaptureInfo CaptureRundownAndMerge(
         string outputPath,
         string sessionName,
-        IReadOnlyList<int> processIds)
+        IReadOnlyList<int> processIds,
+        IReadOnlyDictionary<int, long> processStarts)
     {
         string token = Guid.NewGuid().ToString("N");
         string rundownPath = $"{outputPath}.rundown-{token}.etl";
@@ -426,6 +439,7 @@ public static class EtwCollector
                 rundownSize = new FileInfo(rundownPath).Length;
             }
 
+            ValidateRundownProcessStarts(processStarts);
             if (!quiet)
             {
                 double timeoutSeconds = RundownMaxPolls * s_rundownPollInterval.TotalSeconds;
@@ -454,5 +468,107 @@ public static class EtwCollector
             File.Delete(mergedPath);
         }
     }
+
+    private static IReadOnlyDictionary<int, long> ResolveRundownProcessStarts(
+        IReadOnlyList<int> processIds)
+    {
+        ArgumentNullException.ThrowIfNull(processIds);
+        Dictionary<int, long> starts = new(processIds.Count);
+        foreach (int processId in processIds)
+        {
+            long? start = GetProcessStartTicks(processId);
+            if (start is null)
+            {
+                throw new InvalidOperationException(
+                    $"Rundown process id {processId} is not running before capture begins.");
+            }
+
+            starts.Add(processId, start.Value);
+        }
+
+        return starts;
+    }
+
+    /// <summary>
+    ///  Verifies that every targeted process is still the same process after rundown.
+    /// </summary>
+    /// <param name="expectedStarts">Expected process start-time ticks keyed by process id.</param>
+    /// <param name="getProcessStartTicks">
+    ///  Resolves current process start-time ticks, or <see langword="null"/> when the
+    ///  process is no longer running.
+    /// </param>
+    /// <exception cref="ArgumentNullException">A required argument is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">A process exited or its id was reused.</exception>
+    internal static void ValidateRundownProcessStarts(
+        IReadOnlyDictionary<int, long> expectedStarts,
+        Func<int, long?> getProcessStartTicks)
+    {
+        ArgumentNullException.ThrowIfNull(expectedStarts);
+        ArgumentNullException.ThrowIfNull(getProcessStartTicks);
+
+        foreach ((int processId, long expectedStart) in expectedStarts)
+        {
+            long? actualStart = getProcessStartTicks(processId);
+            if (actualStart is null)
+            {
+                throw new InvalidOperationException(
+                    $"Rundown process id {processId} exited before CLR rundown completed.");
+            }
+
+            if (actualStart.Value != expectedStart)
+            {
+                throw new InvalidOperationException(
+                    $"Rundown process id {processId} was reused before CLR rundown completed.");
+            }
+        }
+    }
+
+    private static void ValidateRundownProcessStarts(
+        IReadOnlyDictionary<int, long> expectedStarts) =>
+            ValidateRundownProcessStarts(expectedStarts, GetProcessStartTicks);
+
+    /// <summary>
+    ///  Resolves process identity while translating only process-gone failures to
+    ///  <see langword="null"/>.
+    /// </summary>
+    /// <param name="processId">The process id being resolved.</param>
+    /// <param name="readStartTicks">The underlying process lookup.</param>
+    /// <returns>Start-time ticks, or <see langword="null"/> when the process disappeared.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="readStartTicks"/> is <see langword="null"/>.</exception>
+    internal static long? GetProcessStartTicks(
+        int processId,
+        Func<int, long?> readStartTicks)
+    {
+        ArgumentNullException.ThrowIfNull(readStartTicks);
+
+        try
+        {
+            return readStartTicks(processId);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (Win32Exception exception) when (
+            exception.NativeErrorCode is ErrorInvalidHandle
+                or ErrorInvalidParameter
+                or ErrorNotFound)
+        {
+            return null;
+        }
+    }
+
+    private static long? GetProcessStartTicks(int processId) =>
+        GetProcessStartTicks(
+            processId,
+            static id =>
+            {
+                using Process process = Process.GetProcessById(id);
+                return process.HasExited ? null : process.StartTime.ToUniversalTime().Ticks;
+            });
 
 }
