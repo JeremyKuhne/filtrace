@@ -180,10 +180,24 @@ internal static class CollectExecutor
             {
                 output.WriteLine($"  filtrace processes \"{trace}\"");
                 output.WriteLine($"  filtrace rank \"{trace}\" --metric cpu --process \"{result.ProcessName}\"");
+                if (result.Rundown is { ProcessIds.Count: > 0 } scopedRundown)
+                {
+                    string processIds = string.Join(",", scopedRundown.ProcessIds);
+                    output.WriteLine(
+                        $"  filtrace rank \"{trace}\" --metric cpu --pid {processIds} --children exclude");
+                }
+
                 if (request.Profile == CollectProfile.ThreadTime)
                 {
                     output.WriteLine(
                         $"  filtrace rank \"{trace}\" --metric threadtime --process \"{result.ProcessName}\"");
+
+                    if (result.Rundown is { ProcessIds.Count: > 0 } scopedThreadTimeRundown)
+                    {
+                        string processIds = string.Join(",", scopedThreadTimeRundown.ProcessIds);
+                        output.WriteLine(
+                            $"  filtrace rank \"{trace}\" --metric threadtime --pid {processIds} --children exclude");
+                    }
                 }
 
                 output.WriteLine(
