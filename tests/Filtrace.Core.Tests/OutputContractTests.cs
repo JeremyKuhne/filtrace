@@ -804,10 +804,31 @@ public sealed class OutputContractTests
 
         bounded.Threads.Should().ContainSingle();
         bounded.Threads[0].Thread.Length.Should().Be(CaptureManifestOutput.MaxFrameLength);
-        warning.Should().Contain("thread labels were truncated");
+        warning.Should().Contain("sanitized or truncated")
+            .And.Contain($"at most {CaptureManifestOutput.MaxFrameLength} characters");
 
         OutputBudget.EstimateTokens(json).Should().BeLessThanOrEqualTo(
             OutputBudget.DefaultCeilingTokens);
+    }
+
+    [TestMethod]
+    public void LimitThreads_ControlCharacterLabel_ReportsSanitization()
+    {
+        TraceInfoView view = new(
+            "/traces/control-label.speedscope.json",
+            "Speedscope",
+            1.0,
+            1,
+            1.0,
+            [new ThreadSampleInfo("worker\t1", 1)],
+            ["cpu"]);
+
+        TraceInfoView bounded = TraceInfoView.LimitThreads(view, out string? warning);
+
+        bounded.Threads.Should().ContainSingle();
+        bounded.Threads[0].Thread.Should().Be("worker 1");
+        warning.Should().Contain("sanitized or truncated")
+            .And.Contain($"at most {CaptureManifestOutput.MaxFrameLength} characters");
     }
 
     [TestMethod]

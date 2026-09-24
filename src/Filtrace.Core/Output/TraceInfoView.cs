@@ -128,11 +128,11 @@ public sealed record TraceInfoView(
         ArgumentNullException.ThrowIfNull(view);
 
         List<ThreadSampleInfo> boundedThreads = new(view.Threads.Count);
-        bool labelsTruncated = false;
+        bool labelsChanged = false;
         foreach (ThreadSampleInfo thread in view.Threads)
         {
             string label = CaptureManifestOutput.BoundFrame(thread.Thread);
-            labelsTruncated |= !string.Equals(label, thread.Thread, StringComparison.Ordinal);
+            labelsChanged |= !string.Equals(label, thread.Thread, StringComparison.Ordinal);
             boundedThreads.Add(
                 ReferenceEquals(label, thread.Thread)
                     ? thread
@@ -147,7 +147,7 @@ public sealed record TraceInfoView(
             out bool truncated,
             takeAtLeastOne: false);
 
-        if (!truncated && !labelsTruncated)
+        if (!truncated && !labelsChanged)
         {
             warning = null;
             return view;
@@ -157,11 +157,11 @@ public sealed record TraceInfoView(
             ? $"Showing {kept.Count} of {view.Threads.Count} threads; more would exceed the response budget."
             : "";
 
-        if (labelsTruncated)
+        if (labelsChanged)
         {
             warning +=
-                $"{(warning.Length == 0 ? "" : " ")}One or more thread labels were truncated to "
-                    + $"{CaptureManifestOutput.MaxFrameLength} characters.";
+                $"{(warning.Length == 0 ? "" : " ")}One or more thread labels were sanitized "
+                    + $"or truncated to at most {CaptureManifestOutput.MaxFrameLength} characters.";
         }
 
         return view with { Threads = kept };
