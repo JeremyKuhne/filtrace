@@ -461,7 +461,16 @@ internal sealed partial class SourceResolutionTracker
         }
     }
 
-    private static PdbMatchStatus GetPdbMatchStatus(
+    /// <summary>
+    ///  Checks the trace module's PDB identity using the local symbol reader.
+    /// </summary>
+    /// <param name="reader">The local symbol reader.</param>
+    /// <param name="module">The trace module, or null when module metadata is unavailable.</param>
+    /// <param name="candidateDirectory">
+    ///  An optional directory used to distinguish a mismatched PDB from an absent one.
+    /// </param>
+    /// <returns>The strongest local PDB identity outcome.</returns>
+    internal static PdbMatchStatus GetPdbMatchStatus(
         SymbolReader reader,
         TraceModuleFile? module,
         string? candidateDirectory) =>
