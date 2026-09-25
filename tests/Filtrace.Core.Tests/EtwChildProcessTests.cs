@@ -228,19 +228,25 @@ public sealed class EtwChildProcessTests
         try
         {
             StringWriter subjectLog = new();
-            Stopwatch stopwatch = Stopwatch.StartNew();
             ProcessStartInfo startInfo = PowerShellStartInfo(
                 rootScript, descendantScript, descendantPidPath);
 
             EtwInvocation result = EtwChildProcess.Run(
                 startInfo, 1, 30, subjectLog, subjectLog);
 
-            stopwatch.Stop();
+            DateTimeOffset finishedUtc = DateTimeOffset.UtcNow;
 
             descendantPid = int.Parse(File.ReadAllText(descendantPidPath));
             result.ExitCode.Should().Be(23);
-            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(25));
-            (DateTimeOffset.UtcNow - result.StoppedUtc).Should().BeGreaterThan(TimeSpan.FromSeconds(1));
+            using (Process descendant = Process.GetProcessById(descendantPid.Value))
+            {
+                (result.StoppedUtc - descendant.StartTime.ToUniversalTime())
+                    .Should().BeLessThan(TimeSpan.FromSeconds(15));
+            }
+
+            TimeSpan drainDuration = finishedUtc - result.StoppedUtc;
+            drainDuration.Should().BeGreaterThan(TimeSpan.FromSeconds(1));
+            drainDuration.Should().BeLessThan(TimeSpan.FromSeconds(15));
             string log = subjectLog.ToString();
             log.Should().Contain("[subject stdout]");
             log.Should().Contain("[subject stderr]");
