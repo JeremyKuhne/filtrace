@@ -18,6 +18,8 @@ public sealed class DiffExecutorTests
 
     private static string Activity => FixturePath("activity.nettrace");
 
+    private static string Etw => FixturePath("etw.etl");
+
     // A minimal evented speedscope where frame A wraps frame B: the B close at
     // 'bCloseAt' fixes B's self-weight, and A's self-weight is the remainder up to
     // 'aCloseAt'. Authoring both sides lets a test assert exact diff deltas.
@@ -38,7 +40,8 @@ public sealed class DiffExecutorTests
         OutputFormat format = OutputFormat.Text,
         bool strict = false,
         IReadOnlyList<string>? fold = null,
-        ScopeRequest? scope = null) =>
+        ScopeRequest? scope = null,
+        DiffProcessScopes? scopes = null) =>
             new(
                 beforePath,
                 afterPath,
@@ -49,7 +52,7 @@ public sealed class DiffExecutorTests
                 format,
                 Symbols: null,
                 strict,
-                scope);
+                scopes ?? DiffProcessScopes.Shared(scope));
 
     private static (int Exit, string Out, string Error) Run(DiffRequest request)
     {
@@ -214,6 +217,85 @@ public sealed class DiffExecutorTests
         output.Should().Contain("baseline: No samples remained after scoping");
         output.Should().Contain("current: No samples remained after scoping");
         output.Should().Contain("definitely-not-a-process");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_PerArmIds_UsesDistinctExactScopesAndPreservesCpuUnits()
+    {
+        DiffProcessScopes.TryResolve(
+            ScopeRequest.Auto, [40356], [48348], includeChildren: false,
+            out DiffProcessScopes scopes, out _).Should().BeTrue();
+
+        (int exit, string output, string error) = Run(Request(Etw, Etw, format: OutputFormat.Json, scopes: scopes));
+
+        exit.Should().Be(ExitCodes.Success);
+        error.Should().BeEmpty();
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement envelope = document.RootElement;
+        envelope.GetProperty("context").GetProperty("unit").GetString().Should().Be("ms");
+        JsonElement result = envelope.GetProperty("result");
+        result.GetProperty("beforeScopeWeight").GetDouble().Should().Be(50);
+        result.GetProperty("afterScopeWeight").GetDouble().Should().Be(1);
+        result.GetProperty("scopeDelta").GetDouble().Should().Be(-49);
+        output.Should().Contain("40356").And.Contain("48348");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_PerArmIds_DifferentCpuWeightUnits_ReturnsInputError()
+    {
+        DiffProcessScopes.TryResolve(
+            ScopeRequest.Auto, [9144], [40356], includeChildren: false,
+            out DiffProcessScopes scopes, out _).Should().BeTrue();
+
+        (int exit, string output, string error) = Run(Request(Etw, Etw, scopes: scopes));
+
+        exit.Should().Be(ExitCodes.InputError);
+        output.Should().BeEmpty();
+        error.Should().Contain("Cannot compare CPU weights in samples with weights in ms");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_PerArmIds_MissingOnEitherSide_ReturnsInputErrorRatherThanFalseDiff()
+    {
+        foreach (bool missingBefore in new[] { true, false })
+        {
+            DiffProcessScopes.TryResolve(
+                ScopeRequest.Auto, missingBefore ? [999999] : [40356],
+                missingBefore ? [48348] : [999999], includeChildren: false,
+                out DiffProcessScopes scopes, out _).Should().BeTrue();
+
+            (int exit, string output, string error) = Run(Request(Etw, Etw, scopes: scopes));
+
+            exit.Should().Be(ExitCodes.InputError);
+            output.Should().BeEmpty();
+            error.Should().Contain(missingBefore ? "Baseline process id 999999" : "Current process id 999999");
+        }
+    }
+
+    [TestMethod]
+    public void Run_PerArmIds_RejectsNonEtlAndManifestInputs()
+    {
+        DiffProcessScopes.TryResolve(
+            ScopeRequest.Auto, [9144], [40356], includeChildren: false,
+            out DiffProcessScopes scopes, out _).Should().BeTrue();
+
+        (int traceExit, string traceOutput, string traceError) =
+            Run(Request(Speedscope, Speedscope, scopes: scopes));
+
+        traceExit.Should().Be(ExitCodes.InputError);
+        traceOutput.Should().BeEmpty();
+        traceError.Should().Contain("requires an .etl trace");
+
+        string manifest = FixturePath("manifest.json");
+        (int manifestExit, string manifestOutput, string manifestError) =
+            Run(Request(manifest, manifest, scopes: scopes));
+
+        manifestExit.Should().Be(ExitCodes.UsageError);
+        manifestOutput.Should().BeEmpty();
+        manifestError.Should().Contain("manifest cases use their recorded invocation ids");
     }
 
     [TestMethod]

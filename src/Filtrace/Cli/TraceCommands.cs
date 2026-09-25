@@ -992,6 +992,12 @@ internal sealed class TraceCommands
     /// </param>
     /// <param name="children">Whether the process scope follows descendants: include (default) or exclude.</param>
     /// <param name="benchmark">Scope both traces to the BenchmarkDotNet measured-workload subtree.</param>
+    /// <param name="beforePid">
+    ///  Scope only the baseline .etl to these exact process ids (comma-separated); requires --after-pid.
+    /// </param>
+    /// <param name="afterPid">
+    ///  Scope only the current .etl to these exact process ids (comma-separated); requires --before-pid.
+    /// </param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
     ///  Manifest diffs pair at most 24 cases by benchmark plus parameters and show at
@@ -1012,11 +1018,20 @@ internal sealed class TraceCommands
         bool allProcesses = false,
         int[]? pid = null,
         Children children = Children.Include,
-        bool benchmark = false)
+        bool benchmark = false,
+        int[]? beforePid = null,
+        int[]? afterPid = null)
     {
         if (!RankRequestFactory.TryResolveScope(process, pid, children, allProcesses, out ScopeRequest scope, out string? scopeError))
         {
             Console.Error.WriteLine(scopeError);
+            return ExitCodes.UsageError;
+        }
+
+        if (!DiffProcessScopes.TryResolve(
+            scope, beforePid, afterPid, children == Children.Include, out DiffProcessScopes scopes, out string? diffScopeError))
+        {
+            Console.Error.WriteLine(diffScopeError);
             return ExitCodes.UsageError;
         }
 
@@ -1037,7 +1052,7 @@ internal sealed class TraceCommands
             format,
             symbols,
             strict,
-            scope);
+            scopes);
 
         return DiffExecutor.Run(request, Console.Out, Console.Error);
     }
