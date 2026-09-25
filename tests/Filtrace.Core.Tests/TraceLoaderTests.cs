@@ -449,6 +449,38 @@ public sealed class TraceLoaderTests
     }
 
     [TestMethod]
+    [DataRow(@"C:\build\Main.pdb")]
+    [DataRow(@"C:/build\Main.pdb")]
+    [DataRow("/build/Main.pdb")]
+    public void MayHaveLocalPdb_RecordedPathStyles_MatchesFlatPdb(string pdbName)
+    {
+        HashSet<string> names = new(StringComparer.OrdinalIgnoreCase) { "Main.PDB" };
+
+        Readers.TraceLogReader.MayHaveLocalPdb(names, pdbName, modulePath: string.Empty).Should().BeTrue();
+        Readers.TraceLogReader.MayHaveLocalPdb(names, @"C:\build\Other.pdb", modulePath: string.Empty)
+            .Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void MayHaveLocalPdb_WindowsPdbName_FindsAdjacentLocalPdb()
+    {
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-pdb-adjacent-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            File.WriteAllText(Path.Join(directory, "Main.pdb"), "");
+            HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
+
+            Readers.TraceLogReader.MayHaveLocalPdb(
+                names, @"C:\build\Main.pdb", Path.Join(directory, "Main.dll")).Should().BeTrue();
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void GetAvailablePdbNames_NestedDirectory_KeepsIdentityLookup()
     {
         string root = Path.Join(Path.GetTempPath(), $"filtrace-pdb-names-{Guid.NewGuid():N}");
@@ -456,8 +488,12 @@ public sealed class TraceLoaderTests
         Directory.CreateDirectory(Path.Join(symbols, "nested"));
         try
         {
-            Readers.TraceLogReader.GetAvailablePdbNames(symbols, extractedPdbDirectory: null)
-                .Should().BeNull();
+            HashSet<string>? names = Readers.TraceLogReader.GetAvailablePdbNames(
+                symbols, extractedPdbDirectory: null);
+
+            names.Should().BeNull();
+            Readers.TraceLogReader.MayHaveLocalPdb(
+                names, @"C:\build\Main.pdb", modulePath: string.Empty).Should().BeTrue();
         }
         finally
         {

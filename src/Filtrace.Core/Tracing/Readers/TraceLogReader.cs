@@ -930,9 +930,7 @@ internal abstract partial class TraceLogReader : ITraceReader
             {
                 eligible.Add((int)module.ModuleFileIndex);
             }
-            else if ((availablePdbNames is null
-                    || availablePdbNames.Contains(Path.GetFileName(module.PdbName))
-                    || HasAdjacentLocalPdb(module))
+            else if (MayHaveLocalPdb(availablePdbNames, module.PdbName, module.FilePath)
                 && SourceResolutionTracker.GetPdbMatchStatus(
                     reader,
                     module,
@@ -998,16 +996,37 @@ internal abstract partial class TraceLogReader : ITraceReader
         }
     }
 
-    private static bool HasAdjacentLocalPdb(TraceModuleFile module)
+    /// <summary>
+    ///  Checks whether a recorded PDB path could resolve from locally available files.
+    /// </summary>
+    /// <param name="availablePdbNames">Local PDB names, or null when the inventory is uncertain.</param>
+    /// <param name="pdbName">The recorded PDB path, which may use another platform's separators.</param>
+    /// <param name="modulePath">The module path used to check for an adjacent local PDB.</param>
+    /// <returns>True when source lookup should remain enabled for the module.</returns>
+    internal static bool MayHaveLocalPdb(
+        IReadOnlySet<string>? availablePdbNames,
+        string pdbName,
+        string modulePath)
     {
-        string modulePath = module.FilePath;
+        if (availablePdbNames is null)
+        {
+            return true;
+        }
+
+        string pdbFileName = SourceResolutionTracker.GetPdbFileName(pdbName);
+        return availablePdbNames.Contains(pdbFileName)
+            || HasAdjacentLocalPdb(modulePath, pdbFileName);
+    }
+
+    private static bool HasAdjacentLocalPdb(string modulePath, string pdbFileName)
+    {
         if (string.IsNullOrEmpty(modulePath) || modulePath.StartsWith("\\\\", StringComparison.Ordinal))
         {
             return false;
         }
 
         string? directory = Path.GetDirectoryName(modulePath);
-        return directory is not null && File.Exists(Path.Join(directory, Path.GetFileName(module.PdbName)));
+        return directory is not null && File.Exists(Path.Join(directory, pdbFileName));
     }
 
     /// <summary>
