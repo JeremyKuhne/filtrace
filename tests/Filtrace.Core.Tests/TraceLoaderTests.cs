@@ -422,6 +422,50 @@ public sealed class TraceLoaderTests
     }
 
     [TestMethod]
+    public void GetAvailablePdbNames_FlatDirectories_UsesCaseInsensitiveNames()
+    {
+        string root = Path.Join(Path.GetTempPath(), $"filtrace-pdb-names-{Guid.NewGuid():N}");
+        string symbols = Path.Join(root, "symbols");
+        string extracted = Path.Join(root, "extracted");
+        Directory.CreateDirectory(symbols);
+        Directory.CreateDirectory(extracted);
+        try
+        {
+            File.WriteAllText(Path.Join(symbols, "Main.PDB"), "");
+            File.WriteAllText(Path.Join(symbols, "notes.txt"), "");
+            File.WriteAllText(Path.Join(extracted, "Embedded.pdb"), "");
+
+            HashSet<string>? names = Readers.TraceLogReader.GetAvailablePdbNames(symbols, extracted);
+
+            names.Should().NotBeNull();
+            names!.Count.Should().Be(2);
+            names.Contains("main.pdb").Should().BeTrue();
+            names.Contains("EMBEDDED.PDB").Should().BeTrue();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void GetAvailablePdbNames_NestedDirectory_KeepsIdentityLookup()
+    {
+        string root = Path.Join(Path.GetTempPath(), $"filtrace-pdb-names-{Guid.NewGuid():N}");
+        string symbols = Path.Join(root, "symbols");
+        Directory.CreateDirectory(Path.Join(symbols, "nested"));
+        try
+        {
+            Readers.TraceLogReader.GetAvailablePdbNames(symbols, extractedPdbDirectory: null)
+                .Should().BeNull();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void AddEventLossWarning_Zero_DoesNotAddWarning()
     {
         List<string> warnings = [];

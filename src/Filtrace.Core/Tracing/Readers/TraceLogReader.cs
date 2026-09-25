@@ -127,6 +127,16 @@ internal abstract partial class TraceLogReader : ITraceReader
                 ? null
                 : ComputeActivitySampleFilter(traceLog, symbolReader, activityName);
 
+            HashSet<int>? sourceLookupModules = localSymbolPath is null
+                || symbolOptions is { ResolveNativeRuntime: true }
+                    ? null
+                    : GetSourceLookupModules(
+                        traceLog,
+                        symbolReader,
+                        symbolsDirectory,
+                        extractedPdbDirectory,
+                        symbolScope ??= SymbolModuleScope.Create(traceLog, resolved));
+
             return ReadCore(
                 traceLog,
                 Format,
@@ -138,7 +148,8 @@ internal abstract partial class TraceLogReader : ITraceReader
                 cacheState,
                 new SourceResolutionTracker(symbolsDirectory, localSymbolPath),
                 nativeSymbols,
-                resolveSourceLocations: localSymbolPath is not null);
+                resolveSourceLocations: localSymbolPath is not null,
+                sourceLookupModules);
         }
         finally
         {
@@ -260,7 +271,8 @@ internal abstract partial class TraceLogReader : ITraceReader
         EtlxCacheState cacheState,
         SourceResolutionTracker sourceResolution,
         NativeSymbolInfo? nativeSymbols,
-        bool resolveSourceLocations)
+        bool resolveSourceLocations,
+        IReadOnlySet<int>? sourceLookupModules)
     {
         string? appliedScope = resolvedScope.Phrase;
         bool processScopeDroppedSample = false;
@@ -456,7 +468,7 @@ internal abstract partial class TraceLogReader : ITraceReader
                     if (locationCache is not null)
                     {
                         address ??= traceLog.CodeAddresses[codeAddressIndex];
-                        location = ResolveLocation(symbolReader, address, locationCache);
+                        location = ResolveLocation(symbolReader, address, locationCache, sourceLookupModules);
                         leafToRootLocations!.Add(location);
                     }
 
@@ -898,13 +910,117 @@ internal abstract partial class TraceLogReader : ITraceReader
         "msvcrt"
     ];
 
+    private static HashSet<int> GetSourceLookupModules(
+        EtlxTraceLog traceLog,
+        SymbolReader reader,
+        string? symbolsDirectory,
+        string? extractedPdbDirectory,
+        SymbolModuleScope moduleScope)
+    {
+        HashSet<string>? availablePdbNames = GetAvailablePdbNames(symbolsDirectory, extractedPdbDirectory);
+        HashSet<int> eligible = [];
+        foreach (TraceModuleFile module in traceLog.ModuleFiles)
+        {
+            if (!moduleScope.Includes(module))
+            {
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(module.PdbName) || module.PdbSignature == Guid.Empty)
+            {
+                eligible.Add((int)module.ModuleFileIndex);
+            }
+            else if ((availablePdbNames is null
+                    || availablePdbNames.Contains(Path.GetFileName(module.PdbName))
+                    || HasAdjacentLocalPdb(module))
+                && SourceResolutionTracker.GetPdbMatchStatus(
+                    reader,
+                    module,
+                    candidateDirectory: null) == SourceResolutionTracker.PdbMatchStatus.Matched)
+            {
+                eligible.Add((int)module.ModuleFileIndex);
+            }
+        }
+
+        return eligible;
+    }
+
+    /// <summary>
+    ///  Inventories flat local symbol directories without hiding PDBs in uncertain layouts.
+    /// </summary>
+    /// <param name="symbolsDirectory">The caller's local symbol directory.</param>
+    /// <param name="extractedPdbDirectory">The extracted embedded-PDB directory, if any.</param>
+    /// <returns>The names, or null to retain identity-based lookup for uncertain layouts.</returns>
+    internal static HashSet<string>? GetAvailablePdbNames(
+        string? symbolsDirectory,
+        string? extractedPdbDirectory)
+    {
+        if (symbolsDirectory is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            if (Directory.EnumerateDirectories(symbolsDirectory).Any())
+            {
+                return null;
+            }
+
+            HashSet<string> names = new(StringComparer.OrdinalIgnoreCase);
+            string?[] directories = [symbolsDirectory, extractedPdbDirectory];
+            foreach (string? directory in directories)
+            {
+                if (directory is null)
+                {
+                    continue;
+                }
+
+                foreach (string file in Directory.EnumerateFiles(directory))
+                {
+                    if (Path.GetExtension(file).Equals(".pdb", StringComparison.OrdinalIgnoreCase))
+                    {
+                        names.Add(Path.GetFileName(file));
+                    }
+                }
+            }
+
+            return names;
+        }
+        catch (IOException)
+        {
+            // An incomplete inventory must not hide a source line the symbol reader could resolve.
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static bool HasAdjacentLocalPdb(TraceModuleFile module)
+    {
+        string modulePath = module.FilePath;
+        if (string.IsNullOrEmpty(modulePath) || modulePath.StartsWith("\\\\", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string? directory = Path.GetDirectoryName(modulePath);
+        return directory is not null && File.Exists(Path.Join(directory, Path.GetFileName(module.PdbName)));
+    }
+
     /// <summary>
     ///  Resolves the source location (<c>file:line</c>) for a code address,
     ///  caching the result by code-address index so repeated frames cost one
     ///  symbol lookup. Returns an empty string when no local PDB maps the
     ///  address to a source line.
     /// </summary>
-    private static string ResolveLocation(SymbolReader reader, TraceCodeAddress address, Dictionary<int, string> cache)
+    private static string ResolveLocation(
+        SymbolReader reader,
+        TraceCodeAddress address,
+        Dictionary<int, string> cache,
+        IReadOnlySet<int>? sourceLookupModules)
     {
         int key = (int)address.CodeAddressIndex;
         if (cache.TryGetValue(key, out string? cached))
@@ -913,17 +1029,23 @@ internal abstract partial class TraceLogReader : ITraceReader
         }
 
         string location = "";
-        try
+        TraceModuleFile? module = address.ModuleFile;
+        if (sourceLookupModules is null
+            || module is null
+            || sourceLookupModules.Contains((int)module.ModuleFileIndex))
         {
-            SourceLocation? source = address.GetSourceLine(reader);
-            if (source?.SourceFile is { } file)
+            try
             {
-                location = $"{Path.GetFileName(file.BuildTimeFilePath)}:{source.LineNumber}";
+                SourceLocation? source = address.GetSourceLine(reader);
+                if (source?.SourceFile is { } file)
+                {
+                    location = $"{Path.GetFileName(file.BuildTimeFilePath)}:{source.LineNumber}";
+                }
             }
-        }
-        catch (Exception)
-        {
-            // Symbol resolution is best-effort; an unresolved frame carries no line.
+            catch (Exception)
+            {
+                // Symbol resolution is best-effort; an unresolved frame carries no line.
+            }
         }
 
         cache[key] = location;
