@@ -647,7 +647,9 @@ Both heads share one envelope so an agent parses one shape:
 - `schemaVersion` - the envelope version.
 - `warnings` - resolution-rate gates, truncation notices, format guardrails.
 - `hints` - the next step to take (a ranking points at the hottest frame's
-  callers; a diff points at the frame that moved most; an empty scope steers
+  callers when it is resolved; a diff with a resolved largest change points
+  at it; an unresolved leading row first prompts a frame-name quality check
+  and only optionally inspects a returned resolved row; an empty scope steers
   toward widening).
 - the typed result payload.
 
@@ -660,6 +662,19 @@ cleanly and stays cheap in tokens.
 - Read `warnings` before the payload and use `hints` as candidate next steps. An
   empty or poorly resolved result is a reason to fix scope/symbols, not evidence
   that the behavior does not exist.
+- An unresolved `?` row keeps its original weight, share, and denominator. A
+  suggested resolved-frame drill is a separate investigation, not an attribution
+  of the unknown weight; if no resolved row was returned, do not run `callers ?`
+  as though it names one method. Ranking hints can carry a structured `info`
+  follow-up when they can preserve the process and children scope; a root,
+  activity, time, or native-symbol scope that `info` cannot preserve leaves
+  the quality check advisory instead. A resolved `callers` drill carries the
+  same local `--symbols` directory when it fits the follow-up; `callers` cannot
+  reproduce `--native-symbols`, so a native-resolved drill remains advisory.
+  An optional resolved drill also stays advisory when its exact PID list
+  exceeds the structured next-step limit. Speedscope's aggregate frame-resolution
+  field can read 100% even with literal `?` frames; inspect the ranked rows
+  rather than treating that field as proof every frame is named.
 - State the trace format, selected process/root/time window, metric, and
   self-versus-inclusive measure with the finding. Percentages are relative to that
   scope. CPU units are analyzer-version dependent: call them milliseconds only when

@@ -67,7 +67,14 @@ activity. Surface envelope `warnings` and snapshot truncation/incomplete flags.
    Prefer exact ids when a common name matches unrelated instances.
 3. Request bounded JSON (`--format json`; MCP is structured). Read `warnings` first;
    `hints` are candidates. Empty can mean wrong scope, missing providers, weak symbols,
-   or an open Start/Stop operation.
+   or an open Start/Stop operation. If `?` leads a CPU ranking, keep its weight in
+   the denominator and check frame-name quality before attribution. A resolved row
+   is a separate optional drill, not an explanation of the unknown weight; do not
+   treat `callers ?` as one method. Carry local `--symbols` into a replayable
+   resolved caller drill; native-symbol rankings leave that drill advisory because
+   `callers` cannot reproduce that resolution. Speedscope may report 100%
+   aggregate frame-name resolution even when a literal `?` appears; judge those
+   rows on their labels, not that aggregate field.
 4. `callers`, `source`, and `tree` are CPU-only. Refine non-CPU metrics by their own
    self/inclusive, root, or time scope. Report scope, metric, measure, contributing
    count, and warnings; CPU is sampled and inclusive rows overlap.

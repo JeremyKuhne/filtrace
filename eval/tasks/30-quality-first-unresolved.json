@@ -1,0 +1,37 @@
+{
+  "id": "quality-first-unresolved",
+  "title": "Check scoped frame-name quality before drilling an unresolved ETW rank.",
+  "prompt": "In this machine-wide ETW capture, analyze CPU self samples for the HotLoopBench process tree. Which hottest frame is supported, how reliable is that attribution, and what would you check next while preserving scope? Name one conclusion this capture cannot justify.",
+  "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
+  "os": "windows",
+  "steps": [
+    { "args": ["rank", "{fixture}", "--metric", "cpu", "--process", "HotLoopBench", "--children", "include", "--top", "3"] },
+    { "args": ["info", "{fixture}", "--process", "HotLoopBench", "--children", "include"] }
+  ],
+  "assert": [
+    { "step": 0, "field": "result.rows[0].frame", "equals": "?" },
+    { "step": 0, "field": "result.rows[0].weight", "equals": 51 },
+    { "step": 0, "field": "result.contributingRecordCount", "equals": 51 },
+    { "step": 0, "field": "context.scope.processMode", "equals": "name" },
+    { "step": 0, "field": "context.scope.process", "equals": "HotLoopBench" },
+    { "step": 0, "field": "context.scope.rootProcessIds[0]", "equals": 40356 },
+    { "step": 0, "field": "context.scope.descendantProcessIds[0]", "equals": 48348 },
+    { "step": 0, "field": "context.scope.includeChildren", "equals": true },
+    { "step": 0, "field": "warnings[2].data.resolutionPercent", "equals": 0 },
+    { "step": 0, "field": "warnings[3].data.contributingRecords", "equals": 51 },
+    { "step": 0, "field": "hints[0].operation", "equals": "info" },
+    { "step": 0, "field": "hints[0].arguments.path", "endsWith": "\\etw.etl" },
+    { "step": 0, "field": "hints[0].arguments.process", "equals": "HotLoopBench" },
+    { "step": 0, "field": "hints[0].arguments.includeChildren", "equals": true },
+    { "step": 0, "hintContains": "info <trace> --process 'HotLoopBench'" },
+    { "step": 1, "field": "context.operation", "equals": "info" },
+    { "step": 1, "field": "result.path", "endsWith": "\\etw.etl" },
+    { "step": 1, "field": "result.format", "equals": "Etl" },
+    { "step": 1, "field": "result.sampleCount", "equals": 51 },
+    { "step": 1, "field": "result.symbolResolutionRate", "equals": 0 },
+    { "step": 1, "field": "result.cpuSampling.source", "equals": "etw-perfinfo" },
+    { "step": 1, "field": "warnings[1].code", "equals": "scope_applied" },
+    { "step": 1, "jsonContains": "Scoped to the 'HotLoopBench' process tree" }
+  ],
+  "expect": ["--process", "HotLoopBench", "?", "0%", "51", "200", "info"]
+}

@@ -409,7 +409,7 @@ try {
             'Assert-AgentEvalEventObject', 'Assert-AgentEvalEvidenceEvent',
             'Assert-AgentEvalUniqueJsonMembers', 'ConvertFrom-AgentEvalJsonLines',
             'Write-AgentEvalNewFile', 'Save-AgentEvalHostOutput',
-            'ConvertTo-AgentEvalResultJson', 'Get-AgentEvalTaskExpectedOperations',
+            'ConvertTo-AgentEvalResultJson',
             'Split-ArgString', 'Get-AgentEvalMediatedOperation')) {
         $functionAst = $runnerAst.Find({
                 param($node)
@@ -670,6 +670,30 @@ try {
         [string]::IsNullOrEmpty([string]$mcpOnlyContext.cliSourcePath) -and
         $mcpOnlyContext.workspace -eq $mcpOnlyRoot) `
         'MCP-only context creation still required or exposed a CLI apphost.'
+    Assert-True `
+        (Test-AgentEvalMcpUnresolvedCallerAttempt `
+            -ToolName 'trace_callers' -ToolArguments ([pscustomobject]@{ frame = '?' })) `
+        'A literal unknown MCP caller frame was not detected.'
+    Assert-True `
+        (-not (Test-AgentEvalMcpUnresolvedCallerAttempt `
+                -ToolName 'trace_callers' -ToolArguments ([pscustomobject]@{ frame = 'App.Work' }))) `
+        'A resolved MCP caller frame was treated as unknown.'
+    Assert-True `
+        (-not (Test-AgentEvalMcpUnresolvedCallerAttempt `
+                -ToolName 'trace_rank' -ToolArguments ([pscustomobject]@{ frame = '?' }))) `
+        'A non-callers MCP tool was treated as a caller attempt.'
+    Assert-True `
+        (-not (Test-AgentEvalMcpUnresolvedCallerAttempt `
+                -ToolName 'trace_callers' -ToolArguments ([pscustomobject]@{}))) `
+        'An absent MCP frame was treated as unknown.'
+    Assert-True `
+        (-not (Test-AgentEvalMcpUnresolvedCallerAttempt `
+                -ToolName 'trace_callers' -ToolArguments ([pscustomobject]@{ frame = 0 }))) `
+        'A malformed MCP frame was treated as unknown.'
+    Assert-True `
+        (-not (Test-AgentEvalMcpUnresolvedCallerAttempt `
+                -ToolName 'trace_callers' -ToolArguments $null)) `
+        'Missing MCP arguments were treated as an unknown frame.'
 
     [string] $builtCliDll = Join-Path $root 'src/Filtrace/bin/Release/net10.0/filtrace.dll'
     [string] $hiddenCliDll = "$builtCliDll.$([Guid]::NewGuid().ToString('N')).hidden"
@@ -694,6 +718,39 @@ try {
         $mcpOnlyResult = Get-Content -LiteralPath $mcpOnlyResultPath.FullName -Raw | ConvertFrom-Json
         Assert-True ($mcpOnlyResult.iterations[0].success -eq $true) `
             'MCP-only process run did not complete while the CLI DLL was absent.'
+
+        foreach ($callerMode in @('mcp-unknown-caller', 'mcp-resolved-caller', 'mcp-unknown-caller-failed')) {
+            $env:FILTRACE_AGENT_EVAL_FAKE_MODE = $callerMode
+            [string] $callerOutput = Join-Path $temporaryRoot "mcp $callerMode"
+            & $runner `
+                -AgentHost copilot `
+                -Arm mcp `
+                -Model expected-model `
+                -Tasks mixed-unknown-resolved `
+                -N 1 `
+                -McpDll $mcpDllPath `
+                -OutDir $callerOutput `
+                -CopilotPath $pwshPath `
+                -CopilotAdapterPath $fakeHost
+            [System.IO.FileInfo[]] $callerResults = @(
+                Get-ChildItem -LiteralPath $callerOutput -Filter '*.json' -File)
+            Assert-True ($callerResults.Count -eq 1) "MCP mode '$callerMode' did not emit one result."
+            $callerResult = Get-Content -LiteralPath $callerResults[0].FullName -Raw | ConvertFrom-Json
+            [bool] $expectedSuccess = $callerMode -eq 'mcp-resolved-caller'
+            Assert-True `
+                ([bool]$callerResult.iterations[0].success -eq $expectedSuccess) `
+                "MCP mode '$callerMode' had the wrong quality outcome: $($callerResult.iterations[0].note)"
+            Assert-True `
+                (@($callerResult.iterations[0].transcript | Where-Object {
+                            $_.kind -eq 'filtrace' -and $_.operation -eq 'callers'
+                        }).Count -eq 1) `
+                "MCP mode '$callerMode' omitted its caller attempt from the transcript."
+            if (-not $expectedSuccess) {
+                Assert-True `
+                    ($callerResult.iterations[0].note -eq "attempted callers '?' on an unresolved frame") `
+                    "MCP mode '$callerMode' failed for a reason other than its unknown caller frame."
+            }
+        }
     }
     finally {
         Remove-Item Env:FILTRACE_AGENT_EVAL_FAKE_MODE -ErrorAction SilentlyContinue

@@ -182,6 +182,11 @@ foreach ($line in Get-Content -LiteralPath $mcpQaPath) {
             throw "MCP QA task '$($mcpTask.id)' references unknown operation '$operation' (known: $($knownOperations -join ', '))."
         }
     }
+    if ($mcpTask.PSObject.Properties.Name -contains 'forbidFrames' -and
+        ($mcpTask.forbidFrames -isnot [object[]] -or @($mcpTask.forbidFrames).Count -ne 1 -or
+            [string]$mcpTask.forbidFrames[0] -cne '?')) {
+        throw "MCP QA task '$($mcpTask.id)' has an unsupported forbidden-frame rule."
+    }
     if ($null -ne $mcpTask.maxCalls -and [int]$mcpTask.maxCalls -lt 1) {
         throw "MCP QA task '$($mcpTask.id)' has a maxCalls of $($mcpTask.maxCalls); it must be at least 1."
     }

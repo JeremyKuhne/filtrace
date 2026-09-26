@@ -35,6 +35,46 @@ function Get-TextHash([string] $Text) {
     return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 }
 
+function Test-ReadyCaptureV3($Protocol) {
+    return [string]::Equals([string]$Protocol.protocolId, 'ep1-ready-capture-v3', [StringComparison]::Ordinal)
+}
+
+function Get-ReadyCaptureInputs($Protocol) {
+    if (Test-ReadyCaptureV3 $Protocol) { return @($Protocol.inputs.tasks) }
+    return @($Protocol.inputs)
+}
+
+function Get-ReadyCaptureInput($Protocol, [string] $TaskId) {
+    [object[]] $matches = @(Get-ReadyCaptureInputs $Protocol | Where-Object {
+            [string]::Equals([string]$_.taskId, $TaskId, [StringComparison]::Ordinal)
+        })
+    if ($matches.Count -ne 1) { throw "Ready-capture task '$TaskId' is missing or repeated." }
+    return $matches[0]
+}
+
+function Get-ReadyCapturePairTaskId($Protocol, [int] $Pair) {
+    if ($Pair -lt 1 -or $Pair -gt @($Protocol.sample.pairs).Count) {
+        throw "Ready-capture pair '$Pair' is outside the frozen schedule."
+    }
+    if (Test-ReadyCaptureV3 $Protocol) { return [string]$Protocol.sample.pairs[$Pair - 1].taskId }
+    return [string]$Protocol.inputs.taskId
+}
+
+function Get-ReadyCaptureLabel($Protocol, [int] $Pair, [string] $Position, [string] $Arm) {
+    if (Test-ReadyCaptureV3 $Protocol) {
+        [string] $taskId = Get-ReadyCapturePairTaskId $Protocol $Pair
+        return "ep1-v3-$taskId-p$Pair-$Position-$Arm"
+    }
+    return "ep1-rc-p$Pair-$Position-$Arm"
+}
+
+function Get-ReadyCaptureCompleteReason($Protocol) {
+    if (Test-ReadyCaptureV3 $Protocol) {
+        return "$($Protocol.sample.validPairTarget)-valid-pairs"
+    }
+    return 'four-valid-pairs'
+}
+
 function Get-ManifestHash([object[]] $Entries) {
     [string[]] $canonical = @($Entries | ForEach-Object {
             [string] $path = if ($_.PSObject.Properties.Name -ccontains 'relativePath') {
@@ -51,8 +91,27 @@ function Get-ManifestHash([object[]] $Entries) {
     return Get-TextHash (ConvertTo-Json -InputObject $canonical -Compress)
 }
 
+function Get-CanonicalSkillManifest([string] $Root) {
+    $inventory = Get-AgentEvalSkillInput -Root $Root
+    [string[]] $entries = @($inventory.files | ForEach-Object {
+            [string] $text = [System.IO.File]::ReadAllText($_.sourcePath).Replace("`r`n", "`n").Replace("`r", "`n")
+            [byte[]] $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
+            [string]([ordered]@{
+                    path = ([string]$_.relativePath).Replace('\', '/')
+                    bytes = [long]$bytes.Length
+                    sha256 = Get-TextHash $text
+                } | ConvertTo-Json -Compress)
+        })
+    [Array]::Sort($entries, [StringComparer]::Ordinal)
+    return [pscustomobject]@{
+        sha256 = Get-TextHash (ConvertTo-Json -InputObject $entries -Compress)
+        fileCount = @($inventory.files).Count
+    }
+}
+
 function Get-EvaluatorClosureHash($Protocol, [string] $ProtocolFile) {
     [string] $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path ([System.IO.Path]::GetDirectoryName($ProtocolFile)) '../..'))
+    [string[]] $taskPaths = @(Get-ReadyCaptureInputs $Protocol | ForEach-Object { [string]$_.taskPath })
     [string[]] $relativePaths = @(
            [System.IO.Path]::GetRelativePath($repositoryRoot, $ProtocolFile).Replace('\', '/')
         [string]$Protocol.records.schemaPath
@@ -64,8 +123,13 @@ function Get-EvaluatorClosureHash($Protocol, [string] $ProtocolFile) {
         'eval/Get-OperationName.ps1'
         'tools/Get-TokenEstimate.ps1'
         'src/Filtrace/Cli/TraceCommands.cs'
-        [string]$Protocol.inputs.taskPath
-        [string]$Protocol.inputs.qaPath)
+        [string]$Protocol.inputs.qaPath) + $taskPaths
+    if (Test-ReadyCaptureV3 $Protocol) {
+        $relativePaths += @(
+            'tools/Test-Docs.ps1',
+            'eval/Test-ReadyCaptureProtocolV3.ps1',
+            'eval/Invoke-Eval.ps1')
+    }
     [string[]] $entries = @($relativePaths | Sort-Object -CaseSensitive -Unique | ForEach-Object {
             [string] $relativePath = $_
             [string] $path = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $relativePath))
@@ -179,23 +243,24 @@ function New-MetricSummary([double[]] $Values) {
     }
 }
 
-function Test-QualityPass($Session) {
+function Test-QualityPass($Session, [bool] $V3 = $false) {
     [object[]] $criteria = if ($Session.answerCriteria -is [System.Collections.IDictionary]) {
         @($Session.answerCriteria.Values)
     }
     else {
         @($Session.answerCriteria.PSObject.Properties.Value)
     }
-    return [bool]$Session.answerAvailable -and -not [bool]$Session.falseConfidence -and
+    return (-not $V3 -or [bool]$Session.success) -and
+        [bool]$Session.answerAvailable -and -not [bool]$Session.falseConfidence -and
         @($criteria | Where-Object { -not $_.pass }).Count -eq 0
 }
 
-function New-ArmSummary([object[]] $Sessions, [string] $Arm) {
+function New-ArmSummary([object[]] $Sessions, [string] $Arm, [bool] $V3 = $false) {
     [object[]] $armSessions = @($Sessions | Where-Object arm -eq $Arm)
     return [ordered]@{
         arm = $Arm
         sessionCount = $armSessions.Count
-        qualityPassCount = @($armSessions | Where-Object { Test-QualityPass $_ }).Count
+        qualityPassCount = @($armSessions | Where-Object { Test-QualityPass $_ $V3 }).Count
         noAnswerCount = @($armSessions | Where-Object { -not $_.answerAvailable }).Count
         falseConfidenceCount = @($armSessions | Where-Object falseConfidence).Count
         metrics = [ordered]@{
@@ -208,8 +273,8 @@ function New-ArmSummary([object[]] $Sessions, [string] $Arm) {
     }
 }
 
-function Get-QualityBits($Session) {
-    return @(
+function Get-QualityBits($Session, [bool] $V3 = $false) {
+    [bool[]] $bits = @(
         [bool]$Session.answerAvailable,
         [bool]$Session.answerCriteria.scope.pass,
         [bool]$Session.answerCriteria.'attribution-restraint'.pass,
@@ -217,11 +282,13 @@ function Get-QualityBits($Session) {
         [bool]$Session.answerCriteria.'scope-preserving-drill'.pass,
         [bool]$Session.answerCriteria.'unsupported-claim'.pass,
         -not [bool]$Session.falseConfidence)
+    if ($V3) { return [bool[]]($bits + [bool]$Session.success) }
+    return $bits
 }
 
-function Get-PairedQualityState($SkillSession, $CliSession) {
-    [bool[]] $skill = Get-QualityBits $SkillSession
-    [bool[]] $cli = Get-QualityBits $CliSession
+function Get-PairedQualityState($SkillSession, $CliSession, [bool] $V3 = $false) {
+    [bool[]] $skill = Get-QualityBits $SkillSession $V3
+    [bool[]] $cli = Get-QualityBits $CliSession $V3
     [bool] $skillNoWorse = $true
     [bool] $cliNoWorse = $true
     [bool] $skillBetter = $false
@@ -285,6 +352,70 @@ function Get-CostState([object[]] $Pairs, [string] $Member, [double] $Equivalenc
     return 'skill-higher'
 }
 
+function Get-ReadyCaptureQualityState([object[]] $Pairs) {
+    [string] $qualityState = Get-QualityAggregate -Pairs $Pairs
+    [string] $skillFirst = Get-QualityAggregate -Pairs @($Pairs | Where-Object firstArm -eq 'cli-skill')
+    [string] $cliFirst = Get-QualityAggregate -Pairs @($Pairs | Where-Object firstArm -eq 'cli')
+    if (($skillFirst -eq 'skill-higher-observed-quality' -and $cliFirst -eq 'skill-lower-observed-quality') -or
+        ($skillFirst -eq 'skill-lower-observed-quality' -and $cliFirst -eq 'skill-higher-observed-quality')) {
+        return 'order-sensitive'
+    }
+    return $qualityState
+}
+
+function New-ReadyCaptureCostStates([object[]] $Pairs) {
+    return [ordered]@{
+        analysisCalls = Get-CostState -Pairs $Pairs -Member analysisCalls -Equivalence 0 -Relative $false
+        helpCalls = Get-CostState -Pairs $Pairs -Member helpCalls -Equivalence 0 -Relative $false
+        resultTokens = Get-CostState -Pairs $Pairs -Member resultTokens -Equivalence 0.05 -Relative $true
+        wallMs = Get-CostState -Pairs $Pairs -Member wallMs -Equivalence 0.05 -Relative $true
+        hostAiCredits = Get-CostState -Pairs $Pairs -Member hostAiCredits -Equivalence 0 -Relative $false
+    }
+}
+
+function New-ReadyCaptureTaskSummary([string] $TaskId, [object[]] $Sessions, [object[]] $Pairs) {
+    [object[]] $taskSessions = @($Sessions | Where-Object taskId -eq $TaskId)
+    [object[]] $taskPairs = @($Pairs | Where-Object taskId -eq $TaskId)
+    if ($taskSessions.Count -ne 8 -or $taskPairs.Count -ne 4) {
+        throw "EP1 v3 task '$TaskId' does not contain four complete pairs."
+    }
+    [object[]] $pairedDeltas = @($taskPairs | ForEach-Object {
+            [ordered]@{
+                taskId = $TaskId
+                pair = $_.pair
+                firstArm = $_.firstArm
+                qualityState = $_.qualityState
+                deltas = $_.deltas
+            }
+        })
+    [object[]] $orderSummaries = @(@('cli-skill', 'cli') | ForEach-Object {
+            [string] $firstArm = $_
+            [object[]] $group = @($taskPairs | Where-Object firstArm -eq $firstArm)
+            [ordered]@{
+                firstArm = $firstArm
+                pairCount = $group.Count
+                qualityState = Get-QualityAggregate -Pairs $group
+                medianDeltas = [ordered]@{
+                    analysisCalls = Get-Median @($group | ForEach-Object { [double]$_.deltas.analysisCalls })
+                    helpCalls = Get-Median @($group | ForEach-Object { [double]$_.deltas.helpCalls })
+                    resultTokens = Get-Median @($group | ForEach-Object { [double]$_.deltas.resultTokens })
+                    wallMs = Get-Median @($group | ForEach-Object { [double]$_.deltas.wallMs })
+                    hostAiCredits = Get-Median @($group | ForEach-Object { [double]$_.deltas.hostAiCredits })
+                }
+            }
+        })
+    return [ordered]@{
+        taskId = $TaskId
+        armSummaries = @(
+            (New-ArmSummary -Sessions $taskSessions -Arm 'cli-skill' -V3 $true),
+            (New-ArmSummary -Sessions $taskSessions -Arm 'cli' -V3 $true))
+        pairedDeltas = $pairedDeltas
+        orderSummaries = $orderSummaries
+        qualityState = Get-ReadyCaptureQualityState -Pairs $taskPairs
+        costStates = New-ReadyCaptureCostStates -Pairs $taskPairs
+    }
+}
+
 function Get-ResultCreditEvidence($Result) {
     if (@($Result.iterations).Count -ne 1) {
         return [pscustomobject]@{ available = $false; value = $null }
@@ -345,7 +476,19 @@ function Assert-ReadyCaptureSessionMachineEvidence(
     $Checkpoint,
     [string] $AuthorizationHash) {
     $result = $ResultRecord.Value
-    [string] $expectedLabel = "ep1-rc-p$Pair-$Position-$Arm"
+    [bool] $v3 = Test-ReadyCaptureV3 $Protocol
+    [string] $taskId = Get-ReadyCapturePairTaskId $Protocol $Pair
+    $taskInput = Get-ReadyCaptureInput $Protocol $taskId
+    $checkpointInput = if ($v3) {
+        [object[]] $matches = @($Checkpoint.inputs | Where-Object {
+                [string]::Equals([string]$_.taskId, $taskId, [StringComparison]::Ordinal)
+            })
+        if ($matches.Count -ne 1) { throw "Ready-capture checkpoint task '$taskId' is missing or repeated." }
+        $matches[0]
+    }
+    else { $Checkpoint }
+    [string] $expectedLabel = Get-ReadyCaptureLabel $Protocol $Pair $Position $Arm
+    [double] $creditLimitSentinel = if ($v3) { 0 } else { [double]$Protocol.bounds.maxAiCreditsPerSession }
     if ($result.schemaVersion -ne 3 -or $result.n -ne 1 -or
         -not [string]::Equals([string]$result.arm, $Arm, [StringComparison]::Ordinal) -or
         -not [string]::Equals([string]$result.label, $expectedLabel, [StringComparison]::Ordinal) -or
@@ -357,6 +500,11 @@ function Assert-ReadyCaptureSessionMachineEvidence(
     $isolation = $iteration.execution.isolation
     $inputPolicy = $iteration.execution.inputPolicy
     $creditEvidence = Get-ResultCreditEvidence $result
+    if ($null -eq $isolation.maxAiCredits -or
+        $isolation.maxAiCredits -isnot [ValueType] -or
+        $isolation.maxAiCredits -is [bool]) {
+        throw "Ready-capture pair '$Pair' has a nonnumeric host credit-limit sentinel."
+    }
     [string[]] $expectedAvailableTools = if ([string]::Equals(
             $Arm, 'cli-skill', [StringComparison]::Ordinal)) {
         @('powershell', 'skill', 'view')
@@ -376,12 +524,13 @@ function Assert-ReadyCaptureSessionMachineEvidence(
         -not $result.model.verified -or
         -not [string]::Equals([string]$result.model.observed, [string]$Checkpoint.modelIdentity, [StringComparison]::Ordinal) -or
         -not [string]::Equals([string]$result.model.expected, [string]$Checkpoint.modelIdentity, [StringComparison]::Ordinal) -or
-        -not [string]::Equals([string]$inputIdentity.task, [string]$Protocol.inputs.taskId, [StringComparison]::Ordinal) -or
-        -not [string]::Equals([string]$inputIdentity.taskSha256, [string]$Protocol.inputs.taskSha256, [StringComparison]::Ordinal) -or
-        -not [string]::Equals([string]$inputIdentity.qaSha256, [string]$Protocol.inputs.qaLineSha256, [StringComparison]::Ordinal) -or
-        -not [string]::Equals([string]$inputIdentity.fixtureSha256, [string]$Protocol.inputs.fixtureSha256, [StringComparison]::Ordinal) -or
-        -not [string]::Equals([string]$inputIdentity.inputClosureSha256, [string]$Checkpoint.inputClosureSha256, [StringComparison]::Ordinal) -or
-        -not [string]::Equals([string]$iteration.execution.fixture.sha256, [string]$Protocol.inputs.fixtureSha256, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$iteration.task, $taskId, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$inputIdentity.task, $taskId, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$inputIdentity.taskSha256, [string]$taskInput.taskSha256, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$inputIdentity.qaSha256, [string]$taskInput.qaLineSha256, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$inputIdentity.fixtureSha256, [string]$taskInput.fixtureSha256, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$inputIdentity.inputClosureSha256, [string]$checkpointInput.inputClosureSha256, [StringComparison]::Ordinal) -or
+        -not [string]::Equals([string]$iteration.execution.fixture.sha256, [string]$taskInput.fixtureSha256, [StringComparison]::Ordinal) -or
         [int]$iteration.execution.processExitCode -ne 0 -or
         [int]$iteration.execution.resultExitCode -ne 0 -or
         [int]$iteration.execution.nativeTimeoutSeconds -ne [int]$Protocol.bounds.nativeTimeoutSecondsPerSession -or
@@ -389,7 +538,7 @@ function Assert-ReadyCaptureSessionMachineEvidence(
         [long]$iteration.wallMs -lt 0 -or
         [long]$iteration.wallMs -gt ([long]$Protocol.bounds.nativeTimeoutSecondsPerSession * 1000) -or
         -not $creditEvidence.available -or
-        [double]$creditEvidence.value -gt [double]$Protocol.bounds.maxAiCreditsPerSession -or
+        (-not $v3 -and [double]$creditEvidence.value -gt $creditLimitSentinel) -or
         [int]$result.maxSteps -ne [int]$Protocol.arms.common.maxSteps -or
         [long]$result.strictRunBudget.maxBytes -ne [long]$Protocol.bounds.maxProjectedRetainedBytesPerInvocation -or
         [long]$result.strictRunBudget.projectedBytes -lt 0 -or
@@ -404,7 +553,7 @@ function Assert-ReadyCaptureSessionMachineEvidence(
         [long]$isolation.hostRuntimeMaxBytes -ne [long]$Protocol.bounds.maxHostRuntimeBytesPerSession -or
         [long]$isolation.hostRuntimeMaxFileBytes -ne [long]$Protocol.bounds.maxHostRuntimeFileBytes -or
         [int]$isolation.hostRuntimeMaxEntries -ne [int]$Protocol.bounds.maxHostRuntimeEntries -or
-        [double]$isolation.maxAiCredits -ne [double]$Protocol.bounds.maxAiCreditsPerSession -or
+        [double]$isolation.maxAiCredits -ne $creditLimitSentinel -or
         -not $isolation.workspaceOutsideRepository -or -not $isolation.builtinMcpsDisabled -or
         -not $isolation.shellDefaultDenied -or -not $isolation.writeDenied -or
         -not $isolation.urlDenied -or -not $isolation.readDenied -or
@@ -468,6 +617,7 @@ function Test-ReadyCaptureBudgetExceeded(
     $iteration = $result.iterations[0]
     switch ($Reason) {
         'budget:host-ai-credits' {
+            if (Test-ReadyCaptureV3 $Protocol) { return $false }
             $creditEvidence = Get-ResultCreditEvidence $result
             return $creditEvidence.available -and
                 ([double]$creditEvidence.value -gt [double]$Protocol.bounds.maxAiCreditsPerSession -or
@@ -562,6 +712,41 @@ function Test-ArtifactSet(
         throw "Ready-capture artifact directory '$Directory' does not exist."
     }
     $protocolValue = [System.IO.File]::ReadAllText($Protocol) | ConvertFrom-Json -Depth 100
+    [bool] $v3 = Test-ReadyCaptureV3 $protocolValue
+    if ($v3 -and ($protocolValue.state -cne 'prepared-not-authorized' -or
+            $protocolValue.authorization.measuredExecutionAuthorized -ne $false -or
+            @($protocolValue.inputs.tasks).Count -ne 2 -or
+            @($protocolValue.sample.pairs).Count -ne 8 -or
+            [int]$protocolValue.sample.validPairTarget -ne 8 -or
+            [int]$protocolValue.sample.maximumSessions -ne 16 -or
+            [int]$protocolValue.bounds.maximumHostSessions -ne 16 -or
+            $protocolValue.bounds.hostAiCreditLimit -cne 'none' -or
+            $protocolValue.bounds.PSObject.Properties.Name -ccontains 'maximumHostAiCredits' -or
+            $protocolValue.bounds.PSObject.Properties.Name -ccontains 'maxAiCreditsPerSession')) {
+        throw 'EP1 v3 protocol must remain a stopped, uncapped 2-task/8-pair/16-session experiment.'
+    }
+    if ($v3) {
+        [string] $skillPath = Join-Path $repositoryRoot ([string]$protocolValue.inputs.skill.entrypointPath)
+        $skillManifest = Get-CanonicalSkillManifest $repositoryRoot
+        if ($protocolValue.inputs.skill.entrypointPath -cne '.agents/skills/filtrace/SKILL.md' -or
+            -not (Test-Path -LiteralPath $skillPath -PathType Leaf) -or
+            $skillManifest.fileCount -ne [int]$protocolValue.inputs.skill.fileCount -or
+            -not [string]::Equals(
+                [string]$skillManifest.sha256,
+                [string]$protocolValue.inputs.skill.manifestTextSha256,
+                [StringComparison]::Ordinal) -or
+            -not [string]::Equals(
+                (Get-CanonicalTextHash $skillPath),
+                [string]$protocolValue.inputs.skill.entrypointTextSha256,
+                [StringComparison]::Ordinal) -or
+            ([System.OperatingSystem]::IsWindows() -and
+                -not [string]::Equals(
+                    (Get-RawHash $skillPath),
+                    [string]$protocolValue.inputs.skill.entrypointRawSha256Windows,
+                    [StringComparison]::Ordinal))) {
+            throw 'EP1 v3 shipped skill entrypoint does not match the pinned updated source.'
+        }
+    }
     [string] $protocolHash = Get-CanonicalTextHash $Protocol
     if (-not [string]::Equals(
             (Get-CanonicalTextHash $Schema),
@@ -605,6 +790,10 @@ function Test-ArtifactSet(
     [object[]] $authorizations = @($records | Where-Object RecordType -eq 'private-authorization')
     [object[]] $reports = @($records | Where-Object RecordType -eq 'final-report')
     [object[]] $results = @($records | Where-Object RecordType -eq 'session-result')
+    if ($records.Count -ne ($packets.Count + $grades.Count + $maps.Count +
+            $checkpoints.Count + $authorizations.Count + $reports.Count + $results.Count)) {
+        throw 'Ready-capture artifact set contains an unrecognized JSON record type.'
+    }
 
     foreach ($record in @($packets + $grades + $maps + $checkpoints + $authorizations + $reports)) {
         Assert-Schema $record $Schema
@@ -649,16 +838,61 @@ function Test-ArtifactSet(
         throw 'Final ready-capture validation requires one final report.'
     }
     $checkpoint = $checkpoints[0].Value
-    $task = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot ([string]$protocolValue.inputs.taskPath))) |
-        ConvertFrom-Json -Depth 100
-    [string] $expectedClosureHash = Get-AgentEvalTaskInputClosureHash -Task $task -Root $repositoryRoot
     [string] $expectedEvaluatorHash = Get-EvaluatorClosureHash $protocolValue $Protocol
-    if (-not [string]::Equals([string]$checkpoint.taskSha256, [string]$protocolValue.inputs.taskSha256, [StringComparison]::Ordinal) -or
-        -not [string]::Equals([string]$checkpoint.qaLineSha256, [string]$protocolValue.inputs.qaLineSha256, [StringComparison]::Ordinal) -or
-        -not [string]::Equals([string]$checkpoint.fixtureSha256, [string]$protocolValue.inputs.fixtureSha256, [StringComparison]::Ordinal) -or
-        -not [string]::Equals([string]$checkpoint.inputClosureSha256, $expectedClosureHash, [StringComparison]::Ordinal) -or
-        -not [string]::Equals([string]$checkpoint.evaluatorClosureSha256, $expectedEvaluatorHash, [StringComparison]::Ordinal)) {
+    if (-not [string]::Equals([string]$checkpoint.evaluatorClosureSha256, $expectedEvaluatorHash, [StringComparison]::Ordinal)) {
         throw 'Ready-capture checkpoint identities do not match the frozen protocol and host.'
+    }
+    if ($v3 -and (@($checkpoint.inputs).Count -ne 2 -or
+            $checkpoint.requestedModel -cne 'GPT-6 Sol')) {
+        throw 'EP1 v3 checkpoint must bind both public inputs and the requested model.'
+    }
+    if ($v3 -and [System.OperatingSystem]::IsWindows() -and
+        -not [string]::Equals(
+            [string]$checkpoint.skillManifestSha256,
+            [string]$protocolValue.inputs.skill.manifestSha256Windows,
+            [StringComparison]::Ordinal)) {
+        throw 'EP1 v3 checkpoint uses a skill manifest other than the pinned updated shipped skill.'
+    }
+    foreach ($taskInput in Get-ReadyCaptureInputs $protocolValue) {
+        [string] $taskId = [string]$taskInput.taskId
+        [string] $taskPath = Join-Path $repositoryRoot ([string]$taskInput.taskPath)
+        $task = [System.IO.File]::ReadAllText($taskPath) | ConvertFrom-Json -Depth 100
+        [string] $expectedClosureHash = Get-AgentEvalTaskInputClosureHash -Task $task -Root $repositoryRoot
+        $checkpointInput = if ($v3) {
+            [object[]] $matches = @($checkpoint.inputs | Where-Object {
+                    [string]::Equals([string]$_.taskId, $taskId, [StringComparison]::Ordinal)
+                })
+            if ($matches.Count -ne 1) { throw "EP1 v3 checkpoint task '$taskId' is missing or repeated." }
+            $matches[0]
+        }
+        else { $checkpoint }
+        if (-not [string]::Equals([string]$checkpointInput.taskSha256, [string]$taskInput.taskSha256, [StringComparison]::Ordinal) -or
+            -not [string]::Equals([string]$checkpointInput.qaLineSha256, [string]$taskInput.qaLineSha256, [StringComparison]::Ordinal) -or
+            -not [string]::Equals([string]$checkpointInput.fixtureSha256, [string]$taskInput.fixtureSha256, [StringComparison]::Ordinal) -or
+            -not [string]::Equals([string]$checkpointInput.inputClosureSha256, $expectedClosureHash, [StringComparison]::Ordinal) -or
+            ($v3 -and (-not [string]::Equals([string]$task.id, $taskId, [StringComparison]::Ordinal) -or
+                    -not [string]::Equals((Get-CanonicalTextHash $taskPath), [string]$taskInput.taskSha256, [StringComparison]::Ordinal) -or
+                    -not [string]::Equals((Get-RawHash (Join-Path $repositoryRoot ([string]$taskInput.fixturePath))), [string]$taskInput.fixtureSha256, [StringComparison]::Ordinal)))) {
+            throw "Ready-capture checkpoint task '$taskId' does not match the frozen public inputs."
+        }
+        if ($v3) {
+            [string[]] $qaMatches = @(Get-Content -LiteralPath (Join-Path $repositoryRoot ([string]$protocolValue.inputs.qaPath)) |
+                    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                    Where-Object { ($_ | ConvertFrom-Json -Depth 100).id -ceq $taskId })
+            if ($qaMatches.Count -ne 1 -or
+                -not [string]::Equals((Get-TextHash $qaMatches[0]), [string]$taskInput.qaLineSha256, [StringComparison]::Ordinal)) {
+                throw "Ready-capture checkpoint QA row '$taskId' has drifted."
+            }
+        }
+    }
+    if ($v3 -and $authorizations.Count -eq 1 -and
+        (-not [string]::Equals(
+                [string]$authorizations[0].Value.modelIdentitySha256,
+                (Get-TextHash ([string]$checkpoint.modelIdentity)),
+                [StringComparison]::Ordinal) -or
+            $authorizations[0].Value.hostAiCreditLimit -cne 'none' -or
+            [int]$authorizations[0].Value.maximumHostSessions -ne 16)) {
+        throw 'EP1 v3 authorization does not bind the exact GPT-6 Sol checkpoint without a credit cap.'
     }
     if ($ValidateSessionSchema -and $results.Count -gt 0) {
         if ([string]::IsNullOrWhiteSpace($TrustedHostPath)) {
@@ -703,9 +937,11 @@ function Test-ArtifactSet(
         }
     }
     if ($Complete -and
-        ($packets.Count -ne 4 -or $grades.Count -ne 4 -or $maps.Count -ne 4 -or
-            $results.Count -ne 8 -or $reports.Count -ne 1)) {
-        throw 'Complete ready-capture evidence must contain four pairs and eight session results.'
+        ($packets.Count -ne [int]$protocolValue.sample.validPairTarget -or
+            $grades.Count -ne [int]$protocolValue.sample.validPairTarget -or
+            $maps.Count -ne [int]$protocolValue.sample.validPairTarget -or
+            $results.Count -ne [int]$protocolValue.sample.maximumSessions -or $reports.Count -ne 1)) {
+        throw "Complete ready-capture evidence must contain $($protocolValue.sample.validPairTarget) pairs and $($protocolValue.sample.maximumSessions) session results."
     }
     if ($Complete -and
         -not [string]::Equals(
@@ -766,7 +1002,13 @@ function Test-ArtifactSet(
         Assert-EqualSet $packetBlindIds $gradeBlindIds "Ready-capture pair '$($map.pair)' grade blind ids"
         Assert-EqualSet $packetBlindIds $mapBlindIds "Ready-capture pair '$($map.pair)' arm-map blind ids"
 
+        [string] $expectedTaskId = Get-ReadyCapturePairTaskId $protocolValue ([int]$map.pair)
         $expectedPair = $protocolValue.sample.pairs[[int]$map.pair - 1]
+        if ($v3 -and (-not [string]::Equals([string]$map.taskId, $expectedTaskId, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$packetRecord.Value.taskId, $expectedTaskId, [StringComparison]::Ordinal) -or
+                -not [string]::Equals([string]$gradeRecord.Value.taskId, $expectedTaskId, [StringComparison]::Ordinal))) {
+            throw "Ready-capture pair '$($map.pair)' mixes task identities before unblinding."
+        }
         foreach ($position in @('first', 'second')) {
             [object[]] $positionEntries = @($map.entries | Where-Object position -eq $position)
             if ($positionEntries.Count -ne 1 -or
@@ -820,6 +1062,10 @@ function Test-ArtifactSet(
 
     if ($reports.Count -eq 1) {
         $report = $reports[0].Value
+        if ($v3 -and (@($report.sessionResultSha256).Count -ne $results.Count -or
+                @($report.gradeSha256).Count -ne $grades.Count)) {
+            throw 'EP1 v3 final report must list every distinct retained session and grade hash.'
+        }
         Assert-EqualSet @($report.sessionResultSha256) @($results | ForEach-Object Hash) `
             'Ready-capture final-report session hashes'
         Assert-EqualSet @($report.gradeSha256) @($grades | ForEach-Object Hash) `
@@ -859,8 +1105,10 @@ function Test-ArtifactSet(
             $session = $report.sessions[$sessionIndex]
             [int] $expectedPairNumber = [int][Math]::Floor($sessionIndex / 2) + 1
             [string] $expectedPosition = if (($sessionIndex % 2) -eq 0) { 'first' } else { 'second' }
+            [string] $expectedTaskId = Get-ReadyCapturePairTaskId $protocolValue $expectedPairNumber
             if ([int]$session.pair -ne $expectedPairNumber -or
-                -not [string]::Equals([string]$session.position, $expectedPosition, [StringComparison]::Ordinal)) {
+                -not [string]::Equals([string]$session.position, $expectedPosition, [StringComparison]::Ordinal) -or
+                ($v3 -and -not [string]::Equals([string]$session.taskId, $expectedTaskId, [StringComparison]::Ordinal))) {
                 throw 'Ready-capture final-report sessions are not in frozen pair/position order.'
             }
             [object[]] $matchingMaps = @($maps | Where-Object { [int]$_.Value.pair -eq [int]$session.pair })
@@ -894,6 +1142,9 @@ function Test-ArtifactSet(
             [bool] $answerAvailable = -not [string]::IsNullOrWhiteSpace([string]$iteration.answer)
             [double] $credits = [double]$iteration.hostUsageFile.value.totalPremiumRequestCost
             $creditTotal += $credits
+            if ([double]::IsInfinity($creditTotal)) {
+                throw 'Ready-capture host AI credit usage cannot be represented as a finite total.'
+            }
             if ([bool]$session.success -ne [bool]$iteration.success -or
                 -not [string]::Equals([string]$session.authorizationSha256, $authorizationHash, [StringComparison]::Ordinal) -or
                 [bool]$session.answerAvailable -ne $answerAvailable -or
@@ -950,6 +1201,7 @@ function Test-ArtifactSet(
                 $invalidSession.PSObject.Properties['pair'].Value,
                 [Globalization.CultureInfo]::InvariantCulture)
             $expectedPairSchedule = $protocolValue.sample.pairs[$invalidPairNumber - 1]
+            [string] $expectedTaskId = Get-ReadyCapturePairTaskId $protocolValue $invalidPairNumber
             [string] $expectedArm = [string]$expectedPairSchedule.PSObject.Properties[
                 [string]$invalidSession.position].Value
             $creditEvidence = if ($matchingResults.Count -eq 1) {
@@ -969,8 +1221,9 @@ function Test-ArtifactSet(
                     [StringComparison]::Ordinal) -or
                 -not [string]::Equals(
                     [string]$matchingResults[0].Value.label,
-                    "ep1-rc-p$($invalidSession.pair)-$($invalidSession.position)-$($invalidSession.arm)",
+                    (Get-ReadyCaptureLabel $protocolValue $invalidPairNumber ([string]$invalidSession.position) ([string]$invalidSession.arm)),
                     [StringComparison]::Ordinal) -or
+                ($v3 -and -not [string]::Equals([string]$invalidSession.taskId, $expectedTaskId, [StringComparison]::Ordinal)) -or
                 ($creditEvidence.available -and
                     ($null -eq $invalidSession.hostAiCredits -or
                         [double]$invalidSession.hostAiCredits -ne [double]$creditEvidence.value)) -or
@@ -979,6 +1232,9 @@ function Test-ArtifactSet(
             }
             if ($creditEvidence.available) {
                 $creditTotal += [double]$creditEvidence.value
+                if ([double]::IsInfinity($creditTotal)) {
+                    throw 'Ready-capture host AI credit usage cannot be represented as a finite total.'
+                }
             }
             $invalidSessionResults.Add($matchingResults[0])
             [bool] $machineEvidenceValid = $true
@@ -1040,16 +1296,17 @@ function Test-ArtifactSet(
                 'descriptive-complete',
                 [StringComparison]::Ordinal) -and
             $maps.Count -ge [int]$protocolValue.sample.validPairTarget) {
-            throw 'Four valid pairs require the descriptive-complete disposition.'
+            throw "$($protocolValue.sample.validPairTarget) valid pairs require the descriptive-complete disposition."
         }
 
         switch ([string]$report.terminalDisposition) {
             'descriptive-complete' {
+                [string] $completeReason = Get-ReadyCaptureCompleteReason $protocolValue
                 if (-not [string]::Equals(
                         [string]$report.terminalReason,
-                        'four-valid-pairs',
+                        $completeReason,
                         [StringComparison]::Ordinal)) {
-                    throw 'A descriptive-complete report must record the four-valid-pairs reason.'
+                    throw "A descriptive-complete report must record the '$completeReason' completion reason."
                 }
             }
             'incomplete-precondition' {
@@ -1110,6 +1367,7 @@ function Test-ArtifactSet(
             if (@($report.armSummaries).Count -ne 0 -or
                 @($report.pairedDeltas).Count -ne 0 -or
                 @($report.orderSummaries).Count -ne 0 -or
+                ($v3 -and @($report.taskSummaries).Count -ne 0) -or
                 -not [string]::Equals([string]$report.qualityState, 'unavailable', [StringComparison]::Ordinal) -or
                 @($report.costStates.PSObject.Properties.Value | Where-Object {
                         -not [string]::Equals([string]$_, 'unavailable', [StringComparison]::Ordinal)
@@ -1123,8 +1381,7 @@ function Test-ArtifactSet(
             [object[]] $summaries = @($report.armSummaries | Where-Object arm -eq $arm)
             if ($summaries.Count -ne 1 -or [int]$summaries[0].sessionCount -ne $armSessions.Count -or
                 [int]$summaries[0].qualityPassCount -ne @($armSessions | Where-Object {
-                        $_.answerAvailable -and -not $_.falseConfidence -and
-                        @($_.answerCriteria.PSObject.Properties.Value | Where-Object { -not $_.pass }).Count -eq 0
+                        Test-QualityPass $_ $v3
                     }).Count -or
                 [int]$summaries[0].noAnswerCount -ne @($armSessions | Where-Object { -not $_.answerAvailable }).Count -or
                 [int]$summaries[0].falseConfidenceCount -ne @($armSessions | Where-Object falseConfidence).Count) {
@@ -1147,9 +1404,10 @@ function Test-ArtifactSet(
             $skill = @($pairRows | Where-Object arm -eq 'cli-skill')[0]
             $cli = @($pairRows | Where-Object arm -eq 'cli')[0]
             $computed = [pscustomobject]@{
+                taskId = Get-ReadyCapturePairTaskId $protocolValue $pairNumber
                 pair = $pairNumber
                 firstArm = @($pairRows | Where-Object position -eq 'first')[0].arm
-                qualityState = Get-PairedQualityState $skill $cli
+                qualityState = Get-PairedQualityState $skill $cli $v3
                 skill = $skill
                 cli = $cli
                 deltas = [pscustomobject]@{
@@ -1163,6 +1421,7 @@ function Test-ArtifactSet(
             [void]$computedPairs.Add($computed)
             if (-not [string]::Equals([string]$reportedPairs[0].firstArm, [string]$computed.firstArm, [StringComparison]::Ordinal) -or
                 -not [string]::Equals([string]$reportedPairs[0].qualityState, [string]$computed.qualityState, [StringComparison]::Ordinal) -or
+                ($v3 -and -not [string]::Equals([string]$reportedPairs[0].taskId, [string]$computed.taskId, [StringComparison]::Ordinal)) -or
                 -not (Test-JsonEqual $reportedPairs[0].deltas $computed.deltas)) {
                 throw "Ready-capture final-report pair '$pairNumber' deltas do not match retained sessions."
             }
@@ -1204,6 +1463,21 @@ function Test-ArtifactSet(
             if (-not (Test-JsonEqual $report.costStates $expectedCostStates)) {
                 throw 'Ready-capture final-report cost classification does not match retained sessions.'
             }
+            if ($v3) {
+                if (@($report.taskSummaries).Count -ne 2) {
+                    throw 'EP1 v3 must report one independently graded summary for each task.'
+                }
+                foreach ($taskInput in @($protocolValue.inputs.tasks)) {
+                    [string] $taskId = [string]$taskInput.taskId
+                    [object[]] $matches = @($report.taskSummaries | Where-Object taskId -eq $taskId)
+                    $expectedSummary = New-ReadyCaptureTaskSummary `
+                        -TaskId $taskId -Sessions @($report.sessions) -Pairs @($computedPairs)
+                    if ($matches.Count -ne 1 -or
+                        -not (Test-JsonEqual $matches[0] $expectedSummary)) {
+                        throw "EP1 v3 task '$taskId' summary does not match retained sessions and grades."
+                    }
+                }
+            }
         }
     }
 
@@ -1221,7 +1495,7 @@ function Write-JsonFile([string] $Path, $Value) {
 }
 
 function Invoke-SelfTest {
-    [string] $root = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace ep1 record contract $([Guid]::NewGuid().ToString('N'))"
+    [string] $root = Join-Path $PSScriptRoot "self-test-ready-capture-$([Guid]::NewGuid().ToString('N'))"
     [System.IO.Directory]::CreateDirectory($root) | Out-Null
     try {
         [string] $boundsRoot = Join-Path $root 'bounds'
@@ -1244,16 +1518,30 @@ function Invoke-SelfTest {
         Remove-Item -LiteralPath $boundsRoot -Recurse -Force
 
         $protocolValue = [System.IO.File]::ReadAllText($ProtocolPath) | ConvertFrom-Json -Depth 100
+        [bool] $v3 = Test-ReadyCaptureV3 $protocolValue
         [string] $protocolId = [string]$protocolValue.protocolId
         [string] $protocolHash = Get-CanonicalTextHash $ProtocolPath
         [string] $zeroHash = '0' * 64
-        $task = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot ([string]$protocolValue.inputs.taskPath))) |
-            ConvertFrom-Json -Depth 100
-        [string] $inputClosureHash = Get-AgentEvalTaskInputClosureHash -Task $task -Root $repositoryRoot
+        [int] $pairTarget = [int]$protocolValue.sample.validPairTarget
+        [int] $sessionTarget = [int]$protocolValue.sample.maximumSessions
+        [double] $creditsPerSession = if ($v3) { 50 } else { 1 }
+        [double] $creditLimitSentinel = if ($v3) { 0 } else { 30 }
+        [object[]] $taskInputs = @(Get-ReadyCaptureInputs $protocolValue)
+        $inputClosureHashes = @{}
+        foreach ($taskInput in $taskInputs) {
+            $task = [System.IO.File]::ReadAllText((Join-Path $repositoryRoot ([string]$taskInput.taskPath))) |
+                ConvertFrom-Json -Depth 100
+            $inputClosureHashes[[string]$taskInput.taskId] =
+                Get-AgentEvalTaskInputClosureHash -Task $task -Root $repositoryRoot
+        }
         [string] $evaluatorClosureHash = Get-EvaluatorClosureHash $protocolValue $ProtocolPath
         [string] $hostPath = (Resolve-Path -LiteralPath $SchemaPath).Path
         $cliInventory = @([pscustomobject]@{ relativePath = 'filtrace.exe'; bytes = 1; sha256 = '3' * 64 })
-        $skillInventory = @([pscustomobject]@{ path = 'SKILL.md'; bytes = 1; sha256 = '4' * 64 })
+        $skillInventory = if ($v3) {
+            $skillSource = Get-AgentEvalSkillInput -Root $repositoryRoot
+            @($skillSource.files)
+        }
+        else { @([pscustomobject]@{ path = 'SKILL.md'; bytes = 1; sha256 = '4' * 64 }) }
         [string] $cliManifestHash = Get-ManifestHash $cliInventory
         [string] $skillManifestHash = Get-ManifestHash $skillInventory
         [System.Collections.Generic.List[object]] $maps = [System.Collections.Generic.List[object]]::new()
@@ -1270,17 +1558,38 @@ function Invoke-SelfTest {
             cliBundleManifestSha256 = $cliManifestHash; skillManifestSha256 = $skillManifestHash
             evaluatorClosureSha256 = $evaluatorClosureHash; hostExecutableSha256 = Get-RawHash $hostPath
             hostExecutablePath = $hostPath; hostVersion = '1.0.0'; modelIdentity = 'private-model'
-            taskSha256 = $protocolValue.inputs.taskSha256; qaLineSha256 = $protocolValue.inputs.qaLineSha256
-            fixtureSha256 = $protocolValue.inputs.fixtureSha256; inputClosureSha256 = $inputClosureHash
+        }
+        if ($v3) {
+            $checkpoint['requestedModel'] = 'GPT-6 Sol'
+            $checkpoint['inputs'] = @($taskInputs | ForEach-Object {
+                    [ordered]@{
+                        taskId = $_.taskId
+                        taskSha256 = $_.taskSha256
+                        qaLineSha256 = $_.qaLineSha256
+                        fixtureSha256 = $_.fixtureSha256
+                        inputClosureSha256 = $inputClosureHashes[[string]$_.taskId]
+                    }
+                })
+        }
+        else {
+            $checkpoint['taskSha256'] = $taskInputs[0].taskSha256
+            $checkpoint['qaLineSha256'] = $taskInputs[0].qaLineSha256
+            $checkpoint['fixtureSha256'] = $taskInputs[0].fixtureSha256
+            $checkpoint['inputClosureSha256'] = $inputClosureHashes[[string]$taskInputs[0].taskId]
         }
         Write-JsonFile (Join-Path $root 'checkpoint.json') $checkpoint
         $authorization = [ordered]@{
             schemaVersion = 1; protocolId = $protocolId; recordType = 'private-authorization'
             measuredExecutionAuthorized = $true; protocolSha256 = $protocolHash
-            maximumHostSessions = 8; maximumHostAiCredits = 240
+            maximumHostSessions = $sessionTarget
             terminalAction = 'stop-after-ready-capture-report'
             authorizedAt = '2026-09-15T00:00:00Z'; authorizationEvidence = 'self-test authorization'
         }
+        if ($v3) {
+            $authorization['modelIdentitySha256'] = Get-TextHash ([string]$checkpoint.modelIdentity)
+            $authorization['hostAiCreditLimit'] = 'none'
+        }
+        else { $authorization['maximumHostAiCredits'] = 240 }
         [string] $authorizationPath = Join-Path $root 'authorization.json'
         Write-JsonFile $authorizationPath $authorization
         [string] $authorizationHash = Get-RawHash $authorizationPath
@@ -1292,7 +1601,9 @@ function Invoke-SelfTest {
             'skill', 'sql', 'session_store_sql', 'read_agent', 'list_agents',
             'write_agent', 'rg', 'glob', 'task')
 
-        foreach ($pairNumber in 1..4) {
+        foreach ($pairNumber in 1..$pairTarget) {
+            [string] $taskId = Get-ReadyCapturePairTaskId $protocolValue $pairNumber
+            $taskInput = Get-ReadyCaptureInput $protocolValue $taskId
             [string] $packetId = '{0:x32}' -f $pairNumber
             [string] $firstBlindId = '{0:x32}' -f (100 + ($pairNumber * 2))
             [string] $secondBlindId = '{0:x32}' -f (101 + ($pairNumber * 2))
@@ -1307,6 +1618,7 @@ function Invoke-SelfTest {
                     },
                     [ordered]@{ blindId = $secondBlindId; answerAvailable = $true; answer = 'second answer' })
             }
+            if ($v3) { $packet['taskId'] = $taskId }
             [string] $packetPath = Join-Path $root "pair-$pairNumber-packet.json"
             Write-JsonFile $packetPath $packet
             [string] $packetHash = Get-RawHash $packetPath
@@ -1329,12 +1641,13 @@ function Invoke-SelfTest {
                         falseConfidence = [ordered]@{ triggered = $false; evidence = 'none' }
                     })
             }
+            if ($v3) { $grade['taskId'] = $taskId }
             [string] $gradePath = Join-Path $root "pair-$pairNumber-grade.json"
             Write-JsonFile $gradePath $grade
             [string] $gradeHash = Get-RawHash $gradePath
             [void]$gradeHashes.Add($gradeHash)
 
-            [object[]] $armPositions = if ($pairNumber -in @(1, 4)) {
+            [object[]] $armPositions = if ($protocolValue.sample.pairs[$pairNumber - 1].first -ceq 'cli-skill') {
                 @([pscustomobject]@{ arm = 'cli-skill'; position = 'first'; blindId = $firstBlindId }, [pscustomobject]@{ arm = 'cli'; position = 'second'; blindId = $secondBlindId })
             }
             else {
@@ -1345,11 +1658,11 @@ function Invoke-SelfTest {
                 $answerRecord = @($packet.answers | Where-Object blindId -eq $armPosition.blindId)[0]
                 $gradeRecord = @($grade.grades | Where-Object blindId -eq $armPosition.blindId)[0]
                 $inputIdentity = [ordered]@{
-                    task = $protocolValue.inputs.taskId
-                    taskSha256 = $protocolValue.inputs.taskSha256
-                    qaSha256 = $protocolValue.inputs.qaLineSha256
-                    fixtureSha256 = $protocolValue.inputs.fixtureSha256
-                    inputClosureSha256 = $inputClosureHash
+                    task = $taskId
+                    taskSha256 = $taskInput.taskSha256
+                    qaSha256 = $taskInput.qaLineSha256
+                    fixtureSha256 = $taskInput.fixtureSha256
+                    inputClosureSha256 = $inputClosureHashes[$taskId]
                 }
                 [bool] $withSkill = [string]::Equals(
                     [string]$armPosition.arm, 'cli-skill', [StringComparison]::Ordinal)
@@ -1363,9 +1676,9 @@ function Invoke-SelfTest {
                         $availableTools -cnotcontains $_
                     })
                 $iteration = [ordered]@{
-                    task = 'scope-preserving-drill'; iteration = 1; success = [bool]$answerRecord.answerAvailable; calls = 1; helpCalls = 0
+                        task = $taskId; iteration = 1; success = [bool]$answerRecord.answerAvailable; calls = 1; helpCalls = 0
                     tokens = 100; wallMs = 1000; hostUsage = [ordered]@{ premiumRequests = 1 }
-                    hostUsageFile = [ordered]@{ available = $true; value = [ordered]@{ totalPremiumRequestCost = 1 } }
+                        hostUsageFile = [ordered]@{ available = $true; value = [ordered]@{ totalPremiumRequestCost = $creditsPerSession } }
                     answer = $answerRecord.answer; transcript = @([ordered]@{ kind = 'filtrace' })
                     execution = [ordered]@{
                         nativeTimeoutSeconds = 600
@@ -1375,7 +1688,7 @@ function Invoke-SelfTest {
                         hostRuntimeBytes = 1
                         processExitCode = 0
                         resultExitCode = 0
-                        fixture = [ordered]@{ sha256 = $protocolValue.inputs.fixtureSha256 }
+                        fixture = [ordered]@{ sha256 = $taskInput.fixtureSha256 }
                         cli = [ordered]@{ inventory = $cliInventory }
                         isolation = [ordered]@{
                             workspaceOutsideRepository = $true
@@ -1398,7 +1711,7 @@ function Invoke-SelfTest {
                             hostRuntimeMaxFileBytes = 134217728
                             hostRuntimeMaxEntries = 1024
                             processTreeContained = $true
-                            maxAiCredits = 30
+                            maxAiCredits = $creditLimitSentinel
                         }
                         inputPolicy = [ordered]@{
                             fixtureMaxBytes = 536870912
@@ -1423,6 +1736,9 @@ function Invoke-SelfTest {
                         else { $null }
                     }
                 }
+                if ($v3 -and $pairNumber -eq 2 -and $armPosition.position -eq 'first') {
+                    $iteration.success = $false
+                }
                 $result = [ordered]@{
                     schemaVersion = 3
                     host = 'copilot'
@@ -1434,7 +1750,7 @@ function Invoke-SelfTest {
                         verified = $true
                     }
                     arm = $armPosition.arm
-                    label = "ep1-rc-p$pairNumber-$($armPosition.position)-$($armPosition.arm)"
+                    label = Get-ReadyCaptureLabel $protocolValue $pairNumber ([string]$armPosition.position) ([string]$armPosition.arm)
                     n = 1
                     maxSteps = 6
                     strictRunBudget = [ordered]@{ projectedBytes = 1; maxBytes = 2147483648 }
@@ -1450,63 +1766,155 @@ function Invoke-SelfTest {
                     pair = $pairNumber; position = $armPosition.position; arm = $armPosition.arm; resultSha256 = $resultHash
                     authorizationSha256 = $authorizationHash
                     success = [bool]$iteration.success; answerAvailable = [bool]$answerRecord.answerAvailable; falseConfidence = $false; calls = 1; helpCalls = 0
-                    tokens = 100; wallMs = 1000; hostAiCredits = 1; hostUsage = $iteration.hostUsage
+                    tokens = 100; wallMs = 1000; hostAiCredits = $creditsPerSession; hostUsage = $iteration.hostUsage
                     hostUsageFile = $iteration.hostUsageFile; answerCriteria = $gradeRecord.criteria
                     transcript = $iteration.transcript; inputIdentity = $inputIdentity
                 })
+                if ($v3) { $sessions[$sessions.Count - 1]['taskId'] = $taskId }
             }
             $map = [ordered]@{
                 schemaVersion = 1; protocolId = $protocolId; recordType = 'private-arm-map'
                 protocolSha256 = $protocolHash; pair = $pairNumber; packetId = $packetId
                 packetSha256 = $packetHash; gradeSha256 = $gradeHash; entries = @($entries)
             }
+            if ($v3) { $map['taskId'] = $taskId }
             Write-JsonFile (Join-Path $root "pair-$pairNumber-map.json") $map
             [void]$maps.Add($map)
         }
 
+        [object[]] $blindPasses = @($sessions | Where-Object { $_.success -and $_.answerAvailable })
+        if ($blindPasses.Count -eq 0) { throw 'Ready-capture self-test needs a graded runner success.' }
+        $blindPass = $blindPasses[0]
+        $runnerFailure = ($blindPass | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+        $runnerFailure.success = $false
+        [int] $expectedBitCount = if ($v3) { 8 } else { 7 }
+        [int] $expectedPassCount = if ($v3) { 1 } else { 2 }
+        [bool] $expectedRunnerFailurePass = -not $v3
+        [string] $expectedPairState = if ($v3) {
+            'skill-lower-observed-quality'
+        }
+        else { 'same-observed-quality' }
+        $qualitySummary = New-ArmSummary `
+            -Sessions @($blindPass, $runnerFailure) -Arm ([string]$blindPass.arm) -V3 $v3
+        if (-not (Test-QualityPass $blindPass $v3) -or
+            (Test-QualityPass $runnerFailure $v3) -ne $expectedRunnerFailurePass -or
+            @(Get-QualityBits $blindPass $v3).Count -ne $expectedBitCount -or
+            [int]$qualitySummary.qualityPassCount -ne $expectedPassCount -or
+            (Get-PairedQualityState $runnerFailure $blindPass $v3) -cne $expectedPairState) {
+            throw 'Ready-capture runner success was not isolated to the v3 quality comparison.'
+        }
+
         $zeroDeltas = [ordered]@{ analysisCalls = 0; helpCalls = 0; resultTokens = 0; wallMs = 0; hostAiCredits = 0 }
-        [object[]] $pairReports = @(1..4 | ForEach-Object {
+        [object[]] $pairReports = @(1..$pairTarget | ForEach-Object {
                 [int] $pairNumber = $_
                 [object[]] $pairSessions = @($sessions | Where-Object { $_.pair -eq $pairNumber })
-                [ordered]@{
+                $pairReport = [ordered]@{
                     pair = $pairNumber
                     firstArm = @($pairSessions | Where-Object position -eq 'first')[0].arm
                     qualityState = Get-PairedQualityState `
                         -SkillSession @($pairSessions | Where-Object arm -eq 'cli-skill')[0] `
-                        -CliSession @($pairSessions | Where-Object arm -eq 'cli')[0]
+                        -CliSession @($pairSessions | Where-Object arm -eq 'cli')[0] `
+                        -V3 $v3
                     deltas = $zeroDeltas
                 }
+                if ($v3) {
+                    $pairReport['taskId'] = Get-ReadyCapturePairTaskId $protocolValue $pairNumber
+                    $pairReport['skill'] = @($pairSessions | Where-Object arm -eq 'cli-skill')[0]
+                    $pairReport['cli'] = @($pairSessions | Where-Object arm -eq 'cli')[0]
+                }
+                $pairReport
             })
-        [string] $reportQuality = Get-QualityAggregate -Pairs $pairReports
+        [string] $reportQuality = Get-ReadyCaptureQualityState -Pairs $pairReports
+        [object[]] $orderSummaries = @(@('cli-skill', 'cli') | ForEach-Object {
+                [string] $firstArm = $_
+                [object[]] $group = @($pairReports | Where-Object firstArm -eq $firstArm)
+                [ordered]@{
+                    firstArm = $firstArm
+                    pairCount = $group.Count
+                    qualityState = Get-QualityAggregate -Pairs $group
+                    medianDeltas = $zeroDeltas
+                }
+            })
         $report = [ordered]@{
             schemaVersion = 1; protocolId = $protocolId; recordType = 'final-report'
-            protocolSha256 = $protocolHash; terminalDisposition = 'descriptive-complete'; validPairs = 4
-            terminalReason = 'four-valid-pairs'
-            hostSessions = 8; hostAiCredits = 8; authorizationSha256 = $authorizationHash
+            protocolSha256 = $protocolHash; terminalDisposition = 'descriptive-complete'; validPairs = $pairTarget
+            terminalReason = Get-ReadyCaptureCompleteReason $protocolValue
+            hostSessions = $sessionTarget; hostAiCredits = ($sessionTarget * $creditsPerSession)
+            authorizationSha256 = $authorizationHash
             sessionResultSha256 = @($resultHashes)
             gradeSha256 = @($gradeHashes); sessions = @($sessions)
             invalidSessions = @()
             armSummaries = @(
-                (New-ArmSummary -Sessions @($sessions) -Arm 'cli-skill'),
-                (New-ArmSummary -Sessions @($sessions) -Arm 'cli'))
+                (New-ArmSummary -Sessions @($sessions) -Arm 'cli-skill' -V3 $v3),
+                (New-ArmSummary -Sessions @($sessions) -Arm 'cli' -V3 $v3))
             pairedDeltas = $pairReports
-            orderSummaries = @(
-                [ordered]@{ firstArm = 'cli-skill'; pairCount = 2; qualityState = 'skill-lower-observed-quality'; medianDeltas = $zeroDeltas },
-                [ordered]@{ firstArm = 'cli'; pairCount = 2; qualityState = 'same-observed-quality'; medianDeltas = $zeroDeltas })
+            orderSummaries = $orderSummaries
             qualityState = $reportQuality
             costStates = [ordered]@{ analysisCalls = 'practically-equivalent'; helpCalls = 'practically-equivalent'; resultTokens = 'practically-equivalent'; wallMs = 'practically-equivalent'; hostAiCredits = 'practically-equivalent' }
             nextAction = 'stop-and-return-to-user'
         }
+        if ($v3) {
+            $report['pairedDeltas'] = @($pairReports | ForEach-Object {
+                    [ordered]@{
+                        taskId = $_.taskId
+                        pair = $_.pair
+                        firstArm = $_.firstArm
+                        qualityState = $_.qualityState
+                        deltas = $_.deltas
+                    }
+                })
+            $report['taskSummaries'] = @($taskInputs | ForEach-Object {
+                    New-ReadyCaptureTaskSummary -TaskId ([string]$_.taskId) `
+                        -Sessions @($sessions) -Pairs $pairReports
+                })
+        }
         Write-JsonFile (Join-Path $root 'final-report.json') $report
         $result = Test-ArtifactSet $root $ProtocolPath $SchemaPath $true $false 'Final' $null
-        if ($result.pairs -ne 4 -or $result.sessions -ne 8) { throw 'Ready-capture self-test did not validate the complete artifact set.' }
+        if ($result.pairs -ne $pairTarget -or $result.sessions -ne $sessionTarget) {
+            throw 'Ready-capture self-test did not validate the complete artifact set.'
+        }
+        if ($v3) {
+            [object[]] $runnerFailures = @($report.sessions | Where-Object {
+                    $_.pair -eq 2 -and $_.position -eq 'first'
+                })
+            [object[]] $mixedSummaries = @($report.taskSummaries | Where-Object taskId -eq 'mixed-unknown-resolved')
+            if ($runnerFailures.Count -ne 1 -or $mixedSummaries.Count -ne 1 -or
+                $runnerFailures[0].success -or -not $runnerFailures[0].answerAvailable -or
+                (Test-QualityPass $runnerFailures[0] $true)) {
+                throw 'A graded v3 answer with runner QA failure was not retained as valid quality-fail evidence.'
+            }
+            [object[]] $armSummaries = @($mixedSummaries[0].armSummaries | Where-Object {
+                    $_.arm -eq $runnerFailures[0].arm
+                })
+            if ($armSummaries.Count -ne 1 -or
+                [int]$armSummaries[0].qualityPassCount -ne ([int]$armSummaries[0].sessionCount - 1)) {
+                throw 'EP1 v3 task quality summary omitted the runner QA failure.'
+            }
+        }
+
+        $wrongReasonReport = ($report | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+        $wrongReasonReport.terminalReason = if ($v3) { 'four-valid-pairs' } else { "$pairTarget-valid-pairs" }
+        Write-JsonFile (Join-Path $root 'final-report.json') $wrongReasonReport
+        try {
+            [bool] $wrongReasonRejected = $false
+            try { [void](Test-ArtifactSet $root $ProtocolPath $SchemaPath $false $false 'Final' $null) }
+            catch {
+                $wrongReasonRejected = $_.Exception.Message.Contains(
+                    'completion reason', [StringComparison]::Ordinal)
+            }
+            if (-not $wrongReasonRejected) {
+                throw 'Ready-capture historical or v3 completion reason drift was accepted.'
+            }
+        }
+        finally { Write-JsonFile (Join-Path $root 'final-report.json') $report }
 
         $incompleteCompleteReport = ($report | ConvertTo-Json -Depth 100) | ConvertFrom-Json
         $incompleteCompleteReport.terminalDisposition = 'incomplete-precondition'
-        $incompleteCompleteReport.terminalReason = 'precondition:self-test after four pairs'
+        $incompleteCompleteReport.terminalReason = "precondition:self-test after $pairTarget pairs"
         $incompleteCompleteReport.armSummaries = @()
         $incompleteCompleteReport.pairedDeltas = @()
         $incompleteCompleteReport.orderSummaries = @()
+        if ($v3) { $incompleteCompleteReport.taskSummaries = @() }
         $incompleteCompleteReport.qualityState = 'unavailable'
         foreach ($property in $incompleteCompleteReport.costStates.PSObject.Properties) {
             $property.Value = 'unavailable'
@@ -1516,10 +1924,10 @@ function Invoke-SelfTest {
         try { [void](Test-ArtifactSet $root $ProtocolPath $SchemaPath $false $false 'Final' $null) }
         catch {
             $incompleteCompleteRejected = $_.Exception.Message.Contains(
-                'Four valid pairs require', [StringComparison]::Ordinal)
+                "$pairTarget valid pairs require", [StringComparison]::Ordinal)
         }
         if (-not $incompleteCompleteRejected) {
-            throw 'Ready-capture four-pair incomplete disposition unexpectedly passed.'
+            throw 'Ready-capture complete-pair incomplete disposition unexpectedly passed.'
         }
         Write-JsonFile (Join-Path $root 'final-report.json') $report
 
@@ -1541,6 +1949,7 @@ function Invoke-SelfTest {
             $zeroSessionReport.armSummaries = @()
             $zeroSessionReport.pairedDeltas = @()
             $zeroSessionReport.orderSummaries = @()
+            if ($v3) { $zeroSessionReport.taskSummaries = @() }
             $zeroSessionReport.qualityState = 'unavailable'
             foreach ($property in $zeroSessionReport.costStates.PSObject.Properties) {
                 $property.Value = 'unavailable'
@@ -1566,14 +1975,14 @@ function Invoke-SelfTest {
         Copy-Item -LiteralPath $root -Destination $prefixRoot -Recurse
         try {
             Get-ChildItem -LiteralPath $prefixRoot -File | Where-Object {
-                $_.Name -match '^pair-[234]-'
+                $_.Name -match '^pair-[2-8]-'
             } | Remove-Item -Force
             $prefixReport = ($report | ConvertTo-Json -Depth 100) | ConvertFrom-Json
             $prefixReport.terminalDisposition = 'incomplete-precondition'
             $prefixReport.terminalReason = 'precondition:self-test before pair 2'
             $prefixReport.validPairs = 1
             $prefixReport.hostSessions = 2
-            $prefixReport.hostAiCredits = 2
+            $prefixReport.hostAiCredits = 2 * $creditsPerSession
             $prefixReport.sessionResultSha256 = @($prefixReport.sessionResultSha256 | Select-Object -First 2)
             $prefixReport.gradeSha256 = @($prefixReport.gradeSha256 | Select-Object -First 1)
             $prefixReport.sessions = @($prefixReport.sessions | Select-Object -First 2)
@@ -1581,6 +1990,7 @@ function Invoke-SelfTest {
             $prefixReport.armSummaries = @()
             $prefixReport.pairedDeltas = @()
             $prefixReport.orderSummaries = @()
+            if ($v3) { $prefixReport.taskSummaries = @() }
             $prefixReport.qualityState = 'unavailable'
             foreach ($property in $prefixReport.costStates.PSObject.Properties) {
                 $property.Value = 'unavailable'
@@ -1606,7 +2016,7 @@ function Invoke-SelfTest {
         Copy-Item -LiteralPath $root -Destination $userStopRoot -Recurse
         try {
             Get-ChildItem -LiteralPath $userStopRoot -File | Where-Object {
-                $_.Name -match '^pair-[34]-' -or
+                $_.Name -match '^pair-[3-8]-' -or
                 $_.Name -in @('pair-2-packet.json', 'pair-2-grade.json', 'pair-2-map.json', 'pair-2-second-result.json')
             } | Remove-Item -Force
             $userReport = ($report | ConvertTo-Json -Depth 100) | ConvertFrom-Json
@@ -1614,15 +2024,19 @@ function Invoke-SelfTest {
             $userReport.terminalReason = 'user:self-test after pair 2 first session'
             $userReport.validPairs = 1
             $userReport.hostSessions = 3
-            $userReport.hostAiCredits = 3
+            $userReport.hostAiCredits = 3 * $creditsPerSession
             $userReport.sessionResultSha256 = @($userReport.sessionResultSha256 | Select-Object -First 3)
             $userReport.gradeSha256 = @($userReport.gradeSha256 | Select-Object -First 1)
             $userReport.sessions = @($userReport.sessions | Select-Object -First 2)
             $userReport.invalidSessions = @([ordered]@{
-                    pair = 2; position = 'first'; arm = 'cli'
+                    pair = 2; position = 'first'; arm = $protocolValue.sample.pairs[1].first
                     resultSha256 = $resultHashes[2]; authorizationSha256 = $authorizationHash
-                    reason = 'user:self-test stopped after session'; hostAiCredits = 1
+                    reason = 'user:self-test stopped after session'; hostAiCredits = $creditsPerSession
                 })
+            if ($v3) {
+                $userReport.invalidSessions[0]['taskId'] = Get-ReadyCapturePairTaskId $protocolValue 2
+                $userReport.taskSummaries = @()
+            }
             $userReport.armSummaries = @()
             $userReport.pairedDeltas = @()
             $userReport.orderSummaries = @()
@@ -1653,19 +2067,23 @@ function Invoke-SelfTest {
                 schemaVersion = 1; protocolId = $protocolId; recordType = 'final-report'
                 protocolSha256 = $protocolHash; terminalDisposition = 'incomplete-evidence-integrity'
                 terminalReason = 'evidence:self-test invalid session'
-                validPairs = 0; hostSessions = 1; hostAiCredits = 1
+                validPairs = 0; hostSessions = 1; hostAiCredits = $creditsPerSession
                 authorizationSha256 = $authorizationHash
                 sessionResultSha256 = @($invalidResultHash); gradeSha256 = @(); sessions = @()
                 invalidSessions = @([ordered]@{
-                        pair = 1; position = 'first'; arm = 'cli-skill'
+                        pair = 1; position = 'first'; arm = $protocolValue.sample.pairs[0].first
                         resultSha256 = $invalidResultHash; authorizationSha256 = $authorizationHash
                         reason = 'evidence:self-test invalid evidence'
-                        hostAiCredits = 1
+                        hostAiCredits = $creditsPerSession
                     })
                 armSummaries = @(); pairedDeltas = @(); orderSummaries = @()
                 qualityState = 'unavailable'
                 costStates = [ordered]@{ analysisCalls = 'unavailable'; helpCalls = 'unavailable'; resultTokens = 'unavailable'; wallMs = 'unavailable'; hostAiCredits = 'unavailable' }
                 nextAction = 'stop-and-return-to-user'
+            }
+            if ($v3) {
+                $incompleteReport['taskSummaries'] = @()
+                $incompleteReport.invalidSessions[0]['taskId'] = Get-ReadyCapturePairTaskId $protocolValue 1
             }
             Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $incompleteReport
             [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final' $null)
@@ -1728,7 +2146,7 @@ function Invoke-SelfTest {
             $secondOnlyReport = ($incompleteReport | ConvertTo-Json -Depth 100) | ConvertFrom-Json
             $secondOnlyReport.sessionResultSha256 = @($secondOnlyHash)
             $secondOnlyReport.invalidSessions[0].position = 'second'
-            $secondOnlyReport.invalidSessions[0].arm = 'cli'
+            $secondOnlyReport.invalidSessions[0].arm = $protocolValue.sample.pairs[0].second
             $secondOnlyReport.invalidSessions[0].resultSha256 = $secondOnlyHash
             Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $secondOnlyReport
             [bool] $secondOnlyRejected = $false
@@ -1745,19 +2163,24 @@ function Invoke-SelfTest {
             [string] $invalidSecondHash = Get-RawHash $invalidSecondPath
             $twoSessionReport = ($incompleteReport | ConvertTo-Json -Depth 100) | ConvertFrom-Json
             $twoSessionReport.hostSessions = 2
-            $twoSessionReport.hostAiCredits = 2
+            $twoSessionReport.hostAiCredits = 2 * $creditsPerSession
             $twoSessionReport.sessionResultSha256 = @($validFirstHash, $invalidSecondHash)
             $twoSessionReport.invalidSessions = @(
                 [ordered]@{
-                    pair = 1; position = 'first'; arm = 'cli-skill'
+                    pair = 1; position = 'first'; arm = $protocolValue.sample.pairs[0].first
                     resultSha256 = $validFirstHash; authorizationSha256 = $authorizationHash
-                    reason = 'evidence:self-test retained valid first session'; hostAiCredits = 1
+                    reason = 'evidence:self-test retained valid first session'; hostAiCredits = $creditsPerSession
                 },
                 [ordered]@{
-                    pair = 1; position = 'second'; arm = 'cli'
+                    pair = 1; position = 'second'; arm = $protocolValue.sample.pairs[0].second
                     resultSha256 = $invalidSecondHash; authorizationSha256 = $authorizationHash
-                    reason = 'evidence:self-test invalid second session'; hostAiCredits = 1
+                    reason = 'evidence:self-test invalid second session'; hostAiCredits = $creditsPerSession
                 })
+            if ($v3) {
+                foreach ($entry in $twoSessionReport.invalidSessions) {
+                    $entry['taskId'] = Get-ReadyCapturePairTaskId $protocolValue 1
+                }
+            }
             Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $twoSessionReport
             [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final' $null)
 
@@ -1784,35 +2207,37 @@ function Invoke-SelfTest {
             if (-not $invalidDispositionRejected) { throw 'Ready-capture terminal-disposition mutation unexpectedly passed.' }
 
             $budgetCases = @(
-                [pscustomobject]@{
-                    reason = 'budget:host-ai-credits'
-                    mutate = { param($value) $value.iterations[0].hostUsageFile.value.totalPremiumRequestCost = 31 }
-                    credits = 31
-                },
+                if (-not $v3) {
+                    [pscustomobject]@{
+                        reason = 'budget:host-ai-credits'
+                        mutate = { param($value) $value.iterations[0].hostUsageFile.value.totalPremiumRequestCost = 31 }
+                        credits = 31
+                    }
+                }
                 [pscustomobject]@{
                     reason = 'budget:wall-ms'
                     mutate = { param($value) $value.iterations[0].wallMs = 600001 }
-                    credits = 1
+                    credits = $creditsPerSession
                 },
                 [pscustomobject]@{
                     reason = 'budget:host-output-bytes'
                     mutate = { param($value) $value.iterations[0].execution.capturedBytes = 10485761 }
-                    credits = 1
+                    credits = $creditsPerSession
                 },
                 [pscustomobject]@{
                     reason = 'budget:host-artifact-bytes'
                     mutate = { param($value) $value.iterations[0].execution.artifactBytes = 16777217 }
-                    credits = 1
+                    credits = $creditsPerSession
                 },
                 [pscustomobject]@{
                     reason = 'budget:host-runtime-bytes'
                     mutate = { param($value) $value.iterations[0].execution.hostRuntimeBytes = 268435457 }
-                    credits = 1
+                    credits = $creditsPerSession
                 },
                 [pscustomobject]@{
                     reason = 'budget:projected-retained-bytes'
                     mutate = { param($value) $value.strictRunBudget.projectedBytes = 2147483649 }
-                    credits = 1
+                    credits = $creditsPerSession
                 })
             foreach ($budgetCase in $budgetCases) {
                 $budgetResult = ($invalidResultValue | ConvertTo-Json -Depth 100) | ConvertFrom-Json
@@ -1830,6 +2255,19 @@ function Invoke-SelfTest {
                 $budgetReport.invalidSessions[0].hostAiCredits = $budgetCase.credits
                 Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $budgetReport
                 [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final' $null)
+            }
+
+            if ($v3) {
+                $noCreditCapReport = ($budgetReport | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+                $noCreditCapReport.terminalReason = 'budget:host-ai-credits'
+                $noCreditCapReport.invalidSessions[0].reason = 'budget:host-ai-credits'
+                Write-JsonFile (Join-Path $incompleteRoot 'final-report.json') $noCreditCapReport
+                [bool] $inventedCreditCapRejected = $false
+                try { [void](Test-ArtifactSet $incompleteRoot $ProtocolPath $SchemaPath $false $false 'Final' $null) }
+                catch { $inventedCreditCapRejected = $true }
+                if (-not $inventedCreditCapRejected) {
+                    throw 'EP1 v3 invented host AI credit ceiling unexpectedly passed.'
+                }
             }
 
             $budgetAsEvidenceReport = ($budgetReport | ConvertTo-Json -Depth 100) | ConvertFrom-Json
@@ -1858,6 +2296,110 @@ function Invoke-SelfTest {
             Remove-Item -LiteralPath $incompleteRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
 
+        if ($v3) {
+            [string] $modelRoot = "$root-model-mismatch"
+            Copy-Item -LiteralPath $root -Destination $modelRoot -Recurse
+            try {
+                [string] $modelResultPath = Join-Path $modelRoot 'pair-5-first-result.json'
+                $modelResult = [System.IO.File]::ReadAllText($modelResultPath) | ConvertFrom-Json -Depth 100
+                $modelResult.model.observed = 'gpt-5.6-sol'
+                Write-JsonFile $modelResultPath $modelResult
+                [string] $changedResultHash = Get-RawHash $modelResultPath
+                [string] $modelMapPath = Join-Path $modelRoot 'pair-5-map.json'
+                $modelMap = [System.IO.File]::ReadAllText($modelMapPath) | ConvertFrom-Json -Depth 100
+                @($modelMap.entries | Where-Object position -eq 'first')[0].resultSha256 = $changedResultHash
+                Write-JsonFile $modelMapPath $modelMap
+                $modelReport = ($report | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+                $modelReport.sessionResultSha256[8] = $changedResultHash
+                $modelReport.sessions[8].resultSha256 = $changedResultHash
+                Write-JsonFile (Join-Path $modelRoot 'final-report.json') $modelReport
+                [bool] $modelMismatchRejected = $false
+                try { [void](Test-ArtifactSet $modelRoot $ProtocolPath $SchemaPath $true $false 'Final' $null) }
+                catch {
+                    $modelMismatchRejected = $_.Exception.Message.Contains(
+                        'session identity or machine evidence', [StringComparison]::Ordinal)
+                }
+                if (-not $modelMismatchRejected) {
+                    throw 'EP1 v3 accepted a changed host model despite reconciled artifact hashes.'
+                }
+            }
+            finally {
+                Remove-Item -LiteralPath $modelRoot -Recurse -Force -ErrorAction SilentlyContinue
+            }
+
+            [string] $lateStopRoot = "$root-invalid-pair-five"
+            Copy-Item -LiteralPath $root -Destination $lateStopRoot -Recurse
+            try {
+                Get-ChildItem -LiteralPath $lateStopRoot -File | Where-Object {
+                    $_.Name -match '^pair-[5-8]-'
+                } | Remove-Item -Force
+                [string] $lateResultPath = Join-Path $lateStopRoot 'pair-5-first-result.json'
+                $lateResult = [System.IO.File]::ReadAllText((Join-Path $root 'pair-5-first-result.json')) |
+                    ConvertFrom-Json -Depth 100
+                $lateResult.iterations[0].execution.processExitCode = 1
+                Write-JsonFile $lateResultPath $lateResult
+                [string] $lateHash = Get-RawHash $lateResultPath
+                $lateReport = ($report | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+                $lateReport.terminalDisposition = 'incomplete-evidence-integrity'
+                $lateReport.terminalReason = 'evidence:self-test invalid ninth session'
+                $lateReport.validPairs = 4
+                $lateReport.hostSessions = 9
+                $lateReport.hostAiCredits = 9 * $creditsPerSession
+                $lateReport.sessionResultSha256 = @($lateReport.sessionResultSha256 | Select-Object -First 8) + @($lateHash)
+                $lateReport.gradeSha256 = @($lateReport.gradeSha256 | Select-Object -First 4)
+                $lateReport.sessions = @($lateReport.sessions | Select-Object -First 8)
+                $lateReport.invalidSessions = @([ordered]@{
+                        taskId = Get-ReadyCapturePairTaskId $protocolValue 5
+                        pair = 5
+                        position = 'first'
+                        arm = $protocolValue.sample.pairs[4].first
+                        resultSha256 = $lateHash
+                        authorizationSha256 = $authorizationHash
+                        reason = 'evidence:self-test invalid ninth session'
+                        hostAiCredits = $creditsPerSession
+                    })
+                $lateReport.armSummaries = @()
+                $lateReport.pairedDeltas = @()
+                $lateReport.orderSummaries = @()
+                $lateReport.taskSummaries = @()
+                $lateReport.qualityState = 'unavailable'
+                foreach ($property in $lateReport.costStates.PSObject.Properties) {
+                    $property.Value = 'unavailable'
+                }
+                Write-JsonFile (Join-Path $lateStopRoot 'final-report.json') $lateReport
+                $lateValidation = Test-ArtifactSet $lateStopRoot $ProtocolPath $SchemaPath $false $false 'Final' $null
+                if ($lateValidation.pairs -ne 4 -or $lateValidation.sessions -ne 9) {
+                    throw 'EP1 v3 did not retain the stopped ninth session.'
+                }
+
+                [string] $replacementPath = Join-Path $lateStopRoot 'pair-6-first-result.json'
+                Copy-Item -LiteralPath (Join-Path $root 'pair-6-first-result.json') -Destination $replacementPath
+                $lateReport.hostSessions = 10
+                $lateReport.hostAiCredits = 10 * $creditsPerSession
+                $lateReport.sessionResultSha256 += (Get-RawHash $replacementPath)
+                $lateReport.invalidSessions += [ordered]@{
+                    taskId = Get-ReadyCapturePairTaskId $protocolValue 6
+                    pair = 6
+                    position = 'first'
+                    arm = $protocolValue.sample.pairs[5].first
+                    resultSha256 = Get-RawHash $replacementPath
+                    authorizationSha256 = $authorizationHash
+                    reason = 'evidence:self-test attempted replacement'
+                    hostAiCredits = $creditsPerSession
+                }
+                Write-JsonFile (Join-Path $lateStopRoot 'final-report.json') $lateReport
+                [bool] $replacementRejected = $false
+                try { [void](Test-ArtifactSet $lateStopRoot $ProtocolPath $SchemaPath $false $false 'Final' $null) }
+                catch { $replacementRejected = $true }
+                if (-not $replacementRejected) {
+                    throw 'EP1 v3 accepted a replacement session after the invalid ninth session.'
+                }
+            }
+            finally {
+                Remove-Item -LiteralPath $lateStopRoot -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
         $mutations = @(
             @{ Name = 'grade blind ids'; File = 'pair-1-grade.json'; Change = { param($v) $v.grades[1].blindId = 'f' * 32 } },
             @{ Name = 'answer availability'; File = 'pair-1-packet.json'; Change = { param($v) $v.answers[0].answerAvailable = $true } },
@@ -1869,11 +2411,21 @@ function Invoke-SelfTest {
             @{ Name = 'packet hash'; File = 'pair-1-map.json'; Change = { param($v) $v.packetSha256 = $zeroHash } },
             @{ Name = 'grade hash'; File = 'pair-1-map.json'; Change = { param($v) $v.gradeSha256 = $zeroHash } },
             @{ Name = 'result hash'; File = 'pair-1-map.json'; Change = { param($v) $v.entries[0].resultSha256 = $zeroHash } },
-            @{ Name = 'arm balance'; File = 'pair-1-map.json'; Change = { param($v) $v.entries[1].arm = 'cli-skill' } },
+            @{ Name = 'arm balance'; File = 'pair-1-map.json'; Change = { param($v) $v.entries[1].arm = $v.entries[0].arm } },
             @{ Name = 'report hashes'; File = 'final-report.json'; Change = { param($v) $v.sessionResultSha256 = @($v.sessionResultSha256 | Select-Object -First 7) } },
             @{ Name = 'report session'; File = 'final-report.json'; Change = { param($v) $v.sessions[0].tokens++ } },
             @{ Name = 'report aggregate'; File = 'final-report.json'; Change = { param($v) $v.armSummaries[0].metrics.resultTokens.median++ } }
         )
+        if ($v3) {
+            $mutations += @(
+                @{ Name = 'cross-task map'; File = 'pair-2-map.json'; Change = { param($v) $v.taskId = 'quality-first-unresolved' } },
+                @{ Name = 'packet arm leak'; File = 'pair-2-packet.json'; Change = { param($v) $v | Add-Member -NotePropertyName arm -NotePropertyValue 'cli-skill' } },
+                @{ Name = 'wrong checkpoint model'; File = 'checkpoint.json'; Change = { param($v) $v.requestedModel = 'GPT-5.6 Sol' } },
+                @{ Name = 'wrong checkpoint skill manifest'; File = 'checkpoint.json'; Change = { param($v) $v.skillManifestSha256 = $zeroHash } },
+                @{ Name = 'invented authorization credit cap'; File = 'authorization.json'; Change = { param($v) $v | Add-Member -NotePropertyName maximumHostAiCredits -NotePropertyValue 240 } },
+                @{ Name = 'task aggregate'; File = 'final-report.json'; Change = { param($v) $v.taskSummaries[1].armSummaries[0].metrics.wallMs.minimum++ } }
+            )
+        }
         foreach ($mutation in $mutations) {
             [string] $copy = Join-Path ([System.IO.Path]::GetDirectoryName($root)) "$(Split-Path $root -Leaf)-$($mutation.Name)"
             Copy-Item -LiteralPath $root -Destination $copy -Recurse

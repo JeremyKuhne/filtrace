@@ -16,12 +16,12 @@ namespace Filtrace.Output;
 /// <remarks>
 ///  <para>
 ///   The output contract reserves a hints channel; this is what fills it for the
-///   ranking-family verbs. Each helper turns a verb's result into the one drill
-///   that most naturally continues the investigation: an unwindowed CPU ranking
-///   points at the hottest frame's callers, a non-CPU or windowed ranking stays in
-///   the same metric/scope, a callers report points further up the stack, and a diff
-///   points at the frame that changed most. The nudges name the engine verb and the
-///   frame to pass it, matching the hint pinned by the output-contract golden.
+///   ranking-family verbs. Each helper turns a verb's result into the next
+///   evidence-backed action: an unresolved CPU leader checks frame-name quality
+///   before an optional resolved drill, a non-CPU or windowed ranking stays in
+///   the same metric/scope, and resolved callers and diffs suggest the next
+///   frame to inspect. The nudges name an operation only when its scope can be
+///   preserved.
 ///  </para>
 ///  <para>
 ///   The text hints remain advisory messages for source and CLI compatibility. The
@@ -44,6 +44,8 @@ public static class SteeringHints
     ///  execution, not a frame to drill into.
     /// </summary>
     private const string SelfFrame = "<self>";
+
+    private const string UnknownFrame = "?";
 
     /// <summary>
     ///  The nudge emitted when a verb's scope contains no frames to drill into.
@@ -237,8 +239,9 @@ public static class SteeringHints
         $"{(value * 100.0).ToString("0", CultureInfo.InvariantCulture)}%";
 
     /// <summary>
-    ///  The next-step hints for a self-time or inclusive-time ranking: drill into
-    ///  the hottest frame's callers.
+    ///  The next-step hints for a self-time or inclusive-time ranking: check
+    ///  frame-name quality when the hottest frame is unresolved; otherwise
+    ///  drill into its callers.
     /// </summary>
     /// <param name="ranking">The ranking the hints steer from.</param>
     /// <returns>The steering hints, never <see langword="null"/>.</returns>
@@ -247,12 +250,11 @@ public static class SteeringHints
         ForRanking(ranking, MetricInfo.Cpu);
 
     /// <summary>
-    ///  The next-step hints for a ranking, constrained to follow-ups that preserve
-    ///  the ranking's metric and scope.
+    ///  The next-step hints for a ranking, preserving its metric and scope.
     /// </summary>
     /// <param name="ranking">The ranking the hints steer from.</param>
     /// <param name="metric">The metric the ranking carries.</param>
-    /// <param name="scope">Optional process, activity, and time scope used to build the ranking.</param>
+    /// <param name="scope">The process, activity, and time scope used to build the ranking.</param>
     /// <returns>The steering hints, never <see langword="null"/>.</returns>
     /// <exception cref="ArgumentNullException">
     ///  <paramref name="ranking"/> or <paramref name="metric"/> is <see langword="null"/>.
@@ -260,7 +262,30 @@ public static class SteeringHints
     public static IReadOnlyList<string> ForRanking(
         RankingResult ranking,
         MetricInfo metric,
-        ScopeRequest? scope = null)
+        ScopeRequest? scope) =>
+            ForRanking(ranking, metric, scope, path: null);
+
+    /// <summary>
+    ///  The next-step hints for a ranking, constrained to follow-ups that preserve
+    ///  the ranking's metric and scope.
+    /// </summary>
+    /// <param name="ranking">The ranking the hints steer from.</param>
+    /// <param name="metric">The metric the ranking carries.</param>
+    /// <param name="scope">Optional process, activity, and time scope used to build the ranking.</param>
+    /// <param name="path">The trace path for a complete, scope-safe quality follow-up.</param>
+    /// <param name="symbols">The local symbol directory used for this ranking, if any.</param>
+    /// <param name="nativeSymbols">Whether native runtime symbol resolution was enabled for this ranking.</param>
+    /// <returns>The steering hints, never <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException">
+    ///  <paramref name="ranking"/> or <paramref name="metric"/> is <see langword="null"/>.
+    /// </exception>
+    public static IReadOnlyList<string> ForRanking(
+        RankingResult ranking,
+        MetricInfo metric,
+        ScopeRequest? scope = null,
+        string? path = null,
+        string? symbols = null,
+        bool nativeSymbols = false)
     {
         ArgumentNullException.ThrowIfNull(ranking);
         ArgumentNullException.ThrowIfNull(metric);
@@ -283,20 +308,73 @@ public static class SteeringHints
             string reason =
                 "this CPU ranking is activity/time-scoped; callers, lines, heatmap, and tree cannot preserve that slice - refine it with self/inclusive measure or root in rank";
 
+            if (IsUnresolvedFrame(ranking.Rows[0].Frame))
+            {
+                string quality = UnresolvedRankingHint(
+                    ranking.Rows[0], scope, ranking.RootFrame, symbols, nativeSymbols);
+
+                return new SteeringHintSet(
+                    [quality, reason],
+                    [Step(quality), Step(reason, "rank", CpuScopeArguments(scope, ranking.RootFrame))]);
+            }
+
             return Guidance(reason, "rank", CpuScopeArguments(scope, ranking.RootFrame));
         }
 
+        if (IsUnresolvedFrame(ranking.Rows[0].Frame))
+        {
+            string quality = UnresolvedRankingHint(
+                ranking.Rows[0], scope, ranking.RootFrame, symbols, nativeSymbols);
+
+            RankRow? resolved = ranking.Rows.FirstOrDefault(static row => IsResolvedFrame(row.Frame));
+            if (resolved is null)
+            {
+                return new SteeringHintSet(
+                    [quality],
+                    [FrameNameQualityStep(quality, ranking.RootFrame, scope, path, symbols, nativeSymbols)]);
+            }
+
+            string optional = PreserveLocalSymbols(
+                PreserveCpuScope(
+                    $"optional: inspect the first resolved row separately with: callers {QuotePowerShellArgument(resolved.Frame)}",
+                    ranking.RootFrame,
+                    scope),
+                symbols);
+
+            if (nativeSymbols)
+            {
+                optional += "; callers cannot reproduce native-symbol resolution";
+            }
+
+            return new SteeringHintSet(
+                [quality, optional],
+                [
+                    FrameNameQualityStep(quality, ranking.RootFrame, scope, path, symbols, nativeSymbols),
+                    CpuCallerStep(
+                        optional, ranking.RootFrame, scope, resolved.Frame, symbols, nativeSymbols,
+                        requireCompleteProcessIds: true)
+                ]);
+        }
+
         string hint = $"drill into the hot frame with: callers {ranking.Rows[0].Frame}";
-        string message = PreserveCpuScope(hint, ranking.RootFrame, scope);
-        return Guidance(
-            message,
-            "callers",
-            CpuScopeArguments(scope, ranking.RootFrame, ranking.Rows[0].Frame));
+        string message = PreserveLocalSymbols(
+            PreserveCpuScope(hint, ranking.RootFrame, scope), symbols);
+
+        if (nativeSymbols)
+        {
+            message += "; callers cannot reproduce native-symbol resolution";
+        }
+
+        return new SteeringHintSet(
+            [message],
+            [CpuCallerStep(
+                message, ranking.RootFrame, scope, ranking.Rows[0].Frame, symbols, nativeSymbols)]);
     }
 
     /// <summary>
-    ///  The next-step hints for a callers report: continue up the stack toward the
-    ///  dominant caller, or note that the focus frame is a top-level entry point.
+    ///  The next-step hints for a callers report: check quality when the focus or
+    ///  dominant caller is unresolved, otherwise continue up the stack or identify
+    ///  a top-level entry point.
     /// </summary>
     /// <param name="callers">The callers report the hints steer from.</param>
     /// <returns>The steering hints, never <see langword="null"/>.</returns>
@@ -329,7 +407,33 @@ public static class SteeringHints
         List<AnalysisNextStep> steps = [];
 
         string topCaller = callers.Callers[0].Caller;
-        if (string.Equals(topCaller, RootFrame, StringComparison.Ordinal))
+        if (IsUnresolvedFrame(callers.Focus) || IsUnresolvedFrame(topCaller))
+        {
+            string quality = IsUnresolvedFrame(callers.Focus)
+                ? $"the '{callers.Focus}' focus can group unrelated unresolved frames; "
+                    + $"its caller weights remain relative to the full target; {FrameNameQualityHint(scope)}"
+                : $"the leading caller '{topCaller}' is unresolved "
+                    + $"({callers.Callers[0].PercentOfTarget.ToString("0.##", CultureInfo.InvariantCulture)}% of target); "
+                    + $"its weight remains in the caller denominator; {FrameNameQualityHint(scope)}";
+
+            hints.Add(quality);
+            steps.Add(Step(quality));
+
+            CallerRow? resolved = callers.Callers.FirstOrDefault(static row => IsResolvedFrame(row.Caller));
+            if (resolved is not null)
+            {
+                string optional = PreserveCpuScope(
+                    $"optional: inspect the first resolved caller separately with: callers {QuotePowerShellArgument(resolved.Caller)}",
+                    root,
+                    scope);
+
+                hints.Add(optional);
+                steps.Add(CpuCallerStep(
+                    optional, root, scope, resolved.Caller,
+                    symbols: null, nativeSymbols: false, requireCompleteProcessIds: true));
+            }
+        }
+        else if (string.Equals(topCaller, RootFrame, StringComparison.Ordinal))
         {
             string reason = "the focus frame is called directly from the root; it is a top-level entry point";
             hints.Add(reason);
@@ -348,7 +452,8 @@ public static class SteeringHints
         {
             foreach (CalleeRow callee in callees)
             {
-                if (!string.Equals(callee.Callee, SelfFrame, StringComparison.Ordinal))
+                if (!string.Equals(callee.Callee, SelfFrame, StringComparison.Ordinal)
+                    && !IsUnresolvedFrame(callee.Callee))
                 {
                     string reason = PreserveCpuScope(
                         $"continue down into the callee with: callers {callee.Callee} --callees",
@@ -390,14 +495,119 @@ public static class SteeringHints
         return scope is { IncludeChildren: false } ? $"{hint} --children exclude" : hint;
     }
 
+    private static string PreserveLocalSymbols(string hint, string? symbols)
+    {
+        if (string.IsNullOrEmpty(symbols))
+        {
+            return hint;
+        }
+
+        return $"{hint} --symbols {QuotePowerShellArgument(symbols)}";
+    }
+
+    private static bool IsUnresolvedFrame(string frame) =>
+        string.Equals(frame, UnknownFrame, StringComparison.Ordinal)
+            || frame.EndsWith("!?", StringComparison.Ordinal);
+
+    private static bool IsResolvedFrame(string frame) =>
+        !IsUnresolvedFrame(frame)
+            && !string.Equals(frame, RootFrame, StringComparison.Ordinal)
+            && !string.Equals(frame, SelfFrame, StringComparison.Ordinal);
+
+    private static string FrameNameQualityHint(ScopeRequest? scope, string? symbols = null)
+    {
+        string command = PreserveLocalSymbols(PreserveCpuScope("info <trace>", "", scope), symbols);
+        return $"check frame-name quality with: {command}";
+    }
+
+    private static AnalysisNextStep CpuCallerStep(
+        string reason,
+        string root,
+        ScopeRequest? scope,
+        string frame,
+        string? symbols,
+        bool nativeSymbols,
+        bool requireCompleteProcessIds = false)
+    {
+        if (nativeSymbols
+            || (requireCompleteProcessIds
+                && scope?.Selector is ProcessIdSelector ids
+                && ids.ProcessIds.Count > AnalysisScopeContext.MaxReportedProcessIds))
+        {
+            return Step(reason);
+        }
+
+        return Step(
+            reason, "callers",
+            CpuScopeArguments(scope, root, frame) with { Symbols = symbols });
+    }
+
+    private static AnalysisNextStep FrameNameQualityStep(
+        string reason,
+        string root,
+        ScopeRequest? scope,
+        string? path,
+        string? symbols,
+        bool nativeSymbols)
+    {
+        if (!string.IsNullOrEmpty(root)
+            || scope?.ActivityName is not null
+            || scope?.Window is not null
+            || nativeSymbols
+            || string.IsNullOrWhiteSpace(path)
+            || scope?.Selector is ProcessIdSelector ids
+                && ids.ProcessIds.Count > AnalysisScopeContext.MaxReportedProcessIds)
+        {
+            return Step(reason);
+        }
+
+        AnalysisNextStepArguments arguments = RankScopeArguments("cpu", scope) with
+        {
+            Path = path,
+            Symbols = symbols,
+            Metric = null
+        };
+
+        return Step(reason, "info", arguments);
+    }
+
+    private static string UnresolvedRankingHint(
+        RankRow row,
+        ScopeRequest? scope,
+        string root,
+        string? symbols,
+        bool nativeSymbols)
+    {
+        string hint = $"the leading '{row.Frame}' row groups unresolved frames "
+            + $"({row.PercentOfScope.ToString("0.##", CultureInfo.InvariantCulture)}% of scoped weight); "
+            + $"keep that weight in the denominator and {FrameNameQualityHint(scope, symbols)}";
+
+        if (!string.IsNullOrEmpty(root))
+        {
+            hint += "; info does not preserve the root subtree";
+        }
+
+        if (scope?.ActivityName is not null || scope?.Window is not null)
+        {
+            hint += "; info does not preserve the activity/time slice";
+        }
+
+        if (nativeSymbols)
+        {
+            hint += "; info does not reproduce native-symbol resolution";
+        }
+
+        return hint;
+    }
+
     // Hints use PowerShell command syntax throughout the shipped Windows-first docs.
     // Single-quoted arguments preserve whitespace, double quotes, dollar signs, and
     // backticks; PowerShell represents an embedded apostrophe by doubling it.
     private static string QuotePowerShellArgument(string value) => $"'{value.Replace("'", "''", StringComparison.Ordinal)}'";
 
     /// <summary>
-    ///  The next-step hints for a ranking diff: drill into the frame whose weight
-    ///  changed most between the two runs.
+    ///  The next-step hints for a ranking diff: check frame-name quality when
+    ///  the largest changed row is unresolved, otherwise drill into that frame.
     /// </summary>
     /// <param name="diff">The ranking diff the hints steer from.</param>
     /// <returns>The steering hints, never <see langword="null"/>.</returns>
@@ -424,6 +634,19 @@ public static class SteeringHints
                 ? largest.Value.Case.Benchmark
                 : $"{largest.Value.Case.Benchmark} ({largest.Value.Case.Parameters})";
 
+            if (IsUnresolvedFrame(largest.Value.Row.Frame))
+            {
+                string quality =
+                    $"largest normalized change in {identity} is unresolved ('{largest.Value.Row.Frame}'); "
+                        + "check frame-name quality in both case traces before attributing it";
+
+                DiffRow? resolved = largest.Value.Case.Rows.FirstOrDefault(static row => IsResolvedFrame(row.Frame));
+                return resolved is null
+                    ? Guidance(quality)
+                    : new SteeringHintSet(
+                        [quality, $"optional: inspect the first resolved change, {resolved.Frame}, in the paired case traces without dropping their scopes"]);
+            }
+
             return Guidance(
                 $"largest normalized change is {largest.Value.Row.Frame} in {identity}; drill into the paired traces with callers");
         }
@@ -439,6 +662,24 @@ public static class SteeringHints
         }
 
         string top = diff.Rows[0].Frame;
+        if (IsUnresolvedFrame(top))
+        {
+            string quality =
+                $"the largest changed row '{top}' is unresolved; its before/after weights remain in the diff; "
+                    + "check frame-name quality in both traces before attributing the change";
+
+            DiffRow? resolved = diff.Rows.FirstOrDefault(static row => IsResolvedFrame(row.Frame));
+            if (resolved is null)
+            {
+                return Guidance(quality);
+            }
+
+            string optional = $"optional: pick one trace and preserve its original scope before inspecting the first "
+                + $"resolved changed row with callers {QuotePowerShellArgument(resolved.Frame)}; it does not explain '{top}'";
+
+            return new SteeringHintSet([quality, optional]);
+        }
+
         string reason = $"the largest change is {top}; drill into it with: callers {top}";
         return Guidance(
             reason,

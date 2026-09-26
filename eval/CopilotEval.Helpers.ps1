@@ -1723,6 +1723,68 @@ function New-CopilotEvalContext {
     }
 }
 
+function Get-AgentEvalTaskExpectedOperations($Task) {
+    [System.Collections.Generic.HashSet[string]] $operations =
+        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($step in @($Task.steps)) {
+        [string[]] $arguments = @($step.args)
+        if ($arguments.Count -eq 0) { throw "Task '$($Task.id)' has an empty command step." }
+        [string[]] $members = @($step.PSObject.Properties.Name)
+        if ($members -ccontains 'optional') {
+            if ($step.optional -isnot [bool]) {
+                throw "Task '$($Task.id)' has a non-boolean optional step."
+            }
+            if ($step.optional) { continue }
+        }
+        [string] $operationSource = $arguments[0]
+        if ([string]::Equals($operationSource, 'report', [StringComparison]::Ordinal)) {
+            [int[]] $kindIndexes = @(for ($index = 0; $index -lt $arguments.Count; $index++) {
+                    if ([string]::Equals($arguments[$index], '--kind', [StringComparison]::Ordinal)) { $index }
+                })
+            if ($kindIndexes.Count -ne 1 -or $kindIndexes[0] -ge ($arguments.Count - 1)) {
+                throw "Task '$($Task.id)' has a report step without exactly one kind."
+            }
+            $operationSource = $arguments[$kindIndexes[0] + 1]
+        }
+        [void]$operations.Add((Get-OperationName -Name $operationSource))
+    }
+    return [string[]]@($operations)
+}
+
+function Test-AgentEvalUnresolvedCallerAttempt($Command) {
+    if ($null -eq $Command -or $Command.isHelp -or
+        -not [string]::Equals([string]$Command.verb, 'callers', [StringComparison]::Ordinal)) {
+        return $false
+    }
+    [string[]] $argv = @($Command.argv)
+    for ($index = 2; $index -lt ($argv.Count - 2); $index++) {
+        if ($argv[$index].StartsWith('--', [StringComparison]::Ordinal)) {
+            $index++
+            continue
+        }
+        return [string]::Equals($argv[$index], '?', [StringComparison]::Ordinal)
+    }
+    return $false
+}
+
+function Test-AgentEvalMcpUnresolvedCallerAttempt([string] $ToolName, $ToolArguments) {
+    if (-not [string]::Equals($ToolName, 'trace_callers', [StringComparison]::Ordinal) -or
+        $ToolArguments -isnot [pscustomobject]) {
+        return $false
+    }
+    [string[]] $members = @($ToolArguments.PSObject.Properties | ForEach-Object { $_.Name })
+    return $members -ccontains 'frame' -and
+        $ToolArguments.frame -is [string] -and
+        [string]::Equals([string]$ToolArguments.frame, '?', [StringComparison]::Ordinal)
+}
+
+function Test-AgentEvalForbiddenFrameAttempt($Task, $Run) {
+    return @($Task.forbidFrames) -ccontains '?' -and
+        $null -ne $Run -and
+        $Run.PSObject.Properties.Name -ccontains 'attemptedUnresolvedCaller' -and
+        [bool]$Run.attemptedUnresolvedCaller
+}
+
 function Get-AgentEvalTaskCommandFamilies {
     param(
         [Parameter(Mandatory)][object] $Task,
@@ -1735,6 +1797,9 @@ function Get-AgentEvalTaskCommandFamilies {
     foreach ($step in @($Task.steps)) {
         [string[]] $stepMembers = @($step.PSObject.Properties.Name)
         if ($stepMembers -cnotcontains 'args') { throw "Task '$($Task.id)' has a step without args." }
+        if ($stepMembers -ccontains 'optional' -and $step.optional -isnot [bool]) {
+            throw "Task '$($Task.id)' has a non-boolean optional step."
+        }
         [object[]] $arguments = @($step.args)
         if ($arguments.Count -lt 2 -or $arguments.Count -gt 30 -or
             @($arguments | Where-Object { $_ -isnot [string] }).Count -ne 0) {

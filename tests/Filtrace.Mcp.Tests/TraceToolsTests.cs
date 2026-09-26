@@ -325,6 +325,103 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Rank_UnknownExactPid_PrioritizesQualityWithoutChangingTheDenominator()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<RankingResult> envelope = TraceTools.Rank(
+            store, FixturePath(Etw), pid: [40356], children: false, top: 3);
+
+        envelope.Result.ScopeWeight.Should().Be(50);
+        envelope.Result.ContributingRecordCount.Should().Be(50);
+        envelope.Result.Rows[0].Frame.Should().Be("?");
+        envelope.Hints.Should().ContainSingle().Which.Should().Contain(
+            "info <trace> --pid 40356 --children exclude");
+
+        AnalysisNextStep next = envelope.NextSteps.Should().ContainSingle().Which;
+        next.Operation.Should().Be("info");
+        next.Arguments!.Path.Should().Be(FixturePath(Etw));
+        next.Arguments.ProcessIds.Should().Equal(40356);
+        next.Arguments.IncludeChildren.Should().BeFalse();
+        envelope.Hints.Should().NotContain(hint => hint.Contains("callers ?", StringComparison.Ordinal));
+
+        AnalysisResult<TraceInfoView> followUp = TraceTools.Info(
+            store, next.Arguments.Path!, pid: [.. next.Arguments.ProcessIds!],
+            children: next.Arguments.IncludeChildren!.Value);
+
+        followUp.Result.SampleCount.Should().Be(50);
+        followUp.Result.SymbolResolutionRate.Should().Be(0);
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Rank_UnknownNamedProcess_InfoStepPreservesTheTree()
+    {
+        TraceStore store = new();
+        string path = FixturePath(Etw);
+
+        AnalysisResult<RankingResult> ranking = TraceTools.Rank(
+            store, path, process: "HotLoopBench", top: 3);
+
+        ranking.Result.ContributingRecordCount.Should().Be(51);
+        ranking.Result.Rows[0].Frame.Should().Be("?");
+        AnalysisNextStep next = ranking.NextSteps[0];
+        next.Operation.Should().Be("info");
+        next.Arguments!.Path.Should().Be(path);
+        next.Arguments.Process.Should().Be("HotLoopBench");
+        next.Arguments.IncludeChildren.Should().BeTrue();
+
+        AnalysisResult<TraceInfoView> followUp = TraceTools.Info(
+            store, next.Arguments.Path!, process: next.Arguments.Process!,
+            children: next.Arguments.IncludeChildren!.Value);
+
+        followUp.Result.SampleCount.Should().Be(51);
+        followUp.Result.SymbolResolutionRate.Should().Be(0);
+    }
+
+    [TestMethod]
+    public void Rank_MixedUnknown_PreservesRowsAndOffersSeparateResolvedDrill()
+    {
+        TraceStore store = new();
+        string path = FixturePath("mixed-unknown.speedscope.json");
+
+        AnalysisResult<RankingResult> envelope = TraceTools.Rank(store, path, top: 3);
+
+        envelope.Context!.Unit.Should().Be("ms");
+        envelope.Result.ScopeWeight.Should().Be(100);
+        envelope.Result.ContributingRecordCount.Should().Be(3);
+        envelope.Result.Rows[0].Frame.Should().Be("?");
+        envelope.Result.Rows[0].Weight.Should().Be(60);
+        envelope.Result.Rows[1].Frame.Should().Be("App.Work");
+        envelope.Result.Rows[1].Weight.Should().Be(25);
+        envelope.NextSteps[0].Operation.Should().Be("info");
+        envelope.NextSteps[0].Arguments!.Path.Should().Be(path);
+        envelope.NextSteps[1].Operation.Should().Be("callers");
+        envelope.NextSteps[1].Arguments!.Frame.Should().Be("App.Work");
+        envelope.Hints[1].Should().Contain("separately");
+        envelope.Hints.Should().NotContain(hint => hint.Contains("callers ?", StringComparison.Ordinal));
+
+        TraceTools.Info(store, path).Result.SymbolResolutionRate.Should().Be(1.0,
+            "speedscope reports supplied labels as resolved even when a literal '?' row is present");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Callers_UnknownFocus_DoesNotSuggestRepeatingTheUnknownQuery()
+    {
+        TraceStore store = new();
+
+        AnalysisResult<CallersResult> envelope = TraceTools.Callers(
+            store, FixturePath(Etw), "?", pid: [40356], children: false);
+
+        envelope.Result.TargetWeight.Should().BeGreaterThan(0);
+        envelope.Hints[0].Should().Contain("can group unrelated unresolved frames");
+        envelope.Hints.Should().NotContain(hint => hint.Contains("callers ?", StringComparison.Ordinal));
+        envelope.NextSteps[0].Operation.Should().BeNull();
+    }
+
+    [TestMethod]
     public void Rank_ThinPeriodicCpuRoot_WarnsUsingContributingRecords()
     {
         TraceStore store = new();

@@ -1,7 +1,7 @@
 {
   "id": "exact-pid-tree-scope",
   "title": "Preserve an exact ETW process-id tree across CPU analysis and drill-down.",
-  "prompt": "Analyze CPU self-time for the process tree rooted at PID 40356 in this machine-wide ETW capture, including descendants. Identify the hottest frame only if the evidence supports a name, state the exact root and descendant scope and evidence quality, give the next callers command without losing that scope, and name one conclusion the trace does not justify.",
+  "prompt": "Analyze CPU self-time for the process tree rooted at PID 40356 in this machine-wide ETW capture, including descendants. Identify the hottest frame only if the evidence supports a name, state the exact root and descendant scope and evidence quality, give the next frame-name quality check without losing that process scope, and name one conclusion the trace does not justify.",
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
   "os": "windows",
   "steps": [
@@ -21,8 +21,8 @@
     { "field": "warnings[2].data.resolutionPercent", "equals": 0 },
     { "field": "warnings[3].data.contributingRecords", "equals": 51 },
     { "field": "warnings[3].data.recommendedMinimum", "equals": 200 },
-    { "hintContains": "callers ? --pid 40356" },
+    { "hintContains": "info <trace> --pid 40356" },
     { "jsonContains": "Scoped to the process tree of pid 40356" }
   ],
-  "expect": ["--pid", "40356", "48348", "0%", "51", "200", "callers"]
+  "expect": ["--pid", "40356", "48348", "0%", "51", "200", "info", "unresolved"]
 }

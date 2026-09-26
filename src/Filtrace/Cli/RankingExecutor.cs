@@ -90,7 +90,13 @@ internal static class RankingExecutor
         AnalysisResult<RankingResult> envelope = new(
             ranking,
             warnings,
-            SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, scope),
+            SteeringHints.ForRanking(
+                ranking,
+                trace.Aggregator.Metric,
+                scope,
+                info.Path,
+                symbols,
+                request.SymbolOptions?.ResolveNativeRuntime == true),
             AnalysisContext.ForTrace(
                 "rank",
                 trace,

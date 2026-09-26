@@ -1,7 +1,7 @@
 {
   "id": "named-process-self-scope",
   "title": "Keep an explicitly named ETW process separate from its descendants.",
-  "prompt": "Analyze CPU self-time for the process named HotLoopBench-Job-IXTYWS-1 itself in this machine-wide ETW capture, excluding descendants. Identify the hottest frame only if the evidence supports a name, state the exact scope and evidence quality, give the next callers command without widening scope, and name one conclusion the trace does not justify.",
+  "prompt": "Analyze CPU self-time for the process named HotLoopBench-Job-IXTYWS-1 itself in this machine-wide ETW capture, excluding descendants. Identify the hottest frame only if the evidence supports a name, state the exact scope and evidence quality, give the next frame-name quality check without widening scope, and name one conclusion the trace does not justify.",
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
   "os": "windows",
   "steps": [
@@ -19,8 +19,8 @@
     { "field": "warnings[2].data.resolutionPercent", "equals": 0 },
     { "field": "warnings[3].data.contributingRecords", "equals": 50 },
     { "field": "warnings[3].data.recommendedMinimum", "equals": 200 },
-    { "hintContains": "callers ? --process 'HotLoopBench-Job-IXTYWS-1' --children exclude" },
+    { "hintContains": "info <trace> --process 'HotLoopBench-Job-IXTYWS-1' --children exclude" },
     { "jsonContains": "Scoped to the 'HotLoopBench-Job-IXTYWS-1' process itself (no children)" }
   ],
-  "expect": ["--process", "HotLoopBench-Job-IXTYWS-1", "exclude", "0%", "50", "200", "callers"]
+  "expect": ["--process", "HotLoopBench-Job-IXTYWS-1", "exclude", "0%", "50", "200", "info", "unresolved"]
 }

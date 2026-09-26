@@ -48,7 +48,8 @@ public sealed record AnalysisNextStepArguments
     public IReadOnlyList<string>? Fold { get; init; }
 
     /// <summary>
-    ///  Optional symbol directory overriding manifest case symbols.
+    ///  The local symbol directory to preserve on a follow-up, or an override for
+    ///  manifest case symbols.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Symbols { get; init; }

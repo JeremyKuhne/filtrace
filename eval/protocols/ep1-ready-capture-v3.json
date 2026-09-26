@@ -1,0 +1,484 @@
+{
+  "schemaVersion": 1,
+  "protocolId": "ep1-ready-capture-v3",
+  "state": "prepared-not-authorized",
+  "revision": {
+    "supersedes": "ep1-ready-capture-v2",
+    "priorDisposition": "v1-and-v2-are-historical-hash-checked-records-not-active-experiments",
+    "changes": [
+      "test-the-updated-shipped-quality-first-Filtrace-skill-against-the-same-current-CLI-without-skill",
+      "pin-the-updated-shipped-skill-entrypoint-and-complete-Windows-skill-manifest",
+      "permit-optional-resolved-App.Work-callers-without-requiring-it-for-live-success-and-score-callers-question-mark-attempts-as-quality-failures",
+      "add-attested-runner-success-as-v3-quality-anchor-without-replacing-blind-grades-or-changing-v2",
+      "add-a-public-mixed-unknown-resolved-speedscope-task-with-row-not-aggregate-resolution-grading",
+      "use-four-balanced-independent-pairs-per-task-eight-pairs-and-sixteen-sessions",
+      "keep-diff-resolved-drill-as-advisory-until-each-comparison-arm-has-a-verified-scope",
+      "use-exact-GPT-6-Sol-with-no-per-session-or-overall-host-AI-credit-ceiling-while-recording-actual-usage"
+    ],
+    "unchanged": [
+      "same-attested-CLI-bits-for-both-arms-with-only-skill-discovery-and-native-skill-view-tools-differing",
+      "v2-fairness-isolation-privacy-arm-masked-grading-and-descriptive-only-reporting",
+      "six-steps-600-second-native-timeout-zero-replacements-and-non-credit-output-artifact-limits"
+    ]
+  },
+  "question": "Does the updated shipped Filtrace skill improve evidence-backed investigation compared with the same current Filtrace CLI without the skill?",
+  "authorization": {
+    "preparationBoundary": "local-protocol-and-offline-validation-only",
+    "measuredExecutionAuthorized": false,
+    "requiredNextAuthorization": [
+      "exact v3 protocol content hash",
+      "exact private GPT-6 Sol model identifier and matching model identity SHA-256",
+      "maximum 16 independently isolated host sessions",
+      "stop after the descriptive ready-capture report"
+    ],
+    "terminalAction": "stop-and-return-to-user"
+  },
+  "identity": {
+    "sourceRepository": "https://github.com/JeremyKuhne/filtrace.git",
+    "sourceRevision": "approved-exact-commit-and-tree-recorded-in-private-checkpoint",
+    "cleanTree": "required-before-build-and-before-each-session",
+    "buildCommand": "dotnet build filtrace.slnx -c Release",
+    "buildReuse": "one-release-build-reused-byte-for-byte-for-all-sixteen-sessions",
+    "cliIdentity": "complete-cli-bundle-manifest-sha256-recorded-in-private-checkpoint-and-each-session",
+    "skillIdentity": "pinned-updated-shipped-skill-entrypoint-and-manifest-plus-private-checkpoint-and-session-inventory-sha256",
+    "evaluatorIdentity": "protocol-schema-validator-runner-helper-policy-two-task-closure-and-docs-check-sha256-recorded-in-private-checkpoint",
+    "hostIdentity": "exact-executable-sha256-and-version-recorded-in-private-checkpoint",
+    "modelIdentity": "GPT-6-Sol-exact-private-identifier-checked-before-each-session-no-substitution",
+    "promptIdentity": "exact-inputs-taskPrompt-value-for-the-scheduled-task",
+    "permissionIdentity": "permission-limits-tool-exposure-denial-state-and-observed-command-hashes-recorded-per-session",
+    "environmentIdentity": "inherited-and-owned-environment-variable-name-policy-recorded-per-session",
+    "privateCheckpointRecordType": "private-checkpoint",
+    "privateAuthorizationRecordType": "private-authorization",
+    "mismatchPolicy": "stop-before-the-next-host-session-and-report-incomplete-precondition"
+  },
+  "inputs": {
+    "executionRevisionPolicy": "approved-clean-source-tree-and-two-public-input-closures-recorded-in-private-checkpoint",
+    "textHashNormalization": "utf8-no-bom-with-crlf-and-cr-normalized-to-lf",
+    "qaPath": "eval/mcp-qa.jsonl",
+    "skill": {
+      "entrypointPath": ".agents/skills/filtrace/SKILL.md",
+      "entrypointTextSha256": "e4de3f73d4db8fea5e85e82c9339d4145e01f56a24c14e5fd39224c26c1fdca7",
+      "manifestTextSha256": "21440124fb71051a2f6fa418ffae273ac9fd2ef0e2abc58328df4f7e13f06f9b",
+      "entrypointRawSha256Windows": "8ea00ac5f3dd836a763446551dd7b585a8a14550e072b5cee5b357825396f462",
+      "manifestSha256Windows": "479fc824cb112b219ad96a2c5e3847636e3d1647f74662ec63f9f51f8368f6c0",
+      "fileCount": 11
+    },
+    "tasks": [
+      {
+        "taskId": "quality-first-unresolved",
+        "taskPath": "eval/tasks/30-quality-first-unresolved.json",
+        "taskSha256": "44ef412cd775fac4524f33e19bf09a5e9e7857978b0229c1067935f15e72392b",
+        "qaLineSha256": "8c71d004d630859163b58c76facca57c342f2ff188bc92365bfc119441ce590a",
+        "fixturePath": "tests/Filtrace.Core.Tests/Fixtures/etw.etl",
+        "fixtureSha256": "835c293fb03c0ed882bccf8442409003aa6cfdb7d86bb2d70352ae1d371e0504",
+        "taskPrompt": "In this machine-wide ETW capture, analyze CPU self samples for the HotLoopBench process tree. Which hottest frame is supported, how reliable is that attribution, and what would you check next while preserving scope? Name one conclusion this capture cannot justify.",
+        "requiredAnswerStrings": ["--process", "HotLoopBench", "?", "0%", "51", "200", "info"],
+        "expectedEvidence": {
+          "operation": "rank",
+          "metric": "cpu",
+          "measure": "self",
+          "process": "HotLoopBench",
+          "includeChildren": true,
+          "topFrame": "?",
+          "frameResolutionPercent": 0,
+          "contributingRecords": 51,
+          "recommendedMinimumRecords": 200,
+          "infoSampleCount": 51,
+          "infoSymbolResolutionRate": 0,
+          "nextOperation": "info",
+          "nextPathSuffix": "\\etw.etl",
+          "nextProcess": "HotLoopBench",
+          "nextIncludeChildren": true,
+          "forbiddenDrill": "callers ?"
+        },
+        "baselineCalls": 2,
+        "baselineTokens": 1033
+      },
+      {
+        "taskId": "mixed-unknown-resolved",
+        "taskPath": "eval/tasks/31-mixed-unknown-resolved.json",
+        "taskSha256": "26f56c19f873d6db8ca4d4c8c08ed4ced5ddff026a69a58b23f23c322ba1d698",
+        "qaLineSha256": "d10ef672f40a342067d1997a3614df75896fa301c8f30be4ac97cb7f2a7020d4",
+        "fixturePath": "tests/Filtrace.Core.Tests/Fixtures/mixed-unknown.speedscope.json",
+        "fixtureSha256": "9f902bd3a02a63ae454c9928a022b9d50d8525085c2568ed39ffe94a9e6f503e",
+        "taskPrompt": "In this synthetic speedscope CPU profile, which frame is hottest by self weight, and are there any named candidates? Explain how much profiled self weight remains unknown, what you would check or drill next, and one claim this profile does not support.",
+        "requiredAnswerStrings": ["Speedscope", "?", "60%", "App.Work", "25%", "100", "info"],
+        "expectedEvidence": {
+          "operation": "rank",
+          "metric": "cpu",
+          "measure": "self",
+          "topFrame": "?",
+          "resolvedFrame": "App.Work",
+          "otherResolvedFrame": "App.Other",
+          "unresolvedRows": 1,
+          "resolvedRows": 2,
+          "positiveIntervals": 3,
+          "contributingRecords": 3,
+          "unresolvedWeightMs": 60,
+          "resolvedWorkWeightMs": 25,
+          "otherResolvedWeightMs": 15,
+          "totalWeightMs": 100,
+          "unknownSharePercent": 60,
+          "resolvedWorkSharePercent": 25,
+          "resolvedCallerFrame": "App.Main",
+          "resolvedCallerWeightMs": 25,
+          "unknownWeightNotExplainedByResolvedCallerMs": 60,
+          "aggregateSampleCount": 3,
+          "aggregateSymbolResolutionRate": 1,
+          "aggregateSymbolResolutionRateIgnored": true,
+          "cpuSamplingSource": "speedscope-profile-declared-time-weights",
+          "nextOperation": "info",
+          "nextPathSuffix": "mixed-unknown.speedscope.json",
+          "nextIncludeChildren": true,
+          "optionalResolvedOperation": "callers",
+          "optionalResolvedFrame": "App.Work",
+          "permittedResolvedDrill": "callers-only-for-a-resolved-row"
+        },
+        "baselineCalls": 3,
+        "baselineTokens": 568
+      }
+    ]
+  },
+  "arms": {
+    "common": {
+      "agentHost": "copilot",
+      "configuration": "Release",
+      "modelIdentity": "private-checkpoint-exact-match",
+      "iterationsPerInvocation": 1,
+      "maxSteps": 6,
+      "nonSkillTool": "powershell"
+    },
+    "cliSkill": {
+      "label": "A",
+      "arm": "cli-skill",
+      "skillState": "normal-project-discovery-required",
+      "skillEvidence": "discovery-before-native-invocation-before-context-before-answer"
+    },
+    "cliOnly": {
+      "label": "B",
+      "arm": "cli",
+      "skillState": "verified-no-skill",
+      "skillEvidence": "no-filtrace-skill-discovered-invoked-or-injected"
+    },
+    "permittedDifferences": [
+      "attested Filtrace project-skill installation",
+      "native skill and bounded view tools required by that installation",
+      "skill-specific transcript evidence"
+    ]
+  },
+  "isolation": {
+    "workspace": "unique-outside-repository-per-session",
+    "home": "unique-empty-owned-home-per-session",
+    "inputs": "attested-immutable-cli-fixture-skill-policy-and-configuration",
+    "analysisCache": "no-adjacent-derived-cache-copied-or-reused",
+    "hostCache": "fresh-session-private-under-unique-home",
+    "osCache": "not-reset-balanced-order-and-reported-as-limitation",
+    "oracle": "task-qa-and-expected-facts-never-copied-to-model-visible-surfaces",
+    "fullLoop": "outside-this-protocol-requires-separate-isolated-worktree-contract"
+  },
+  "sample": {
+    "validPairTarget": 8,
+    "maximumPairs": 8,
+    "maximumSessions": 16,
+    "replacementPairs": 0,
+    "orderAlgorithm": "sha256-parity-two-balanced-blocks-per-task-v1",
+    "orderSeed": "b3b82538d6de28adf6dece625e8d5402",
+    "taskSchedule": "round-robin-pair-order-across-two-tasks",
+    "pairs": [
+      { "pair": 1, "taskId": "quality-first-unresolved", "first": "cli", "second": "cli-skill" },
+      { "pair": 2, "taskId": "mixed-unknown-resolved", "first": "cli", "second": "cli-skill" },
+      { "pair": 3, "taskId": "quality-first-unresolved", "first": "cli-skill", "second": "cli" },
+      { "pair": 4, "taskId": "mixed-unknown-resolved", "first": "cli-skill", "second": "cli" },
+      { "pair": 5, "taskId": "quality-first-unresolved", "first": "cli", "second": "cli-skill" },
+      { "pair": 6, "taskId": "mixed-unknown-resolved", "first": "cli-skill", "second": "cli" },
+      { "pair": 7, "taskId": "quality-first-unresolved", "first": "cli-skill", "second": "cli" },
+      { "pair": 8, "taskId": "mixed-unknown-resolved", "first": "cli", "second": "cli-skill" }
+    ],
+    "invalidSessionPolicy": "retain-entire-pair-stop-incomplete-no-automatic-replacement"
+  },
+  "execution": {
+    "runnerPath": "eval/Invoke-AgentEval.ps1",
+    "commandTemplate": "./eval/Invoke-AgentEval.ps1 -AgentHost copilot -Arm <arm> -Model <private-gpt-6-sol-id> -ExpectedModel <private-gpt-6-sol-id> -AuthorizationSha256 <private-auth-sha256> -Tasks <task-id> -N 1 -MaxSteps 6 -Configuration Release -Label ep1-v3-<task-id>-p<pair>-<position>-<arm> -OutDir <private-new-output-directory> -NativeTimeoutSeconds 600 -MaxHostOutputBytes 10485760 -MaxHostArtifactBytes 16777216 -NoHostAiCreditLimit",
+    "labelTemplate": "ep1-v3-{task}-p{pair}-{position}-{arm}",
+    "outputDirectoryPolicy": "new-private-directory-bound-to-protocol-hash",
+    "preSessionChecks": [
+      "exact v3 protocol two-task QA fixture schema and execution-tree hashes match",
+      "private exact GPT-6 Sol model identifier resolves and matches authorization before work",
+      "output directory does not exist",
+      "no workspace home or analysis cache is reused",
+      "session matches frozen task pair arm and position",
+      "same complete CLI bundle bytes and command policy apply to both arms",
+      "updated shipped Filtrace skill entrypoint and complete manifest match the pinned protocol",
+      "Windows ETW analysis is available before beginning either task"
+    ],
+    "postSessionChecks": [
+      "exactly one schema-v3 result was created",
+      "label task arm input identity model and actual usage match the checkpoint and authorization",
+      "arm-specific skill evidence verifies independently of answer quality",
+      "host and result processes exit zero with explicit final-answer availability",
+      "all required machine evidence is available",
+      "record runner success as a quality anchor rather than a validity gate",
+      "stop immediately if evidence integrity is invalid"
+    ]
+  },
+  "bounds": {
+    "nativeTimeoutSecondsPerSession": 600,
+    "maxPowerShellInitialWaitSeconds": 120,
+    "maxHostOutputBytesPerSession": 10485760,
+    "maxHostArtifactBytesPerSession": 16777216,
+    "maxProjectedRetainedBytesPerInvocation": 2147483648,
+    "maxArtifactFiles": 48,
+    "maxArtifactRecordBytes": 268435456,
+    "maxArtifactSetBytes": 2147483648,
+    "maxHostRuntimeBytesPerSession": 268435456,
+    "maxHostRuntimeFileBytes": 134217728,
+    "maxHostRuntimeEntries": 1024,
+    "maxFixtureBytes": 536870912,
+    "maxCliFiles": 256,
+    "maxCliEntries": 512,
+    "maxCliBytes": 536870912,
+    "maxSkillFiles": 64,
+    "maxSkillEntries": 128,
+    "maxSkillBytes": 16777216,
+    "maxSkillViewCalls": 4,
+    "maxSkillRequestedBytes": 67108864,
+    "hostAiCreditLimit": "none",
+    "maximumHostSessions": 16,
+    "stopOnInvalidSession": true
+  },
+  "validity": {
+    "machineRequirements": [
+      "schema-v3 session result validates",
+      "exact private GPT-6 Sol model identity verifies before work and matches the private authorization commitment",
+      "scheduled task QA fixture and input-closure hashes match",
+      "both arms use the same CLI bundle and their distinct skill states verify",
+      "detailed actual host usage file is valid with no host AI credit ceiling",
+      "terminal result and process exit are zero",
+      "explicit final-answer availability and a complete bounded transcript are retained"
+    ],
+    "criterionIds": [
+      "scope",
+      "attribution-restraint",
+      "evidence-quality",
+      "scope-preserving-drill",
+      "unsupported-claim"
+    ],
+    "taskRubrics": [
+      {
+        "taskId": "quality-first-unresolved",
+        "criteria": {
+          "scope": "State the HotLoopBench process tree including descendants and keep --process HotLoopBench for any scope-capable follow-up.",
+          "attribution-restraint": "Retain the top '?' row in CPU self ranking and do not invent a hottest method or source line.",
+          "evidence-quality": "Report zero resolved frames, 51 contributing records, and the 200-record directional recommendation.",
+          "scope-preserving-drill": "Check info for the same HotLoopBench process tree (51 samples, 0% named frames) before any drill; never offer callers '?' as useful.",
+          "unsupported-claim": "Do not claim resolved attribution, source-line evidence, or strong directional confidence from the thin scoped sample."
+        },
+        "falseConfidenceCriteria": [
+          "names a hottest method despite the unresolved top frame",
+          "treats 51 records as strong directional evidence",
+          "suggests callers '?' as an evidence-backed drill",
+          "silently widens from HotLoopBench tree scope in a follow-up"
+        ]
+      },
+      {
+        "taskId": "mixed-unknown-resolved",
+        "criteria": {
+          "scope": "Identify a synthetic evented speedscope CPU self profile and its row-level rather than process-tree scope.",
+          "attribution-restraint": "Keep the unknown rank row and denominator while identifying a distinct resolved row without attributing unknown weight to it.",
+          "evidence-quality": "Grade the returned '?' 60% and App.Work 25% rows against the 100ms denominator; info reports 3 samples and hard-coded symbolResolutionRate 1.0, not row-level resolution.",
+          "scope-preserving-drill": "Check row quality first; for a resolved row, callers 'App.Work' may identify App.Main with 25ms target/caller weight, but cannot explain the separate unknown 60ms; never callers '?'.",
+          "unsupported-claim": "Do not infer source-line mapping, complete resolution, or ownership of the unknown 60ms from a speedscope aggregate quality number or a resolved caller."
+        },
+        "falseConfidenceCriteria": [
+          "drops the unknown row or its denominator",
+          "treats the hard-coded 1.0 aggregate symbolResolutionRate as row-level proof",
+          "attributes the unknown 60ms to App.Work or its App.Main caller",
+          "suggests callers '?' or source lines as a supported speedscope drill"
+        ]
+      }
+    ],
+    "sessionValidWhen": "all-machine-requirements-pass-and-a-schema-valid-blinded-grade-is-frozen-regardless-of-answer-quality",
+    "pairValidWhen": "both-sessions-are-valid-and-the-pair-grade-record-hash-precedes-arm-map-reveal",
+    "attemptedForbiddenDrill": "callers-question-mark-attempt-is-a-runner-quality-failure-not-an-evidence-integrity-failure;blind-grade-uses-final-answer-only",
+    "experimentIncompleteWhen": "evidence-integrity-precondition-non-credit-budget-or-required-grade-prevents-the-eight-pair-two-task-denominator"
+  },
+  "adjudication": {
+    "timing": "after-both-sessions-in-each-pair-before-starting-the-next-pair",
+    "blindId": "random-128-bit-id-per-session-generated-after-the-session-and-stored-only-in-the-private-arm-map",
+    "randomization": "generate-packet-and-blind-ids-with-System.Security.Cryptography.RandomNumberGenerator-16-bytes-each-and-sort-packet-answers-by-blind-id-ordinal",
+    "packetConstruction": "create-a-packet-only-after-both-pair-sessions-pass-machine-evidence-validation;retain-a-started-invalid-session-only-in-the-final-incomplete-report",
+    "packet": "explicit-answer-availability-plus-exact-final-answer-text-or-null-randomized-within-pair-under-opaque-blind-ids",
+    "visibleTaskId": "task-id-only-for-task-specific-rubric-never-arm-or-position",
+    "hiddenFields": [
+      "arm",
+      "pair position",
+      "model and skill evidence",
+      "cost and timing",
+      "transcript and file paths"
+    ],
+    "grader": "user-or-independent-reviewer-without-the-private-arm-map",
+    "rubric": "grade-each-answer-criterion-pass-fail-with-an-exact-answer-quote-or-no-final-answer-marker-and-record-one-false-confidence-boolean",
+    "freeze": "serialize-and-sha256-the-pair-grade-record-before-revealing-the-arm-map",
+    "unblinding": "reveal-pair-position-and-arm-only-after-both-session-grades-are-frozen",
+    "qualityFailure": "no-final-answer-a-failed-criterion-or-false-confidence-is-a-valid-measured-quality-outcome-not-an-invalid-session",
+    "integrityFailure": "missing-or-malformed-session-packet-grade-or-freeze-evidence-stops-incomplete-before-the-next-pair",
+    "limitation": "answer-wording-can-suggest-skill-use-so-report-the-grading-as-arm-masked-not-inference-blind"
+  },
+  "records": {
+    "schemaPath": "eval/protocols/ep1-ready-capture-record-v3.schema.json",
+    "schemaSha256": "e2654cc0d628f663aaf37775dd61611230bc68fed5d55b163e7d647c74bf44f3",
+    "validatorPath": "eval/Test-ReadyCaptureRecords.ps1",
+    "recordHashPolicy": "lowercase-sha256-of-exact-retained-file-bytes",
+    "validationPhases": {
+      "preUnblind": "all-finalized-pairs-have-one-packet-grade-and-private-arm-map;no-final-report-or-unpaired-session-result-is-present",
+      "final": "one-final-report-binds-all-finalized-pairs-and-lists-every-unpaired-started-result-under-invalidSessions"
+    },
+    "recordTypes": [
+      "blinded-packet",
+      "blinded-grade",
+      "private-arm-map",
+      "private-checkpoint",
+      "private-authorization",
+      "final-report"
+    ],
+    "semanticChecks": [
+      "task-id-is-visible-to-grader-without-arm-position-cost-or-transcript",
+      "strict-command-policy-allows-both-canonical-rank-and-info-with-the-same-fixture-and-scope",
+      "mixed-resolved-caller-command-is-optional-for-live-success-yet-allowed-by-strict-policy",
+      "attempted-unresolved-caller-is-a-measured-quality-failure-not-an-invalid-session",
+      "packet-grade-and-arm-map-task-ids-match-the-frozen-pair-task",
+      "packet-and-grade-contain-the-same-two-distinct-blind-ids",
+      "packet-answer-availability-agrees-with-answer-value",
+      "private-arm-map-contains-the-same-two-blind-ids-exactly-once",
+      "packet-grade-result-and-protocol-hashes-match-retained-bytes",
+      "one-cli-and-one-cli-skill-arm-occupy-distinct-first-and-second-positions",
+      "started-sessions-and-final-reports-bind-separate-execution-authorization",
+      "private-authorization-commits-to-the-exact-checkpointed-GPT-6-Sol-identifier",
+      "updated-shipped-skill-file-hashes-match-the-protocol-and-private-checkpoint",
+      "complete-report-binds-sixteen-distinct-session-hashes-and-eight-grade-hashes",
+      "invalid-session-stops-the-global-schedule-without-a-replacement",
+      "actual-host-credit-usage-is-reconciled-but-never-compared-with-a-credit-ceiling",
+      "final-report-global-and-per-task-summaries-paired-deltas-order-and-classifications-recompute",
+      "non-credit-output-runtime-artifact-and-wall-time-limits-remain-enforced"
+    ],
+    "validation": "run-validator-after-each-grade-is-serialized-and-hashed-before-unblinding-and-again-before-final-report"
+  },
+  "measurement": {
+    "primaryDimensions": [
+      "arm-masked-answer-quality",
+      "analysis-calls",
+      "help-calls",
+      "observed-result-tokens",
+      "evaluator-monotonic-wall-ms",
+      "host-ai-credits"
+    ],
+    "observationalDimensions": [
+      "host-reported-api-duration-ms",
+      "host-reported-session-duration-ms",
+      "input-cache-read-cache-write-and-output-tokens",
+      "denied-tool-attempts",
+      "host-runtime-and-artifact-bytes"
+    ],
+    "clock": {
+      "source": "System.Diagnostics.Stopwatch-in-Invoke-AgentEvalProcess",
+      "start": "immediately-before-contained-job-object-setup-and-host-process-start",
+      "stop": "after-host-exit-stream-drain-final-artifact-scan-and-input-integrity-check",
+      "primaryField": "iteration-wallMs-from-processResult-wallMs",
+      "hostDurations": "observational-only-never-substituted-for-primary-wallMs"
+    },
+    "practicalEquivalence": {
+      "quality": "same-answer-availability-five-criterion-pass-vector-and-false-confidence-value-in-each-pair",
+      "analysisCallsAbsolute": 0,
+      "helpCallsAbsolute": 0,
+      "resultTokensRelative": 0.05,
+      "wallMsRelative": 0.05,
+      "hostAiCreditsAbsolute": 0,
+      "relativeDelta": "skill-minus-cli-divided-by-cli; equal-zero-is-equivalent-and-other-zero-denominators-are-unavailable"
+    },
+    "classification": {
+      "deltaOrientation": "cli-skill-minus-cli",
+      "qualityStates": [
+        "same-observed-quality",
+        "skill-higher-observed-quality",
+        "skill-lower-observed-quality",
+        "mixed-observed-quality",
+        "order-sensitive",
+        "unavailable"
+      ],
+      "costStates": [
+        "skill-lower",
+        "practically-equivalent",
+        "skill-higher",
+        "mixed",
+        "order-sensitive",
+        "unavailable"
+      ],
+      "qualityComparison": "per-pair-compare-eight-good-state-bits-answer-available-plus-five-criterion-passes-plus-not-false-confidence-plus-attested-runner-success;report-each-task-and-overall-descriptively-with-order-sensitivity",
+      "costComparison": "per-task-four-and-overall-eight-skill-minus-cli-paired-deltas;credits-are-observed-cost-not-a-ceiling;calls-help-and-credits-equivalent-only-at-zero;tokens-and-wall-equivalent-within-five-percent-of-cli",
+      "orderSensitive": "label-a-dimension-order-sensitive-when-skill-first-and-cli-first-subgroup-medians-fall-in-opposite-non-equivalent-directions",
+      "aggregation": "report-all-eight-paired-deltas-plus-per-task-and-overall-median-and-range-per-arm-and-by-first-arm",
+      "overall": "no-winner-score-or-significance-claim"
+    }
+  },
+  "dispositions": {
+    "session": {
+      "validQualityPass": "machine-evidence-valid-and-runner-success-and-all-five-criteria-pass-without-false-confidence",
+      "validQualityFail": "machine-evidence-valid-and-runner-failure-or-no-final-answer-or-any-criterion-fails-or-false-confidence-triggers",
+      "invalidEvidence": "any-machine-requirement-or-record-integrity-check-fails"
+    },
+    "pair": {
+      "valid": "both-sessions-have-valid-evidence-and-schema-valid-grades-frozen-before-unblinding-regardless-of-quality",
+      "invalid": "either-session-has-invalid-evidence-or-the-grade-freeze-cannot-be-proved"
+    },
+    "terminal": {
+      "descriptiveComplete": "eight-valid-graded-pairs-retained",
+      "incompletePrecondition": "an-identity-environment-or-launch-precondition-fails-before-a-session",
+      "incompleteEvidenceIntegrity": "a-started-session-or-pair-is-invalid-with-no-automatic-replacement",
+      "incompleteBudget": "a-started-session-exceeds-a-retained-wall-time-output-artifact-runtime-or-projected-retained-byte-bound",
+      "stoppedByUser": "the-user-stops-before-eight-valid-pairs"
+    },
+    "blockerReproducibility": "call-a-precondition-blocked-only-after-the-same-non-metered-check-fails-twice;retain-a-started-invalid-session-as-incomplete-without-replacement",
+    "routing": "every-terminal-disposition-writes-a-schema-valid-final-report-and-stops-for-user-decision-with-no-automatic-next-work"
+  },
+  "reporting": {
+    "mode": "descriptive-only-no-winner-classification",
+    "requiredSessionFields": [
+      "resultSha256",
+      "success",
+      "answerAvailable",
+      "falseConfidence",
+      "calls",
+      "helpCalls",
+      "tokens",
+      "wallMs",
+      "hostUsage",
+      "hostUsageFile",
+      "hostAiCredits",
+      "answerCriteria",
+      "transcript",
+      "inputIdentity",
+      "taskId",
+      "pair",
+      "position"
+    ],
+    "sourceSeparation": "success-comes-from-schema-v3-runner-output-answerCriteria-and-falseConfidence-come-only-from-the-frozen-blinded-grade-record",
+    "pairDeltaOrientation": "cli-skill-minus-cli",
+    "aggregates": [
+      "raw sessions in frozen order",
+      "per-arm median and range",
+      "all paired deltas",
+      "paired deltas grouped by first arm",
+      "per-task-arm-quality-cost-and-order-summaries"
+    ],
+    "orderEffect": "report orientation summaries separately and label disagreement order-sensitive",
+    "missingData": "report unavailable never zero and stop incomplete for required fields",
+    "completion": "descriptive-complete-only-after-eight-valid-graded-pairs-four-per-task-including-quality-failures",
+    "nextAction": "stop-and-return-to-user-no-automatic-routing"
+  },
+  "freeze": {
+    "validator": "tools/Test-Docs.ps1",
+    "protocolHashPolicy": "record-lf-normalized-utf8-no-bom-sha256-after-final-review-in-private-checkpoint",
+    "mergeTreePolicy": "record-approved-exact-clean-commit-and-tree-before-any-host-session",
+    "executionPrecondition": "exact-v3-protocol-hash-and-private-GPT-6-Sol-model-identity-match-after-separate-authorization"
+  }
+}
