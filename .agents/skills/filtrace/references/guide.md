@@ -278,6 +278,14 @@ Run `filtrace <verb> --help` for the full option set of any verb.
 - Read `warnings` before the payload and use `hints` as candidate next steps. An
    empty or poorly resolved result is a reason to fix scope/symbols, not evidence
    that the behavior does not exist.
+- Keep unresolved `?` weight in the scoped denominator. Check frame-name quality
+   before attributing it; a suggested drill into a resolved row is separate work,
+   not an explanation of the unknown bucket. With no resolved row, do not treat
+   `callers ?` as one method. A ranking can supply a structured `info` step when
+   its process/children scope is replayable; root, activity, time, or native-symbol
+   scopes that `info` cannot preserve leave the quality check advisory instead.
+   Speedscope can report 100% aggregate frame-name resolution with a literal
+   `?` row; that summary does not make the row a named method.
 - State the trace format, selected process/root/time window, metric, and
    self-versus-inclusive measure with the finding. Percentages are relative to that
    scope. CPU units are analyzer-version dependent: call them milliseconds only when

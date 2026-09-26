@@ -29,6 +29,9 @@
     <None Include="..\Filtrace.Core.Tests\Fixtures\folding.speedscope.json" Link="Fixtures\folding.speedscope.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\Filtrace.Core.Tests\Fixtures\mixed-unknown.speedscope.json" Link="Fixtures\mixed-unknown.speedscope.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="..\Filtrace.Core.Tests\Fixtures\activity.nettrace" Link="Fixtures\activity.nettrace">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

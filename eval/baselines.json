@@ -116,6 +116,14 @@
     "exact-pid-tree-scope": {
       "calls": 1,
       "tokens": 461
+    },
+    "quality-first-unresolved": {
+      "calls": 2,
+      "tokens": 1033
+    },
+    "mixed-unknown-resolved": {
+      "calls": 3,
+      "tokens": 568
     }
   }
 }

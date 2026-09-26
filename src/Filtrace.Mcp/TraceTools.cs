@@ -394,7 +394,13 @@ public sealed class TraceTools
         return new AnalysisResult<RankingResult>(
             ranking,
             warnings,
-            SteeringHints.ForRanking(ranking, trace.Aggregator.Metric, scope),
+            SteeringHints.ForRanking(
+                ranking,
+                trace.Aggregator.Metric,
+                scope,
+                info.Path,
+                resolvedSymbols,
+                nativeSymbols),
             AnalysisContext.ForTrace(
                 "rank",
                 trace,

@@ -409,7 +409,7 @@ try {
             'Assert-AgentEvalEventObject', 'Assert-AgentEvalEvidenceEvent',
             'Assert-AgentEvalUniqueJsonMembers', 'ConvertFrom-AgentEvalJsonLines',
             'Write-AgentEvalNewFile', 'Save-AgentEvalHostOutput',
-            'ConvertTo-AgentEvalResultJson', 'Get-AgentEvalTaskExpectedOperations',
+            'ConvertTo-AgentEvalResultJson',
             'Split-ArgString', 'Get-AgentEvalMediatedOperation')) {
         $functionAst = $runnerAst.Find({
                 param($node)

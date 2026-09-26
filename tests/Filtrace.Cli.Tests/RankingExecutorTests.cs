@@ -15,6 +15,8 @@ public sealed class RankingExecutorTests
 
     private static string Speedscope => FixturePath("folding.speedscope.json");
 
+    private static string Mixed => FixturePath("mixed-unknown.speedscope.json");
+
     private static string Activity => FixturePath("activity.nettrace");
 
     private static string Alloc => FixturePath("alloc.nettrace");
@@ -31,8 +33,9 @@ public sealed class RankingExecutorTests
         OutputFormat format = OutputFormat.Text,
         bool strict = false,
         IReadOnlyList<string>? fold = null,
-        TraceMetric metric = TraceMetric.Cpu) =>
-            new(path, metric, root, top, fold ?? FrameNames.DefaultFoldPatterns, measure, format, Symbols: null, strict);
+        TraceMetric metric = TraceMetric.Cpu,
+        ScopeRequest? scope = null) =>
+            new(path, metric, root, top, fold ?? FrameNames.DefaultFoldPatterns, measure, format, Symbols: null, strict, scope);
 
     private static (int Exit, string Out, string Error) Run(RankRequest request)
     {
@@ -79,6 +82,67 @@ public sealed class RankingExecutorTests
         context.GetProperty("measure").GetString().Should().Be("inclusive");
         context.GetProperty("unit").GetString().Should().Be("ms");
         context.GetProperty("scope").GetProperty("root").GetString().Should().Be("MyApp.Work");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_UnresolvedExactPidRank_RetainsWeightAndHintsQualityWithoutUnknownDrill()
+    {
+        RankRequest request = Request(
+            Etw,
+            format: OutputFormat.Json,
+            scope: ScopeRequest.ForProcessIds([40356], includeChildren: false));
+
+        (int exit, string output, string error) = Run(request);
+
+        exit.Should().Be(ExitCodes.Success);
+        error.Should().BeEmpty();
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement envelope = document.RootElement;
+        envelope.GetProperty("context").GetProperty("unit").GetString().Should().Be("ms");
+        JsonElement result = envelope.GetProperty("result");
+        result.GetProperty("scopeWeight").GetDouble().Should().Be(50);
+        result.GetProperty("contributingRecordCount").GetInt32().Should().Be(50);
+        result.GetProperty("rows")[0].GetProperty("frame").GetString().Should().Be("?");
+        JsonElement hints = envelope.GetProperty("hints");
+        hints.GetArrayLength().Should().Be(1);
+        hints[0].GetProperty("reason").GetString().Should().Contain(
+            "info <trace> --pid 40356 --children exclude");
+
+        hints[0].GetProperty("operation").GetString().Should().Be("info");
+        JsonElement arguments = hints[0].GetProperty("arguments");
+        arguments.GetProperty("path").GetString().Should().Be(Etw);
+        arguments.GetProperty("processIds")[0].GetInt32().Should().Be(40356);
+        arguments.GetProperty("includeChildren").GetBoolean().Should().BeFalse();
+        output.Should().NotContain("callers ?");
+    }
+
+    [TestMethod]
+    public void Run_MixedUnknownRank_PreservesRowsAndOffersOptionalResolvedDrill()
+    {
+        (int exit, string output, string error) = Run(Request(
+            Mixed, format: OutputFormat.Json, top: 3));
+
+        exit.Should().Be(ExitCodes.Success);
+        error.Should().BeEmpty();
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement envelope = document.RootElement;
+        envelope.GetProperty("context").GetProperty("unit").GetString().Should().Be("ms");
+        JsonElement result = envelope.GetProperty("result");
+        result.GetProperty("scopeWeight").GetDouble().Should().Be(100);
+        result.GetProperty("contributingRecordCount").GetInt32().Should().Be(3);
+        JsonElement rows = result.GetProperty("rows");
+        rows[0].GetProperty("frame").GetString().Should().Be("?");
+        rows[0].GetProperty("weight").GetDouble().Should().Be(60);
+        rows[1].GetProperty("frame").GetString().Should().Be("App.Work");
+        rows[1].GetProperty("weight").GetDouble().Should().Be(25);
+        JsonElement hints = envelope.GetProperty("hints");
+        hints[0].GetProperty("operation").GetString().Should().Be("info");
+        hints[0].GetProperty("arguments").GetProperty("path").GetString().Should().Be(Mixed);
+        hints[1].GetProperty("operation").GetString().Should().Be("callers");
+        hints[1].GetProperty("arguments").GetProperty("frame").GetString().Should().Be("App.Work");
+        hints[1].GetProperty("reason").GetString().Should().Contain("separately");
+        output.Should().NotContain("callers ?");
     }
 
     [TestMethod]

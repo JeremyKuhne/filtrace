@@ -18,9 +18,10 @@
        the map (e.g. `tools`) are reference-only and need no consumer copy.
     2. The shipped skill's YAML frontmatter is valid: `name` matches the skill
        directory, and `description` is present.
-        3. The prepared EP1 ready-capture protocol remains non-executable, binds exact
-            public inputs, balances pair order, separates runner and arm-masked answer
-            grading, and caps sessions and host AI credits.
+    3. EP1 v1/v2 protocol and schema bytes remain historically hash-checked.
+       The sole active v3 protocol is prepared, not authorized: two public tasks,
+       eight balanced pairs, sixteen sessions, no host AI credit ceiling, and
+       arm-masked grades validated without running a model.
      4. Every canonical CLI command appears in the command catalog, and every MCP
          tool appears in the tool catalog - so new surface cannot ship undocumented.
      5. Every relative link in a shipped skill file (.agents/skills/filtrace/)
@@ -181,10 +182,9 @@ else {
     }
 }
 
-# 3. Prepared EP1 protocol: exact declarative shape plus semantic checks that bind
-# the current tracked task/QA/fixture and the predeclared balanced pair order. This
-# validates preparation only; the protocol and this check cannot authorize a run.
-$frozenV1Artifacts = @(
+# 3. Historical EP1 v1/v2 hashes and v2 reproducibility, then the sole active
+# v3 stopped protocol and its fake-only validation. No model is launched here.
+$frozenHistoricalArtifacts = @(
     [pscustomobject]@{
         path = 'eval/protocols/ep1-ready-capture-v1.json'
         sha256 = 'c073cd3a36394b818c43b03d3d6302966d0c20100ac6e90cadf8b777c69a95aa'
@@ -192,22 +192,31 @@ $frozenV1Artifacts = @(
     [pscustomobject]@{
         path = 'eval/protocols/ep1-ready-capture-record-v1.schema.json'
         sha256 = '03c487a8724eef2c87dd31d3315f84e1d06b15f8f2f1c304d731fd7a6305f8e8'
+    },
+    [pscustomobject]@{
+        path = 'eval/protocols/ep1-ready-capture-v2.json'
+        sha256 = 'de68de5025cf502f0e1a1eb916a35f8e8ae7f3c709bc44b9ae4451827c1d16be'
+    },
+    [pscustomobject]@{
+        path = 'eval/protocols/ep1-ready-capture-record-v2.schema.json'
+        sha256 = 'ffb7f7ac988c12d25231c5f2bd3d113ab2e02d81f756fc0eadd1cb57d0644abf'
     })
-foreach ($artifact in $frozenV1Artifacts) {
+foreach ($artifact in $frozenHistoricalArtifacts) {
     [string] $artifactPath = Join-Path $root $artifact.path
     if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf) -or
         (Get-DocTextSha256 ([System.IO.File]::ReadAllText($artifactPath))) -cne $artifact.sha256) {
-        Add-Failure "Frozen EP1 v1 artifact '$($artifact.path)' has drifted."
+        Add-Failure "Frozen EP1 historical artifact '$($artifact.path)' has drifted."
     }
 }
 
 $protocolCount = 0
+# Historical v2 semantic and fake-record replay stays executable, but is not
+# counted as an active prepared experiment.
 $protocolPath = Join-Path $root 'eval/protocols/ep1-ready-capture-v2.json'
 if (-not (Test-Path -LiteralPath $protocolPath -PathType Leaf)) {
-    Add-Failure 'Prepared EP1 protocol eval/protocols/ep1-ready-capture-v2.json is missing.'
+    Add-Failure 'Historical EP1 v2 protocol is missing.'
 }
 else {
-    $protocolCount = 1
     [string] $protocolRaw = [System.IO.File]::ReadAllText($protocolPath)
     $protocol = $null
     try {
@@ -933,6 +942,15 @@ else {
     }
 }
 
+[string] $v3ValidatorPath = Join-Path $root 'eval/Test-ReadyCaptureProtocolV3.ps1'
+if (-not (Test-Path -LiteralPath $v3ValidatorPath -PathType Leaf)) {
+    Add-Failure 'The active EP1 v3 protocol validator is missing.'
+}
+else {
+    try { & $v3ValidatorPath; $protocolCount = 1 }
+    catch { Add-Failure "The active EP1 v3 protocol failed offline validation: $($_.Exception.Message)" }
+}
+
 # 4. Command / tool completeness: every canonical CLI command is in the command
 # catalog, every MCP tool is in the tool catalog.
 $verbsBlock = Get-DocBlock -Path (Join-Path $root 'docs/workflow.md') -Id 'verbs'
@@ -1069,7 +1087,7 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     Write-Host "  (package-isolation check skipped: 'dotnet' not on PATH)" -ForegroundColor Yellow
 }
 else {
-    $packageOutput = Join-Path ([System.IO.Path]::GetTempPath()) "filtrace-packages-$([guid]::NewGuid().ToString('N'))"
+    $packageOutput = Join-Path (Join-Path $root 'eval') "self-test-packages-$([guid]::NewGuid().ToString('N'))"
     [System.Collections.Generic.Dictionary[string, string]] $vendoredFilesByHash = [System.Collections.Generic.Dictionary[string, string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($vendoredSkillDirectory in Get-ChildItem -LiteralPath (Join-Path $root '.agents/skills') -Directory | Where-Object Name -cne 'filtrace') {
         foreach ($vendoredFile in Get-ChildItem -LiteralPath $vendoredSkillDirectory.FullName -Recurse -File) {

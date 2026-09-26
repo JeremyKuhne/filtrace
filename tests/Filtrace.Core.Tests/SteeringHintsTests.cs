@@ -30,6 +30,190 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForRanking_UnresolvedTop_PrioritizesQualityAndScopesOptionalResolvedDrill()
+    {
+        RankingResult ranking = new(
+            100.0,
+            "Workload",
+            [
+                new RankRow("?", 55.0, 55.0),
+                new RankRow("NativeModule!?", 30.0, 30.0),
+                new RankRow("App.Tick", 15.0, 15.0)
+            ],
+            ContributingRecordCount: 100);
+
+        ScopeRequest scope = ScopeRequest.ForProcessIds([40356], includeChildren: false);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, scope, path: "trace.etl");
+
+        AnalysisResult<RankingResult> envelope = new(ranking, hints: hints);
+
+        envelope.Result.ScopeWeight.Should().Be(100.0);
+        envelope.Result.Rows[0].Frame.Should().Be("?");
+        envelope.Result.Rows[0].Weight.Should().Be(55.0);
+        envelope.Result.ContributingRecordCount.Should().Be(100);
+        hints.Should().HaveCount(2);
+        hints[0].Should().Contain("55% of scoped weight")
+            .And.Contain("keep that weight in the denominator")
+            .And.Contain("info does not preserve the root subtree")
+            .And.Contain("info <trace> --pid 40356 --children exclude");
+
+        hints[1].Should().Contain(
+            "callers 'App.Tick' --root 'Workload' --pid 40356 --children exclude");
+
+        hints.Should().NotContain(hint => hint.Contains("callers ?", StringComparison.Ordinal));
+        envelope.NextSteps[0].Operation.Should().BeNull();
+        envelope.NextSteps[1].Operation.Should().Be("callers");
+        AnalysisNextStepArguments arguments = envelope.NextSteps[1].Arguments!;
+        arguments.Frame.Should().Be("App.Tick");
+        arguments.Root.Should().Be("Workload");
+        arguments.ProcessIds.Should().Equal(40356);
+        arguments.IncludeChildren.Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void ForRanking_UnresolvedExactPid_OffersCompleteScopePreservingInfoStep()
+    {
+        RankingResult ranking = new(50.0, "", [new RankRow("?", 50.0, 100.0)]);
+        ScopeRequest scope = ScopeRequest.ForProcessIds([40356], includeChildren: false);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, scope, path: "trace.etl", symbols: "local-pdbs");
+
+        AnalysisResult<RankingResult> envelope = new(ranking, hints: hints);
+
+        hints.Should().ContainSingle().Which.Should().Contain(
+            "info <trace> --pid 40356 --children exclude --symbols 'local-pdbs'");
+
+        envelope.NextSteps.Should().ContainSingle();
+        AnalysisNextStep step = envelope.NextSteps[0];
+        step.Operation.Should().Be("info");
+        step.Arguments!.Path.Should().Be("trace.etl");
+        step.Arguments.Symbols.Should().Be("local-pdbs");
+        step.Arguments.ProcessIds.Should().Equal(40356);
+        step.Arguments.IncludeChildren.Should().BeFalse();
+        step.Arguments.Metric.Should().BeNull("info has no metric selector");
+        step.Arguments.Root.Should().BeNull();
+        step.Arguments.Frame.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForRanking_UnresolvedNamedProcess_OffersScopePreservingInfoStep()
+    {
+        RankingResult ranking = new(51.0, "", [new RankRow("?", 51.0, 100.0)]);
+        ScopeRequest scope = ScopeRequest.ForProcess("HotLoopBench");
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, scope, path: "trace.etl");
+
+        AnalysisNextStep step = new AnalysisResult<RankingResult>(ranking, hints: hints).NextSteps[0];
+        step.Operation.Should().Be("info");
+        step.Arguments!.Process.Should().Be("HotLoopBench");
+        step.Arguments.IncludeChildren.Should().BeTrue();
+        step.Arguments.Path.Should().Be("trace.etl");
+    }
+
+    [TestMethod]
+    public void ForRanking_UnresolvedAllProcesses_OffersCompleteInfoStep()
+    {
+        RankingResult ranking = new(50.0, "", [new RankRow("?", 50.0, 100.0)]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, ScopeRequest.AllProcesses, path: "trace.etl");
+
+        AnalysisNextStep step = new AnalysisResult<RankingResult>(ranking, hints: hints).NextSteps[0];
+        step.Operation.Should().Be("info");
+        step.Arguments!.AllProcesses.Should().BeTrue();
+        step.Arguments.IncludeChildren.Should().BeTrue();
+        step.Arguments.Path.Should().Be("trace.etl");
+    }
+
+    [TestMethod]
+    public void ForRanking_NoResolvedRow_OffersQualityOnly()
+    {
+        RankingResult ranking = new(50.0, "", [new RankRow("?", 50.0, 100.0)]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(ranking);
+        AnalysisResult<RankingResult> envelope = new(ranking, hints: hints);
+
+        hints.Should().ContainSingle().Which.Should().Contain("info <trace>");
+        hints.Should().NotContain(hint => hint.Contains("callers", StringComparison.Ordinal));
+        envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForRanking_UnresolvedTimeSlice_KeepsRankWindowInsteadOfOfferingCallers()
+    {
+        RankingResult ranking = new(50.0, "", [new RankRow("?", 50.0, 100.0)]);
+        ScopeRequest scope = ScopeRequest.Auto.WithTimeWindow(100.0, 200.0);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, scope, path: "trace.nettrace");
+
+        AnalysisResult<RankingResult> envelope = new(ranking, hints: hints);
+
+        hints.Should().HaveCount(2);
+        hints[0].Should().Contain("info does not preserve the activity/time slice");
+        hints[1].Should().Contain("refine it with self/inclusive measure or root in rank");
+        envelope.NextSteps[0].Operation.Should().BeNull();
+        envelope.NextSteps[1].Operation.Should().Be("rank");
+        envelope.NextSteps[1].Arguments!.FromMs.Should().Be(100.0);
+        envelope.NextSteps[1].Arguments!.ToMs.Should().Be(200.0);
+    }
+
+    [TestMethod]
+    public void ForRanking_TooManyIds_LeavesInfoAdvisoryInsteadOfDroppingScope()
+    {
+        RankingResult ranking = new(50.0, "", [new RankRow("?", 50.0, 100.0)]);
+        ScopeRequest scope = ScopeRequest.ForProcessIds(
+            Enumerable.Range(1, AnalysisScopeContext.MaxReportedProcessIds + 1));
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, scope, path: "trace.etl");
+
+        hints.Should().ContainSingle().Which.Should().Contain("info <trace>");
+        new AnalysisResult<RankingResult>(ranking, hints: hints)
+            .NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForRanking_NativeSymbols_LeavesInfoAdvisory()
+    {
+        RankingResult ranking = new(50.0, "", [new RankRow("?", 50.0, 100.0)]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, path: "trace.etl", nativeSymbols: true);
+
+        hints.Should().ContainSingle().Which.Should().Contain(
+            "info does not reproduce native-symbol resolution");
+
+        new AnalysisResult<RankingResult>(ranking, hints: hints)
+            .NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForRanking_OversizedQualityInputs_DoNotProduceIncompleteStep()
+    {
+        RankingResult ranking = new(50.0, "", [new RankRow("?", 50.0, 100.0)]);
+
+        IReadOnlyList<string> longPath = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, path: new string('x', 1025));
+
+        IReadOnlyList<string> longSymbols = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, path: "trace.etl", symbols: new string('x', 1025));
+
+        new AnalysisResult<RankingResult>(ranking, hints: longPath)
+            .NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+
+        new AnalysisResult<RankingResult>(ranking, hints: longSymbols)
+            .NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+
+        longSymbols.Should().ContainSingle().Which.Should().Contain(
+            "reuse the same local symbols directory");
+    }
+
+    [TestMethod]
     public void ForRanking_Empty_NudgesToWidenScope()
     {
         RankingResult ranking = new(0.0, "", []);
@@ -334,6 +518,68 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForCallers_UnresolvedFocus_ExplainsAggregateAndScopesOptionalResolvedCaller()
+    {
+        CallersResult callers = new(
+            "?", 100.0, 100.0, 100.0,
+            [
+                new CallerRow("?", 89.0, 89.0),
+                new CallerRow("<root>", 6.0, 6.0),
+                new CallerRow("App.Work", 5.0, 5.0)
+            ]);
+
+        ScopeRequest scope = ScopeRequest.ForProcessIds([6536], includeChildren: false);
+
+        IReadOnlyList<string> hints = SteeringHints.ForCallers(callers, "Root", scope);
+        AnalysisResult<CallersResult> envelope = new(callers, hints: hints);
+
+        envelope.Result.TargetWeight.Should().Be(100.0);
+        envelope.Result.Callers[0].Weight.Should().Be(89.0);
+        hints.Should().HaveCount(2);
+        hints[0].Should().Contain("can group unrelated unresolved frames")
+            .And.Contain("info <trace> --pid 6536 --children exclude");
+
+        hints[1].Should().Contain(
+            "callers 'App.Work' --root 'Root' --pid 6536 --children exclude");
+
+        hints.Should().NotContain(hint => hint.Contains("callers ?", StringComparison.Ordinal));
+        envelope.NextSteps[0].Operation.Should().BeNull();
+        envelope.NextSteps[1].Arguments!.Frame.Should().Be("App.Work");
+    }
+
+    [TestMethod]
+    public void ForCallers_UnknownOnlyCaller_DoesNotLoopBackIntoUnknown()
+    {
+        CallersResult callers = new(
+            "App.Work", 20.0, 80.0, 25.0,
+            [new CallerRow("NativeModule!?", 20.0, 100.0)]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForCallers(callers);
+        AnalysisResult<CallersResult> envelope = new(callers, hints: hints);
+
+        hints.Should().ContainSingle().Which.Should().Contain("100% of target");
+        envelope.NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForCallers_UnresolvedCallee_SkipsToFirstResolvedCallee()
+    {
+        CallersResult callers = new(
+            "App.Work", 20.0, 80.0, 25.0,
+            [new CallerRow("App.Main", 20.0, 100.0)],
+            [
+                new CalleeRow("NativeModule!?", 12.0, 60.0),
+                new CalleeRow("App.Inner", 8.0, 40.0)
+            ]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForCallers(callers);
+
+        hints.Should().HaveCount(2);
+        hints[1].Should().Contain("callers App.Inner --callees");
+        hints.Should().NotContain(hint => hint.Contains("callers NativeModule!?", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void ForCallers_DominantCallerIsRoot_NudgesEntryPoint()
     {
         CallersResult callers = new(
@@ -468,6 +714,68 @@ public sealed class SteeringHintsTests
         next.Arguments.Should().NotBeNull();
         next.Arguments!.Metric.Should().Be("cpu");
         next.Arguments.Frame.Should().Be("MyApp.Slow");
+    }
+
+    [TestMethod]
+    public void ForDiff_UnresolvedLargestChange_OffersQualityThenOptionalResolvedDrill()
+    {
+        RankingDiffResult diff = new(
+            100.0, 80.0, -20.0,
+            [
+                new DiffRow("?", 50.0, 30.0, -20.0),
+                new DiffRow("NativeModule!?", 8.0, 4.0, -4.0),
+                new DiffRow("App.Slow", 10.0, 13.0, 3.0)
+            ]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForDiff(diff);
+        AnalysisResult<RankingDiffResult> envelope = new(diff, hints: hints);
+
+        envelope.Result.BeforeScopeWeight.Should().Be(100.0);
+        envelope.Result.AfterScopeWeight.Should().Be(80.0);
+        envelope.Result.Rows[0].Frame.Should().Be("?");
+        hints.Should().HaveCount(2);
+        hints[0].Should().Contain("before/after weights remain in the diff");
+        hints[1].Should().Contain("callers 'App.Slow'")
+            .And.Contain("pick one trace and preserve its original scope")
+            .And.Contain("does not explain '?'");
+
+        hints.Should().NotContain(hint => hint.Contains("callers ?", StringComparison.Ordinal));
+        envelope.NextSteps[0].Operation.Should().BeNull();
+        envelope.NextSteps[1].Operation.Should().BeNull();
+        envelope.NextSteps[1].Arguments.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForDiff_NoResolvedChangedRow_OffersQualityOnly()
+    {
+        RankingDiffResult diff = new(20.0, 10.0, -10.0, [new DiffRow("?", 20.0, 10.0, -10.0)]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForDiff(diff);
+
+        hints.Should().ContainSingle().Which.Should().Contain("frame-name quality in both traces");
+        new AnalysisResult<RankingDiffResult>(diff, hints: hints)
+            .NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForDiff_ManifestUnknownLargestChange_OffersQualityAndScopedCaseGuidance()
+    {
+        RankingDiffCaseResult captureCase = new(
+            "Bench.Work", "Size: 1", 20.0, 30.0, 10.0,
+            [
+                new DiffRow("?", 10.0, 20.0, 10.0) { PercentagePointChange = 20.0 },
+                new DiffRow("App.Work", 5.0, 8.0, 3.0) { PercentagePointChange = 5.0 }
+            ],
+            []);
+
+        RankingDiffResult diff = new([captureCase]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForDiff(diff);
+
+        hints.Should().HaveCount(2);
+        hints[0].Should().Contain("unresolved ('?')").And.Contain("Bench.Work (Size: 1)");
+        hints[1].Should().Contain("App.Work").And.Contain("without dropping their scopes");
+        hints.Should().NotContain(hint => hint.Contains("drill into the paired traces with callers", StringComparison.Ordinal));
     }
 
     [TestMethod]

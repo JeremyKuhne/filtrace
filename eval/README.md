@@ -310,6 +310,100 @@ stops the experiment incomplete without a replacement pair. `Test-Docs.ps1`
 validates the protocol's shape, identities, order, bounds, record schema, grading
 boundary, and privacy.
 
+The [v3 ready-capture protocol](protocols/ep1-ready-capture-v3.json) is now the
+**sole prepared, not authorized** skill-versus-CLI experiment. V1 and v2 and
+their record schemas remain byte-preserved, hash-checked historical designs;
+their one-task/credit-ceiling rules do not apply to v3. No v3 host session has
+been authorized or run. Separate permission must bind the final v3 protocol
+hash, a private exact user-selected host model identifier (no substitution),
+the source and CLI/skill/evaluator input hashes, and the 16-session limit before
+any host work. Preparation or a passing offline check does not grant permission.
+The protocol pins the updated `SKILL.md` and complete 11-file skill tree as
+LF-normalized text hashes, plus their raw Windows entrypoint/manifest hashes
+and both public fixture SHA-256 hashes. Every docs-validation platform checks
+the portable skill hashes; Windows also requires the exact raw manifest in
+the private checkpoint and each skill session's inventory.
+
+V3 tests the **updated shipped** Filtrace skill against the **same current CLI
+bits without the skill**. Its two public fixtures ask different quality-first
+questions: [ETW unresolved frame](tasks/30-quality-first-unresolved.json)
+preserves HotLoopBench tree scope, the `?` rank row, and 51 contributing records
+while preferring a frame-name quality check to `callers '?'`; the
+[mixed speedscope rank](tasks/31-mixed-unknown-resolved.json) retains the unknown
+row and denominator alongside resolved rows. That 100 ms public profile has
+three positive intervals under `App.Main`: `?` 60 ms (60%), `App.Work` 25 ms
+(25%), and `App.Other` 15 ms (15%). `callers 'App.Work'` accounts for only
+its own 25 ms through `App.Main`, not the unknown 60 ms. Speedscope `info`
+reports three samples and `symbolResolutionRate: 1.0`; the latter is hard-coded
+and **cannot** grade row resolution.
+
+Each new task's required sequence is **rank, then info** on the same public
+fixture and children/process scope. Those two verbs are permitted by the
+strict Copilot command hook in both arms; QA requires successful `rank` and
+`info` calls. Step 0 asserts the ranked rows and the structured `info` hint;
+step 1 checks frame-name quality (ETW: 51 records, 0% named; speedscope:
+three evented intervals, aggregate 1.0). The speedscope number does not
+override the `?` row's 60% share. The mixed task has a third, explicitly
+`optional: true` `callers 'App.Work'` step: the strict hook permits it and
+the deterministic gate verifies its 25 ms `App.Main` caller, but the live
+runner does **not** require it for success. An attempted `callers '?'` or
+source-line operation counts as a quality failure, not invented machine
+evidence or resolution of the unknown row.
+
+F3's resolved-frame suggestion for a `diff` remains advisory until the
+comparison arm has a verified matching scope; v3 does not silently promote it
+to a cross-arm drill command.
+The task/QA/fixture hashes and exact expected rows belong only to evaluator
+evidence, never to the model-visible prompt or workspace.
+
+Each task has four fresh, independently isolated skill/CLI pairs with two of
+each first-arm order, interleaved across tasks: eight pairs, **16 host sessions
+maximum**, zero replacements. A started invalid session stops the global
+sequence incomplete. Each session permits six analysis steps and a separate
+600-second native timeout. Existing per-session output, runtime, fixture, CLI,
+skill, and artifact-byte limits remain; the record-file ceiling rises from 32
+to 48 only because eight pairs require 43 top-level records. There is **no
+per-session or overall host AI credit ceiling**: `-NoHostAiCreditLimit` makes
+the runner's `maxAiCredits: 0` an uncapped sentinel, not a zero-credit budget.
+Actual credits and token usage still have to be present, finite, and reconciled
+in the final report.
+
+The [v3 record schema](protocols/ep1-ready-capture-record-v3.schema.json)
+and shared [record validator](Test-ReadyCaptureRecords.ps1) enforce frozen task
+and model identities, credit accounting without a cap, contiguous stopped
+state, complete per-task summaries, and non-credit budgets. The grader sees
+only a task identifier and randomized blind IDs with the two final answers;
+arm, order, model/skill evidence, cost, timing, transcripts, and paths remain
+private. Five task-specific answer criteria and false-confidence notes are
+frozen before unblinding. Incorrect answers still count as valid quality
+outcomes; missing machine or grade evidence does not. Report per-task and
+overall descriptive paired deltas and order effects, never a winner claim.
+
+Run the **offline, fake-only** preparation checks without a model:
+
+```pwsh
+./eval/Test-ReadyCaptureProtocolV3.ps1
+./tools/Test-Docs.ps1
+```
+
+The first command checks the v1/v2 historical hashes, both v3 task/QA/fixture
+hashes and deterministic baselines, balanced order, stopped authorization and
+privacy; it also creates and removes fake 16-session records under `eval/` to
+exercise the schema and validator (including invalid-session, wrong-model,
+uncapped-usage, and attempted-replacement cases). `Test-Docs.ps1` includes
+that gate alongside the historical v2 replay. Neither command performs an AI
+call or grants launch permission.
+
+The deterministic JSON token estimator counts absolute fixture paths. In the
+long F3 worktree, three *existing* tasks exceeded their 15% budget solely
+because the same paths recur in output: `manifest-batch`, frozen task 23, and
+`manifest-case-drill`. A disposable short drive alias (removed immediately
+after the run) passed **31/31** tasks without raising any historical baseline.
+The two new baselines (ETW rank + info: **2 calls / 1,033 tokens**; mixed
+rank + info + optional callers: **3 calls / 568 tokens**) were measured
+through the same short-path policy. Do not expand old baselines to accommodate
+a checkout-path artifact.
+
 The user subsequently authorized a private natural-adoption protocol: 10 matched
 pairs / 20 fresh chats, with an identical prompt that did not instruct the skill arm
 to invoke the skill. Skill non-use, abstention, wrong answers, and overconfidence
@@ -343,8 +437,9 @@ delivery was verified 12/12 for the baseline and 11/12 for the candidate. This i
 descriptive answer completion, not a recovered efficacy experiment, and no rerun is
 scheduled.
 
-For the frozen EP1 ready-capture record schema, after each grade is serialized and hashed, run
-`eval/Test-ReadyCaptureRecords.ps1` against the private artifact directory. It
+For the historical v2 record schema, and for v3 only after a separate launch
+authorization, run `eval/Test-ReadyCaptureRecords.ps1` with the matching protocol
+and schema paths after each grade is serialized and hashed. It
 must pass before the private arm map is revealed and again before the final report.
 It schema-validates each record and recomputes session fields, arm summaries,
 paired deltas, order summaries, and quality/cost classifications from the retained

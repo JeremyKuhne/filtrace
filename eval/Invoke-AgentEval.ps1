@@ -970,27 +970,6 @@ function Test-AgentEvalHostUsage($Usage) {
     return $true
 }
 
-function Get-AgentEvalTaskExpectedOperations($Task) {
-    [System.Collections.Generic.HashSet[string]] $operations =
-        [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach ($step in @($Task.steps)) {
-        [string[]] $arguments = @($step.args)
-        if ($arguments.Count -eq 0) { throw "Task '$($Task.id)' has an empty command step." }
-        [string] $operationSource = $arguments[0]
-        if ([string]::Equals($operationSource, 'report', [StringComparison]::Ordinal)) {
-            [int[]] $kindIndexes = @(for ($index = 0; $index -lt $arguments.Count; $index++) {
-                    if ([string]::Equals($arguments[$index], '--kind', [StringComparison]::Ordinal)) { $index }
-                })
-            if ($kindIndexes.Count -ne 1 -or $kindIndexes[0] -ge ($arguments.Count - 1)) {
-                throw "Task '$($Task.id)' has a report step without exactly one kind."
-            }
-            $operationSource = $arguments[$kindIndexes[0] + 1]
-        }
-        [void]$operations.Add((Get-OperationName -Name $operationSource))
-    }
-    return [string[]]@($operations)
-}
-
 function Get-AgentEvalStrictRunProjection {
     param(
         [Parameter(Mandatory)][object[]] $Tasks,
@@ -1424,6 +1403,7 @@ function Invoke-CopilotIteration {
     $transcript = [System.Collections.Generic.List[object]]::new()
     $filtraceCalls = 0
     $helpCalls = 0
+    [bool] $attemptedUnresolvedCaller = $false
     $skillEvidence = [ordered]@{
         provided = [bool]($arm -eq 'cli-skill')
         sourcePath = $context.skillSourcePath
@@ -1508,6 +1488,9 @@ function Invoke-CopilotIteration {
             }
             $isFiltraceCall = $null -ne $literalCommand
             if ($isFiltraceCall) {
+                if (Test-AgentEvalUnresolvedCallerAttempt $literalCommand) {
+                    $attemptedUnresolvedCaller = $true
+                }
                 $commandName = if ($literalCommand.isHelp) { 'help' } else { $literalCommand.verb }
                 $operationName = $literalCommand.operation
                 if ($completionDeniedByPolicy) {
@@ -1794,6 +1777,7 @@ function Invoke-CopilotIteration {
         observedModel = [string]$m
         observedModels = $iterationObservedModels
         hostSucceeded = $hostSucceeded
+        attemptedUnresolvedCaller = $attemptedUnresolvedCaller
         execution = [pscustomobject]@{
             runId = $context.runId
             workspace = $context.workspace
@@ -1884,6 +1868,13 @@ foreach ($file in $allTaskFiles) {
         Get-AgentEvalTaskExpectedOperations $task)
     $task | Add-Member -NotePropertyName forbidOperations -NotePropertyValue @(
         if ($qaMembers -contains 'forbidOperations') { $qa.forbidOperations | Where-Object { $_ } })
+    if ($qaMembers -contains 'forbidFrames' -and
+        ($qa.forbidFrames -isnot [object[]] -or @($qa.forbidFrames).Count -ne 1 -or
+            [string]$qa.forbidFrames[0] -cne '?')) {
+        throw "Task '$($task.id)' has an unsupported forbidden-frame QA rule."
+    }
+    $task | Add-Member -NotePropertyName forbidFrames -NotePropertyValue @(
+        if ($qaMembers -contains 'forbidFrames') { $qa.forbidFrames })
     $task | Add-Member -NotePropertyName maxCalls -NotePropertyValue $(
         if ($qaMembers -contains 'maxCalls') { $qa.maxCalls } else { $null })
     $task | Add-Member -NotePropertyName maxResponseTokens -NotePropertyValue $(
@@ -2164,6 +2155,10 @@ function Invoke-EvalRun {
                     $ok = $false
                     $note = "called forbidden operation(s): $($forbiddenUsed -join ', ')"
                 }
+            }
+            if ($ok -and (Test-AgentEvalForbiddenFrameAttempt $task $r)) {
+                $ok = $false
+                $note = "attempted callers '?' on an unresolved frame"
             }
             if ($ok -and $task.maxCalls -and $calls -gt [int]$task.maxCalls) {
                 $ok = $false
