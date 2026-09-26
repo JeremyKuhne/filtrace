@@ -53,6 +53,12 @@ internal static class DiffExecutor
                 return ExitCodes.UsageError;
             }
 
+            if (request.Scopes.HasPerArmIds)
+            {
+                error.WriteLine("Per-arm process ids require two .etl traces; manifest cases use their recorded invocation ids.");
+                return ExitCodes.UsageError;
+            }
+
             return RunManifest(request, output, error);
         }
 
@@ -62,8 +68,14 @@ internal static class DiffExecutor
             request.Symbols,
             error,
             out LoadedTrace? before,
-            request.Scope))
+            request.Scopes.Before))
         {
+            return ExitCodes.InputError;
+        }
+
+        if (request.Scopes.TraceError(before.Info, before: true) is string beforeScopeError)
+        {
+            error.WriteLine(beforeScopeError);
             return ExitCodes.InputError;
         }
 
@@ -73,8 +85,14 @@ internal static class DiffExecutor
             request.Symbols,
             error,
             out LoadedTrace? after,
-            request.Scope))
+            request.Scopes.After))
         {
+            return ExitCodes.InputError;
+        }
+
+        if (request.Scopes.TraceError(after.Info, before: false) is string afterScopeError)
+        {
+            error.WriteLine(afterScopeError);
             return ExitCodes.InputError;
         }
 
@@ -151,7 +169,7 @@ internal static class DiffExecutor
                         captureCase.TracePath,
                         request.Symbols ?? captureCase.SymbolsDirectory,
                         TraceMetric.Cpu,
-                        manifest.ResolveCaseScope(captureCase, request.Scope));
+                        manifest.ResolveCaseScope(captureCase, request.Scopes.Before));
 
                     belowThreshold |= SymbolGate.IsBelowThreshold(
                         trace.Info.SymbolResolutionRate,

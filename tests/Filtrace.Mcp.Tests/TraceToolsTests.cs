@@ -801,6 +801,104 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Diff_PerArmPids_SelectsDifferentExactEtwProcesses()
+    {
+        TraceStore store = new();
+        string path = FixturePath(Etw);
+
+        AnalysisResult<RankingDiffResult> envelope = TraceTools.Diff(
+            store, path, path, beforePid: [40356], afterPid: [48348], children: false);
+
+        AssertEnvelope(envelope);
+        envelope.Context!.Unit.Should().Be("ms");
+        envelope.Result.BeforeScopeWeight.Should().Be(50);
+        envelope.Result.AfterScopeWeight.Should().Be(1);
+        envelope.Result.ScopeDelta.Should().Be(-49);
+        envelope.Warnings.Should().Contain(warning => warning.Contains("40356", StringComparison.Ordinal));
+        envelope.Warnings.Should().Contain(warning => warning.Contains("48348", StringComparison.Ordinal));
+
+        AnalysisResult<RankingDiffResult> shared =
+            TraceTools.Diff(store, path, path, pid: [40356], children: false);
+
+        shared.Result.ScopeDelta.Should().Be(0);
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Diff_PerArmPids_DifferentCpuUnits_ThrowsMcpException()
+    {
+        TraceStore store = new();
+        string path = FixturePath(Etw);
+
+        Action act = () => TraceTools.Diff(
+            store, path, path, beforePid: [9144], afterPid: [40356], children: false);
+
+        act.Should().Throw<McpException>()
+            .WithMessage("Cannot compare CPU weights in samples with weights in ms*");
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Diff_PerArmPids_MissingOnEitherSide_ThrowsMcpException()
+    {
+        TraceStore store = new();
+        string path = FixturePath(Etw);
+
+        foreach (bool missingBefore in new[] { true, false })
+        {
+            Action act = () => TraceTools.Diff(
+                store, path, path,
+                beforePid: missingBefore ? [999999] : [40356],
+                afterPid: missingBefore ? [48348] : [999999],
+                children: false);
+
+            act.Should().Throw<McpException>()
+                .WithMessage($"*{(missingBefore ? "Baseline" : "Current")} process id 999999 was not found*");
+        }
+    }
+
+    [TestMethod]
+    public void Diff_PerArmPids_RejectsIncompleteConflictingOrInvalidSelectors()
+    {
+        TraceStore store = new();
+        string path = FixturePath(Speedscope);
+
+        Action incomplete = () => TraceTools.Diff(store, path, path, beforePid: [9144]);
+        Action conflicting = () => TraceTools.Diff(
+            store, path, path, pid: [9144], beforePid: [9144], afterPid: [40356]);
+
+        Action conflictingProcess = () => TraceTools.Diff(
+            store, path, path, process: "compiler", beforePid: [9144], afterPid: [40356]);
+
+        Action empty = () => TraceTools.Diff(store, path, path, beforePid: [], afterPid: [40356]);
+        Action invalid = () => TraceTools.Diff(store, path, path, beforePid: [9144], afterPid: [0]);
+
+        incomplete.Should().Throw<McpException>().WithMessage("*both beforePid and afterPid*");
+        conflicting.Should().Throw<McpException>().WithMessage("*cannot be combined*");
+        conflictingProcess.Should().Throw<McpException>().WithMessage("*cannot be combined*");
+        empty.Should().Throw<McpException>().WithMessage("*at least one process id*");
+        invalid.Should().Throw<McpException>().WithMessage("*afterPid 0*");
+    }
+
+    [TestMethod]
+    public void Diff_PerArmPids_RejectsSingleProcessTracesAndManifests()
+    {
+        TraceStore store = new();
+        string path = FixturePath(Speedscope);
+
+        Action singleProcess = () => TraceTools.Diff(
+            store, path, path, beforePid: [9144], afterPid: [40356]);
+
+        Action manifest = () => TraceTools.Diff(
+            store, FixturePath("manifest.json"), FixturePath("manifest.json"),
+            beforePid: [9144], afterPid: [40356]);
+
+        singleProcess.Should().Throw<McpException>().WithMessage("*requires an .etl trace*");
+        manifest.Should().Throw<McpException>().WithMessage("*manifest cases use their recorded invocation ids*");
+    }
+
+    [TestMethod]
     public void Diff_DifferentCpuWeightUnits_ThrowsMcpException()
     {
         TraceStore store = new();
