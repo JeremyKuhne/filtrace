@@ -133,7 +133,9 @@ jobs:
         run: dotnet build filtrace.slnx --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test filtrace.slnx --configuration Release --no-build
+        # The machine-wide CLR rundown and child-process tests must not compete
+        # with other managed test hosts for ETW provider activation and startup.
+        run: dotnet test filtrace.slnx --configuration Release --no-build --max-parallel-test-modules 1
 
       - name: Capture helper contract (PowerShell 7)
         shell: pwsh

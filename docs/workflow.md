@@ -534,6 +534,12 @@ defaults to scenario scope and lets you tighten further:
   Prefer it for manifests and automation. The three selectors are mutually exclusive,
   an id reused by two processes in one trace is refused rather than merged, and an id
   that is not in the trace is reported.
+  For `diff` between two `.etl` traces with different process ids, supply both
+  `--before-pid <id>[,<id>]` and `--after-pid <id>[,<id>]` (MCP: `beforePid` and
+  `afterPid`). These scope the baseline and current traces separately, cannot be
+  combined with the shared `--pid`, `--process`, or `--all-processes` selectors,
+  and fail if either trace lacks a requested id. Manifest diffs instead use
+  each case's recorded invocation ids; per-arm ids are not accepted for manifests.
 - **Descendants:** the same commands and tools accept `--children include|exclude` /
   `children`. Both selectors follow descendants by default, because the common capture
   shapes put the measured work in a child the host launched. Pass `exclude` to separate

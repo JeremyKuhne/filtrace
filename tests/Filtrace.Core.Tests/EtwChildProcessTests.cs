@@ -202,19 +202,17 @@ public sealed class EtwChildProcessTests
     public void Run_RootExitsWhileDescendantInheritsPipes_ReturnsAfterDrainGrace()
     {
         RequireWindows();
-        string descendantScript = CreatePowerShellScript("Start-Sleep -Seconds 30\r\n");
         string descendantPidPath = Path.Join(Path.GetTempPath(), $"filtrace-descendant-{Guid.NewGuid():N}.pid");
         string rootScript = CreatePowerShellScript(
             """
             param(
-                [string] $DescendantScript,
                 [string] $DescendantPidPath
             )
 
             $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-            $startInfo.FileName = "$PSHOME\powershell.exe"
+            $startInfo.FileName = $env:ComSpec
             $startInfo.UseShellExecute = $false
-            $startInfo.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$DescendantScript`""
+            $startInfo.Arguments = "/d /c ping -n 30 127.0.0.1"
             $descendant = [System.Diagnostics.Process]::Start($startInfo)
             $descendant.Id | Set-Content -LiteralPath $DescendantPidPath -Encoding ascii
             $descendant.Dispose()
@@ -228,16 +226,15 @@ public sealed class EtwChildProcessTests
         try
         {
             StringWriter subjectLog = new();
-            ProcessStartInfo startInfo = PowerShellStartInfo(
-                rootScript, descendantScript, descendantPidPath);
+            ProcessStartInfo startInfo = PowerShellStartInfo(rootScript, descendantPidPath);
 
             EtwInvocation result = EtwChildProcess.Run(
                 startInfo, 1, 30, subjectLog, subjectLog);
 
             DateTimeOffset finishedUtc = DateTimeOffset.UtcNow;
 
-            descendantPid = int.Parse(File.ReadAllText(descendantPidPath));
             result.ExitCode.Should().Be(23);
+            descendantPid = int.Parse(File.ReadAllText(descendantPidPath));
             using (Process descendant = Process.GetProcessById(descendantPid.Value))
             {
                 (result.StoppedUtc - descendant.StartTime.ToUniversalTime())
@@ -278,7 +275,6 @@ public sealed class EtwChildProcessTests
             }
 
             File.Delete(rootScript);
-            File.Delete(descendantScript);
             File.Delete(descendantPidPath);
         }
     }

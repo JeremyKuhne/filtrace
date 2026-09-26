@@ -52,21 +52,33 @@ public sealed class TraceStoreTests
     {
         TraceStore store = new();
         string path = CopyToTemp("activity.nettrace", out string tempDirectory);
-        using Barrier startBarrier = new(participantCount: 5);
         try
         {
-            Task<TraceStoreLoadResult>[] loads = Enumerable.Range(0, 4)
-                .Select(_ => Task.Run(async () =>
+            Task<TraceStoreLoadResult>[] loads;
+            bool pendingWhileMutexHeld;
+            using (Mutex conversionMutex = new(initiallyOwned: false, TraceConverter.LockNameFor(path)))
+            {
+                if (!conversionMutex.WaitOne(SynchronizationTimeout))
                 {
-                    startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
-                    return await store.GetAsync(path);
-                }))
-                .ToArray();
+                    throw new TimeoutException("Timed out acquiring the ETLX conversion mutex.");
+                }
 
-            startBarrier.SignalAndWait(SynchronizationTimeout).Should().BeTrue();
+                try
+                {
+                    // Keep conversion blocked until every request has reached the
+                    // in-process gate; a barrier cannot guarantee their scheduling order.
+                    loads = [.. Enumerable.Range(0, 4).Select(_ => store.GetAsync(path))];
+                    pendingWhileMutexHeld = loads.All(static load => !load.IsCompleted);
+                }
+                finally
+                {
+                    conversionMutex.ReleaseMutex();
+                }
+            }
 
             TraceStoreLoadResult[] results = await Task.WhenAll(loads);
 
+            pendingWhileMutexHeld.Should().BeTrue();
             results.Should().ContainSingle(result => result.EtlxCacheState == EtlxCacheState.Converted);
             results.Count(result => result.EtlxCacheState == EtlxCacheState.Waited).Should().Be(3);
             results.Select(result => result.Trace).Should().OnlyContain(trace => trace.Info.SampleCount > 0);

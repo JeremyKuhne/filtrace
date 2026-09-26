@@ -642,6 +642,8 @@ public sealed class TraceTools
     /// <param name="benchmark">
     ///  Use the BenchmarkDotNet workload root; mutually exclusive with <paramref name="root"/>.
     /// </param>
+    /// <param name="beforePid">Exact baseline .etl process ids; requires <paramref name="afterPid"/>.</param>
+    /// <param name="afterPid">Exact current .etl process ids; requires <paramref name="beforePid"/>.</param>
     /// <returns>The diff envelope; result kind is <c>trace</c> or <c>manifest</c>.</returns>
     [McpServerTool(Name = "trace_diff", ReadOnly = true, Idempotent = true, OpenWorld = false, UseStructuredContent = true, OutputSchemaType = typeof(StructuredAnalysisEnvelopeSchema))]
     [Description(
@@ -665,7 +667,11 @@ public sealed class TraceTools
         [Description("Follow descendants of the matched processes.")]
         bool children = true,
         [Description("BenchmarkDotNet workload root; conflicts with root.")]
-        bool benchmark = false)
+        bool benchmark = false,
+        [Description("Exact baseline .etl ids; requires afterPid; excludes pid and process.")]
+        int[]? beforePid = null,
+        [Description("Exact current .etl ids; requires beforePid; excludes pid and process.")]
+        int[]? afterPid = null)
     {
         bool inclusive = ResolveMeasure(measure);
         RequirePositiveTop(top);
@@ -673,6 +679,12 @@ public sealed class TraceTools
         string? resolvedSymbols = NullIfEmpty(symbols);
         string resolvedRoot = ResolveRoot(root, benchmark);
         ScopeRequest? scope = ResolveScope(process, pid, children);
+        if (!DiffProcessScopes.TryResolve(
+            scope, beforePid, afterPid, children, out DiffProcessScopes scopes, out string? scopeError))
+        {
+            throw new McpException(scopeError);
+        }
+
         bool beforeManifest = CaptureManifestReader.IsManifestPath(beforePath);
         bool afterManifest = CaptureManifestReader.IsManifestPath(afterPath);
         if (beforeManifest || afterManifest)
@@ -681,6 +693,12 @@ public sealed class TraceTools
             {
                 throw new McpException(
                     "Diff inputs must both be traces or both be capture manifest.json files.");
+            }
+
+            if (scopes.HasPerArmIds)
+            {
+                throw new McpException(
+                    "Per-arm process ids require two .etl traces; manifest cases use their recorded invocation ids.");
             }
 
             try
@@ -698,7 +716,7 @@ public sealed class TraceTools
                         captureCase.TracePath,
                         resolvedSymbols ?? captureCase.SymbolsDirectory,
                         TraceMetric.Cpu,
-                        manifest.ResolveCaseScope(captureCase, scope)));
+                        manifest.ResolveCaseScope(captureCase, scopes.Before)));
 
                 return new AnalysisResult<RankingDiffResult>(
                     analysis.Result,
@@ -720,8 +738,18 @@ public sealed class TraceTools
             }
         }
 
-        LoadedTrace before = Load(store, beforePath, resolvedSymbols, scope: scope);
-        LoadedTrace after = Load(store, afterPath, resolvedSymbols, scope: scope);
+        LoadedTrace before = Load(store, beforePath, resolvedSymbols, scope: scopes.Before);
+        if (scopes.TraceError(before.Info, before: true) is string beforeScopeError)
+        {
+            throw new McpException(beforeScopeError);
+        }
+
+        LoadedTrace after = Load(store, afterPath, resolvedSymbols, scope: scopes.After);
+        if (scopes.TraceError(after.Info, before: false) is string afterScopeError)
+        {
+            throw new McpException(afterScopeError);
+        }
+
         if (before.Aggregator.Metric != after.Aggregator.Metric)
         {
             throw new McpException(

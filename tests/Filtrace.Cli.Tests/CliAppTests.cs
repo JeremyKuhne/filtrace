@@ -1118,6 +1118,66 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Run_Diff_PerArmPids_SelectsDifferentProcessesWithSharedChildrenMode()
+    {
+        // The fixture's pid 9144 is weighted in samples; these two processes both establish ms.
+        (int exit, string output, string error) = Run(
+            "diff", Etw, Etw,
+            "--before-pid", "40356", "--after-pid", "48348",
+            "--children", "exclude", "--format", "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        error.Should().BeEmpty();
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement envelope = document.RootElement;
+        envelope.GetProperty("context").GetProperty("unit").GetString().Should().Be("ms");
+        JsonElement result = envelope.GetProperty("result");
+        result.GetProperty("beforeScopeWeight").GetDouble().Should().Be(50);
+        result.GetProperty("afterScopeWeight").GetDouble().Should().Be(1);
+        result.GetProperty("scopeDelta").GetDouble().Should().Be(-49);
+
+        (int sharedExit, string sharedOutput, _) = Run(
+            "diff", Etw, Etw, "--pid", "40356", "--children", "exclude", "--format", "json");
+
+        sharedExit.Should().Be(ExitCodes.Success);
+        using JsonDocument sharedDocument = JsonDocument.Parse(sharedOutput);
+        sharedDocument.RootElement.GetProperty("result").GetProperty("scopeDelta").GetDouble().Should().Be(0);
+    }
+
+    [TestMethod]
+    public void Run_Diff_PerArmPids_RejectsIncompleteConflictingAndInvalidSelectors()
+    {
+        string[][] invalidOptions =
+        [
+            ["--before-pid", "9144"],
+            ["--after-pid", "40356"],
+            ["--before-pid", "9144", "--after-pid", "40356", "--pid", "9144"],
+            ["--before-pid", "9144", "--after-pid", "40356", "--process", "compiler"],
+            ["--before-pid", "9144", "--after-pid", "40356", "--all-processes"],
+            ["--before-pid", "0", "--after-pid", "40356"]
+        ];
+
+        foreach (string[] options in invalidOptions)
+        {
+            (int exit, string output, string error) = Run(["diff", Speedscope, Speedscope, .. options]);
+
+            exit.Should().Be(ExitCodes.UsageError);
+            output.Should().BeEmpty();
+            error.Should().Contain("beforePid");
+        }
+    }
+
+    [TestMethod]
+    public void Run_DiffHelp_ShowsPerArmPidSelectors()
+    {
+        (int exit, string output, _) = Run("diff", "--help");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().Contain("--before-pid").And.Contain("--after-pid");
+    }
+
+    [TestMethod]
     public void Run_DiffMissingAfterArgument_ReturnsUsageError()
     {
         // 'after' is a required positional, so a diff with only the baseline fails to parse.

@@ -2163,18 +2163,48 @@ try {
         workspace = $launchDirectory
         runDirectory = $launchDirectory
         home = $launchHome
-        isolateHome = $true
+        isolateHome = $false
+        failureLogDirectory = $null
         immutableFiles = @()
     }
-    [bool] $launchFailurePreserved = $false
-    try {
-        [void](Invoke-BoundedCopilotProcess -FilePath $invalidExecutable -Arguments @('--version') -Context $launchContext -TimeoutSeconds 1)
+    foreach ($launchCase in @(
+            [pscustomobject]@{ name = 'invalid'; filePath = $invalidExecutable; contained = $false }
+            [pscustomobject]@{ name = 'missing'; filePath = (Join-Path $launchDirectory 'missing.exe'); contained = $false }
+            [pscustomobject]@{ name = 'contained-invalid'; filePath = $invalidExecutable; contained = $true }
+        )) {
+        $launchContext.isolateHome = $launchCase.contained
+        $launchContext.failureLogDirectory = Join-Path $launchDirectory "failures/$($launchCase.name)"
+        [System.Exception] $launchFailure = $null
+        try {
+            [void](Invoke-BoundedCopilotProcess `
+                    -FilePath $launchCase.filePath `
+                    -Arguments @('--version') `
+                    -Context $launchContext `
+                    -TimeoutSeconds 15)
+        }
+        catch { $launchFailure = $_.Exception }
+        [string] $launchFailureMessage = if ($null -ne $launchFailure) {
+            $launchFailure.Message
+        }
+        else { 'No exception was thrown.' }
+        [System.Exception] $rootCause = $launchFailure
+        while ($null -ne $rootCause -and $null -ne $rootCause.InnerException) {
+            $rootCause = $rootCause.InnerException
+        }
+        [bool] $expectedCause = if ($launchCase.contained) {
+            $null -ne $launchFailure -and $launchFailureMessage.Contains(
+                'Contained Copilot process launcher failed:', [StringComparison]::Ordinal)
+        }
+        else { $rootCause -is [System.ComponentModel.Win32Exception] }
+        Assert-True `
+            ($launchFailure -is [System.InvalidOperationException] -and
+                $launchFailureMessage.Contains('failed after 0 captured bytes', [StringComparison]::Ordinal) -and
+                $expectedCause) `
+            "Native launch '$($launchCase.name)' did not preserve its acquisition error: $launchFailureMessage"
+        Assert-True `
+            (@(Get-ChildItem -LiteralPath $launchContext.failureLogDirectory -File).Count -eq 2) `
+            "Native launch '$($launchCase.name)' did not retain bounded failure logs."
     }
-    catch {
-        $launchFailurePreserved = $_.Exception.Message.Contains('failed after 0 captured bytes', [StringComparison]::Ordinal) -and
-            -not $_.Exception.ToString().Contains('No process is associated', [StringComparison]::Ordinal)
-    }
-    Assert-True $launchFailurePreserved 'Native process acquisition failure was masked by unstarted-process cleanup.'
 
     [bool] $missingExpectedModelRejected = $false
     try {
