@@ -668,7 +668,11 @@ cleanly and stays cheap in tokens.
   as though it names one method. Ranking hints can carry a structured `info`
   follow-up when they can preserve the process and children scope; a root,
   activity, time, or native-symbol scope that `info` cannot preserve leaves
-  the quality check advisory instead. Speedscope's aggregate frame-resolution
+  the quality check advisory instead. A resolved `callers` drill carries the
+  same local `--symbols` directory when it fits the follow-up; `callers` cannot
+  reproduce `--native-symbols`, so a native-resolved drill remains advisory.
+  An optional resolved drill also stays advisory when its exact PID list
+  exceeds the structured next-step limit. Speedscope's aggregate frame-resolution
   field can read 100% even with literal `?` frames; inspect the ranked rows
   rather than treating that field as proof every frame is named.
 - State the trace format, selected process/root/time window, metric, and

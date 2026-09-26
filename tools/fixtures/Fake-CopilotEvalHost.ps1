@@ -51,10 +51,22 @@ param(
 )
 
 $mode = if ($env:FILTRACE_AGENT_EVAL_FAKE_MODE) { $env:FILTRACE_AGENT_EVAL_FAKE_MODE } else { 'success' }
-if ($mode -eq 'mcp-success') {
+if ($mode -in @('mcp-success', 'mcp-unknown-caller', 'mcp-resolved-caller', 'mcp-unknown-caller-failed')) {
     if ($Prompt -notmatch 'trace at (.+?) and answer') {
         throw 'Fake Copilot MCP host could not recover the fixture path from the prompt.'
     }
+    [string] $fixturePath = $Matches[1]
+    [bool] $mixedTask = $mode -ne 'mcp-success'
+    [string] $callerFrame = if ($mode -eq 'mcp-resolved-caller') { 'App.Work' } else { '?' }
+    [string] $firstTool = if ($mixedTask) { 'trace_rank' } else { 'trace_gc' }
+    [string] $firstContent = if ($mixedTask) {
+        '{"rows":[{"frame":"?","weight":60},{"frame":"App.Work","weight":25}]}'
+    }
+    else { '{"gcCount":7}' }
+    [string] $answer = if ($mixedTask) {
+        'Speedscope CPU self: ? is 60% of 100 ms, App.Work is 25%; check info before a resolved drill; unknown weight cannot be attributed to App.Work.'
+    }
+    else { 'There were 7 garbage collections.' }
     if (-not $AllowAll -or -not $NoCustomInstructions -or -not $DisableBuiltinMcps -or
         -not $NoRemoteExport -or -not $NoRemote -or -not $NoAutoUpdate -or
         -not $NoBashEnvironment -or -not $NoAskUser -or $DisallowTempDirectory -or
@@ -80,8 +92,8 @@ if ($mode -eq 'mcp-success') {
             data = [ordered]@{
                 toolCallId = 'mcp-call-1'
                 mcpServerName = 'filtrace'
-                mcpToolName = 'trace_gc'
-                arguments = [ordered]@{ trace_path = $Matches[1] }
+                mcpToolName = $firstTool
+                arguments = [ordered]@{ trace_path = $fixturePath }
             }
         }
         [ordered]@{
@@ -89,12 +101,60 @@ if ($mode -eq 'mcp-success') {
             data = [ordered]@{
                 toolCallId = 'mcp-call-1'
                 success = $true
-                result = [ordered]@{ content = '{"gcCount":7}' }
+                result = [ordered]@{ content = $firstContent }
+            }
+        }
+        if ($mixedTask) {
+            [ordered]@{
+                type = 'tool.execution_start'
+                data = [ordered]@{
+                    toolCallId = 'mcp-call-2'
+                    mcpServerName = 'filtrace'
+                    mcpToolName = 'trace_info'
+                    arguments = [ordered]@{ trace_path = $fixturePath }
+                }
+            }
+            [ordered]@{
+                type = 'tool.execution_complete'
+                data = [ordered]@{
+                    toolCallId = 'mcp-call-2'
+                    success = $true
+                    result = [ordered]@{ content = '{"format":"Speedscope","sampleCount":3}' }
+                }
+            }
+            [ordered]@{
+                type = 'tool.execution_start'
+                data = [ordered]@{
+                    toolCallId = 'mcp-call-3'
+                    mcpServerName = 'filtrace'
+                    mcpToolName = 'trace_callers'
+                    arguments = [ordered]@{ trace_path = $fixturePath; frame = $callerFrame }
+                }
+            }
+            if ($mode -eq 'mcp-unknown-caller-failed') {
+                [ordered]@{
+                    type = 'tool.execution_complete'
+                    data = [ordered]@{
+                        toolCallId = 'mcp-call-3'
+                        success = $false
+                        error = [ordered]@{ message = 'No matching callers.' }
+                    }
+                }
+            }
+            else {
+                [ordered]@{
+                    type = 'tool.execution_complete'
+                    data = [ordered]@{
+                        toolCallId = 'mcp-call-3'
+                        success = $true
+                        result = [ordered]@{ content = '{"callers":[]}' }
+                    }
+                }
             }
         }
         [ordered]@{
             type = 'assistant.message'
-            data = [ordered]@{ content = 'There were 7 garbage collections.' }
+            data = [ordered]@{ content = $answer }
         }
         [ordered]@{
             type = 'result'

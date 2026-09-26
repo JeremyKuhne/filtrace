@@ -290,6 +290,9 @@ Run `filtrace <verb> --help` for the full option set of any verb.
    `callers ?` as one method. A ranking can supply a structured `info` step when
    its process/children scope is replayable; root, activity, time, or native-symbol
    scopes that `info` cannot preserve leave the quality check advisory instead.
+   Carry local `--symbols` into any replayable resolved `callers` drill. Native
+   symbols cannot be replayed by `callers`, and an optional resolved drill with
+   too many exact PIDs for complete next-step metadata also stays advisory.
    Speedscope can report 100% aggregate frame-name resolution with a literal
    `?` row; that summary does not make the row a named method.
 - State the trace format, selected process/root/time window, metric, and

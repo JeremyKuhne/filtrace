@@ -251,6 +251,22 @@ public static class SteeringHints
         ForRanking(ranking, MetricInfo.Cpu);
 
     /// <summary>
+    ///  The next-step hints for a ranking, preserving its metric and scope.
+    /// </summary>
+    /// <param name="ranking">The ranking the hints steer from.</param>
+    /// <param name="metric">The metric the ranking carries.</param>
+    /// <param name="scope">The process, activity, and time scope used to build the ranking.</param>
+    /// <returns>The steering hints, never <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException">
+    ///  <paramref name="ranking"/> or <paramref name="metric"/> is <see langword="null"/>.
+    /// </exception>
+    public static IReadOnlyList<string> ForRanking(
+        RankingResult ranking,
+        MetricInfo metric,
+        ScopeRequest? scope) =>
+            ForRanking(ranking, metric, scope, path: null);
+
+    /// <summary>
     ///  The next-step hints for a ranking, constrained to follow-ups that preserve
     ///  the ranking's metric and scope.
     /// </summary>
@@ -319,25 +335,41 @@ public static class SteeringHints
                     [FrameNameQualityStep(quality, ranking.RootFrame, scope, path, symbols, nativeSymbols)]);
             }
 
-            string optional = PreserveCpuScope(
-                $"optional: inspect the first resolved row separately with: callers {QuotePowerShellArgument(resolved.Frame)}",
-                ranking.RootFrame,
-                scope);
+            string optional = PreserveLocalSymbols(
+                PreserveCpuScope(
+                    $"optional: inspect the first resolved row separately with: callers {QuotePowerShellArgument(resolved.Frame)}",
+                    ranking.RootFrame,
+                    scope),
+                symbols);
+
+            if (nativeSymbols)
+            {
+                optional += "; callers cannot reproduce native-symbol resolution";
+            }
 
             return new SteeringHintSet(
                 [quality, optional],
                 [
                     FrameNameQualityStep(quality, ranking.RootFrame, scope, path, symbols, nativeSymbols),
-                    Step(optional, "callers", CpuScopeArguments(scope, ranking.RootFrame, resolved.Frame))
+                    RankingCallerStep(
+                        optional, ranking.RootFrame, scope, resolved.Frame, symbols, nativeSymbols,
+                        requireCompleteProcessIds: true)
                 ]);
         }
 
         string hint = $"drill into the hot frame with: callers {ranking.Rows[0].Frame}";
-        string message = PreserveCpuScope(hint, ranking.RootFrame, scope);
-        return Guidance(
-            message,
-            "callers",
-            CpuScopeArguments(scope, ranking.RootFrame, ranking.Rows[0].Frame));
+        string message = PreserveLocalSymbols(
+            PreserveCpuScope(hint, ranking.RootFrame, scope), symbols);
+
+        if (nativeSymbols)
+        {
+            message += "; callers cannot reproduce native-symbol resolution";
+        }
+
+        return new SteeringHintSet(
+            [message],
+            [RankingCallerStep(
+                message, ranking.RootFrame, scope, ranking.Rows[0].Frame, symbols, nativeSymbols)]);
     }
 
     /// <summary>
@@ -462,6 +494,18 @@ public static class SteeringHints
         return scope is { IncludeChildren: false } ? $"{hint} --children exclude" : hint;
     }
 
+    private static string PreserveLocalSymbols(string hint, string? symbols)
+    {
+        if (string.IsNullOrEmpty(symbols))
+        {
+            return hint;
+        }
+
+        return symbols.Length <= MaxNextStepSymbolsLength
+            ? $"{hint} --symbols {QuotePowerShellArgument(symbols)}"
+            : $"{hint} (reuse the same local symbols directory)";
+    }
+
     private static bool IsUnresolvedFrame(string frame) =>
         string.Equals(frame, UnknownFrame, StringComparison.Ordinal)
             || frame.EndsWith("!?", StringComparison.Ordinal);
@@ -473,15 +517,31 @@ public static class SteeringHints
 
     private static string FrameNameQualityHint(ScopeRequest? scope, string? symbols = null)
     {
-        string command = PreserveCpuScope("info <trace>", "", scope);
-        if (!string.IsNullOrEmpty(symbols))
+        string command = PreserveLocalSymbols(PreserveCpuScope("info <trace>", "", scope), symbols);
+        return $"check frame-name quality with: {command}";
+    }
+
+    private static AnalysisNextStep RankingCallerStep(
+        string reason,
+        string root,
+        ScopeRequest? scope,
+        string frame,
+        string? symbols,
+        bool nativeSymbols,
+        bool requireCompleteProcessIds = false)
+    {
+        if (nativeSymbols
+            || symbols?.Length > MaxNextStepSymbolsLength
+            || (requireCompleteProcessIds
+                && scope?.Selector is ProcessIdSelector ids
+                && ids.ProcessIds.Count > AnalysisScopeContext.MaxReportedProcessIds))
         {
-            command += symbols.Length <= MaxNextStepSymbolsLength
-                ? $" --symbols {QuotePowerShellArgument(symbols)}"
-                : " (reuse the same local symbols directory)";
+            return Step(reason);
         }
 
-        return $"check frame-name quality with: {command}";
+        return Step(
+            reason, "callers",
+            CpuScopeArguments(scope, root, frame) with { Symbols = symbols });
     }
 
     private static AnalysisNextStep FrameNameQualityStep(

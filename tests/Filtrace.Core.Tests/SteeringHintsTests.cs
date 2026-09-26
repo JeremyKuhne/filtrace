@@ -30,6 +30,36 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForRanking_ThreeParameterOverload_RetainsBinarySignature()
+    {
+        System.Reflection.MethodInfo? method = typeof(SteeringHints).GetMethod(
+            nameof(SteeringHints.ForRanking),
+            [typeof(RankingResult), typeof(MetricInfo), typeof(ScopeRequest)]);
+
+        method.Should().NotBeNull();
+        RankingResult ranking = new(25.0, "", [new RankRow("App.Work", 25.0, 100.0)]);
+        ScopeRequest scope = ScopeRequest.ForProcessIds([40356]);
+        IReadOnlyList<string> legacy = (IReadOnlyList<string>)method!.Invoke(
+            obj: null, parameters: [ranking, MetricInfo.Cpu, scope])!;
+
+        legacy.Should().Equal(SteeringHints.ForRanking(ranking, MetricInfo.Cpu, scope, path: null));
+    }
+
+    [TestMethod]
+    public void ForRanking_ThreeParameterOverload_NullInputsThrow()
+    {
+        RankingResult ranking = new(25.0, "", [new RankRow("App.Work", 25.0, 100.0)]);
+        Action nullRanking = () => SteeringHints.ForRanking(
+            ranking: null!, metric: MetricInfo.Cpu, scope: ScopeRequest.Auto);
+
+        Action nullMetric = () => SteeringHints.ForRanking(
+            ranking, metric: null!, scope: ScopeRequest.Auto);
+
+        nullRanking.Should().Throw<ArgumentNullException>().Which.ParamName.Should().Be("ranking");
+        nullMetric.Should().Throw<ArgumentNullException>().Which.ParamName.Should().Be("metric");
+    }
+
+    [TestMethod]
     public void ForRanking_UnresolvedTop_PrioritizesQualityAndScopesOptionalResolvedDrill()
     {
         RankingResult ranking = new(
@@ -70,6 +100,50 @@ public sealed class SteeringHintsTests
         arguments.Root.Should().Be("Workload");
         arguments.ProcessIds.Should().Equal(40356);
         arguments.IncludeChildren.Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void ForRanking_UnresolvedTop_ResolvedDrillRetainsLocalSymbols()
+    {
+        RankingResult ranking = new(
+            100.0, "", [new RankRow("?", 60.0, 60.0), new RankRow("App.Work", 25.0, 25.0)]);
+
+        ScopeRequest scope = ScopeRequest.ForProcessIds([40356], includeChildren: false);
+        string symbols = @"C:\build\O'Brien";
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, scope, path: "trace.etl", symbols: symbols);
+
+        AnalysisResult<RankingResult> envelope = new(ranking, hints: hints);
+
+        hints[1].Should().Contain(
+            @"callers 'App.Work' --pid 40356 --children exclude --symbols 'C:\build\O''Brien'");
+
+        envelope.NextSteps[0].Arguments!.Symbols.Should().Be(symbols);
+        envelope.NextSteps[1].Operation.Should().Be("callers");
+        AnalysisNextStepArguments arguments = envelope.NextSteps[1].Arguments!;
+        arguments.Frame.Should().Be("App.Work");
+        arguments.Symbols.Should().Be(symbols);
+        arguments.ProcessIds.Should().Equal(40356);
+        arguments.IncludeChildren.Should().BeFalse();
+    }
+
+    [TestMethod]
+    public void ForRanking_ResolvedTop_CallerDrillRetainsLocalSymbols()
+    {
+        RankingResult ranking = new(25.0, "", [new RankRow("App.Work", 25.0, 100.0)]);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, symbols: "local-pdbs");
+
+        hints.Should().ContainSingle().Which.Should().Contain(
+            "callers App.Work --symbols 'local-pdbs'");
+
+        AnalysisNextStep step = new AnalysisResult<RankingResult>(ranking, hints: hints)
+            .NextSteps.Should().ContainSingle().Subject;
+
+        step.Operation.Should().Be("callers");
+        step.Arguments!.Symbols.Should().Be("local-pdbs");
     }
 
     [TestMethod]
@@ -190,6 +264,81 @@ public sealed class SteeringHintsTests
 
         new AnalysisResult<RankingResult>(ranking, hints: hints)
             .NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForRanking_NativeSymbols_LeavesCallerDrillsAdvisory()
+    {
+        RankingResult mixed = new(
+            100.0, "", [new RankRow("?", 60.0, 60.0), new RankRow("App.Work", 25.0, 25.0)]);
+
+        IReadOnlyList<string> mixedHints = SteeringHints.ForRanking(
+            mixed, MetricInfo.Cpu, path: "trace.etl", symbols: "local-pdbs", nativeSymbols: true);
+
+        AnalysisResult<RankingResult> mixedEnvelope = new(mixed, hints: mixedHints);
+
+        mixedHints[1].Should().Contain("callers cannot reproduce native-symbol resolution");
+        mixedEnvelope.NextSteps[0].Operation.Should().BeNull();
+        mixedEnvelope.NextSteps[1].Operation.Should().BeNull();
+        mixedEnvelope.NextSteps[1].Arguments.Should().BeNull();
+
+        RankingResult resolved = new(25.0, "", [new RankRow("App.Work", 25.0, 100.0)]);
+        IReadOnlyList<string> resolvedHints = SteeringHints.ForRanking(
+            resolved, MetricInfo.Cpu, nativeSymbols: true);
+
+        resolvedHints.Should().ContainSingle().Which.Should().Contain(
+            "callers cannot reproduce native-symbol resolution");
+
+        new AnalysisResult<RankingResult>(resolved, hints: resolvedHints)
+            .NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForRanking_ResolvedDrill_SymbolPathAtAndOverLimit()
+    {
+        RankingResult ranking = new(
+            100.0, "", [new RankRow("?", 60.0, 60.0), new RankRow("App.Work", 25.0, 25.0)]);
+
+        string atLimit = new('x', 1024);
+        string overLimit = new('x', 1025);
+
+        IReadOnlyList<string> supported = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, path: "trace.etl", symbols: atLimit);
+
+        IReadOnlyList<string> advisory = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, path: "trace.etl", symbols: overLimit);
+
+        new AnalysisResult<RankingResult>(ranking, hints: supported)
+            .NextSteps[1].Arguments!.Symbols.Should().Be(atLimit);
+
+        advisory[1].Should().Contain("reuse the same local symbols directory");
+        AnalysisNextStep step = new AnalysisResult<RankingResult>(ranking, hints: advisory).NextSteps[1];
+        step.Operation.Should().BeNull();
+        step.Arguments.Should().BeNull();
+    }
+
+    [TestMethod]
+    public void ForRanking_OptionalResolvedDrill_TruncatedPidScopeStaysAdvisory()
+    {
+        RankingResult ranking = new(
+            100.0, "", [new RankRow("?", 60.0, 60.0), new RankRow("App.Work", 25.0, 25.0)]);
+
+        int limit = AnalysisScopeContext.MaxReportedProcessIds;
+
+        IReadOnlyList<string> complete = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, ScopeRequest.ForProcessIds(Enumerable.Range(1, limit)));
+
+        IReadOnlyList<string> truncated = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, ScopeRequest.ForProcessIds(Enumerable.Range(1, limit + 1)));
+
+        AnalysisNextStep supported = new AnalysisResult<RankingResult>(ranking, hints: complete).NextSteps[1];
+        supported.Operation.Should().Be("callers");
+        supported.Arguments!.ProcessIds.Should().HaveCount(limit);
+
+        AnalysisNextStep advisory = new AnalysisResult<RankingResult>(ranking, hints: truncated).NextSteps[1];
+        advisory.Operation.Should().BeNull();
+        advisory.Arguments.Should().BeNull();
+        truncated[1].Should().Contain($"--pid {string.Join(",", Enumerable.Range(1, limit + 1))}");
     }
 
     [TestMethod]

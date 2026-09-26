@@ -56,10 +56,10 @@
     "qaPath": "eval/mcp-qa.jsonl",
     "skill": {
       "entrypointPath": ".agents/skills/filtrace/SKILL.md",
-      "entrypointTextSha256": "ee1e830351dee4e6e5c32d84d30872b70b0087cb1707f42c9a8ee8cb1d3ecf3a",
-      "manifestTextSha256": "a838090a69cda62708dd14b5aaca0b1be123118eff42e907453360fa1bff03e9",
-      "entrypointRawSha256Windows": "bf6f2ebb681f34bc7afc866f70a932c028b3cb3d76accdd6812dfabe8b4481e4",
-      "manifestSha256Windows": "d3c1c5bf731496ddc58abe7ee27f434fe192452865328785c9128ea60da08840",
+      "entrypointTextSha256": "e4de3f73d4db8fea5e85e82c9339d4145e01f56a24c14e5fd39224c26c1fdca7",
+      "manifestTextSha256": "21440124fb71051a2f6fa418ffae273ac9fd2ef0e2abc58328df4f7e13f06f9b",
+      "entrypointRawSha256Windows": "8ea00ac5f3dd836a763446551dd7b585a8a14550e072b5cee5b357825396f462",
+      "manifestSha256Windows": "479fc824cb112b219ad96a2c5e3847636e3d1647f74662ec63f9f51f8368f6c0",
       "fileCount": 11
     },
     "tasks": [

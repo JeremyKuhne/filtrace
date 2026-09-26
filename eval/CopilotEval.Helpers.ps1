@@ -1767,6 +1767,17 @@ function Test-AgentEvalUnresolvedCallerAttempt($Command) {
     return $false
 }
 
+function Test-AgentEvalMcpUnresolvedCallerAttempt([string] $ToolName, $ToolArguments) {
+    if (-not [string]::Equals($ToolName, 'trace_callers', [StringComparison]::Ordinal) -or
+        $ToolArguments -isnot [pscustomobject]) {
+        return $false
+    }
+    [string[]] $members = @($ToolArguments.PSObject.Properties | ForEach-Object { $_.Name })
+    return $members -ccontains 'frame' -and
+        $ToolArguments.frame -is [string] -and
+        [string]::Equals([string]$ToolArguments.frame, '?', [StringComparison]::Ordinal)
+}
+
 function Test-AgentEvalForbiddenFrameAttempt($Task, $Run) {
     return @($Task.forbidFrames) -ccontains '?' -and
         $null -ne $Run -and

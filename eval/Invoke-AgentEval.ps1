@@ -1602,6 +1602,11 @@ function Invoke-CopilotIteration {
             $filtraceCalls++
             $commandName = [string]$s.data.mcpToolName
             $operationName = Get-OperationName -Name $commandName
+            if (Test-AgentEvalMcpUnresolvedCallerAttempt `
+                    -ToolName $commandName `
+                    -ToolArguments $s.data.arguments) {
+                $attemptedUnresolvedCaller = $true
+            }
             $commandText = "$commandName $($s.data.arguments | ConvertTo-Json -Compress)"
         }
         if ($evidenceKind -eq 'filtrace' -and $completionSucceeded) {
