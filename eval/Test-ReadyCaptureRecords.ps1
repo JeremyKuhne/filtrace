@@ -68,6 +68,13 @@ function Get-ReadyCaptureLabel($Protocol, [int] $Pair, [string] $Position, [stri
     return "ep1-rc-p$Pair-$Position-$Arm"
 }
 
+function Get-ReadyCaptureCompleteReason($Protocol) {
+    if (Test-ReadyCaptureV3 $Protocol) {
+        return "$($Protocol.sample.validPairTarget)-valid-pairs"
+    }
+    return 'four-valid-pairs'
+}
+
 function Get-ManifestHash([object[]] $Entries) {
     [string[]] $canonical = @($Entries | ForEach-Object {
             [string] $path = if ($_.PSObject.Properties.Name -ccontains 'relativePath') {
@@ -236,23 +243,24 @@ function New-MetricSummary([double[]] $Values) {
     }
 }
 
-function Test-QualityPass($Session) {
+function Test-QualityPass($Session, [bool] $V3 = $false) {
     [object[]] $criteria = if ($Session.answerCriteria -is [System.Collections.IDictionary]) {
         @($Session.answerCriteria.Values)
     }
     else {
         @($Session.answerCriteria.PSObject.Properties.Value)
     }
-    return [bool]$Session.answerAvailable -and -not [bool]$Session.falseConfidence -and
+    return (-not $V3 -or [bool]$Session.success) -and
+        [bool]$Session.answerAvailable -and -not [bool]$Session.falseConfidence -and
         @($criteria | Where-Object { -not $_.pass }).Count -eq 0
 }
 
-function New-ArmSummary([object[]] $Sessions, [string] $Arm) {
+function New-ArmSummary([object[]] $Sessions, [string] $Arm, [bool] $V3 = $false) {
     [object[]] $armSessions = @($Sessions | Where-Object arm -eq $Arm)
     return [ordered]@{
         arm = $Arm
         sessionCount = $armSessions.Count
-        qualityPassCount = @($armSessions | Where-Object { Test-QualityPass $_ }).Count
+        qualityPassCount = @($armSessions | Where-Object { Test-QualityPass $_ $V3 }).Count
         noAnswerCount = @($armSessions | Where-Object { -not $_.answerAvailable }).Count
         falseConfidenceCount = @($armSessions | Where-Object falseConfidence).Count
         metrics = [ordered]@{
@@ -265,8 +273,8 @@ function New-ArmSummary([object[]] $Sessions, [string] $Arm) {
     }
 }
 
-function Get-QualityBits($Session) {
-    return @(
+function Get-QualityBits($Session, [bool] $V3 = $false) {
+    [bool[]] $bits = @(
         [bool]$Session.answerAvailable,
         [bool]$Session.answerCriteria.scope.pass,
         [bool]$Session.answerCriteria.'attribution-restraint'.pass,
@@ -274,11 +282,13 @@ function Get-QualityBits($Session) {
         [bool]$Session.answerCriteria.'scope-preserving-drill'.pass,
         [bool]$Session.answerCriteria.'unsupported-claim'.pass,
         -not [bool]$Session.falseConfidence)
+    if ($V3) { return [bool[]]($bits + [bool]$Session.success) }
+    return $bits
 }
 
-function Get-PairedQualityState($SkillSession, $CliSession) {
-    [bool[]] $skill = Get-QualityBits $SkillSession
-    [bool[]] $cli = Get-QualityBits $CliSession
+function Get-PairedQualityState($SkillSession, $CliSession, [bool] $V3 = $false) {
+    [bool[]] $skill = Get-QualityBits $SkillSession $V3
+    [bool[]] $cli = Get-QualityBits $CliSession $V3
     [bool] $skillNoWorse = $true
     [bool] $cliNoWorse = $true
     [bool] $skillBetter = $false
@@ -397,8 +407,8 @@ function New-ReadyCaptureTaskSummary([string] $TaskId, [object[]] $Sessions, [ob
     return [ordered]@{
         taskId = $TaskId
         armSummaries = @(
-            (New-ArmSummary -Sessions $taskSessions -Arm 'cli-skill'),
-            (New-ArmSummary -Sessions $taskSessions -Arm 'cli'))
+            (New-ArmSummary -Sessions $taskSessions -Arm 'cli-skill' -V3 $true),
+            (New-ArmSummary -Sessions $taskSessions -Arm 'cli' -V3 $true))
         pairedDeltas = $pairedDeltas
         orderSummaries = $orderSummaries
         qualityState = Get-ReadyCaptureQualityState -Pairs $taskPairs
@@ -1291,11 +1301,12 @@ function Test-ArtifactSet(
 
         switch ([string]$report.terminalDisposition) {
             'descriptive-complete' {
+                [string] $completeReason = Get-ReadyCaptureCompleteReason $protocolValue
                 if (-not [string]::Equals(
                         [string]$report.terminalReason,
-                        "$($protocolValue.sample.validPairTarget)-valid-pairs",
+                        $completeReason,
                         [StringComparison]::Ordinal)) {
-                    throw 'A descriptive-complete report must record the exact valid-pair count.'
+                    throw "A descriptive-complete report must record the '$completeReason' completion reason."
                 }
             }
             'incomplete-precondition' {
@@ -1370,8 +1381,7 @@ function Test-ArtifactSet(
             [object[]] $summaries = @($report.armSummaries | Where-Object arm -eq $arm)
             if ($summaries.Count -ne 1 -or [int]$summaries[0].sessionCount -ne $armSessions.Count -or
                 [int]$summaries[0].qualityPassCount -ne @($armSessions | Where-Object {
-                        $_.answerAvailable -and -not $_.falseConfidence -and
-                        @($_.answerCriteria.PSObject.Properties.Value | Where-Object { -not $_.pass }).Count -eq 0
+                        Test-QualityPass $_ $v3
                     }).Count -or
                 [int]$summaries[0].noAnswerCount -ne @($armSessions | Where-Object { -not $_.answerAvailable }).Count -or
                 [int]$summaries[0].falseConfidenceCount -ne @($armSessions | Where-Object falseConfidence).Count) {
@@ -1397,7 +1407,7 @@ function Test-ArtifactSet(
                 taskId = Get-ReadyCapturePairTaskId $protocolValue $pairNumber
                 pair = $pairNumber
                 firstArm = @($pairRows | Where-Object position -eq 'first')[0].arm
-                qualityState = Get-PairedQualityState $skill $cli
+                qualityState = Get-PairedQualityState $skill $cli $v3
                 skill = $skill
                 cli = $cli
                 deltas = [pscustomobject]@{
@@ -1726,6 +1736,9 @@ function Invoke-SelfTest {
                         else { $null }
                     }
                 }
+                if ($v3 -and $pairNumber -eq 2 -and $armPosition.position -eq 'first') {
+                    $iteration.success = $false
+                }
                 $result = [ordered]@{
                     schemaVersion = 3
                     host = 'copilot'
@@ -1769,6 +1782,28 @@ function Invoke-SelfTest {
             [void]$maps.Add($map)
         }
 
+        [object[]] $blindPasses = @($sessions | Where-Object { $_.success -and $_.answerAvailable })
+        if ($blindPasses.Count -eq 0) { throw 'Ready-capture self-test needs a graded runner success.' }
+        $blindPass = $blindPasses[0]
+        $runnerFailure = ($blindPass | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+        $runnerFailure.success = $false
+        [int] $expectedBitCount = if ($v3) { 8 } else { 7 }
+        [int] $expectedPassCount = if ($v3) { 1 } else { 2 }
+        [bool] $expectedRunnerFailurePass = -not $v3
+        [string] $expectedPairState = if ($v3) {
+            'skill-lower-observed-quality'
+        }
+        else { 'same-observed-quality' }
+        $qualitySummary = New-ArmSummary `
+            -Sessions @($blindPass, $runnerFailure) -Arm ([string]$blindPass.arm) -V3 $v3
+        if (-not (Test-QualityPass $blindPass $v3) -or
+            (Test-QualityPass $runnerFailure $v3) -ne $expectedRunnerFailurePass -or
+            @(Get-QualityBits $blindPass $v3).Count -ne $expectedBitCount -or
+            [int]$qualitySummary.qualityPassCount -ne $expectedPassCount -or
+            (Get-PairedQualityState $runnerFailure $blindPass $v3) -cne $expectedPairState) {
+            throw 'Ready-capture runner success was not isolated to the v3 quality comparison.'
+        }
+
         $zeroDeltas = [ordered]@{ analysisCalls = 0; helpCalls = 0; resultTokens = 0; wallMs = 0; hostAiCredits = 0 }
         [object[]] $pairReports = @(1..$pairTarget | ForEach-Object {
                 [int] $pairNumber = $_
@@ -1778,7 +1813,8 @@ function Invoke-SelfTest {
                     firstArm = @($pairSessions | Where-Object position -eq 'first')[0].arm
                     qualityState = Get-PairedQualityState `
                         -SkillSession @($pairSessions | Where-Object arm -eq 'cli-skill')[0] `
-                        -CliSession @($pairSessions | Where-Object arm -eq 'cli')[0]
+                        -CliSession @($pairSessions | Where-Object arm -eq 'cli')[0] `
+                        -V3 $v3
                     deltas = $zeroDeltas
                 }
                 if ($v3) {
@@ -1802,15 +1838,15 @@ function Invoke-SelfTest {
         $report = [ordered]@{
             schemaVersion = 1; protocolId = $protocolId; recordType = 'final-report'
             protocolSha256 = $protocolHash; terminalDisposition = 'descriptive-complete'; validPairs = $pairTarget
-            terminalReason = "$pairTarget-valid-pairs"
+            terminalReason = Get-ReadyCaptureCompleteReason $protocolValue
             hostSessions = $sessionTarget; hostAiCredits = ($sessionTarget * $creditsPerSession)
             authorizationSha256 = $authorizationHash
             sessionResultSha256 = @($resultHashes)
             gradeSha256 = @($gradeHashes); sessions = @($sessions)
             invalidSessions = @()
             armSummaries = @(
-                (New-ArmSummary -Sessions @($sessions) -Arm 'cli-skill'),
-                (New-ArmSummary -Sessions @($sessions) -Arm 'cli'))
+                (New-ArmSummary -Sessions @($sessions) -Arm 'cli-skill' -V3 $v3),
+                (New-ArmSummary -Sessions @($sessions) -Arm 'cli' -V3 $v3))
             pairedDeltas = $pairReports
             orderSummaries = $orderSummaries
             qualityState = $reportQuality
@@ -1837,6 +1873,40 @@ function Invoke-SelfTest {
         if ($result.pairs -ne $pairTarget -or $result.sessions -ne $sessionTarget) {
             throw 'Ready-capture self-test did not validate the complete artifact set.'
         }
+        if ($v3) {
+            [object[]] $runnerFailures = @($report.sessions | Where-Object {
+                    $_.pair -eq 2 -and $_.position -eq 'first'
+                })
+            [object[]] $mixedSummaries = @($report.taskSummaries | Where-Object taskId -eq 'mixed-unknown-resolved')
+            if ($runnerFailures.Count -ne 1 -or $mixedSummaries.Count -ne 1 -or
+                $runnerFailures[0].success -or -not $runnerFailures[0].answerAvailable -or
+                (Test-QualityPass $runnerFailures[0] $true)) {
+                throw 'A graded v3 answer with runner QA failure was not retained as valid quality-fail evidence.'
+            }
+            [object[]] $armSummaries = @($mixedSummaries[0].armSummaries | Where-Object {
+                    $_.arm -eq $runnerFailures[0].arm
+                })
+            if ($armSummaries.Count -ne 1 -or
+                [int]$armSummaries[0].qualityPassCount -ne ([int]$armSummaries[0].sessionCount - 1)) {
+                throw 'EP1 v3 task quality summary omitted the runner QA failure.'
+            }
+        }
+
+        $wrongReasonReport = ($report | ConvertTo-Json -Depth 100) | ConvertFrom-Json
+        $wrongReasonReport.terminalReason = if ($v3) { 'four-valid-pairs' } else { "$pairTarget-valid-pairs" }
+        Write-JsonFile (Join-Path $root 'final-report.json') $wrongReasonReport
+        try {
+            [bool] $wrongReasonRejected = $false
+            try { [void](Test-ArtifactSet $root $ProtocolPath $SchemaPath $false $false 'Final' $null) }
+            catch {
+                $wrongReasonRejected = $_.Exception.Message.Contains(
+                    'completion reason', [StringComparison]::Ordinal)
+            }
+            if (-not $wrongReasonRejected) {
+                throw 'Ready-capture historical or v3 completion reason drift was accepted.'
+            }
+        }
+        finally { Write-JsonFile (Join-Path $root 'final-report.json') $report }
 
         $incompleteCompleteReport = ($report | ConvertTo-Json -Depth 100) | ConvertFrom-Json
         $incompleteCompleteReport.terminalDisposition = 'incomplete-precondition'

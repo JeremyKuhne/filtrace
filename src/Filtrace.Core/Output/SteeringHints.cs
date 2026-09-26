@@ -54,7 +54,6 @@ public static class SteeringHints
 
     private const int MaxNextStepFoldPatterns = 32;
     private const int MaxNextStepFoldPatternLength = 256;
-    private const int MaxNextStepPathLength = 1024;
     private const int MaxNextStepSymbolsLength = 1024;
 
     private static IReadOnlyList<string> Guidance(string reason) =>
@@ -351,7 +350,7 @@ public static class SteeringHints
                 [quality, optional],
                 [
                     FrameNameQualityStep(quality, ranking.RootFrame, scope, path, symbols, nativeSymbols),
-                    RankingCallerStep(
+                    CpuCallerStep(
                         optional, ranking.RootFrame, scope, resolved.Frame, symbols, nativeSymbols,
                         requireCompleteProcessIds: true)
                 ]);
@@ -368,7 +367,7 @@ public static class SteeringHints
 
         return new SteeringHintSet(
             [message],
-            [RankingCallerStep(
+            [CpuCallerStep(
                 message, ranking.RootFrame, scope, ranking.Rows[0].Frame, symbols, nativeSymbols)]);
     }
 
@@ -429,7 +428,9 @@ public static class SteeringHints
                     scope);
 
                 hints.Add(optional);
-                steps.Add(Step(optional, "callers", CpuScopeArguments(scope, root, resolved.Caller)));
+                steps.Add(CpuCallerStep(
+                    optional, root, scope, resolved.Caller,
+                    symbols: null, nativeSymbols: false, requireCompleteProcessIds: true));
             }
         }
         else if (string.Equals(topCaller, RootFrame, StringComparison.Ordinal))
@@ -501,9 +502,7 @@ public static class SteeringHints
             return hint;
         }
 
-        return symbols.Length <= MaxNextStepSymbolsLength
-            ? $"{hint} --symbols {QuotePowerShellArgument(symbols)}"
-            : $"{hint} (reuse the same local symbols directory)";
+        return $"{hint} --symbols {QuotePowerShellArgument(symbols)}";
     }
 
     private static bool IsUnresolvedFrame(string frame) =>
@@ -521,7 +520,7 @@ public static class SteeringHints
         return $"check frame-name quality with: {command}";
     }
 
-    private static AnalysisNextStep RankingCallerStep(
+    private static AnalysisNextStep CpuCallerStep(
         string reason,
         string root,
         ScopeRequest? scope,
@@ -531,7 +530,6 @@ public static class SteeringHints
         bool requireCompleteProcessIds = false)
     {
         if (nativeSymbols
-            || symbols?.Length > MaxNextStepSymbolsLength
             || (requireCompleteProcessIds
                 && scope?.Selector is ProcessIdSelector ids
                 && ids.ProcessIds.Count > AnalysisScopeContext.MaxReportedProcessIds))
@@ -557,8 +555,6 @@ public static class SteeringHints
             || scope?.Window is not null
             || nativeSymbols
             || string.IsNullOrWhiteSpace(path)
-            || path.Length > MaxNextStepPathLength
-            || symbols?.Length > MaxNextStepSymbolsLength
             || scope?.Selector is ProcessIdSelector ids
                 && ids.ProcessIds.Count > AnalysisScopeContext.MaxReportedProcessIds)
         {

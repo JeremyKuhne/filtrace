@@ -294,27 +294,24 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
-    public void ForRanking_ResolvedDrill_SymbolPathAtAndOverLimit()
+    public void ForRanking_ResolvedDrill_LongLocalSymbolsRemainActionable()
     {
         RankingResult ranking = new(
             100.0, "", [new RankRow("?", 60.0, 60.0), new RankRow("App.Work", 25.0, 25.0)]);
 
-        string atLimit = new('x', 1024);
-        string overLimit = new('x', 1025);
+        string symbols = string.Join(
+            Path.DirectorySeparatorChar.ToString(), Enumerable.Repeat(new string('s', 40), 26));
 
-        IReadOnlyList<string> supported = SteeringHints.ForRanking(
-            ranking, MetricInfo.Cpu, path: "trace.etl", symbols: atLimit);
+        symbols.Length.Should().BeGreaterThan(1024);
 
-        IReadOnlyList<string> advisory = SteeringHints.ForRanking(
-            ranking, MetricInfo.Cpu, path: "trace.etl", symbols: overLimit);
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, path: "trace.etl", symbols: symbols);
 
-        new AnalysisResult<RankingResult>(ranking, hints: supported)
-            .NextSteps[1].Arguments!.Symbols.Should().Be(atLimit);
+        AnalysisNextStep step = new AnalysisResult<RankingResult>(ranking, hints: hints).NextSteps[1];
 
-        advisory[1].Should().Contain("reuse the same local symbols directory");
-        AnalysisNextStep step = new AnalysisResult<RankingResult>(ranking, hints: advisory).NextSteps[1];
-        step.Operation.Should().BeNull();
-        step.Arguments.Should().BeNull();
+        step.Operation.Should().Be("callers");
+        step.Arguments!.Symbols.Should().Be(symbols);
+        hints[1].Should().Contain($"--symbols '{symbols}'");
     }
 
     [TestMethod]
@@ -342,24 +339,28 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
-    public void ForRanking_OversizedQualityInputs_DoNotProduceIncompleteStep()
+    public void ForRanking_LongPathAndSymbols_RetainCompleteInfoStep()
     {
         RankingResult ranking = new(50.0, "", [new RankRow("?", 50.0, 100.0)]);
+        string path = string.Join(
+            Path.DirectorySeparatorChar.ToString(), Enumerable.Repeat(new string('p', 40), 26)) + ".etl";
 
-        IReadOnlyList<string> longPath = SteeringHints.ForRanking(
-            ranking, MetricInfo.Cpu, path: new string('x', 1025));
+        string symbols = string.Join(
+            Path.DirectorySeparatorChar.ToString(), Enumerable.Repeat(new string('s', 40), 26));
 
-        IReadOnlyList<string> longSymbols = SteeringHints.ForRanking(
-            ranking, MetricInfo.Cpu, path: "trace.etl", symbols: new string('x', 1025));
+        path.Length.Should().BeGreaterThan(1024);
+        symbols.Length.Should().BeGreaterThan(1024);
 
-        new AnalysisResult<RankingResult>(ranking, hints: longPath)
-            .NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.Cpu, path: path, symbols: symbols);
 
-        new AnalysisResult<RankingResult>(ranking, hints: longSymbols)
-            .NextSteps.Should().ContainSingle().Which.Operation.Should().BeNull();
+        AnalysisNextStep step = new AnalysisResult<RankingResult>(ranking, hints: hints)
+            .NextSteps.Should().ContainSingle().Subject;
 
-        longSymbols.Should().ContainSingle().Which.Should().Contain(
-            "reuse the same local symbols directory");
+        step.Operation.Should().Be("info");
+        step.Arguments!.Path.Should().Be(path);
+        step.Arguments.Symbols.Should().Be(symbols);
+        hints.Should().ContainSingle().Which.Should().Contain($"--symbols '{symbols}'");
     }
 
     [TestMethod]
@@ -694,6 +695,35 @@ public sealed class SteeringHintsTests
         hints.Should().NotContain(hint => hint.Contains("callers ?", StringComparison.Ordinal));
         envelope.NextSteps[0].Operation.Should().BeNull();
         envelope.NextSteps[1].Arguments!.Frame.Should().Be("App.Work");
+    }
+
+    [TestMethod]
+    public void ForCallers_OptionalResolvedDrill_TruncatedPidScopeStaysAdvisory()
+    {
+        CallersResult callers = new(
+            "?", 100.0, 100.0, 100.0,
+            [new CallerRow("?", 95.0, 95.0), new CallerRow("App.Work", 5.0, 5.0)]);
+
+        int limit = AnalysisScopeContext.MaxReportedProcessIds;
+        ScopeRequest complete = ScopeRequest.ForProcessIds(Enumerable.Range(1, limit));
+        ScopeRequest truncated = ScopeRequest.ForProcessIds(Enumerable.Range(1, limit + 1));
+
+        IReadOnlyList<string> completeHints = SteeringHints.ForCallers(callers, "Root", complete);
+        IReadOnlyList<string> truncatedHints = SteeringHints.ForCallers(callers, "Root", truncated);
+
+        AnalysisNextStep completeStep = new AnalysisResult<CallersResult>(callers, hints: completeHints)
+            .NextSteps[1];
+
+        completeStep.Operation.Should().Be("callers");
+        completeStep.Arguments!.ProcessIds.Should().HaveCount(limit);
+
+        AnalysisNextStep truncatedStep = new AnalysisResult<CallersResult>(callers, hints: truncatedHints)
+            .NextSteps[1];
+
+        truncatedStep.Operation.Should().BeNull();
+        truncatedStep.Arguments.Should().BeNull();
+        truncatedHints[1].Should().Contain(
+            $"--pid {string.Join(",", Enumerable.Range(1, limit + 1))}");
     }
 
     [TestMethod]

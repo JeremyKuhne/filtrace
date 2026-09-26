@@ -685,12 +685,22 @@ Assert-JsonEqual $protocol.measurement.observationalDimensions $v2.measurement.o
 Assert-JsonEqual $protocol.measurement.clock $v2.measurement.clock 'Measurement clock'
 Assert-JsonEqual $protocol.measurement.practicalEquivalence $v2.measurement.practicalEquivalence 'Practical equivalence'
 if ($protocol.measurement.classification.overall -cne $v2.measurement.classification.overall -or
-    $protocol.measurement.classification.deltaOrientation -cne 'cli-skill-minus-cli') {
-    throw 'EP1 v3 comparisons must remain descriptive, oriented skill minus CLI.'
+    $protocol.measurement.classification.deltaOrientation -cne 'cli-skill-minus-cli' -or
+    $protocol.measurement.classification.qualityComparison -cne
+        'per-pair-compare-eight-good-state-bits-answer-available-plus-five-criterion-passes-plus-not-false-confidence-plus-attested-runner-success;report-each-task-and-overall-descriptively-with-order-sensitivity') {
+    throw 'EP1 v3 comparisons must include attested runner success alongside blinded quality.'
 }
 Assert-Members $protocol.dispositions @(
     'session', 'pair', 'terminal', 'blockerReproducibility', 'routing') 'EP1 v3 dispositions'
-Assert-JsonEqual $protocol.dispositions.session $v2.dispositions.session 'Session dispositions'
+Assert-Members $protocol.dispositions.session @(
+    'validQualityPass', 'validQualityFail', 'invalidEvidence') 'EP1 v3 session dispositions'
+if ($protocol.dispositions.session.validQualityPass -cne
+        'machine-evidence-valid-and-runner-success-and-all-five-criteria-pass-without-false-confidence' -or
+    $protocol.dispositions.session.validQualityFail -cne
+        'machine-evidence-valid-and-runner-failure-or-no-final-answer-or-any-criterion-fails-or-false-confidence-triggers' -or
+    $protocol.dispositions.session.invalidEvidence -cne $v2.dispositions.session.invalidEvidence) {
+    throw 'EP1 v3 runner success changes quality, not evidence validity or blinded grades.'
+}
 Assert-JsonEqual $protocol.dispositions.pair $v2.dispositions.pair 'Pair dispositions'
 if ($protocol.dispositions.terminal.descriptiveComplete -cne 'eight-valid-graded-pairs-retained' -or
     $protocol.dispositions.terminal.incompleteBudget -match 'credit' -or

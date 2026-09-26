@@ -482,11 +482,14 @@ request hash and range, requested bytes, returned-content and logical-payload ha
 character counts, line coverage, and truncation protocol; aggregate skill fields
 retain total requested and returned content.
 
-For the ready-capture protocol, runner `success` is only the machine-evidence
-result. It does not produce the protocol's semantic `answerCriteria` or
-`falseConfidence` fields. Those fields come only from the separately frozen,
-arm-masked pair-grade record described above; a final report must keep the two
-sources distinct and must never synthesize a missing grade from runner success.
+For ready-capture, runner `success` is attested tool/answer QA, not a machine
+validity gate or a replacement for semantic `answerCriteria` and
+`falseConfidence`. Those fields come only from the separately frozen, arm-masked
+pair grade. Prepared v3 adds runner success as an eighth observed-quality bit
+alongside the seven blinded bits: a forbidden tool attempt lowers quality
+without invalidating otherwise sound evidence. Historical v1/v2 retain their
+seven-bit comparison. A final report must keep the sources distinct and must
+never synthesize a missing blind grade from runner success.
 
 Schema-v3 labeled records also retain one arm-neutral input identity per task: the
 task file hash, matching MCP-QA row hash, primary fixture hash, and a deterministic

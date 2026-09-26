@@ -9,6 +9,7 @@
       "test-the-updated-shipped-quality-first-Filtrace-skill-against-the-same-current-CLI-without-skill",
       "pin-the-updated-shipped-skill-entrypoint-and-complete-Windows-skill-manifest",
       "permit-optional-resolved-App.Work-callers-without-requiring-it-for-live-success-and-score-callers-question-mark-attempts-as-quality-failures",
+      "add-attested-runner-success-as-v3-quality-anchor-without-replacing-blind-grades-or-changing-v2",
       "add-a-public-mixed-unknown-resolved-speedscope-task-with-row-not-aggregate-resolution-grading",
       "use-four-balanced-independent-pairs-per-task-eight-pairs-and-sixteen-sessions",
       "keep-diff-resolved-drill-as-advisory-until-each-comparison-arm-has-a-verified-scope",
@@ -412,7 +413,7 @@
         "order-sensitive",
         "unavailable"
       ],
-      "qualityComparison": "per-pair-compare-seven-good-state-bits-answer-available-plus-five-criterion-passes-plus-not-false-confidence;report-each-task-and-overall-descriptively-with-order-sensitivity",
+      "qualityComparison": "per-pair-compare-eight-good-state-bits-answer-available-plus-five-criterion-passes-plus-not-false-confidence-plus-attested-runner-success;report-each-task-and-overall-descriptively-with-order-sensitivity",
       "costComparison": "per-task-four-and-overall-eight-skill-minus-cli-paired-deltas;credits-are-observed-cost-not-a-ceiling;calls-help-and-credits-equivalent-only-at-zero;tokens-and-wall-equivalent-within-five-percent-of-cli",
       "orderSensitive": "label-a-dimension-order-sensitive-when-skill-first-and-cli-first-subgroup-medians-fall-in-opposite-non-equivalent-directions",
       "aggregation": "report-all-eight-paired-deltas-plus-per-task-and-overall-median-and-range-per-arm-and-by-first-arm",
@@ -421,8 +422,8 @@
   },
   "dispositions": {
     "session": {
-      "validQualityPass": "machine-evidence-valid-and-all-five-criteria-pass-without-false-confidence",
-      "validQualityFail": "machine-evidence-valid-and-no-final-answer-any-criterion-fails-or-false-confidence-triggers",
+      "validQualityPass": "machine-evidence-valid-and-runner-success-and-all-five-criteria-pass-without-false-confidence",
+      "validQualityFail": "machine-evidence-valid-and-runner-failure-or-no-final-answer-or-any-criterion-fails-or-false-confidence-triggers",
       "invalidEvidence": "any-machine-requirement-or-record-integrity-check-fails"
     },
     "pair": {
