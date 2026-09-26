@@ -536,6 +536,17 @@ function Write-RunRecord([string] $Path, [System.Collections.IDictionary] $Recor
 function ConvertTo-ReplayFingerprint([object[]] $Inventories) {
     return @(
         foreach ($inventory in $Inventories) {
+            if ($null -eq $inventory) {
+                throw 'Replay input inventory contains a null entry.'
+            }
+            [bool] $hasDependencies = if ($inventory -is [System.Collections.IDictionary]) {
+                $inventory.Contains('dependencies')
+            }
+            else { $inventory.PSObject.Properties.Name -ccontains 'dependencies' }
+            if (-not $hasDependencies) {
+                throw "Replay input '$($inventory.id)' has no dependencies inventory."
+            }
+
             [ordered] @{
                 id = [string] $inventory.id
                 kind = [string] $inventory.kind
@@ -543,11 +554,16 @@ function ConvertTo-ReplayFingerprint([object[]] $Inventories) {
                 byteLength = [long] $inventory.byteLength
                 sha256 = [string] $inventory.sha256
                 dependencies = @(
-                    foreach ($dependency in @($inventory.dependencies)) {
-                        [ordered] @{
-                            caseId = [string] $dependency.caseId
-                            byteLength = [long] $dependency.byteLength
-                            sha256 = [string] $dependency.sha256
+                    if ($null -ne $inventory.dependencies) {
+                        foreach ($dependency in @($inventory.dependencies)) {
+                            if ($null -eq $dependency) {
+                                throw "Replay input '$($inventory.id)' contains a null dependency."
+                            }
+                            [ordered] @{
+                                caseId = [string] $dependency.caseId
+                                byteLength = [long] $dependency.byteLength
+                                sha256 = [string] $dependency.sha256
+                            }
                         }
                     }
                 )

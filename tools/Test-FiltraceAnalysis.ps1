@@ -170,6 +170,67 @@ try {
         Assert-True ($query.stderrSha256 -ceq (Get-FileHash -LiteralPath $stderrPath -Algorithm SHA256).Hash) "Query '$($query.id)' stderr hash drifted."
     }
 
+    [string] $directReplayDirectory = Join-Path $temporaryRoot 'unchanged direct replay'
+    [int] $directReplayExit = Invoke-Analysis $planPath $directReplayDirectory $filtrace $completedRecordPath
+    Assert-True ($directReplayExit -eq 0) "Unchanged direct-trace replay exited $directReplayExit."
+    [object] $directReplayRecord = Get-Content -LiteralPath (Join-Path $directReplayDirectory 'run.json') -Raw | ConvertFrom-Json -Depth 32
+    Assert-True ($directReplayRecord.status -ceq 'completed' -and
+        $directReplayRecord.planSha256 -ceq $completedRecord.planSha256 -and
+        @($directReplayRecord.queries | Where-Object status -ceq 'completed').Count -eq 4) `
+        'Unchanged direct-trace replay did not retain the same plan and completed queries.'
+    Assert-True ($directReplayRecord.inputs[0].sha256 -ceq $completedRecord.inputs[0].sha256 -and
+        $directReplayRecord.inputs[1].sha256 -ceq $completedRecord.inputs[1].sha256) `
+        'Unchanged direct-trace replay did not retain both input hashes.'
+
+    [System.Collections.IDictionary] $priorWithMixedEmptyDependencies =
+        Get-Content -LiteralPath $completedRecordPath -Raw | ConvertFrom-Json -AsHashtable -Depth 32
+    $priorWithMixedEmptyDependencies['inputs'][0]['dependencies'] = $null
+    $priorWithMixedEmptyDependencies['inputs'][1]['dependencies'] = @()
+    [string] $mixedEmptyRecordPath = Join-Path $temporaryRoot 'null-and-empty-prior-record.json'
+    Write-Json $mixedEmptyRecordPath $priorWithMixedEmptyDependencies
+    [System.Collections.IDictionary] $mixedEmptyRecord =
+        Get-Content -LiteralPath $mixedEmptyRecordPath -Raw | ConvertFrom-Json -AsHashtable -Depth 32
+    Assert-True ($null -eq $mixedEmptyRecord['inputs'][0]['dependencies'] -and
+        $mixedEmptyRecord['inputs'][1]['dependencies'] -is [array] -and
+        @($mixedEmptyRecord['inputs'][1]['dependencies']).Count -eq 0) `
+        'The replay witness did not retain distinct null and empty dependency shapes.'
+    [string] $mixedEmptyDirectory = Join-Path $temporaryRoot 'mixed empty dependency replay'
+    [int] $mixedEmptyExit = Invoke-Analysis $planPath $mixedEmptyDirectory $filtrace $mixedEmptyRecordPath
+    Assert-True ($mixedEmptyExit -eq 0) "Null/empty dependency replay exited $mixedEmptyExit."
+    Assert-True ((Get-Content -LiteralPath (Join-Path $mixedEmptyDirectory 'run.json') -Raw |
+            ConvertFrom-Json -Depth 32).status -ceq 'completed') `
+        'Null/empty dependency replay did not complete.'
+
+    $priorWithMixedEmptyDependencies['inputs'][0]['dependencies'] = @($null)
+    [string] $nullEntryRecordPath = Join-Path $temporaryRoot 'null-entry-prior-record.json'
+    Write-Json $nullEntryRecordPath $priorWithMixedEmptyDependencies
+    [System.Collections.IDictionary] $nullEntryRecord =
+        Get-Content -LiteralPath $nullEntryRecordPath -Raw | ConvertFrom-Json -AsHashtable -Depth 32
+    Assert-True ($nullEntryRecord['inputs'][0]['dependencies'] -is [array] -and
+        @($nullEntryRecord['inputs'][0]['dependencies']).Count -eq 1 -and
+        $null -eq $nullEntryRecord['inputs'][0]['dependencies'][0]) `
+        'The malformed replay witness did not retain its explicit null dependency element.'
+    [string] $nullEntryDirectory = Join-Path $temporaryRoot 'null entry replay'
+    [int] $nullEntryExit = Invoke-Analysis $planPath $nullEntryDirectory $filtrace $nullEntryRecordPath
+    Assert-True ($nullEntryExit -ne 0 -and -not (Test-Path -LiteralPath $nullEntryDirectory)) `
+        'A null dependency element was silently accepted as an empty dependency inventory.'
+
+    $priorWithMixedEmptyDependencies['inputs'][0].Remove('dependencies')
+    [string] $missingEntryRecordPath = Join-Path $temporaryRoot 'missing-dependencies-prior-record.json'
+    Write-Json $missingEntryRecordPath $priorWithMixedEmptyDependencies
+    [string] $missingEntryDirectory = Join-Path $temporaryRoot 'missing dependencies replay'
+    [int] $missingEntryExit = Invoke-Analysis $planPath $missingEntryDirectory $filtrace $missingEntryRecordPath
+    Assert-True ($missingEntryExit -ne 0 -and -not (Test-Path -LiteralPath $missingEntryDirectory)) `
+        'A prior record without a dependency inventory was silently accepted.'
+
+    $priorWithMixedEmptyDependencies['inputs'][0] = $null
+    [string] $nullInputRecordPath = Join-Path $temporaryRoot 'null-input-prior-record.json'
+    Write-Json $nullInputRecordPath $priorWithMixedEmptyDependencies
+    [string] $nullInputDirectory = Join-Path $temporaryRoot 'null input replay'
+    [int] $nullInputExit = Invoke-Analysis $planPath $nullInputDirectory $filtrace $nullInputRecordPath
+    Assert-True ($nullInputExit -ne 0 -and -not (Test-Path -LiteralPath $nullInputDirectory)) `
+        'A null replay input inventory was silently accepted.'
+
     [string] $manifestPath = Join-Path $temporaryRoot 'capture manifest.json'
     Write-Json $manifestPath ([ordered] @{
         schemaVersion = 1
@@ -209,6 +270,14 @@ try {
     Assert-True ($manifestRecord.queries[0].arguments -contains '--case-id') 'Case-addressed rank did not retain --case-id.'
     Assert-True (Test-Path -LiteralPath $completedRecordPath) 'A later analysis overwrote the first run record.'
 
+    [string] $manifestRecordPath = Join-Path $manifestDirectory 'run.json'
+    [string] $manifestReplayDirectory = Join-Path $temporaryRoot 'unchanged manifest replay'
+    [int] $manifestReplayExit = Invoke-Analysis $manifestPlanPath $manifestReplayDirectory $filtrace $manifestRecordPath
+    Assert-True ($manifestReplayExit -eq 0) "Unchanged manifest replay exited $manifestReplayExit."
+    Assert-True ((Get-Content -LiteralPath (Join-Path $manifestReplayDirectory 'run.json') -Raw |
+            ConvertFrom-Json -Depth 32).status -ceq 'completed') `
+        'Unchanged manifest replay did not complete.'
+
     [string] $rejectedPlanPath = Join-Path $temporaryRoot 'rejected-plan.json'
     Write-Json $rejectedPlanPath ([ordered] @{
         schemaVersion = 1
@@ -245,6 +314,11 @@ try {
     [int] $replayExit = Invoke-Analysis $planPath $replayDirectory $filtrace $completedRecordPath
     Assert-True ($replayExit -ne 0) 'Replay unexpectedly accepted mutated trace bytes.'
     Assert-True (-not (Test-Path -LiteralPath $replayDirectory)) 'Replay created an output directory before input hashes were verified.'
+
+    [string] $manifestDependencyDirectory = Join-Path $temporaryRoot 'changed manifest dependency replay'
+    [int] $manifestDependencyExit = Invoke-Analysis $manifestPlanPath $manifestDependencyDirectory $filtrace $manifestRecordPath
+    Assert-True ($manifestDependencyExit -ne 0 -and -not (Test-Path -LiteralPath $manifestDependencyDirectory)) `
+        'Replay accepted mutated manifest dependency bytes.'
 
     $global:LASTEXITCODE = 0
     Write-Host 'Filtrace analysis-record contract passed.' -ForegroundColor Green
