@@ -58,9 +58,9 @@
     "skill": {
       "entrypointPath": ".agents/skills/filtrace/SKILL.md",
       "entrypointTextSha256": "e4de3f73d4db8fea5e85e82c9339d4145e01f56a24c14e5fd39224c26c1fdca7",
-      "manifestTextSha256": "21440124fb71051a2f6fa418ffae273ac9fd2ef0e2abc58328df4f7e13f06f9b",
+      "manifestTextSha256": "6edfcbdacbff6826894f6ac4bed4874c2df77cb157a628c15533a9eab118c9fd",
       "entrypointRawSha256Windows": "8ea00ac5f3dd836a763446551dd7b585a8a14550e072b5cee5b357825396f462",
-      "manifestSha256Windows": "479fc824cb112b219ad96a2c5e3847636e3d1647f74662ec63f9f51f8368f6c0",
+      "manifestSha256Windows": "bbbdc8b1f9a7323af63028ecd15a16c32613766e1ee3f0dc172839d71c86c714",
       "fileCount": 11
     },
     "tasks": [
