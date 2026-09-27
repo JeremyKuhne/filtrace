@@ -74,7 +74,7 @@
     with -Profiler EP under PowerShell 7 or later. Omitted means the existing
     wait-until-exit behavior, including under Windows PowerShell 5.1. On timeout
     the helper requests termination of its own collector tree, exits nonzero, and
-    retains a labeled partial trace plus <trace>.capture-attempt.json. It does not
+    retains any partial trace, if present, plus <trace>.capture-attempt.json. It does not
     publish successful capture metadata or analysis commands. This bounds the
     collector wait, not the application's work: a zero recorder exit alone does
     not prove a child operation completed.
@@ -118,10 +118,33 @@ if ($boundedEventPipe -and $PSVersionTable.PSVersion.Major -lt 7) {
 
 . (Join-Path $PSScriptRoot 'Get-DotnetTraceRecorder.ps1')
 
+function Stop-OwnedEventPipeRecorder([object]$Process) {
+    $cleanup = 'tree-termination-requested'
+    $cleanupError = $null
+    try { $Process.Kill($true) }
+    catch {
+        $cleanup = 'termination-failed'
+        $cleanupError = $_.Exception.Message
+    }
+
+    $collectorStopped = $false
+    try { $collectorStopped = $Process.WaitForExit(5000) }
+    catch {
+        $cleanup = 'termination-unverified'
+        $cleanupError = $_.Exception.Message
+    }
+    return [pscustomobject]@{
+        Cleanup = $cleanup
+        CollectorStopped = $collectorStopped
+        CleanupError = $cleanupError
+    }
+}
+
 function Invoke-BoundedEventPipeCapture(
     [string]$Command,
     [string[]]$Arguments,
-    [int]$TimeoutSeconds) {
+    [int]$TimeoutSeconds,
+    [object]$OwnedProcess = $null) {
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.UseShellExecute = $false
     $startInfo.WorkingDirectory = (Get-Location).Path
@@ -143,44 +166,53 @@ function Invoke-BoundedEventPipeCapture(
 
     foreach ($value in $invocationArgs) { $startInfo.ArgumentList.Add($value) }
 
-    $process = [System.Diagnostics.Process]::new()
+    $process = if ($null -ne $OwnedProcess) { $OwnedProcess } else { [System.Diagnostics.Process]::new() }
     $process.StartInfo = $startInfo
+    $started = $false
+    $collectorPid = $null
     try {
         if (-not $process.Start()) { throw "Could not start EventPipe recorder '$Command'." }
-        $collectorPid = $process.Id
+        $started = $true
+        # PowerShell can turn a CLR property-getter exception into a null value.
+        # Reflection keeps an inaccessible process handle on the cleanup path.
+        $collectorPid = $process.GetType().GetProperty('Id').GetValue($process)
         $waitMilliseconds = [int][Math]::Min([long]$TimeoutSeconds * 1000, [int]::MaxValue)
         if ($process.WaitForExit($waitMilliseconds)) {
+            $collectorExitCode = $process.GetType().GetProperty('ExitCode').GetValue($process)
             return [pscustomobject]@{
                 TimedOut = $false
-                ExitCode = $process.ExitCode
+                ExitCode = $collectorExitCode
                 ProcessId = $collectorPid
                 Cleanup = 'not-needed'
                 CollectorStopped = $true
                 CleanupError = $null
+                Error = $null
             }
         }
 
-        $cleanup = 'tree-termination-requested'
-        $cleanupError = $null
-        try { $process.Kill($true) }
-        catch {
-            $cleanup = 'termination-failed'
-            $cleanupError = $_.Exception.Message
-        }
-
-        $collectorStopped = $false
-        try { $collectorStopped = $process.WaitForExit(5000) }
-        catch {
-            $cleanup = 'termination-unverified'
-            $cleanupError = $_.Exception.Message
-        }
+        $stopped = Stop-OwnedEventPipeRecorder $process
         return [pscustomobject]@{
             TimedOut = $true
             ExitCode = $null
             ProcessId = $collectorPid
-            Cleanup = $cleanup
-            CollectorStopped = $collectorStopped
-            CleanupError = $cleanupError
+            Cleanup = $stopped.Cleanup
+            CollectorStopped = $stopped.CollectorStopped
+            CleanupError = $stopped.CleanupError
+            Error = $null
+        }
+    }
+    catch {
+        if (-not $started) { throw }
+        $processError = $_.Exception.Message
+        $stopped = Stop-OwnedEventPipeRecorder $process
+        return [pscustomobject]@{
+            TimedOut = $false
+            ExitCode = $null
+            ProcessId = $collectorPid
+            Cleanup = $stopped.Cleanup
+            CollectorStopped = $stopped.CollectorStopped
+            CleanupError = $stopped.CleanupError
+            Error = $processError
         }
     }
     finally {
@@ -218,7 +250,7 @@ function Write-EventPipeCaptureAttempt(
                 action = $Result.Cleanup
                 collectorStopped = $Result.CollectorStopped
                 error = $Result.CleanupError
-                descendantsMayRemain = ($Result.TimedOut -eq $true)
+                descendantsMayRemain = $true
             }
         }
         else { $null }
@@ -463,6 +495,12 @@ if ($Profiler -eq 'EP') {
             exit 1
         }
 
+        if ($null -ne $recorderResult.Error) {
+            $reason = "Could not inspect dotnet-trace after launch: $($recorderResult.Error)"
+            $attemptPath = Write-EventPipeCaptureAttempt $Output 'recorder-error' $reason $dotnetTraceRecorder $recorderResult $EventPipeTimeoutSeconds
+            Write-Error "$reason. Collector cleanup: $($recorderResult.Cleanup). Capture attempt: $attemptPath." -ErrorAction Continue
+            exit 1
+        }
         if ($recorderResult.TimedOut) {
             $reason = "EventPipe recorder exceeded $EventPipeTimeoutSeconds s"
             $attemptPath = Write-EventPipeCaptureAttempt $Output 'timeout' $reason $dotnetTraceRecorder $recorderResult $EventPipeTimeoutSeconds

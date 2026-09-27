@@ -74,11 +74,70 @@ function Invoke-ProjectCapture([string]$HostPath, [string[]]$Arguments) {
     }
 }
 
+if (-not ('FakeBoundedCaptureProcess' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Diagnostics;
+
+public sealed class FakeBoundedCaptureProcess : IDisposable
+{
+    public FakeBoundedCaptureProcess(string failure) { Failure = failure; }
+    public ProcessStartInfo StartInfo { get; set; }
+    public string Failure { get; }
+    public bool Started { get; private set; }
+    public int WaitCalls { get; private set; }
+    public int KillCalls { get; private set; }
+    public bool TreeKill { get; private set; }
+    public bool Disposed { get; private set; }
+
+    public bool Start() { Started = true; return true; }
+    public int Id
+    {
+        get
+        {
+            if (Failure == "id") { throw new InvalidOperationException("fake collector id unavailable"); }
+            return 41234;
+        }
+    }
+    public bool WaitForExit(int milliseconds)
+    {
+        WaitCalls++;
+        if (Failure == "wait-twice" ||
+            ((Failure == "wait" || Failure == "wait-kill") && WaitCalls == 1))
+        {
+            throw new InvalidOperationException("fake collector wait unavailable");
+        }
+        return true;
+    }
+    public int ExitCode
+    {
+        get
+        {
+            if (Failure == "exit") { throw new InvalidOperationException("fake collector exit unavailable"); }
+            return 0;
+        }
+    }
+    public void Kill(bool entireProcessTree)
+    {
+        KillCalls++;
+        TreeKill = entireProcessTree;
+        if (Failure == "wait-kill") { throw new InvalidOperationException("fake collector tree kill failed"); }
+    }
+    public void Dispose() { Disposed = true; }
+}
+'@
+}
+
+function New-FakeCollector([string]$Failure) {
+    return [FakeBoundedCaptureProcess]::new($Failure)
+}
+
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 $oldMode = $env:FILTRACE_FAKE_RECORDER_MODE
 $oldCollectMode = $env:FILTRACE_FAKE_COLLECT_MODE
 $oldArgumentsFile = $env:FILTRACE_FAKE_ARGS_FILE
 $oldPidFile = $env:FILTRACE_FAKE_PID_FILE
+$oldChildPidFile = $env:FILTRACE_FAKE_CHILD_PID_FILE
 $oldCaptureScript = $env:FILTRACE_CAPTURE_SCRIPT
 $oldTestProject = $env:FILTRACE_TEST_PROJECT
 $oldFakeRecorder = $env:FILTRACE_FAKE_RECORDER
@@ -100,7 +159,11 @@ try {
         [ref]$recorderParseErrors)
     Assert-True ($recorderParseErrors.Count -eq 0) 'Get-DotnetTraceRecorder.ps1 did not parse.'
 
-    $functionNames = @('Write-CaptureMetadata')
+    $functionNames = @(
+        'Stop-OwnedEventPipeRecorder',
+        'Invoke-BoundedEventPipeCapture',
+        'Write-EventPipeCaptureAttempt',
+        'Write-CaptureMetadata')
     $definitions = @(
         $captureAst.FindAll(
             { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -in $functionNames },
@@ -171,6 +234,16 @@ if ($command -eq 'collect') {
         'timeout' {
             [System.IO.File]::WriteAllText($trace, 'partial fake trace')
             [System.IO.File]::WriteAllText($env:FILTRACE_FAKE_PID_FILE, [string]$PID)
+            $childStart = [System.Diagnostics.ProcessStartInfo]::new((Get-Process -Id $PID).Path)
+            $childStart.UseShellExecute = $false
+            $childStart.RedirectStandardOutput = $true
+            $childStart.RedirectStandardError = $true
+            foreach ($argument in @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 30')) {
+                $childStart.ArgumentList.Add($argument)
+            }
+            $child = [System.Diagnostics.Process]::Start($childStart)
+            [System.IO.File]::WriteAllText($env:FILTRACE_FAKE_CHILD_PID_FILE, [string]$child.Id)
+            $child.Dispose()
             Start-Sleep -Seconds 30
             exit 0
         }
@@ -352,6 +425,43 @@ switch ($env:FILTRACE_FAKE_RECORDER_MODE) {
         $bytes.Length -lt 3 -or -not ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) `
         'Sidecar must be UTF-8 without a BOM.'
 
+    foreach ($failure in @('id', 'wait', 'wait-twice', 'wait-kill', 'exit')) {
+        $fakeProcess = New-FakeCollector $failure
+        $result = Invoke-BoundedEventPipeCapture 'fake-not-launched' @('collect') 1 $fakeProcess
+        Assert-True ($fakeProcess.Started -and $fakeProcess.KillCalls -eq 1 -and
+            $fakeProcess.TreeKill -and $fakeProcess.Disposed) `
+            "A started collector survived '$failure' without an owned tree-kill request (started=$($fakeProcess.Started), kills=$($fakeProcess.KillCalls), tree=$($fakeProcess.TreeKill), disposed=$($fakeProcess.Disposed), outcome=$($result.Error), cleanup=$($result.Cleanup))."
+        Assert-True ($result.Error -like '*fake collector*unavailable*' -and
+            $result.ExitCode -eq $null -and -not $result.TimedOut) `
+            "A '$failure' process-state error was not reported as an error."
+        Assert-True (($null -eq $result.ProcessId) -eq ($failure -eq 'id')) `
+            "A '$failure' error lost or invented the recorder PID."
+        if ($failure -eq 'wait-twice') {
+            Assert-True ($result.Cleanup -ceq 'termination-unverified' -and
+                -not $result.CollectorStopped -and $result.CleanupError -like '*wait unavailable*') `
+                'A repeated wait error was reported as verified cleanup.'
+        }
+        elseif ($failure -eq 'wait-kill') {
+            Assert-True ($result.Cleanup -ceq 'termination-failed' -and
+                $result.CleanupError -like '*tree kill failed*') `
+                'A failed process-tree kill was hidden by the error record.'
+        }
+        else {
+            Assert-True ($result.Cleanup -ceq 'tree-termination-requested' -and
+                $result.CollectorStopped) "$failure cleanup was not bounded and observed."
+        }
+
+        $tracePath = Join-Path $temporaryRoot "post-start-$failure.nettrace"
+        $attemptPath = Write-EventPipeCaptureAttempt $tracePath 'recorder-error' $result.Error $current $result 1
+        $attempt = Get-Content -LiteralPath $attemptPath -Raw | ConvertFrom-Json
+        Assert-True ($attempt.status -ceq 'recorder-error' -and
+            $attempt.cleanup.descendantsMayRemain -eq $true -and
+            $attempt.recorder.processId -eq $result.ProcessId -and
+            $null -eq $attempt.traceBytes -and
+            -not (Test-Path -LiteralPath "$tracePath.filtrace.json")) `
+            "$failure attempt record invented successful recorder or subject evidence."
+    }
+
     [System.IO.File]::WriteAllText(
         (Join-Path $projectDirectory 'Program.cs'),
         'System.Console.WriteLine("capture probe");',
@@ -476,9 +586,35 @@ exit $LASTEXITCODE
                 $trace = Join-Path $runtimeOutput "$hostName-$mode.nettrace"
                 $env:FILTRACE_FAKE_ARGS_FILE = "$trace.args.json"
                 $env:FILTRACE_FAKE_PID_FILE = "$trace.pid"
+                $env:FILTRACE_FAKE_CHILD_PID_FILE = "$trace.child.pid"
                 $watch = [System.Diagnostics.Stopwatch]::StartNew()
-                $failure = Invoke-ProjectCapture $hostPath ($common + @(
-                        '-Output', $trace, '-EventPipeTimeoutSeconds', '1'))
+                $caseStartedUtc = [DateTime]::UtcNow
+                $survivors = [System.Collections.Generic.List[int]]::new()
+                try {
+                    $failure = Invoke-ProjectCapture $hostPath ($common + @(
+                            '-Output', $trace, '-EventPipeTimeoutSeconds', '1'))
+                }
+                finally {
+                    foreach ($pidPath in @($env:FILTRACE_FAKE_PID_FILE, $env:FILTRACE_FAKE_CHILD_PID_FILE)) {
+                        if (-not (Test-Path -LiteralPath $pidPath -PathType Leaf)) { continue }
+                        $ownedId = [int][System.IO.File]::ReadAllText($pidPath)
+                        $owned = Get-Process -Id $ownedId -ErrorAction SilentlyContinue
+                        if ($null -eq $owned) { continue }
+                        try {
+                            $survivors.Add($ownedId)
+                            $comparison = if ([System.OperatingSystem]::IsWindows()) {
+                                [StringComparison]::OrdinalIgnoreCase
+                            }
+                            else { [StringComparison]::Ordinal }
+                            if (-not [string]::Equals($owned.Path, $hostPath, $comparison) -or
+                                $owned.StartTime.ToUniversalTime() -lt $caseStartedUtc.AddSeconds(-5)) {
+                                throw "Fake process PID $ownedId could not be identity-verified for cleanup."
+                            }
+                            Stop-Process -Id $ownedId -Force
+                        }
+                        finally { $owned.Dispose() }
+                    }
+                }
                 $watch.Stop()
                 $attemptPath = "$trace.capture-attempt.json"
                 Assert-True (Test-Path -LiteralPath $attemptPath) "$hostName $mode wrote no failure record."
@@ -487,6 +623,9 @@ exit $LASTEXITCODE
                     "$hostName $mode published success metadata."
                 Assert-True (-not $failure.Stdout.Contains('Next-step filtrace commands:')) `
                     "$hostName $mode printed success-shaped analysis commands."
+                Assert-True ($attempt.subjectCompletion -ceq 'unverified' -and
+                    $attempt.cleanup.descendantsMayRemain -eq $true) `
+                    "$hostName $mode claimed descendant completion without evidence."
                 $attemptBytes = [System.IO.File]::ReadAllBytes($attemptPath)
                 Assert-True (
                     $attemptBytes.Length -lt 3 -or
@@ -501,8 +640,6 @@ exit $LASTEXITCODE
                     Assert-True ($failure.ExitCode -ne 0 -and $attempt.status -ceq 'timeout') `
                         "$hostName did not report the bounded timeout."
                     Assert-True ($watch.Elapsed.TotalSeconds -lt 20) "$hostName timeout exceeded the 20-second test bound."
-                    Assert-True ($attempt.subjectCompletion -ceq 'unverified') `
-                        "$hostName timeout claimed a completed subject."
                     if ($mode -eq 'timeout') {
                         Assert-True ($attempt.traceBytes -gt 0) "$hostName timeout did not retain its partial trace."
                     }
@@ -510,11 +647,13 @@ exit $LASTEXITCODE
                         Assert-True ($null -eq $attempt.traceBytes) `
                             "$hostName invented trace bytes for a pre-output timeout."
                     }
-                    Assert-True ($attempt.cleanup.descendantsMayRemain -eq $true) `
-                        "$hostName timeout concealed descendant uncertainty."
                     $fakePid = [int][System.IO.File]::ReadAllText($env:FILTRACE_FAKE_PID_FILE)
-                    Assert-True ($null -eq (Get-Process -Id $fakePid -ErrorAction SilentlyContinue)) `
-                        "$hostName left its fake recorder process alive after timeout."
+                    Assert-True ($fakePid -gt 0 -and $survivors.Count -eq 0) `
+                        "$hostName left an owned fake process alive after timeout."
+                    if ($mode -eq 'timeout') {
+                        Assert-True (Test-Path -LiteralPath $env:FILTRACE_FAKE_CHILD_PID_FILE) `
+                            "$hostName fake timeout did not start a child to exercise tree termination."
+                    }
                 }
                 else {
                     Assert-True ($failure.ExitCode -ne 0 -and $attempt.status -ceq 'empty-trace') `
@@ -544,6 +683,7 @@ finally {
     $env:FILTRACE_FAKE_COLLECT_MODE = $oldCollectMode
     $env:FILTRACE_FAKE_ARGS_FILE = $oldArgumentsFile
     $env:FILTRACE_FAKE_PID_FILE = $oldPidFile
+    $env:FILTRACE_FAKE_CHILD_PID_FILE = $oldChildPidFile
     $env:FILTRACE_CAPTURE_SCRIPT = $oldCaptureScript
     $env:FILTRACE_TEST_PROJECT = $oldTestProject
     $env:FILTRACE_FAKE_RECORDER = $oldFakeRecorder
