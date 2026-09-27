@@ -13,6 +13,9 @@ public sealed class FileOpsExecutorTests
     private static string FixturePath(string name) =>
         Path.Join(AppContext.BaseDirectory, "Fixtures", name);
 
+    private static string ProvenancePathFor(string trace) =>
+        $"{TraceConverter.EtlxPathFor(trace)}.filtrace.json";
+
     // convert / clean write and delete the ETLX sidecar, so each test works on a
     // private temp copy of the fixture rather than the shared committed one.
     private static string CopyToTemp(string fixture, out string tempDir)
@@ -72,6 +75,7 @@ public sealed class FileOpsExecutorTests
             output.Should().Contain("ETLX cache converted");
             output.Should().Contain(".etlx");
             File.Exists(trace + ".etlx").Should().BeTrue();
+            File.Exists(ProvenancePathFor(trace)).Should().BeTrue();
         }
         finally
         {
@@ -103,6 +107,7 @@ public sealed class FileOpsExecutorTests
                     || text.Contains("ETLX cache hit", StringComparison.Ordinal));
 
             File.Exists(TraceConverter.EtlxPathFor(trace)).Should().BeTrue();
+            File.Exists(ProvenancePathFor(trace)).Should().BeTrue();
             Directory.EnumerateFiles(tempDir, "*.new").Should().BeEmpty();
             Directory.EnumerateFiles(tempDir, ".filtrace-etlx-*").Should().BeEmpty();
         }
@@ -125,6 +130,7 @@ public sealed class FileOpsExecutorTests
             exit.Should().Be(ExitCodes.Success);
             output.Should().Contain("Removed");
             File.Exists(trace + ".etlx").Should().BeFalse();
+            File.Exists(ProvenancePathFor(trace)).Should().BeFalse();
         }
         finally
         {
@@ -156,6 +162,36 @@ public sealed class FileOpsExecutorTests
 
         exit.Should().Be(ExitCodes.InputError);
         error.Should().Contain("ETLX cache");
+    }
+
+    [TestMethod]
+    public void Convert_UnmarkedCache_ReportsExplicitMigrationWithoutReplacingIt()
+    {
+        string trace = CopyToTemp("alloc.nettrace", out string tempDir);
+        try
+        {
+            (int initialExit, _, _) = RunConvert(trace);
+            initialExit.Should().Be(ExitCodes.Success);
+            string cachePath = TraceConverter.EtlxPathFor(trace);
+            byte[] previousCache = File.ReadAllBytes(cachePath);
+            File.Delete(ProvenancePathFor(trace));
+
+            (int exit, string output, string error) = RunConvert(trace);
+
+            exit.Should().Be(ExitCodes.InputError);
+            output.Should().BeEmpty();
+            error.Should().Contain("no Filtrace provenance marker")
+                .And.Contain("--action clean");
+
+            File.ReadAllBytes(cachePath).Should().Equal(previousCache);
+
+            RunClean(trace).Exit.Should().Be(ExitCodes.Success);
+            RunConvert(trace).Exit.Should().Be(ExitCodes.Success);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [TestMethod]

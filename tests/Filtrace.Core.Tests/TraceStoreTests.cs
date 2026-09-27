@@ -113,8 +113,8 @@ public sealed class TraceStoreTests
         string cachePath = TraceConverter.EtlxPathFor(path);
         try
         {
-            File.WriteAllText(cachePath, "obsolete ETLX cache");
-            File.SetLastWriteTimeUtc(cachePath, File.GetLastWriteTimeUtc(path).AddSeconds(1));
+            TraceConverter.Convert(path);
+            TraceCacheTestHelpers.CorruptCacheWithoutChangingIdentity(cachePath);
 
             TraceStoreLoadResult recovered = await store.GetAsync(path, metric: metric);
             TraceStoreLoadResult hit = await store.GetAsync(path, metric: metric);

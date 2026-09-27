@@ -890,7 +890,8 @@ public sealed class CollectExecutorTests
         }
         finally
         {
-            foreach (string path in new[] { outputPath, $"{outputPath}.etlx" })
+            string cachePath = TraceConverter.EtlxPathFor(outputPath);
+            foreach (string path in new[] { cachePath, $"{cachePath}.filtrace.json", outputPath })
             {
                 if (File.Exists(path))
                 {

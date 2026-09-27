@@ -464,7 +464,7 @@ public sealed class ProcessScopeTests
     [TestMethod]
     public void SymbolModuleScope_Create_IncludesSelectedModulesAndExcludesUnrelatedModule()
     {
-        using EtlxTraceLog traceLog = EtlxTraceLog.OpenOrConvert(EtwFixture);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(EtwFixture, out _);
         ScopeResolution resolution = ProcessTree.ResolveScope(
             traceLog,
             ScopeRequest.ForProcess("HotLoopBench-Job", includeChildren: false));

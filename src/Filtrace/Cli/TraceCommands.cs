@@ -1414,7 +1414,7 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Build, reuse, or remove the ETLX conversion cache beside a trace.
+    ///  Build, reuse, or remove the ETLX conversion cache and provenance marker beside a trace.
     /// </summary>
     /// <param name="trace">Path to a .nettrace or .etl file.</param>
     /// <param name="action">Cache action: convert or clean.</param>
@@ -1455,13 +1455,13 @@ internal sealed class TraceCommands
     }
 
     /// <summary>
-    ///  Remove the ETLX conversion cache beside a trace to force a rebuild on next read.
+    ///  Remove the ETLX conversion cache and provenance marker to force a rebuild.
     /// </summary>
     /// <param name="trace">Path to a .nettrace or .etl file whose ETLX cache to remove.</param>
     /// <returns>A process exit code.</returns>
     /// <remarks>
-    ///  Use this when a cache is suspected stale (for example after the source trace was
-    ///  replaced); the next analysis rebuilds it. A missing cache is reported, not an error.
+    ///  Use this to explicitly discard an unmarked or incompatible cache; the next
+    ///  analysis rebuilds it. A missing cache is reported, not an error.
     /// </remarks>
     [Hidden]
     [Command("clean")]

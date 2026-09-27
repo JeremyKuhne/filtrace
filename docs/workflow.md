@@ -404,6 +404,22 @@ different traces remain independent. `trace_info.etlxCacheState` and
 before removing its cache.
 <!-- filtrace:end verbs -->
 
+### ETLX provenance and legacy caches
+
+Filtrace publishes the ETLX and a provenance marker through unique sibling
+temporary files. A pending marker invalidates the old cache before replacement;
+the ready marker is published last. It lives at `<ETLX path>.filtrace.json`,
+distinct from capture metadata at `<trace path>.filtrace.json`. A hit requires
+matching converter epoch, backend binary, conversion options, and source/cache
+size and UTC write time; it never hashes the full trace.
+
+An existing unmarked, malformed, or incompatible ETLX is left untouched with
+an actionable error. Run `filtrace cache app.nettrace --action clean` to
+explicitly discard it, then convert or analyze again. This one-time conversion
+can take seconds on a large trace. An owned cache whose source changed rebuilds
+automatically; interrupted Filtrace publications recover. Explicit `clean`
+removes both ETLX and its marker (including an orphan marker).
+
 ### Preview alias migration
 
 The previous command names remain callable during the current migration window and

@@ -284,16 +284,24 @@ For an EventPipe (`.nettrace`) capture - cross-platform, no elevation - use the
 first-party `dotnet-trace` (`dotnet tool install -g dotnet-trace`, then
 `dotnet-trace collect -- <app>`); `collect` is ETW-only.
 
-**File ops** - manage the ETLX conversion cache TraceEvent keeps beside a trace:
+**File ops** - manage the ETLX conversion cache filtrace keeps beside a trace:
 
 | Command | Purpose | Example |
 |---|---|---|
 | `cache` | Build/reuse or remove the ETLX cache | `filtrace cache app.nettrace --action convert` |
 
 ETLX conversion is coordinated per canonical trace path across threads and
-processes, with unique temporary files and atomic publication. Same-trace MCP
-queries may run in parallel; `trace_info.etlxCacheState` and `cache --action convert` report
-`hit`, `waited`, `converted`, or `recovered`.
+processes, with unique temporary files and atomic publication. Filtrace records
+the converter epoch, backend binary and source/cache file facts in
+`<ETLX path>.filtrace.json` (distinct from capture metadata at
+`<trace path>.filtrace.json`); a cache hit checks these small facts, not a hash
+of the entire trace. A readable ETLX with no valid marker is **not** reused or
+overwritten: run `filtrace cache app.nettrace --action clean` to explicitly
+discard it, then convert or analyze again. This one-time rebuild can take
+seconds for large traces. Owned caches rebuild when the source changes, and
+interrupted publications recover. `clean` removes both ETLX and its marker.
+Same-trace MCP queries may run in parallel; `trace_info.etlxCacheState` and
+`cache --action convert` report `hit`, `waited`, `converted`, or `recovered`.
 
 ### Preview alias migration
 

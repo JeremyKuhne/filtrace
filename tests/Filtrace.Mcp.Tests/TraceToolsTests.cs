@@ -87,6 +87,30 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public async Task Info_NetTrace_UnmarkedCache_ReportsExplicitMigration()
+    {
+        string path = CopyToTemp(Alloc, out string tempDirectory);
+        try
+        {
+            string cachePath = TraceConverter.Convert(path);
+            byte[] previousCache = File.ReadAllBytes(cachePath);
+            File.Delete($"{cachePath}.filtrace.json");
+            TraceStore store = new();
+
+            Func<Task> read = async () => await TraceTools.InfoAsync(store, path);
+
+            await read.Should().ThrowAsync<McpException>()
+                .WithMessage("*no Filtrace provenance marker*--action clean*");
+
+            File.ReadAllBytes(cachePath).Should().Equal(previousCache);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void Info_NetTrace_SeparatesFrameNamesFromSourceQuality()
     {
         TraceStore store = new();

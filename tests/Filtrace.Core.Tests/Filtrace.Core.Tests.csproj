@@ -25,7 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="Fixtures\**\*">
+    <None Include="Fixtures\**\*" Exclude="Fixtures\**\*.etlx;Fixtures\**\*.etlx.filtrace.json;Fixtures\**\*.etlx.new;Fixtures\**\.filtrace-etlx-*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Include="Goldens\**\*">
