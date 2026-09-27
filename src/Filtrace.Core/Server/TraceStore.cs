@@ -10,8 +10,8 @@ using Filtrace.Tracing.Providers;
 namespace Filtrace.Server;
 
 /// <summary>
-///  Loads traces on demand and caches the parsed model per absolute path, so
-///  repeated queries against the same trace avoid re-parsing.
+///  Loads traces on demand and caches the parsed model per absolute path and
+///  source file size and write time, so unchanged traces avoid re-parsing.
 /// </summary>
 /// <remarks>
 ///  <para>
@@ -68,7 +68,7 @@ public sealed partial class TraceStore
 
     /// <summary>
     ///  Returns the bounded process-inventory snapshot for <paramref name="path"/>,
-    ///  reading it on first use and reusing it for later MCP requests.
+    ///  reading it on first use and reusing it while the source file facts match.
     /// </summary>
     /// <param name="path">The trace path.</param>
     /// <returns>The cached process inventory.</returns>
@@ -76,8 +76,8 @@ public sealed partial class TraceStore
     {
         string fullPath = Path.GetFullPath(path);
         return _processInventoryCache.GetOrAdd(
-            fullPath,
-            static key => new ProcessInventoryProvider().Read(key));
+            SourceKey(fullPath),
+            _ => new ProcessInventoryProvider().Read(fullPath));
     }
 
     /// <summary>
@@ -214,14 +214,16 @@ public sealed partial class TraceStore
             ? (symbolOptions ?? SymbolOptions.None).CacheKeyFragment()
             : "managed";
 
-        // Length-prefix the first path so the two components cannot be confused for a
+        // Include cheap source facts so replacing a trace at the same path cannot
+        // serve an already parsed model. Length-prefix the path so it and the
+        // optional symbols directory cannot be confused for a
         // different pair: '|' - like every other ASCII separator - is a legal POSIX
         // file-name character, so a plain "a|b" delimiter could collide ("a|b" + "c"
         // versus "a" + "b|c"). The metric, scope, time, and symbol prefixes keep a
         // trace's distinct provider views, scopes, windows, and symbol modes from
         // sharing one cache entry. Loading uses the normalized symbols path so a relative
         // symbolsDirectory resolves exactly the way it was keyed.
-        string key = $"{(int)metric}:{scopeKey}:{timeKey}:{symbolKey}:{fullPath.Length}|{fullPath}{fullSymbols}";
+        string key = $"{(int)metric}:{scopeKey}:{timeKey}:{symbolKey}:{SourceKey(fullPath)}{fullSymbols}";
         EtlxCacheState? requestCacheState = null;
         LoadedTrace trace = _cache.GetOrAdd(key, _ =>
         {
@@ -232,6 +234,12 @@ public sealed partial class TraceStore
 
         loadedCacheState = requestCacheState;
         return trace;
+    }
+
+    private static string SourceKey(string fullPath)
+    {
+        EtlxFileIdentity identity = EtlxFileIdentity.ReadExisting(fullPath);
+        return $"{identity.Length}:{identity.LastWriteTimeUtcTicks}:{fullPath.Length}|{fullPath}";
     }
 
     // A stable cache-key fragment for a scope request: the process axis ('all' for

@@ -48,6 +48,75 @@ public sealed class TraceStoreTests
     }
 
     [TestMethod]
+    public void GetProcessInventory_ReplacedTracePath_ReadsTheNewSource()
+    {
+        TraceStore store = new();
+        string path = CopyToTemp("alloc.nettrace", out string tempDirectory);
+        try
+        {
+            ProcessInventorySnapshot first = store.GetProcessInventory(path);
+            File.Copy(FixturePath("activity.nettrace"), path, overwrite: true);
+
+            ProcessInventorySnapshot second = store.GetProcessInventory(path);
+
+            second.Should().NotBeSameAs(first);
+            second.Result.TotalSamples.Should().NotBe(first.Result.TotalSamples);
+            store.GetProcessInventory(path).Should().BeSameAs(second);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Get_ReplacedTracePath_LoadsTheNewSource()
+    {
+        TraceStore store = new();
+        string path = CopyToTemp("alloc.nettrace", out string tempDirectory);
+        try
+        {
+            LoadedTrace first = store.Get(path);
+            File.Copy(FixturePath("activity.nettrace"), path, overwrite: true);
+
+            LoadedTrace second = store.Get(path);
+
+            second.Should().NotBeSameAs(first);
+            second.Info.SampleCount.Should().NotBe(first.Info.SampleCount);
+            store.Get(path).Should().BeSameAs(second);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task GetAsync_ReplacedTracePath_LoadsTheNewSourceAfterConverting()
+    {
+        TraceStore store = new();
+        string path = CopyToTemp("alloc.nettrace", out string tempDirectory);
+        try
+        {
+            TraceStoreLoadResult first = await store.GetAsync(path);
+            File.Copy(FixturePath("activity.nettrace"), path, overwrite: true);
+
+            TraceStoreLoadResult second = await store.GetAsync(path);
+            TraceStoreLoadResult hit = await store.GetAsync(path);
+
+            second.EtlxCacheState.Should().Be(EtlxCacheState.Converted);
+            second.Trace.Should().NotBeSameAs(first.Trace);
+            second.Trace.Info.SampleCount.Should().NotBe(first.Trace.Info.SampleCount);
+            hit.EtlxCacheState.Should().Be(EtlxCacheState.Hit);
+            hit.Trace.Should().BeSameAs(second.Trace);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task GetAsync_ConcurrentSameTrace_ConvertsOnceAndWaitsAsynchronously()
     {
         TraceStore store = new();
@@ -113,8 +182,8 @@ public sealed class TraceStoreTests
         string cachePath = TraceConverter.EtlxPathFor(path);
         try
         {
-            File.WriteAllText(cachePath, "obsolete ETLX cache");
-            File.SetLastWriteTimeUtc(cachePath, File.GetLastWriteTimeUtc(path).AddSeconds(1));
+            TraceConverter.Convert(path);
+            TraceCacheTestHelpers.CorruptCacheWithoutChangingIdentity(cachePath);
 
             TraceStoreLoadResult recovered = await store.GetAsync(path, metric: metric);
             TraceStoreLoadResult hit = await store.GetAsync(path, metric: metric);

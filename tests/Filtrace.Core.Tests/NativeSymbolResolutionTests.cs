@@ -113,7 +113,7 @@ public sealed class NativeSymbolResolutionTests
     [TestMethod]
     public void ResolveLocal_ModuleScope_AttemptsOnlyTheSelectedModule()
     {
-        using EtlxTraceLog traceLog = EtlxTraceLog.OpenOrConvert(EtwFixture);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(EtwFixture, out _);
         using SymbolReader symbolReader = new(TextWriter.Null, "", httpClientDelegatingHandler: null);
         List<TraceModuleFile> allLookups = [];
 
@@ -152,7 +152,7 @@ public sealed class NativeSymbolResolutionTests
     [TestMethod]
     public void ResolveNativeRuntimeSymbols_ModuleScope_DoesNotLookupUnrelatedRuntimeModules()
     {
-        using EtlxTraceLog traceLog = EtlxTraceLog.OpenOrConvert(EtwFixture);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(EtwFixture, out _);
         TraceModuleFile[] runtimeModules = [.. traceLog.ModuleFiles.Where(static module =>
             module.Name?.Contains("coreclr", StringComparison.OrdinalIgnoreCase) == true
                 || module.Name?.Contains("ntdll", StringComparison.OrdinalIgnoreCase) == true
@@ -205,7 +205,7 @@ public sealed class NativeSymbolResolutionTests
     // not every native module in a capture carries symbol identity.
     private static string? FindRecordedPdbName(string moduleName)
     {
-        using EtlxTraceLog traceLog = EtlxTraceLog.OpenOrConvert(EtwFixture);
+        using EtlxTraceLog traceLog = TraceConverter.OpenTraceLog(EtwFixture, out _);
         foreach (TraceModuleFile moduleFile in traceLog.ModuleFiles)
         {
             if (string.Equals(moduleFile.Name, moduleName, StringComparison.OrdinalIgnoreCase)

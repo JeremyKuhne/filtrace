@@ -15,16 +15,17 @@ namespace Filtrace.Tracing;
 /// <remarks>
 ///  <para>
 ///   Every analysis of a <c>.nettrace</c> or <c>.etl</c> first converts it to an
-///   ETLX file (the indexed form TraceEvent reads). TraceEvent caches that ETLX
-///   beside the source and reuses it on the next read, so converting up front makes
-///   the first real query fast, and cleaning it forces a rebuild when a stale cache
-///   is suspected. A speedscope export carries no ETLX (it is parsed as JSON), so
-///   neither operation applies to it.
+///   ETLX file (the indexed form TraceEvent reads). Filtrace keeps an adjacent
+///   provenance marker to distinguish its own conversions from readable but
+///   semantically incompatible ETLX files. An unmarked cache is never reused or
+///   replaced implicitly; <c>clean</c> explicitly removes it and its marker.
+///   A speedscope export carries no ETLX, so neither operation applies to it.
 ///  </para>
 ///  <para>
 ///   Conversion is coordinated per canonical source path across processes, written
-///   through a unique sibling temporary file, and atomically published to the final
-///   cache path. Readers therefore never observe a partially written ETLX.
+///   through unique sibling temporary files. A pending marker invalidates the old
+///   cache before the ETLX is atomically published; the ready marker is published
+///   last. An interrupted publication cannot authorize an incompatible cache hit.
 ///  </para>
 /// </remarks>
 public static class TraceConverter
@@ -108,7 +109,10 @@ public static class TraceConverter
             }
 
             recovered |= CleanTemporaryFiles(cachePath, lockKey);
-            if (IsCurrent(fullPath, cachePath) && (!recoverCache || CanOpenCache(cachePath)))
+            EtlxProvenanceState provenance = EtlxCacheProvenance.Inspect(fullPath, cachePath);
+            recovered |= provenance == EtlxProvenanceState.Interrupted;
+            if (provenance == EtlxProvenanceState.Current
+                && (!recoverCache || CanOpenCache(cachePath)))
             {
                 EtlxCacheState state = recovered
                     ? EtlxCacheState.Recovered
@@ -117,10 +121,11 @@ public static class TraceConverter
                 return new EtlxCacheResult(cachePath, state);
             }
 
+            EtlxFileIdentity sourceIdentity = EtlxFileIdentity.ReadExisting(fullPath);
             string temporaryPath = TemporaryPathFor(cachePath, lockKey);
             try
             {
-                TraceLogOptions options = new() { ContinueOnError = true };
+                TraceLogOptions options = new() { ContinueOnError = EtlxCacheProvenance.ContinueOnError };
                 if (fullPath.EndsWith(".nettrace", StringComparison.OrdinalIgnoreCase))
                 {
                     EtlxTraceLog.CreateFromEventPipeDataFile(fullPath, temporaryPath, options);
@@ -130,14 +135,13 @@ public static class TraceConverter
                     EtlxTraceLog.CreateFromEventTraceLogFile(fullPath, temporaryPath, options);
                 }
 
-                if (File.Exists(cachePath))
+                if (sourceIdentity != EtlxFileIdentity.ReadExisting(fullPath))
                 {
-                    File.Replace(temporaryPath, cachePath, destinationBackupFileName: null);
+                    throw new IOException(
+                        $"Trace '{fullPath}' changed during ETLX conversion; the cache was not published. Retry.");
                 }
-                else
-                {
-                    File.Move(temporaryPath, cachePath);
-                }
+
+                PublishCache(fullPath, cachePath, temporaryPath, lockKey, sourceIdentity);
             }
             finally
             {
@@ -186,7 +190,7 @@ public static class TraceConverter
     }
 
     /// <summary>
-    ///  Removes the ETLX cache beside the trace at <paramref name="path"/>, if present.
+    ///  Removes the ETLX cache and its provenance marker beside the trace at <paramref name="path"/>, if present.
     /// </summary>
     /// <param name="path">The trace file path.</param>
     /// <returns>The ETLX path that was deleted, or <see langword="null"/> when no cache existed.</returns>
@@ -213,13 +217,19 @@ public static class TraceConverter
             }
 
             CleanTemporaryFiles(etlxPath, lockKey);
-            if (!File.Exists(etlxPath))
+            bool cacheExists = File.Exists(etlxPath);
+            if (cacheExists)
             {
-                return null;
+                File.Delete(etlxPath);
             }
 
-            File.Delete(etlxPath);
-            return etlxPath;
+            string markerPath = EtlxCacheProvenance.PathFor(etlxPath);
+            if (File.Exists(markerPath))
+            {
+                File.Delete(markerPath);
+            }
+
+            return cacheExists ? etlxPath : null;
         }
         finally
         {
@@ -284,12 +294,76 @@ public static class TraceConverter
         return recovered;
     }
 
-    private static bool IsCurrent(string sourcePath, string cachePath)
+    private static void PublishCache(
+        string sourcePath,
+        string cachePath,
+        string temporaryPath,
+        string lockKey,
+        EtlxFileIdentity sourceIdentity)
     {
-        FileInfo cache = new(cachePath);
-        return cache.Exists
-            && cache.Length > 0
-            && cache.LastWriteTimeUtc >= File.GetLastWriteTimeUtc(sourcePath);
+        string markerPath = EtlxCacheProvenance.PathFor(cachePath);
+        string pendingPath = TemporaryPathFor(cachePath, lockKey);
+        string readyPath = TemporaryPathFor(cachePath, lockKey);
+        string previousMarkerPath = TemporaryPathFor(cachePath, lockKey);
+        bool hadMarker = File.Exists(markerPath);
+
+        try
+        {
+            EtlxCacheProvenance.WritePending(pendingPath);
+            if (hadMarker)
+            {
+                File.Replace(pendingPath, markerPath, previousMarkerPath);
+            }
+            else
+            {
+                File.Move(pendingPath, markerPath);
+            }
+
+            try
+            {
+                if (File.Exists(cachePath))
+                {
+                    File.Replace(temporaryPath, cachePath, destinationBackupFileName: null);
+                }
+                else
+                {
+                    File.Move(temporaryPath, cachePath);
+                }
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException)
+            {
+                if (hadMarker)
+                {
+                    File.Replace(previousMarkerPath, markerPath, destinationBackupFileName: null);
+                }
+                else
+                {
+                    File.Delete(markerPath);
+                }
+
+                throw;
+            }
+
+            if (sourceIdentity != EtlxFileIdentity.ReadExisting(sourcePath))
+            {
+                throw new IOException(
+                    $"Trace '{sourcePath}' changed while publishing its ETLX cache. Retry the conversion.");
+            }
+
+            EtlxCacheProvenance.WriteReady(
+                readyPath,
+                sourceIdentity,
+                EtlxFileIdentity.ReadExisting(cachePath));
+
+            File.Replace(readyPath, markerPath, destinationBackupFileName: null);
+        }
+        finally
+        {
+            TryDelete(pendingPath);
+            TryDelete(readyPath);
+            TryDelete(previousMarkerPath);
+        }
     }
 
     private static bool CanOpenCache(string cachePath)
