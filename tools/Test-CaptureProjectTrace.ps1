@@ -40,8 +40,49 @@ function Assert-ThrowsLike([scriptblock]$Action, [string]$Expected) {
     throw "Expected failure containing '$Expected', but the action succeeded."
 }
 
+function Invoke-ProjectCapture([string]$HostPath, [string[]]$Arguments) {
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $HostPath
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.WorkingDirectory = (Get-Location).Path
+    if ([System.IO.Path]::GetFileNameWithoutExtension($HostPath) -eq 'powershell') {
+        $Arguments = @('-ExecutionPolicy', 'RemoteSigned') + $Arguments
+    }
+    foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        Assert-True ($process.Start()) "Could not start capture host '$HostPath'."
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(60000)) {
+            $process.Kill($true)
+            throw "Capture host '$HostPath' did not exit within the test's 60-second bound."
+        }
+        Assert-True ($stdout.Wait(5000) -and $stderr.Wait(5000)) 'Capture output did not drain after exit.'
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            Stdout = $stdout.Result
+            Stderr = $stderr.Result
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
+}
+
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 $oldMode = $env:FILTRACE_FAKE_RECORDER_MODE
+$oldCollectMode = $env:FILTRACE_FAKE_COLLECT_MODE
+$oldArgumentsFile = $env:FILTRACE_FAKE_ARGS_FILE
+$oldPidFile = $env:FILTRACE_FAKE_PID_FILE
+$oldCaptureScript = $env:FILTRACE_CAPTURE_SCRIPT
+$oldTestProject = $env:FILTRACE_TEST_PROJECT
+$oldFakeRecorder = $env:FILTRACE_FAKE_RECORDER
+$oldTestTrace = $env:FILTRACE_TEST_TRACE
 try {
     $tokens = $null
     $parseErrors = $null
@@ -96,6 +137,53 @@ if ($command -eq '--version') {
     }
     Write-Output '9.0.661903+fake'
     exit 0
+}
+
+if ($command -eq 'collect') {
+    if ($env:FILTRACE_FAKE_ARGS_FILE) {
+        [System.IO.File]::WriteAllText(
+            $env:FILTRACE_FAKE_ARGS_FILE,
+            (ConvertTo-Json -InputObject @($args) -Compress),
+            (New-Object System.Text.UTF8Encoding($false)))
+    }
+    $outputIndex = [Array]::IndexOf([object[]]$args, '--output')
+    if ($outputIndex -lt 0 -or $outputIndex + 1 -ge $args.Count) {
+        Write-Error 'fake collector received no output path' -ErrorAction Continue
+        exit 9
+    }
+    $trace = $args[$outputIndex + 1]
+    switch ($env:FILTRACE_FAKE_COLLECT_MODE) {
+        'success' {
+            [System.IO.File]::WriteAllText($trace, 'complete fake trace')
+            Write-Output 'fake collector completed'
+            exit 0
+        }
+        'nonzero' {
+            [System.IO.File]::WriteAllText($trace, 'partial fake trace')
+            Write-Error 'fake collector failed' -ErrorAction Continue
+            exit 17
+        }
+        'empty' {
+            [System.IO.File]::WriteAllBytes($trace, [byte[]]@())
+            exit 0
+        }
+        'missing' { exit 0 }
+        'timeout' {
+            [System.IO.File]::WriteAllText($trace, 'partial fake trace')
+            [System.IO.File]::WriteAllText($env:FILTRACE_FAKE_PID_FILE, [string]$PID)
+            Start-Sleep -Seconds 30
+            exit 0
+        }
+        'timeout-missing' {
+            [System.IO.File]::WriteAllText($env:FILTRACE_FAKE_PID_FILE, [string]$PID)
+            Start-Sleep -Seconds 30
+            exit 0
+        }
+        default {
+            Write-Error 'fake collector mode was not selected' -ErrorAction Continue
+            exit 9
+        }
+    }
 }
 
 if ($command -ne 'list-profiles') {
@@ -231,6 +319,20 @@ switch ($env:FILTRACE_FAKE_RECORDER_MODE) {
         Assert-True (-not (Test-Path -LiteralPath $buildMarker)) 'Project build started before recorder compatibility was established.'
         Assert-True (-not (Test-Path -LiteralPath $rejectedTrace)) 'Target trace was created after recorder preflight failed.'
 
+        $missingRecorder = Join-Path $temporaryRoot 'absent-dotnet-trace.exe'
+        $missingOutput = & (Get-Process -Id $PID).Path -NoProfile -File $captureScript `
+                -Project $projectPath `
+                -Profiler EP `
+                -DotnetTracePath $missingRecorder `
+                -EventPipeTimeoutSeconds 1 `
+                -Output $rejectedTrace 2>&1 | Out-String
+        $missingExitCode = $LASTEXITCODE
+        Assert-True ($missingExitCode -ne 0 -and
+            $missingOutput.Contains('override could not be resolved')) `
+            'Missing explicit recorder did not fail before the project build.'
+        Assert-True (-not (Test-Path -LiteralPath $buildMarker)) `
+            'Missing explicit recorder unexpectedly started the project build.'
+
     $sidecarPath = Join-Path $temporaryRoot 'probe.nettrace'
     $emitted = @(Write-CaptureMetadata $sidecarPath ([ordered]@{ cpu = 'enabled' }) $current.Metadata)
     Assert-True ($emitted.Count -eq 0) 'Sidecar writer polluted the success stream.'
@@ -250,10 +352,201 @@ switch ($env:FILTRACE_FAKE_RECORDER_MODE) {
         $bytes.Length -lt 3 -or -not ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) `
         'Sidecar must be UTF-8 without a BOM.'
 
+    [System.IO.File]::WriteAllText(
+        (Join-Path $projectDirectory 'Program.cs'),
+        'System.Console.WriteLine("capture probe");',
+        (New-Object System.Text.UTF8Encoding($false)))
+    $env:FILTRACE_FAKE_RECORDER_MODE = 'current'
+    $runtimeOutput = Join-Path $temporaryRoot 'capture output with spaces'
+    New-Item -ItemType Directory -Path $runtimeOutput | Out-Null
+    $hosts = @((Get-Process -Id $PID).Path)
+    if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+        $hosts += (Get-Command powershell.exe -CommandType Application -ErrorAction Stop).Source
+    }
+    $argumentWrapper = Join-Path $temporaryRoot 'invoke-array-args.ps1'
+    $argumentSource = @'
+& $env:FILTRACE_CAPTURE_SCRIPT -Project $env:FILTRACE_TEST_PROJECT -Profiler EP -Metric alloc `
+    -Tfm net10.0 -DotnetTracePath $env:FILTRACE_FAKE_RECORDER -Output $env:FILTRACE_TEST_TRACE `
+    -EventPipeTimeoutSeconds 10 -AppArgs @('space in one arg', 'quote"inside', 'C:\with spaces\', '')
+exit $LASTEXITCODE
+'@
+    [System.IO.File]::WriteAllText(
+        $argumentWrapper,
+        $argumentSource,
+        (New-Object System.Text.UTF8Encoding($false)))
+    $env:FILTRACE_CAPTURE_SCRIPT = $captureScript
+    $env:FILTRACE_TEST_PROJECT = $projectPath
+    $env:FILTRACE_FAKE_RECORDER = $fakeRecorder
+
+    Push-Location $projectDirectory
+    try {
+        foreach ($hostPath in ($hosts | Select-Object -Unique)) {
+            $hostName = [System.IO.Path]::GetFileNameWithoutExtension($hostPath)
+            $common = @('-NoProfile', '-NonInteractive', '-File', $captureScript,
+                '-Project', $projectPath, '-Profiler', 'EP', '-Metric', 'alloc',
+                '-Tfm', 'net10.0', '-DotnetTracePath', $fakeRecorder)
+            $defaultTrace = Join-Path $runtimeOutput "$hostName-default.nettrace"
+            $env:FILTRACE_FAKE_COLLECT_MODE = 'success'
+            $default = Invoke-ProjectCapture $hostPath ($common + @('-Output', $defaultTrace))
+            Assert-True ($default.ExitCode -eq 0) "$hostName default capture failed: $($default.Stderr)"
+            Assert-True (Test-Path -LiteralPath "$defaultTrace.filtrace.json") "$hostName default capture omitted metadata."
+            Assert-True (-not (Test-Path -LiteralPath "$defaultTrace.capture-attempt.json")) "$hostName default capture wrote a failure record."
+
+            if ($hostName -eq 'powershell') {
+                Remove-Item -LiteralPath $buildMarker
+                $unsupportedTrace = Join-Path $runtimeOutput "$hostName-unsupported.nettrace"
+                $unsupported = Invoke-ProjectCapture $hostPath ($common + @(
+                        '-Output', $unsupportedTrace, '-EventPipeTimeoutSeconds', '1'))
+                Assert-True ($unsupported.ExitCode -ne 0 -and
+                    $unsupported.Stderr -match 'requires\s+PowerShell\s+7') `
+                    'Windows PowerShell 5.1 did not reject the opted-in deadline.'
+                Assert-True (-not (Test-Path -LiteralPath $buildMarker) -and
+                    -not (Test-Path -LiteralPath $unsupportedTrace) -and
+                    -not (Test-Path -LiteralPath "$unsupportedTrace.capture-attempt.json")) `
+                    'Windows PowerShell 5.1 built or launched after rejecting the opted-in deadline.'
+                continue
+            }
+
+            $autoArgs = $common + @('-EventPipeTimeoutSeconds', '10')
+            $autoFirst = Invoke-ProjectCapture $hostPath $autoArgs
+            $autoSecond = Invoke-ProjectCapture $hostPath $autoArgs
+            $autoTraces = @(Get-ChildItem -LiteralPath (Join-Path $projectDirectory 'perf-traces') -Filter 'Probe-*.nettrace' -File)
+            Assert-True ($autoFirst.ExitCode -eq 0 -and $autoSecond.ExitCode -eq 0 -and $autoTraces.Count -eq 2) `
+                "$hostName did not give two opted-in default captures independent paths."
+            foreach ($autoTrace in $autoTraces) {
+                Assert-True (Test-Path -LiteralPath "$($autoTrace.FullName).filtrace.json") `
+                    "$hostName default opted-in capture omitted metadata."
+            }
+            foreach ($autoTrace in $autoTraces) {
+                [System.IO.File]::Delete($autoTrace.FullName)
+                [System.IO.File]::Delete("$($autoTrace.FullName).filtrace.json")
+            }
+
+            $successTrace = Join-Path $runtimeOutput "$hostName-success.nettrace"
+            $env:FILTRACE_FAKE_ARGS_FILE = "$successTrace.args.json"
+            $env:FILTRACE_TEST_TRACE = $successTrace
+            $appArguments = @('space in one arg', 'quote"inside', 'C:\with spaces\', '')
+            $successArgs = @('-NoProfile', '-NonInteractive', '-File', $argumentWrapper)
+            $success = Invoke-ProjectCapture $hostPath $successArgs
+            Assert-True ($success.ExitCode -eq 0) "$hostName opted-in capture failed: $($success.Stderr)"
+            Assert-True ($success.Stdout.Contains('Next-step filtrace commands:')) "$hostName success omitted analysis commands."
+            Assert-True (Test-Path -LiteralPath "$successTrace.filtrace.json") "$hostName opted-in capture omitted metadata."
+            $recorded = @(Get-Content -LiteralPath $env:FILTRACE_FAKE_ARGS_FILE -Raw | ConvertFrom-Json)
+            $outputIndex = [Array]::IndexOf([object[]]$recorded, '--output')
+            $profileIndex = [Array]::IndexOf([object[]]$recorded, '--profile')
+            Assert-True ($recorded[$outputIndex + 1] -ceq $successTrace) "$hostName output path lost its argument boundary."
+            Assert-True ($recorded[$profileIndex + 1] -ceq 'gc-verbose') "$hostName allocation profile changed."
+            Assert-True (
+                ((@($recorded | Select-Object -Last $appArguments.Count)) -join '|') -ceq ($appArguments -join '|')) `
+                "$hostName app arguments lost spaces, quotes, empty values, or trailing backslashes."
+
+            Remove-Item -LiteralPath $env:FILTRACE_FAKE_ARGS_FILE
+            $reused = Invoke-ProjectCapture $hostPath $successArgs
+            Assert-True ($reused.ExitCode -ne 0 -and $reused.Stderr -match 'already\s+exists') `
+                "$hostName reused output unexpectedly (exit $($reused.ExitCode), stdout: $($reused.Stdout), stderr: $($reused.Stderr))."
+            Assert-True (-not (Test-Path -LiteralPath $env:FILTRACE_FAKE_ARGS_FILE)) `
+                "$hostName launched a collector after rejecting a reused output."
+
+            $orphanTrace = Join-Path $runtimeOutput "$hostName-orphan.nettrace"
+            $orphanRecord = "$orphanTrace.capture-attempt.json"
+            [System.IO.File]::WriteAllText($orphanRecord, 'prior attempt evidence')
+            $orphan = Invoke-ProjectCapture $hostPath ($common + @(
+                    '-Output', $orphanTrace, '-EventPipeTimeoutSeconds', '1'))
+            Assert-True ($orphan.ExitCode -ne 0 -and $orphan.Stderr -match 'already\s+exists') `
+                "$hostName overwrote an orphaned capture attempt."
+            Assert-True ([System.IO.File]::ReadAllText($orphanRecord) -ceq 'prior attempt evidence') `
+                "$hostName changed prior attempt evidence."
+
+            $invalidDeadline = Invoke-ProjectCapture $hostPath ($common + @(
+                    '-Output', (Join-Path $runtimeOutput "$hostName-invalid.nettrace"),
+                    '-EventPipeTimeoutSeconds', '0'))
+            Assert-True ($invalidDeadline.ExitCode -ne 0) "$hostName accepted a zero EventPipe deadline."
+            $maximumTrace = Join-Path $runtimeOutput "$hostName-maximum.nettrace"
+            $maximum = Invoke-ProjectCapture $hostPath ($common + @(
+                    '-Output', $maximumTrace, '-EventPipeTimeoutSeconds', '86400'))
+            Assert-True ($maximum.ExitCode -eq 0 -and (Test-Path -LiteralPath "$maximumTrace.filtrace.json")) `
+                "$hostName rejected the maximum EventPipe deadline."
+            $overMaximum = Invoke-ProjectCapture $hostPath ($common + @(
+                    '-Output', (Join-Path $runtimeOutput "$hostName-too-long.nettrace"),
+                    '-EventPipeTimeoutSeconds', '86401'))
+            Assert-True ($overMaximum.ExitCode -ne 0) "$hostName accepted a deadline beyond the maximum."
+
+            foreach ($mode in @('nonzero', 'empty', 'missing', 'timeout', 'timeout-missing')) {
+                $env:FILTRACE_FAKE_COLLECT_MODE = $mode
+                $trace = Join-Path $runtimeOutput "$hostName-$mode.nettrace"
+                $env:FILTRACE_FAKE_ARGS_FILE = "$trace.args.json"
+                $env:FILTRACE_FAKE_PID_FILE = "$trace.pid"
+                $watch = [System.Diagnostics.Stopwatch]::StartNew()
+                $failure = Invoke-ProjectCapture $hostPath ($common + @(
+                        '-Output', $trace, '-EventPipeTimeoutSeconds', '1'))
+                $watch.Stop()
+                $attemptPath = "$trace.capture-attempt.json"
+                Assert-True (Test-Path -LiteralPath $attemptPath) "$hostName $mode wrote no failure record."
+                $attempt = Get-Content -LiteralPath $attemptPath -Raw | ConvertFrom-Json
+                Assert-True (-not (Test-Path -LiteralPath "$trace.filtrace.json")) `
+                    "$hostName $mode published success metadata."
+                Assert-True (-not $failure.Stdout.Contains('Next-step filtrace commands:')) `
+                    "$hostName $mode printed success-shaped analysis commands."
+                $attemptBytes = [System.IO.File]::ReadAllBytes($attemptPath)
+                Assert-True (
+                    $attemptBytes.Length -lt 3 -or
+                    -not ($attemptBytes[0] -eq 0xEF -and $attemptBytes[1] -eq 0xBB -and $attemptBytes[2] -eq 0xBF)) `
+                    "$hostName $mode attempt record has a UTF-8 BOM."
+                if ($mode -eq 'nonzero') {
+                    Assert-True ($failure.ExitCode -eq 17 -and $attempt.status -ceq 'recorder-failed') `
+                        "$hostName lost the recorder's nonzero exit."
+                    Assert-True ($attempt.traceBytes -gt 0) "$hostName failed recorder discarded the partial trace."
+                }
+                elseif ($mode -like 'timeout*') {
+                    Assert-True ($failure.ExitCode -ne 0 -and $attempt.status -ceq 'timeout') `
+                        "$hostName did not report the bounded timeout."
+                    Assert-True ($watch.Elapsed.TotalSeconds -lt 20) "$hostName timeout exceeded the 20-second test bound."
+                    Assert-True ($attempt.subjectCompletion -ceq 'unverified') `
+                        "$hostName timeout claimed a completed subject."
+                    if ($mode -eq 'timeout') {
+                        Assert-True ($attempt.traceBytes -gt 0) "$hostName timeout did not retain its partial trace."
+                    }
+                    else {
+                        Assert-True ($null -eq $attempt.traceBytes) `
+                            "$hostName invented trace bytes for a pre-output timeout."
+                    }
+                    Assert-True ($attempt.cleanup.descendantsMayRemain -eq $true) `
+                        "$hostName timeout concealed descendant uncertainty."
+                    $fakePid = [int][System.IO.File]::ReadAllText($env:FILTRACE_FAKE_PID_FILE)
+                    Assert-True ($null -eq (Get-Process -Id $fakePid -ErrorAction SilentlyContinue)) `
+                        "$hostName left its fake recorder process alive after timeout."
+                }
+                else {
+                    Assert-True ($failure.ExitCode -ne 0 -and $attempt.status -ceq 'empty-trace') `
+                        "$hostName accepted missing or empty recorder output."
+                }
+                Assert-True ($attempt.recorder.profiles[0] -ceq 'gc-verbose') `
+                    "$hostName $mode lost effective recorder provenance."
+            }
+
+            $wrongProfiler = Invoke-ProjectCapture $hostPath (@('-NoProfile', '-NonInteractive',
+                    '-File', $captureScript, '-Project', $projectPath, '-Profiler', 'ETW',
+                    '-EventPipeTimeoutSeconds', '1'))
+            Assert-True ($wrongProfiler.ExitCode -ne 0 -and
+                $wrongProfiler.Stderr -match 'valid\s+only\s+with\s+-Profiler\s+EP') `
+                "$hostName silently accepted an EventPipe-only deadline for ETW (exit $($wrongProfiler.ExitCode), stderr: $($wrongProfiler.Stderr))."
+        }
+    }
+    finally {
+        Pop-Location
+    }
+
     $global:LASTEXITCODE = 0
     Write-Host 'Project capture contract passed.' -ForegroundColor Green
 }
 finally {
     $env:FILTRACE_FAKE_RECORDER_MODE = $oldMode
+    $env:FILTRACE_FAKE_COLLECT_MODE = $oldCollectMode
+    $env:FILTRACE_FAKE_ARGS_FILE = $oldArgumentsFile
+    $env:FILTRACE_FAKE_PID_FILE = $oldPidFile
+    $env:FILTRACE_CAPTURE_SCRIPT = $oldCaptureScript
+    $env:FILTRACE_TEST_PROJECT = $oldTestProject
+    $env:FILTRACE_FAKE_RECORDER = $oldFakeRecorder
+    $env:FILTRACE_TEST_TRACE = $oldTestTrace
     Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
