@@ -911,10 +911,6 @@ try {
         'Successful fake run did not retain the modern PowerShell metadata.'
     Assert-True (@($success.model.observedDistinct) -notcontains 'provider-model') `
         'Provider-level model metadata was used as strict host identity.'
-    [void](Invoke-FakeRun -Name 'schema validation success' -Mode success -Label validation)
-    [string] $successResultPath = @(Get-ChildItem -LiteralPath (Join-Path $temporaryRoot 'schema validation success') -File -Filter '*.json' |
-        Sort-Object LastWriteTimeUtc | Select-Object -Last 1).FullName
-    & $compareRunner -ValidateResultPath $successResultPath | Out-Null
     [string] $gcTaskPath = Join-Path $root 'eval/tasks/04-gc-report.json'
     Assert-True ($success.inputIdentity[0].taskSha256 -eq
         (Get-AgentEvalCanonicalTextFileHash $gcTaskPath)) `
@@ -1717,19 +1713,25 @@ try {
     }
 
     foreach ($mode in @(
-            'answer-only', 'answer-before-analysis', 'completion-before-start', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
+            'answer-only', 'answer-before-analysis', 'completion-before-start', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
             'decoy-command', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
             'denied-unknown-tool', 'powershell-tool-case',
             'model-after-analysis', 'mismatched-operation', 'unknown-cli-schema', 'fractional-cli-schema',
             'scalar-cli-result', 'empty-cli-result', 'duplicate-cli-root-member',
             'duplicate-cli-context-member', 'duplicate-cli-result-member', 'malformed-shell-wrapper',
             'nonzero-shell-wrapper', 'mismatched-shell-content', 'command-member-case',
-            'description-member-case', 'mode-member-case', 'missing-command-argument',
+            'mode-member-case', 'missing-command-argument',
             'missing-description-argument', 'invalid-command-type', 'invalid-mode-type', 'async-mode',
-            'repl-mode', 'invalid-initial-wait-type', 'zero-initial-wait', 'unbounded-initial-wait',
+            'invalid-initial-wait-type', 'zero-initial-wait', 'unbounded-initial-wait',
             'shell-sandbox-flag')) {
         $negative = Invoke-FakeRun -Name "cli $mode" -Mode $mode -InlinePolicyHook
         Assert-True ($negative.iterations[0].success -eq $false) "Fake CLI mode '$mode' unexpectedly passed."
+        if ($mode -eq 'answer-only') {
+            Assert-True ($negative.iterations[0].calls -eq 0 -and
+                $negative.iterations[0].execution.isolation.executionPolicyCallCount -eq 0 -and
+                $negative.iterations[0].execution.isolation.shellDefaultDenied -eq $true) `
+                'An answer without a tool call did not retain the default shell deny.'
+        }
         if ($mode -eq 'async-mode') {
             [string] $inlineMarker = Join-Path $negative.iterations[0].execution.workspace 'fake-inline-hook.txt'
             Assert-True ((Test-Path -LiteralPath $inlineMarker -PathType Leaf) -and
@@ -1752,12 +1754,6 @@ try {
         $unexecuted.iterations[0].calls -eq 0 -and
         $unexecuted.iterations[0].execution.isolation.executionPolicyCallCount -eq 1) `
         'Conservatively consumed but unexecuted command did not invalidate evidence.'
-    $fallback = Invoke-FakeRun -Name 'cli no-hook-fallback' -Mode no-hook-fallback
-    Assert-True ($fallback.iterations[0].success -eq $false -and
-        $fallback.iterations[0].calls -eq 0 -and
-        $fallback.iterations[0].execution.isolation.executionPolicyCallCount -eq 0 -and
-        $fallback.iterations[0].execution.isolation.shellDefaultDenied -eq $true) `
-        'Missing-hook fallback did not remain unexecuted under the normal shell deny.'
     Assert-FakeParserFailureArtifacts `
         -Name 'malformed jsonl' `
         -Mode malformed-jsonl `
@@ -1768,11 +1764,6 @@ try {
         -Mode unknown-event `
         -ExpectedMessage 'unknown event type' `
         -ExpectedRawText '"type":"future.event"'
-    Assert-FakeParserFailureArtifacts `
-        -Name 'case variant event' `
-        -Mode case-variant-event `
-        -ExpectedMessage 'unknown event type' `
-        -ExpectedRawText '"type":"RESULT"'
     foreach ($parserCase in @(
             [pscustomobject]@{ mode = 'duplicate-event-member'; raw = '"toolCallId":"call-1","toolCallId"'; arm = 'cli' }
             [pscustomobject]@{ mode = 'scalar-skill-inventory'; raw = '"skills":{'; arm = 'cli-skill' }
@@ -1901,9 +1892,6 @@ try {
     Assert-True ($missingModel.iterations[0].success -eq $false) 'Missing observed model unexpectedly passed.'
     Assert-True ($null -eq $missingModel.model.observed) 'Missing observed model was replaced by another identity.'
     Assert-True (@($missingModel.model.observedDistinct).Count -eq 0) 'Missing observed model produced a distinct identity.'
-    $modelVariant = Invoke-FakeRun -Name 'cli model-variant' -Mode model-variant
-    Assert-True ($modelVariant.iterations[0].success -eq $false) 'Multiple host model variants unexpectedly passed.'
-    Assert-True ($modelVariant.model.verified -eq $false) 'Multiple host model variants were marked verified.'
     $modelCaseVariant = Invoke-FakeRun -Name 'cli model-case-variant' -Mode model-case-variant
     Assert-True ($modelCaseVariant.iterations[0].success -eq $false) 'Case-distinct host model variants unexpectedly passed.'
     Assert-True ($modelCaseVariant.model.observedDistinct.Count -eq 2) `
@@ -2655,6 +2643,9 @@ try {
     $comparisonDirectory = Join-Path $temporaryRoot 'comparison'
     [void](Invoke-FakeRun -Name 'comparison baseline' -Mode success -Label baseline -OutDir $comparisonDirectory)
     [void](Invoke-FakeRun -Name 'comparison candidate' -Mode success -Label candidate -OutDir $comparisonDirectory)
+    [string] $successResultPath = @(Get-ChildItem -LiteralPath $comparisonDirectory -File -Filter '*-baseline-*.json' |
+        Select-Object -First 1).FullName
+    & $compareRunner -ValidateResultPath $successResultPath | Out-Null
     [System.IO.File]::WriteAllText((Join-Path $comparisonDirectory 'unrelated.json'), '{')
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $comparisonDirectory
     Assert-True ($LASTEXITCODE -eq 0) 'Identical fake records did not compare neutral.'

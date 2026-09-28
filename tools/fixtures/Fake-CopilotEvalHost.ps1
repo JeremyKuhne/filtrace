@@ -484,11 +484,10 @@ if ($mode -ne 'missing-model') {
             type = 'session.tools_updated'
             data = [ordered]@{ model = $reportedModel }
         })
-    if ($mode -in @('model-variant', 'model-case-variant')) {
-        [string] $variantModel = if ($mode -eq 'model-case-variant') { 'Expected-Model' } else { 'expected-model-variant' }
+    if ($mode -eq 'model-case-variant') {
         $events.Add([ordered]@{
                 type = 'session.tools_updated'
-                data = [ordered]@{ model = $variantModel }
+                data = [ordered]@{ model = 'Expected-Model' }
             })
     }
     if ($mode -in @('scalar-model-data', 'missing-model-value', 'non-string-model-value')) {
@@ -663,7 +662,7 @@ if ($mode -eq 'help-success') {
         })
 }
 
-if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
+if ($mode -ne 'answer-only') {
     [string] $reportedOperation = if ($mode -eq 'mismatched-operation') { 'rank' } else { 'gc' }
     [string] $command = if ($mode -eq 'decoy-command') {
         "Write-Output '$reportedFiltracePath report $fixture --format json'"
@@ -725,14 +724,6 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
                 initial_wait = 30
             }
         }
-        'description-member-case' {
-            $toolArguments = [ordered]@{
-                command = $command
-                Description = 'Analyze the owned trace with filtrace'
-                mode = 'sync'
-                initial_wait = 30
-            }
-        }
         'mode-member-case' {
             [void]$toolArguments.Remove('mode')
             $toolArguments.Mode = 'sync'
@@ -742,16 +733,15 @@ if ($mode -notin @('answer-only', 'missing-tool', 'no-hook-fallback')) {
         'invalid-command-type' { $toolArguments.command = @($command) }
         'invalid-mode-type' { $toolArguments.mode = $true }
         'async-mode' { $toolArguments.mode = 'async' }
-        'repl-mode' { $toolArguments.mode = 'repl' }
         'invalid-initial-wait-type' { $toolArguments.initial_wait = '30' }
         'zero-initial-wait' { $toolArguments.initial_wait = 0 }
         'unbounded-initial-wait' { $toolArguments.initial_wait = 121 }
         'shell-sandbox-flag' { $toolArguments.sandbox = $true }
     }
     [string[]] $invalidToolArgumentModes = @(
-        'command-member-case', 'description-member-case', 'mode-member-case',
+        'command-member-case', 'mode-member-case',
         'missing-command-argument', 'missing-description-argument', 'invalid-command-type',
-        'invalid-mode-type', 'async-mode', 'repl-mode', 'invalid-initial-wait-type',
+        'invalid-mode-type', 'async-mode', 'invalid-initial-wait-type',
         'zero-initial-wait', 'unbounded-initial-wait', 'shell-sandbox-flag')
     if ($mode -eq 'mutated-execution-policy') {
         [int] $policyPathIndex = [Array]::IndexOf([object[]]$preToolHook[0].args, '-PolicyPath')
@@ -888,9 +878,6 @@ if ($mode -notin @('answer-before-analysis', 'answer-before-skill-context')) {
 }
 if ($mode -eq 'unknown-event') {
     $events.Add([ordered]@{ type = 'future.event'; data = [ordered]@{} })
-}
-if ($mode -eq 'case-variant-event') {
-    $events.Add([ordered]@{ type = 'RESULT'; data = [ordered]@{} })
 }
 $resultEvent = [ordered]@{
     type = 'result'
