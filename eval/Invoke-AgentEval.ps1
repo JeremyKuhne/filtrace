@@ -1196,6 +1196,11 @@ function Invoke-CopilotIteration {
         $processEnvironment['FILTRACE_AGENT_EVAL_FAKE_MODE'] =
             [System.Environment]::GetEnvironmentVariable('FILTRACE_AGENT_EVAL_FAKE_MODE')
         $processEnvironment['FILTRACE_AGENT_EVAL_EXPECT_UNCAPPED'] = if ($NoHostAiCreditLimit) { '1' } else { '0' }
+        $processEnvironment['FILTRACE_AGENT_EVAL_FAKE_INLINE_HOOK'] = if (
+            [System.Environment]::GetEnvironmentVariable('FILTRACE_AGENT_EVAL_FAKE_INLINE_HOOK') -ceq '1') {
+            '1'
+        }
+        else { '0' }
     }
     [System.Collections.Generic.List[System.IO.FileStream]] $securityFileLocks =
         [System.Collections.Generic.List[System.IO.FileStream]]::new()

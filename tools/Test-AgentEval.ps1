@@ -104,7 +104,8 @@ function Invoke-TestPolicyHook {
         [string] $WorkingDirectory,
         [string] $ToolName,
         $ToolArguments,
-        [string] $RawInput
+        [string] $RawInput,
+        [switch] $RequireNativeProcess
     )
 
     [string] $hookInput = if ($PSBoundParameters.ContainsKey('RawInput')) {
@@ -119,11 +120,55 @@ function Invoke-TestPolicyHook {
                 toolArgs = $ToolArguments
             } | ConvertTo-Json -Depth 8 -Compress)
     }
-    [string[]] $output = @($hookInput | & ([string]$Hook.exec) @($Hook.args))
-    Assert-True ($LASTEXITCODE -eq 0) 'Policy hook process did not exit cleanly.'
-    Assert-True ($output.Count -eq 1) `
-        "Policy hook for '$ToolName' did not emit exactly one decision; count=$($output.Count), output='$($output -join ' | ')'."
-    return $output[0] | ConvertFrom-Json
+    [string[]] $decisionLines = if ($RequireNativeProcess) {
+        [string[]] $nativeOutput = @($hookInput | & ([string]$Hook.exec) @($Hook.args))
+        Assert-True ($LASTEXITCODE -eq 0) 'Policy hook process did not exit cleanly.'
+        $nativeOutput
+    }
+    else {
+        [string[]] $hookArguments = @($Hook.args)
+        Assert-True (
+            [string]::Equals([string]$Hook.exec, $pwshPath, [StringComparison]::OrdinalIgnoreCase) -and
+            $hookArguments.Count -eq 9 -and
+            $hookArguments[0] -ceq '-NoLogo' -and
+            $hookArguments[1] -ceq '-NoProfile' -and
+            $hookArguments[2] -ceq '-NonInteractive' -and
+            $hookArguments[3] -ceq '-File' -and
+            $hookArguments[5] -ceq '-PolicyPath' -and
+            $hookArguments[7] -ceq '-ExpectedPolicySha256') `
+            'Generated policy hook command changed its invocation contract.'
+
+        [System.IO.TextReader] $originalInput = [Console]::In
+        [System.IO.TextWriter] $originalOutput = [Console]::Out
+        [System.IO.StringReader] $hookInputReader = [System.IO.StringReader]::new(
+            $hookInput + [Environment]::NewLine)
+        [System.IO.StringWriter] $hookOutputWriter = [System.IO.StringWriter]::new(
+            [Globalization.CultureInfo]::InvariantCulture)
+        [string] $hookOutput = $null
+        [object[]] $pipelineOutput = @()
+        try {
+            [Console]::SetIn($hookInputReader)
+            [Console]::SetOut($hookOutputWriter)
+            $pipelineOutput = @(& $hookArguments[4] `
+                    -PolicyPath $hookArguments[6] `
+                    -ExpectedPolicySha256 $hookArguments[8])
+            $hookOutput = $hookOutputWriter.ToString()
+        }
+        finally {
+            [Console]::SetIn($originalInput)
+            [Console]::SetOut($originalOutput)
+            $hookInputReader.Dispose()
+            $hookOutputWriter.Dispose()
+        }
+        Assert-True ($pipelineOutput.Count -eq 0) 'Policy hook emitted unexpected pipeline output.'
+        if ($hookOutput.EndsWith([Environment]::NewLine, [StringComparison]::Ordinal)) {
+            $hookOutput = $hookOutput.Substring(0, $hookOutput.Length - [Environment]::NewLine.Length)
+        }
+        if ($hookOutput.Length -eq 0) { @() } else { @($hookOutput -split '\r?\n') }
+    }
+    Assert-True ($decisionLines.Count -eq 1) `
+        "Policy hook for '$ToolName' did not emit exactly one decision; count=$($decisionLines.Count), output='$($decisionLines -join ' | ')'."
+    return $decisionLines[0] | ConvertFrom-Json
 }
 
 function Invoke-TestRawLedgerRequest(
@@ -188,13 +233,17 @@ function Invoke-FakeRun {
         [int] $MaxOutputBytes = 10485760,
         [int] $MaxArtifactBytes = 16777216,
         [string] $SkillEntrypointPath,
-        [switch] $NoHostAiCreditLimit
+        [switch] $NoHostAiCreditLimit,
+        [switch] $InlinePolicyHook
     )
 
     if (-not $OutDir) { $OutDir = Join-Path $temporaryRoot $Name }
     [System.IO.Directory]::CreateDirectory($OutDir) | Out-Null
     [object] $previousMode = [System.Environment]::GetEnvironmentVariable(
         'FILTRACE_AGENT_EVAL_FAKE_MODE',
+        [System.EnvironmentVariableTarget]::Process)
+    [object] $previousInlineHook = [System.Environment]::GetEnvironmentVariable(
+        'FILTRACE_AGENT_EVAL_FAKE_INLINE_HOOK',
         [System.EnvironmentVariableTarget]::Process)
     [string[]] $sentinelNames = @(
         'GITHUB_TOKEN', 'GH_TOKEN', 'COPILOT_ALLOW_ALL', 'COPILOT_MODEL', 'COPILOT_PROVIDER',
@@ -209,6 +258,7 @@ function Invoke-FakeRun {
                 $sentinelName, "must-not-reach-child-$sentinelName", [System.EnvironmentVariableTarget]::Process)
         }
         $env:FILTRACE_AGENT_EVAL_FAKE_MODE = $Mode
+        $env:FILTRACE_AGENT_EVAL_FAKE_INLINE_HOOK = if ($InlinePolicyHook) { '1' } else { '0' }
         & $runner `
             -AgentHost copilot `
             -Arm $Arm `
@@ -230,6 +280,10 @@ function Invoke-FakeRun {
         [System.Environment]::SetEnvironmentVariable(
             'FILTRACE_AGENT_EVAL_FAKE_MODE',
             $previousMode,
+            [System.EnvironmentVariableTarget]::Process)
+        [System.Environment]::SetEnvironmentVariable(
+            'FILTRACE_AGENT_EVAL_FAKE_INLINE_HOOK',
+            $previousInlineHook,
             [System.EnvironmentVariableTarget]::Process)
         foreach ($sentinelName in $sentinelNames) {
             [System.Environment]::SetEnvironmentVariable(
@@ -459,6 +513,7 @@ try {
         "'--children' 'exclude' '--top' '3' '--format' 'json'"
     $wrongNamedChildren = Invoke-TestPolicyHook `
         -Hook $namedScopePolicy.preToolHook `
+        -RequireNativeProcess `
         -SessionId $namedScopePolicy.context.runId `
         -WorkingDirectory $namedScopePolicy.context.workspace `
         -ToolName powershell `
@@ -481,6 +536,7 @@ try {
         'A denied named-process child mode consumed parent-ledger capacity.'
     $validNamedScope = Invoke-TestPolicyHook `
         -Hook $namedScopePolicy.preToolHook `
+        -RequireNativeProcess `
         -SessionId $namedScopePolicy.context.runId `
         -WorkingDirectory $namedScopePolicy.context.workspace `
         -ToolName powershell `
@@ -979,6 +1035,22 @@ try {
     }
     $initialState = Get-CopilotEvalExecutionPolicyState $policyProbe.executionPolicy
     Assert-True ($initialState.callCount -eq 0) 'Fresh single-stage policy did not begin at count zero.'
+    $missingHook = [pscustomobject]@{
+        exec = $policyProbe.preToolHook.exec
+        args = @($policyProbe.preToolHook.args)
+    }
+    $missingHook.args[4] = Join-Path $temporaryRoot 'missing policy hook.ps1'
+    [System.IO.TextReader] $originalConsoleInput = [Console]::In
+    [System.IO.TextWriter] $originalConsoleOutput = [Console]::Out
+    [bool] $missingHookRejected = $false
+    try { [void](Invoke-TestPolicyHook -Hook $missingHook -RawInput '{') }
+    catch {
+        $missingHookRejected = $_.Exception -is [System.Management.Automation.CommandNotFoundException]
+    }
+    Assert-True ($missingHookRejected -and
+        [object]::ReferenceEquals($originalConsoleInput, [Console]::In) -and
+        [object]::ReferenceEquals($originalConsoleOutput, [Console]::Out)) `
+        'Failed in-process hook invocation did not restore the test host console.'
     $policyHashProbe = New-TestExecutionPolicy -Name 'policy hash binding contract' -MaxCalls 1
     [string] $policyHashText = [System.IO.File]::ReadAllText($policyHashProbe.executionPolicy.policyPath)
     [System.IO.File]::WriteAllText(
@@ -987,6 +1059,7 @@ try {
         [System.Text.UTF8Encoding]::new($false))
     $policyHashDecision = Invoke-TestPolicyHook `
         -Hook $policyHashProbe.preToolHook `
+        -RequireNativeProcess `
         -SessionId $policyHashProbe.context.runId `
         -WorkingDirectory $policyHashProbe.context.workspace `
         -ToolName powershell `
@@ -1098,6 +1171,7 @@ try {
         'A denied direct client request changed command or help capacity.'
     $firstLedgerDecision = Invoke-TestPolicyHook `
         -Hook $ledgerOwnershipProbe.preToolHook `
+        -RequireNativeProcess `
         -SessionId $ledgerOwnershipProbe.context.runId `
         -WorkingDirectory $ledgerOwnershipProbe.context.workspace `
         -ToolName powershell `
@@ -1122,6 +1196,7 @@ try {
         'Hostile ledger requests reset or forged the authoritative allowance state.'
     $malformedInput = Invoke-TestPolicyHook `
         -Hook $policyProbe.preToolHook `
+        -RequireNativeProcess `
         -RawInput '{'
     Assert-True ($malformedInput.permissionDecision -eq 'deny') 'Malformed hook input was not denied.'
     [string] $validToolArgumentsJson = [string]($validArguments | ConvertTo-Json -Compress)
@@ -1253,6 +1328,7 @@ try {
     }
     $firstPreTool = Invoke-TestPolicyHook `
         -Hook $policyProbe.preToolHook `
+        -RequireNativeProcess `
         -SessionId $policySessionId `
         -WorkingDirectory $policyWorkspace `
         -ToolName powershell `
@@ -1287,6 +1363,7 @@ try {
     Assert-True ($thirdState.callCount -eq 3) 'Modern pre-tool command did not atomically advance count to three.'
     $excessPreTool = Invoke-TestPolicyHook `
         -Hook $policyProbe.preToolHook `
+        -RequireNativeProcess `
         -SessionId $policySessionId `
         -WorkingDirectory $policyWorkspace `
         -ToolName powershell `
@@ -1432,6 +1509,7 @@ try {
         'A direct client consumed a view allowance for a non-skill path.'
     $firstView = Invoke-TestPolicyHook `
         -Hook $viewProbe.preToolHook `
+        -RequireNativeProcess `
         -SessionId $viewProbe.context.runId `
         -WorkingDirectory $viewProbe.context.workspace `
         -ToolName view `
@@ -1472,6 +1550,7 @@ try {
     }
     $excessView = Invoke-TestPolicyHook `
         -Hook $viewProbe.preToolHook `
+        -RequireNativeProcess `
         -SessionId $viewProbe.context.runId `
         -WorkingDirectory $viewProbe.context.workspace `
         -ToolName view `
@@ -1649,8 +1728,24 @@ try {
             'missing-description-argument', 'invalid-command-type', 'invalid-mode-type', 'async-mode',
             'repl-mode', 'invalid-initial-wait-type', 'zero-initial-wait', 'unbounded-initial-wait',
             'shell-sandbox-flag')) {
-        $negative = Invoke-FakeRun -Name "cli $mode" -Mode $mode
+        $negative = Invoke-FakeRun -Name "cli $mode" -Mode $mode -InlinePolicyHook
         Assert-True ($negative.iterations[0].success -eq $false) "Fake CLI mode '$mode' unexpectedly passed."
+        if ($mode -eq 'async-mode') {
+            [string] $inlineMarker = Join-Path $negative.iterations[0].execution.workspace 'fake-inline-hook.txt'
+            Assert-True ((Test-Path -LiteralPath $inlineMarker -PathType Leaf) -and
+                [System.IO.File]::ReadAllText($inlineMarker) -ceq 'inline') `
+                'CLI rejection did not execute the copied hook inside its isolated fake host.'
+            $nativeNegative = Invoke-FakeRun -Name 'cli async-mode native witness' -Mode async-mode
+            Assert-True ($nativeNegative.iterations[0].success -eq $false -and
+                $nativeNegative.iterations[0].execution.processExitCode -eq 0 -and
+                $nativeNegative.iterations[0].note -ceq $negative.iterations[0].note -and
+                $nativeNegative.iterations[0].calls -eq $negative.iterations[0].calls -and
+                $nativeNegative.iterations[0].execution.isolation.executionPolicyCallCount -eq
+                $negative.iterations[0].execution.isolation.executionPolicyCallCount -and
+                -not (Test-Path -LiteralPath (
+                        Join-Path $nativeNegative.iterations[0].execution.workspace 'fake-inline-hook.txt'))) `
+                'Inline and native CLI hook rejections diverged.'
+        }
     }
     $unexecuted = Invoke-FakeRun -Name 'cli allowed-no-execution' -Mode allowed-no-execution
     Assert-True ($unexecuted.iterations[0].success -eq $false -and
@@ -1679,23 +1774,7 @@ try {
         -ExpectedMessage 'unknown event type' `
         -ExpectedRawText '"type":"RESULT"'
     foreach ($parserCase in @(
-            [pscustomobject]@{ mode = 'event-root-extra-member'; raw = '"extra":true'; arm = 'cli' }
             [pscustomobject]@{ mode = 'duplicate-event-member'; raw = '"toolCallId":"call-1","toolCallId"'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'event-data-extra-member'; raw = '"extra":true'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'event-data-member-case'; raw = '"Data":'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'tool-call-id-member-case'; raw = '"ToolCallId":'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'completion-result-member-case'; raw = '"Result":'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'completion-success-member-case'; raw = '"Success":'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'answer-content-member-case'; raw = '"Content":'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'non-string-answer-content'; raw = '"content":7'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'result-exit-code-member-case'; raw = '"ExitCode":'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'model-member-case'; raw = '"Model":'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'scalar-model-data'; raw = '"data":"expected-model"'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'missing-model-value'; raw = '"data":{}'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'non-string-model-value'; raw = '"model":1'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'missing-call-id'; raw = '"toolCallId":""'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'string-success'; raw = '"success":"true"'; arm = 'cli' }
-            [pscustomobject]@{ mode = 'event-after-result'; raw = '"type":"assistant.idle"'; arm = 'cli' }
             [pscustomobject]@{ mode = 'scalar-skill-inventory'; raw = '"skills":{'; arm = 'cli-skill' }
         )) {
         Assert-FakeParserFailureArtifacts `
@@ -1705,6 +1784,94 @@ try {
             -ExpectedRawText $parserCase.raw `
             -Arm $parserCase.arm
     }
+
+    # These variants exercise the runner's AST-extracted JSONL validator above;
+    # native witnesses still pin process exit and retained raw-output behavior.
+    [object[]] $jsonlCases = @(
+        [pscustomobject]@{ mode = 'event-root-extra-member'; index = 5; error = "malformed 'tool.execution_start' event members" }
+        [pscustomobject]@{ mode = 'event-data-extra-member'; index = 5; error = 'malformed tool start data members' }
+        [pscustomobject]@{ mode = 'event-data-member-case'; index = 5; error = "malformed 'tool.execution_start' event members" }
+        [pscustomobject]@{ mode = 'tool-call-id-member-case'; index = 5; error = 'malformed tool start data members' }
+        [pscustomobject]@{ mode = 'completion-result-member-case'; index = 6; error = 'malformed tool completion data members' }
+        [pscustomobject]@{ mode = 'completion-success-member-case'; index = 6; error = 'malformed tool completion data members' }
+        [pscustomobject]@{ mode = 'answer-content-member-case'; index = 4; error = 'malformed assistant message data members' }
+        [pscustomobject]@{ mode = 'non-string-answer-content'; index = 4; error = 'non-string assistant content' }
+        [pscustomobject]@{ mode = 'result-exit-code-member-case'; index = 7; error = 'malformed result event members' }
+        [pscustomobject]@{ mode = 'model-member-case'; index = 1; error = 'malformed model identity data members' }
+        [pscustomobject]@{ mode = 'scalar-model-data'; index = 1; error = 'malformed model identity data' }
+        [pscustomobject]@{ mode = 'missing-model-value'; index = 1; error = 'malformed model identity data members' }
+        [pscustomobject]@{ mode = 'non-string-model-value'; index = 1; error = 'malformed model identity data' }
+        [pscustomobject]@{ mode = 'missing-call-id'; index = 5; error = 'malformed tool start values' }
+        [pscustomobject]@{ mode = 'string-success'; index = 6; error = 'malformed tool completion values' }
+        [pscustomobject]@{ mode = 'event-after-result'; index = 7; error = 'an event after the terminal result' }
+    )
+    Assert-True ($jsonlCases.Count -eq 16) 'The in-process JSONL matrix lost a rejection shape.'
+    foreach ($jsonlCase in $jsonlCases) {
+        [string[]] $lines = @($evidenceLines)
+        if ($jsonlCase.mode -eq 'event-after-result') {
+            $lines += '{"type":"assistant.idle","data":{}}'
+        }
+        else {
+            $event = $lines[$jsonlCase.index] | ConvertFrom-Json
+            switch ($jsonlCase.mode) {
+                'event-root-extra-member' {
+                    $event | Add-Member -NotePropertyName extra -NotePropertyValue $true
+                }
+                'event-data-extra-member' {
+                    $event.data | Add-Member -NotePropertyName extra -NotePropertyValue $true
+                }
+                'event-data-member-case' {
+                    $data = $event.data
+                    [void]$event.PSObject.Properties.Remove('data')
+                    $event | Add-Member -NotePropertyName Data -NotePropertyValue $data
+                }
+                'tool-call-id-member-case' {
+                    [string] $callId = $event.data.toolCallId
+                    [void]$event.data.PSObject.Properties.Remove('toolCallId')
+                    $event.data | Add-Member -NotePropertyName ToolCallId -NotePropertyValue $callId
+                }
+                'completion-result-member-case' {
+                    $result = $event.data.result
+                    [void]$event.data.PSObject.Properties.Remove('result')
+                    $event.data | Add-Member -NotePropertyName Result -NotePropertyValue $result
+                }
+                'completion-success-member-case' {
+                    [bool] $succeeded = $event.data.success
+                    [void]$event.data.PSObject.Properties.Remove('success')
+                    $event.data | Add-Member -NotePropertyName Success -NotePropertyValue $succeeded
+                }
+                'answer-content-member-case' {
+                    [string] $content = $event.data.content
+                    [void]$event.data.PSObject.Properties.Remove('content')
+                    $event.data | Add-Member -NotePropertyName Content -NotePropertyValue $content
+                }
+                'non-string-answer-content' { $event.data.content = 7 }
+                'result-exit-code-member-case' {
+                    [int] $exitCode = $event.exitCode
+                    [void]$event.PSObject.Properties.Remove('exitCode')
+                    $event | Add-Member -NotePropertyName ExitCode -NotePropertyValue $exitCode
+                }
+                'model-member-case' {
+                    [string] $model = $event.data.model
+                    [void]$event.data.PSObject.Properties.Remove('model')
+                    $event.data | Add-Member -NotePropertyName Model -NotePropertyValue $model
+                }
+                'scalar-model-data' { $event.data = 'expected-model' }
+                'missing-model-value' { [void]$event.data.PSObject.Properties.Remove('model') }
+                'non-string-model-value' { $event.data.model = 1 }
+                'missing-call-id' { $event.data.toolCallId = '' }
+                'string-success' { $event.data.success = 'true' }
+            }
+            $lines[$jsonlCase.index] = [string]($event | ConvertTo-Json -Depth 16 -Compress)
+        }
+        [string] $rejection = '<no exception>'
+        try { [void](ConvertFrom-AgentEvalJsonLines $lines) }
+        catch { $rejection = $_.Exception.Message }
+        [string] $expectedError = "Copilot host emitted $($jsonlCase.error)."
+        Assert-True ([string]::Equals($rejection, $expectedError, [StringComparison]::Ordinal)) `
+            "JSONL case '$($jsonlCase.mode)' did not reject with '$expectedError'. Actual: $rejection"
+    }
+
     $lockedBundle = Invoke-FakeRun -Name 'locked bundle' -Mode mutated-bundle
     Assert-True ($lockedBundle.iterations[0].success -eq $true) `
         'The host could rewrite the owned CLI bundle before authorization.'
@@ -1744,6 +1911,9 @@ try {
 
     $skillSuccess = Invoke-FakeRun -Name 'skill success' -Mode success -Arm cli-skill
     Assert-True ($skillSuccess.iterations[0].success -eq $true) "Verified skill run failed: $($skillSuccess.iterations[0].note)"
+    Assert-True (-not (Test-Path -LiteralPath (
+                Join-Path $skillSuccess.iterations[0].execution.workspace 'fake-inline-hook.txt'))) `
+        'Positive skill run unexpectedly skipped the native hook-process boundary.'
     Assert-True ($skillSuccess.iterations[0].skill.provided -eq $true) 'Skill provision was not recorded.'
     Assert-True ($skillSuccess.iterations[0].skill.observed -eq $true) 'Skill read was not observed.'
     Assert-True ($skillSuccess.iterations[0].skill.verified -eq $true) 'Skill read hash was not verified.'
@@ -1852,8 +2022,27 @@ try {
             'skill-discovery-source-case', 'skill-context-role-case', 'skill-view-altered',
             'answer-before-skill-context', 'skill-context-before-completion',
             'skill-discovery-after-invocation')) {
-        $negative = Invoke-FakeRun -Name "skill $mode" -Mode $mode -Arm cli-skill
+        $negative = Invoke-FakeRun -Name "skill $mode" -Mode $mode -Arm cli-skill -InlinePolicyHook
         Assert-True ($negative.iterations[0].success -eq $false) "Fake skill mode '$mode' unexpectedly passed."
+        if ($mode -eq 'skill-view-altered') {
+            [string] $inlineMarker = Join-Path $negative.iterations[0].execution.workspace 'fake-inline-hook.txt'
+            Assert-True ((Test-Path -LiteralPath $inlineMarker -PathType Leaf) -and
+                [System.IO.File]::ReadAllText($inlineMarker) -ceq 'inline') `
+                'Skill rejection did not execute the copied hook inside its isolated fake host.'
+            $nativeNegative = Invoke-FakeRun -Name 'skill view-altered native witness' `
+                -Mode skill-view-altered -Arm cli-skill
+            Assert-True ($nativeNegative.iterations[0].success -eq $false -and
+                $nativeNegative.iterations[0].execution.processExitCode -eq 0 -and
+                $nativeNegative.iterations[0].note -ceq $negative.iterations[0].note -and
+                $nativeNegative.iterations[0].calls -eq $negative.iterations[0].calls -and
+                $nativeNegative.iterations[0].skill.observed -eq $negative.iterations[0].skill.observed -and
+                $nativeNegative.iterations[0].skill.verified -eq $negative.iterations[0].skill.verified -and
+                @($nativeNegative.iterations[0].execution.isolation.executionPolicyViewRequests).Count -eq
+                @($negative.iterations[0].execution.isolation.executionPolicyViewRequests).Count -and
+                -not (Test-Path -LiteralPath (
+                        Join-Path $nativeNegative.iterations[0].execution.workspace 'fake-inline-hook.txt'))) `
+                'Inline and native skill hook rejections diverged.'
+        }
         if ($mode -eq 'missing-skill-read') {
             Assert-True ($negative.iterations[0].skill.observed -eq $true -and
                 @($negative.iterations[0].skill.evidenceCallIds).Count -eq 0) `
@@ -2087,6 +2276,92 @@ try {
         -MaxBytes 1024 `
         -MaxFileBytes 1024
     Assert-True ($nullExcludedUsage.bytes -eq 32) 'Null excluded path skipped ordinary usage measurement.'
+
+    [string] $immutableUsageRoot = Join-Path $temporaryRoot 'one-pass immutable usage'
+    [string] $immutableUsageWorkspace = Join-Path $immutableUsageRoot 'workspace'
+    [string] $immutableUsageHome = Join-Path $immutableUsageRoot 'home'
+    foreach ($directory in @($immutableUsageWorkspace, $immutableUsageHome)) {
+        [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+    }
+    [string] $immutableBundle = Join-Path $immutableUsageWorkspace 'bundle.dll'
+    [string] $immutablePolicy = Join-Path $immutableUsageWorkspace 'policy.json'
+    [System.IO.File]::WriteAllText($immutableBundle, 'bundle')
+    [System.IO.File]::WriteAllText($immutablePolicy, 'policy')
+    [object[]] $immutableRecords = @(
+        [pscustomobject]@{
+            path = $immutableBundle
+            relativePath = 'workspace/bundle.dll'
+            bytes = (Get-Item -LiteralPath $immutableBundle).Length
+            sha256 = Get-AgentEvalFileHash $immutableBundle
+        }
+        [pscustomobject]@{
+            path = $immutablePolicy
+            relativePath = 'workspace/policy.json'
+            bytes = (Get-Item -LiteralPath $immutablePolicy).Length
+            sha256 = Get-AgentEvalFileHash $immutablePolicy
+            verifyHashDuringRun = $true
+        })
+    $immutableUsageContext = [pscustomobject]@{
+        runDirectory = $immutableUsageRoot
+        home = $immutableUsageHome
+        isolateHome = $true
+        immutableFiles = $immutableRecords
+    }
+    [string] $mutableUsagePath = Join-Path $immutableUsageRoot 'host-output.bin'
+    [System.IO.File]::WriteAllBytes($mutableUsagePath, [byte[]]::new(1024))
+    $atArtifactLimit = Get-AgentEvalCopilotUsage `
+        -Context $immutableUsageContext -MaxArtifactBytes 1024
+    Assert-True ($atArtifactLimit.artifacts.bytes -eq 1024 -and
+        $atArtifactLimit.artifacts.files -eq 1) `
+        'One-pass accounting charged immutable inputs or rejected an exact-limit artifact.'
+    [System.IO.File]::WriteAllBytes($mutableUsagePath, [byte[]]::new(1025))
+    [bool] $overArtifactLimitRejected = $false
+    try {
+        [void](Get-AgentEvalCopilotUsage `
+                -Context $immutableUsageContext -MaxArtifactBytes 1024)
+    }
+    catch { $overArtifactLimitRejected = $_.Exception.Message.Contains('exceeded 1024 bytes') }
+    Assert-True $overArtifactLimitRejected 'One-pass accounting accepted an over-limit artifact.'
+    Remove-Item -LiteralPath $mutableUsagePath
+
+    [System.IO.File]::WriteAllText($immutablePolicy, 'POLICY')
+    [bool] $changedPolicyRejected = $false
+    try {
+        [void](Get-AgentEvalCopilotUsage `
+                -Context $immutableUsageContext -MaxArtifactBytes 1024)
+    }
+    catch { $changedPolicyRejected = $_.Exception.Message.Contains('attestation failed') }
+    Assert-True $changedPolicyRejected 'One-pass accounting accepted same-length policy tampering.'
+    [System.IO.File]::WriteAllText($immutablePolicy, 'policy')
+    [System.IO.File]::AppendAllText($immutableBundle, '!')
+    [bool] $grownBundleRejected = $false
+    try {
+        [void](Get-AgentEvalCopilotUsage `
+                -Context $immutableUsageContext -MaxArtifactBytes 1024)
+    }
+    catch { $grownBundleRejected = $_.Exception.Message.Contains('attestation failed') }
+    Assert-True $grownBundleRejected 'One-pass accounting accepted a grown immutable bundle.'
+    [System.IO.File]::WriteAllText($immutableBundle, 'bundle')
+    Remove-Item -LiteralPath $immutableBundle
+    [bool] $missingBundleRejected = $false
+    try {
+        [void](Get-AgentEvalCopilotUsage `
+                -Context $immutableUsageContext -MaxArtifactBytes 1024)
+    }
+    catch { $missingBundleRejected = $_.Exception.Message.Contains('attestation failed') }
+    Assert-True $missingBundleRejected 'One-pass accounting accepted a missing immutable bundle.'
+    [System.IO.File]::WriteAllText($immutableBundle, 'bundle')
+    [string] $immutableLinkTarget = Join-Path $temporaryRoot 'one-pass link target'
+    [System.IO.Directory]::CreateDirectory($immutableLinkTarget) | Out-Null
+    [string] $immutableLink = Join-Path $immutableUsageWorkspace 'linked'
+    New-Item -ItemType $sourceLinkType -Path $immutableLink -Target $immutableLinkTarget | Out-Null
+    [bool] $linkedArtifactRejected = $false
+    try {
+        [void](Get-AgentEvalCopilotUsage `
+                -Context $immutableUsageContext -MaxArtifactBytes 1024)
+    }
+    catch { $linkedArtifactRejected = $_.Exception.Message.Contains('reparse point') }
+    Assert-True $linkedArtifactRejected 'One-pass accounting accepted a reparse entry.'
 
     $fixtureRepository = Join-Path $temporaryRoot 'fixture repository'
     $fixtureDirectory = Join-Path $fixtureRepository 'tests/Filtrace.Core.Tests/Fixtures'
@@ -2745,8 +3020,17 @@ try {
                 (($invalid | ConvertTo-Json -Depth 20) + "`n"),
                 [System.Text.UTF8Encoding]::new($false))
         }
-        & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $caseDirectory
-        Assert-True ($LASTEXITCODE -eq 1) "Invalid comparison case '$case' was accepted."
+        [bool] $invalidResultRejected = $false
+        try { & $compareRunner -ValidateResultPath $casePath.FullName | Out-Null }
+        catch { $invalidResultRejected = $true }
+        Assert-True $invalidResultRejected "Invalid result case '$case' passed schema validation."
+        if ($case -in @(
+                'malformed', 'duplicate-root-member', 'oversized-result',
+                'unknown-root-member', 'wrong-field-type', 'wrong-success-count',
+                'summary-success-mismatch', 'iteration-fixture-mismatch', 'strict-schema-v2')) {
+            & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $caseDirectory
+            Assert-True ($LASTEXITCODE -eq 1) "Invalid comparison case '$case' was accepted."
+        }
     }
 
     foreach ($resultPath in Get-ChildItem -LiteralPath $comparisonDirectory -Filter '*.json') {
