@@ -245,8 +245,58 @@ function Invoke-FakePolicyHook($Hook, [string] $ToolName, $ToolArguments) {
         toolName = $ToolName
         toolArgs = $ToolArguments
     } | ConvertTo-Json -Depth 8 -Compress
-    [string[]] $hookOutput = @($hookInput | & ([string]$Hook.exec) @($Hook.args))
-    if ($LASTEXITCODE -ne 0 -or $hookOutput.Count -ne 1) {
+    [string[]] $hookOutput = if ($env:FILTRACE_AGENT_EVAL_FAKE_INLINE_HOOK -eq '1') {
+        [string[]] $hookArguments = @($Hook.args)
+        if ($Hook.exec -ne (Get-Process -Id $PID).Path -or
+            $hookArguments.Count -ne 9 -or
+            $hookArguments[0] -cne '-NoLogo' -or
+            $hookArguments[1] -cne '-NoProfile' -or
+            $hookArguments[2] -cne '-NonInteractive' -or
+            $hookArguments[3] -cne '-File' -or
+            $hookArguments[5] -cne '-PolicyPath' -or
+            $hookArguments[7] -cne '-ExpectedPolicySha256') {
+            throw 'Fake Copilot host received an unexpected hook command.'
+        }
+        [System.IO.TextReader] $originalInput = [Console]::In
+        [System.IO.TextWriter] $originalOutput = [Console]::Out
+        [System.IO.StringReader] $inputReader = [System.IO.StringReader]::new(
+            $hookInput + [Environment]::NewLine)
+        [System.IO.StringWriter] $outputWriter = [System.IO.StringWriter]::new(
+            [Globalization.CultureInfo]::InvariantCulture)
+        try {
+            [Console]::SetIn($inputReader)
+            [Console]::SetOut($outputWriter)
+            [object[]] $pipelineOutput = @(& $hookArguments[4] `
+                    -PolicyPath $hookArguments[6] `
+                    -ExpectedPolicySha256 $hookArguments[8])
+            if ($pipelineOutput.Count -ne 0) {
+                throw 'Fake Copilot host hook emitted unexpected pipeline output.'
+            }
+            [string] $output = $outputWriter.ToString()
+        }
+        finally {
+            [Console]::SetIn($originalInput)
+            [Console]::SetOut($originalOutput)
+            $inputReader.Dispose()
+            $outputWriter.Dispose()
+        }
+        if ($output.EndsWith([Environment]::NewLine, [StringComparison]::Ordinal)) {
+            $output = $output.Substring(0, $output.Length - [Environment]::NewLine.Length)
+        }
+        [System.IO.File]::WriteAllText(
+            (Join-Path $WorkingDirectory 'fake-inline-hook.txt'),
+            'inline',
+            [System.Text.UTF8Encoding]::new($false))
+        if ($output.Length -eq 0) { @() } else { @($output -split '\r?\n') }
+    }
+    else {
+        [string[]] $nativeOutput = @($hookInput | & ([string]$Hook.exec) @($Hook.args))
+        if ($LASTEXITCODE -ne 0) {
+            throw "Fake Copilot host policy hook failed for '$ToolName'."
+        }
+        $nativeOutput
+    }
+    if ($hookOutput.Count -ne 1) {
         throw "Fake Copilot host policy hook failed for '$ToolName'."
     }
     return $hookOutput[0] | ConvertFrom-Json

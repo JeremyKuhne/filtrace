@@ -83,6 +83,36 @@ deterministic gate cannot see. It is non-deterministic and needs a model host, s
 live runs remain local/occasional; CI runs only its deterministic fake-host
 contract and the no-LLM gate.
 
+The fake-host contract keeps the generated policy hook and comparator as the
+single validation implementations. Its coverage map is:
+
+| Cases | Assertions retained | Execution boundary |
+| --- | --- | --- |
+| Policy-hook inputs (including command, view, malformed input, and budgets) | Every original allow/deny decision and parent-ledger state assertion | The copied hook runs with isolated input/output; representative allow, deny, hash-tamper, malformed-input, command-budget, and view-budget cases still launch its configured native process. The separate eight-process ledger race test is unchanged. |
+| 16 malformed JSONL evidence shapes | Each input is rejected for its specific schema error by the same `ConvertFrom-AgentEvalJsonLines` definition extracted from `Invoke-AgentEval.ps1` | In-process data-driven cases; malformed JSONL, unknown/case-variant events, duplicate JSON members, and scalar skill inventory still use isolated fake-host processes and retain raw-output/failure artifacts. |
+| 39 malformed comparison records | Every original mutation is rejected by the comparator's schema-v3 validation | Malformed JSON, duplicate members, oversized results, representative shape, type, count, and evidence mismatches, and strict schema-v2 rejection also retain native comparison exit checks; other comparison verdict and pairing tests remain native. |
+| Fake CLI and skill modes, host failures, timeouts, and retained artifacts | All original per-mode and process assertions | Every case retains an isolated fake-host process and workspace. Only the 39 CLI and 17 skill rejection-mode loops enable in-process execution when a case attempts the copied hook; the positive and state/failure cases retain their native hook subprocesses. |
+
+An in-process hook invocation with a missing script must also restore the test
+host's console streams before reporting the failure.
+CLI and skill rejection witnesses must retain the fake host's inline-hook marker;
+a positive skill run must not have one. Native CLI and skill rejection witnesses
+also check the verdict and evidence against their inline counterparts. This pins
+the process-boundary split instead of letting the quicker path silently turn into
+a no-op.
+Artifact polling validates immutable inputs during the same bounded directory
+walk that counts mutable files. The test checks exact-limit and over-limit
+artifacts, missing and changed immutable files (including a same-length policy
+edit), and reparse rejection; the host's post-exit source and copy hashes remain
+mandatory.
+
+All original input shapes remain in the automatic Windows gate; pure JSONL
+schema variants no longer each start an isolated fake host. Generated policy
+and copied inputs still get post-exit hashes checked in every retained
+end-to-end case. These changes do not alter the CI job topology or its
+20-minute limit; local timing is not a substitute for a hosted run on the
+updated head.
+
 **Four host/arm combinations are wired:**
 
 - **`ollama` -> cli arm** (local, no metered API). The harness mediates a ReAct

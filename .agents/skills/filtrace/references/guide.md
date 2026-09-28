@@ -65,6 +65,26 @@ dotnet-trace collect --profile dotnet-common,dotnet-sampled-thread-time `
 
 `Capture-ProjectTrace.ps1` queries `list-profiles` before build/launch, prefers the current CPU pair, records the effective recorder contract, and fails before the workload when no known profile mapping exists.
 
+For a whole-project EventPipe capture, `-EventPipeTimeoutSeconds <seconds>` is
+an opt-in PowerShell 7+ collector deadline; omitting it retains the
+wait-until-exit behavior. Windows PowerShell 5.1 rejects the opted-in deadline
+before build or launch but still supports the existing uncapped path.
+The bounded form uses a unique default output and refuses existing trace or
+capture metadata paths. On timeout or recorder failure it exits nonzero and
+retains any partial trace with `<trace>.capture-attempt.json`, but writes no
+ordinary capture sidecar or analysis commands. The helper requests termination
+of its owned recorder tree; detached descendants may still survive. Recorder
+exit zero is not independent
+proof that work delegated to a managed child completed. A duration-limited
+`dotnet-trace` invocation can exit zero even when the subject has not completed.
+If a managed child has not entered its code, check whether it inherited
+`DOTNET_DiagnosticPorts` from the traced parent.
+
+Use allocation rankings to locate potential expensive work and deferred GC
+pressure, not as an elapsed-time saving. Compare completed-operation wall and
+CPU time and GC collections or pauses alongside sampled allocated bytes before
+claiming a performance improvement.
+
 ## The workflow: orient -> rank -> drill -> compare
 
 Almost every investigation is the same four moves:

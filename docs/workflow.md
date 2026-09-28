@@ -101,6 +101,25 @@ and uses a legacy name only when that installed recorder explicitly advertises i
 It fails before the workload starts when no known semantic mapping exists and writes
 the recorder version and effective profiles into the trace sidecar.
 
+The project helper's `-EventPipeTimeoutSeconds <seconds>` is an opt-in
+PowerShell 7+ collector deadline, not a default cap or proof that the
+application finished its work. Windows PowerShell 5.1 keeps the previous
+uncapped behavior and rejects this opt-in parameter before build or launch.
+When supplied, it uses a unique default trace name and refuses an existing output
+or capture sidecar. A timeout or recorder failure exits nonzero, keeps any partial
+`.nettrace` with a `<trace>.capture-attempt.json` failure record, and emits neither
+normal capture metadata nor analysis commands. The helper requests termination
+of its owned recorder tree; detached descendants may still remain. A successful recorder
+exit still requires independent completion evidence for an operation that launches
+managed children. `dotnet-trace --duration` alone can end successfully while that
+operation remains incomplete. If a managed child does not reach its entry point,
+check whether it inherited `DOTNET_DiagnosticPorts` from the traced parent.
+
+Sampled allocated bytes identify sites and potential work or later GC pressure;
+they are not themselves CPU or elapsed time. Compare equivalent completed
+operations, wall and CPU time, and GC collections or pauses before treating a
+lower allocation result as a performance improvement.
+
 One EventPipe caveat: the `wait` family is .NET 9+ and needs the non-default
 `WaitHandle` keyword (`0x40000000000`) enabled at capture. Preserve the default
 runtime keywords and add it; for the runtime used here the combined mask is

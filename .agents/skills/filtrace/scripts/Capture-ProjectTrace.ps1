@@ -40,7 +40,9 @@
 .PARAMETER Metric
     'cpu' (default) or 'alloc'. EventPipe only: 'alloc' captures the gc-verbose
     allocation profile instead of CPU sampling. An ETW capture always records CPU
-    and wall-clock (threadtime) together.
+    and wall-clock (threadtime) together. Allocation bytes identify potential
+    work and deferred GC pressure, not elapsed or CPU time saved; compare matching
+    workload timings and GC costs before claiming a performance improvement.
 
 .PARAMETER Tfm
     Target-framework moniker to build and run. Default net10.0.
@@ -67,11 +69,24 @@
     uses it - it is the backstop that keeps a never-signaled elevated child from hanging
     the parent indefinitely.
 
+.PARAMETER EventPipeTimeoutSeconds
+    Optional wall-clock deadline for the EventPipe collector after launch. Only valid
+    with -Profiler EP under PowerShell 7 or later. Omitted means the existing
+    wait-until-exit behavior, including under Windows PowerShell 5.1. On timeout
+    the helper requests termination of its own collector tree, exits nonzero, and
+    retains any partial trace, if present, plus <trace>.capture-attempt.json. It does not
+    publish successful capture metadata or analysis commands. This bounds the
+    collector wait, not the application's work: a zero recorder exit alone does
+    not prove a child operation completed.
+
 .EXAMPLE
     ./Capture-ProjectTrace.ps1 -Project src/MyApp
 
 .EXAMPLE
     ./Capture-ProjectTrace.ps1 -Project src/MyApp -Metric alloc -AppArgs '--input','big.json'
+
+.EXAMPLE
+    ./Capture-ProjectTrace.ps1 -Project src/MyApp -Profiler EP -EventPipeTimeoutSeconds 120
 
 .EXAMPLE
     ./Capture-ProjectTrace.ps1 -Project src/MyApp -Profiler ETW
@@ -86,12 +101,172 @@ param(
     [int]$Top = 25,
     [string]$Output,
     [string]$DotnetTracePath = 'dotnet-trace',
-    [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1200
+    [ValidateRange(1, 2147483647)][int]$ElevatedTimeoutSeconds = 1200,
+    [ValidateRange(1, 86400)][int]$EventPipeTimeoutSeconds
 )
 
 $ErrorActionPreference = 'Stop'
+$boundedEventPipe = $PSBoundParameters.ContainsKey('EventPipeTimeoutSeconds')
+if ($boundedEventPipe -and $Profiler -ne 'EP') {
+    Write-Error '-EventPipeTimeoutSeconds is valid only with -Profiler EP.' -ErrorAction Continue
+    exit 1
+}
+if ($boundedEventPipe -and $PSVersionTable.PSVersion.Major -lt 7) {
+    Write-Error '-EventPipeTimeoutSeconds requires PowerShell 7 or later (pwsh). Omit it to use the existing uncapped capture under Windows PowerShell 5.1.' -ErrorAction Continue
+    exit 1
+}
 
 . (Join-Path $PSScriptRoot 'Get-DotnetTraceRecorder.ps1')
+
+function Stop-OwnedEventPipeRecorder([object]$Process) {
+    $cleanup = 'tree-termination-requested'
+    $cleanupError = $null
+    try { $Process.Kill($true) }
+    catch {
+        $cleanup = 'termination-failed'
+        $cleanupError = $_.Exception.Message
+    }
+
+    $collectorStopped = $false
+    try { $collectorStopped = $Process.WaitForExit(5000) }
+    catch {
+        $cleanup = 'termination-unverified'
+        $cleanupError = $_.Exception.Message
+    }
+    return [pscustomobject]@{
+        Cleanup = $cleanup
+        CollectorStopped = $collectorStopped
+        CleanupError = $cleanupError
+    }
+}
+
+function Invoke-BoundedEventPipeCapture(
+    [string]$Command,
+    [string[]]$Arguments,
+    [int]$TimeoutSeconds,
+    [object]$OwnedProcess = $null) {
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.UseShellExecute = $false
+    $startInfo.WorkingDirectory = (Get-Location).Path
+    $invocationArgs = [System.Collections.Generic.List[string]]::new()
+    if ($Command.EndsWith('.ps1', [StringComparison]::OrdinalIgnoreCase)) {
+        $startInfo.FileName = (Get-Process -Id $PID).Path
+        foreach ($value in @('-NoProfile', '-NonInteractive', '-File', $Command)) {
+            $invocationArgs.Add($value)
+        }
+    }
+    else {
+        $startInfo.FileName = $Command
+    }
+
+    foreach ($value in $Arguments) {
+        if ($null -eq $value) { throw 'EventPipe recorder arguments cannot contain null.' }
+        $invocationArgs.Add($value)
+    }
+
+    foreach ($value in $invocationArgs) { $startInfo.ArgumentList.Add($value) }
+
+    $process = if ($null -ne $OwnedProcess) { $OwnedProcess } else { [System.Diagnostics.Process]::new() }
+    $process.StartInfo = $startInfo
+    $started = $false
+    $collectorPid = $null
+    try {
+        if (-not $process.Start()) { throw "Could not start EventPipe recorder '$Command'." }
+        $started = $true
+        # PowerShell can turn a CLR property-getter exception into a null value.
+        # Reflection keeps an inaccessible process handle on the cleanup path.
+        $collectorPid = $process.GetType().GetProperty('Id').GetValue($process)
+        $waitMilliseconds = [int][Math]::Min([long]$TimeoutSeconds * 1000, [int]::MaxValue)
+        if ($process.WaitForExit($waitMilliseconds)) {
+            $collectorExitCode = $process.GetType().GetProperty('ExitCode').GetValue($process)
+            return [pscustomobject]@{
+                TimedOut = $false
+                ExitCode = $collectorExitCode
+                ProcessId = $collectorPid
+                Cleanup = 'not-needed'
+                CollectorStopped = $true
+                CleanupError = $null
+                Error = $null
+            }
+        }
+
+        $stopped = Stop-OwnedEventPipeRecorder $process
+        return [pscustomobject]@{
+            TimedOut = $true
+            ExitCode = $null
+            ProcessId = $collectorPid
+            Cleanup = $stopped.Cleanup
+            CollectorStopped = $stopped.CollectorStopped
+            CleanupError = $stopped.CleanupError
+            Error = $null
+        }
+    }
+    catch {
+        if (-not $started) { throw }
+        $processError = $_.Exception.Message
+        $stopped = Stop-OwnedEventPipeRecorder $process
+        return [pscustomobject]@{
+            TimedOut = $false
+            ExitCode = $null
+            ProcessId = $collectorPid
+            Cleanup = $stopped.Cleanup
+            CollectorStopped = $stopped.CollectorStopped
+            CleanupError = $stopped.CleanupError
+            Error = $processError
+        }
+    }
+    finally {
+        $process.Dispose()
+    }
+}
+
+function Write-EventPipeCaptureAttempt(
+    [string]$TracePath,
+    [string]$Status,
+    [string]$Reason,
+    [object]$Recorder,
+    [object]$Result,
+    [int]$TimeoutSeconds) {
+    $attemptPath = "$TracePath.capture-attempt.json"
+    $temporaryPath = "$attemptPath.$([Guid]::NewGuid().ToString('N')).tmp"
+    $traceFile = Get-Item -LiteralPath $TracePath -ErrorAction SilentlyContinue
+    $attempt = [ordered]@{
+        schemaVersion = 1
+        status = $Status
+        reason = $Reason
+        tracePath = [System.IO.Path]::GetFullPath($TracePath)
+        traceBytes = if ($null -ne $traceFile -and -not $traceFile.PSIsContainer) { [long]$traceFile.Length } else { $null }
+        recorder = [ordered]@{
+            name = 'dotnet-trace'
+            version = $Recorder.Version
+            profiles = @($Recorder.Metadata.profiles)
+            processId = if ($null -ne $Result) { $Result.ProcessId } else { $null }
+            exitCode = if ($null -ne $Result) { $Result.ExitCode } else { $null }
+        }
+        timeoutSeconds = $TimeoutSeconds
+        subjectCompletion = 'unverified'
+        cleanup = if ($null -ne $Result) {
+            [ordered]@{
+                action = $Result.Cleanup
+                collectorStopped = $Result.CollectorStopped
+                error = $Result.CleanupError
+                descendantsMayRemain = $true
+            }
+        }
+        else { $null }
+    }
+    $encoding = [System.Text.UTF8Encoding]::new($false)
+    try {
+        [System.IO.File]::WriteAllText($temporaryPath, ($attempt | ConvertTo-Json -Depth 5 -Compress), $encoding)
+        [System.IO.File]::Move($temporaryPath, $attemptPath)
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+            [System.IO.File]::Delete($temporaryPath)
+        }
+    }
+    return $attemptPath
+}
 
 function Write-CaptureMetadata(
     [string]$TracePath,
@@ -282,7 +457,22 @@ if (-not $Output) {
     New-Item -ItemType Directory -Force -Path $captureDir | Out-Null
     $ext = 'nettrace'
     if ($Profiler -eq 'ETW') { $ext = 'etl' }
-    $Output = Join-Path $captureDir "$assemblyName.$ext"
+    $name = $assemblyName
+    if ($boundedEventPipe) {
+        $name = "$assemblyName-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$([Guid]::NewGuid().ToString('N'))"
+    }
+    $Output = Join-Path $captureDir "$name.$ext"
+}
+
+if ($boundedEventPipe) {
+    foreach ($path in @($Output, "$Output.filtrace.json", "$Output.capture-attempt.json")) {
+        if (Test-Path -LiteralPath $path) {
+            Write-Error "EventPipe output '$path' already exists; use a new -Output to preserve prior capture evidence." -ErrorAction Continue
+            exit 1
+        }
+    }
+    $outputDirectory = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($Output))
+    [System.IO.Directory]::CreateDirectory($outputDirectory) | Out-Null
 }
 
 if ($Profiler -eq 'EP') {
@@ -294,8 +484,47 @@ if ($Profiler -eq 'EP') {
     $collectArgs = @('collect', '--output', $Output, '--profile', $traceProfile, '--', $runExe)
     $collectArgs += $runPrefixArgs
     $collectArgs += $AppArgs
-    & $dotnetTraceRecorder.Command @collectArgs | Out-Host
-    if ($LASTEXITCODE -ne 0) { Write-Error "dotnet-trace failed (exit $LASTEXITCODE)." -ErrorAction Continue ; exit $LASTEXITCODE }
+    if ($boundedEventPipe) {
+        try {
+            $recorderResult = Invoke-BoundedEventPipeCapture $dotnetTraceRecorder.Command $collectArgs $EventPipeTimeoutSeconds
+        }
+        catch {
+            $reason = "Could not start or wait for dotnet-trace: $($_.Exception.Message)"
+            $attemptPath = Write-EventPipeCaptureAttempt $Output 'recorder-error' $reason $dotnetTraceRecorder $null $EventPipeTimeoutSeconds
+            Write-Error "$reason. Capture attempt: $attemptPath." -ErrorAction Continue
+            exit 1
+        }
+
+        if ($null -ne $recorderResult.Error) {
+            $reason = "Could not inspect dotnet-trace after launch: $($recorderResult.Error)"
+            $attemptPath = Write-EventPipeCaptureAttempt $Output 'recorder-error' $reason $dotnetTraceRecorder $recorderResult $EventPipeTimeoutSeconds
+            Write-Error "$reason. Collector cleanup: $($recorderResult.Cleanup). Capture attempt: $attemptPath." -ErrorAction Continue
+            exit 1
+        }
+        if ($recorderResult.TimedOut) {
+            $reason = "EventPipe recorder exceeded $EventPipeTimeoutSeconds s"
+            $attemptPath = Write-EventPipeCaptureAttempt $Output 'timeout' $reason $dotnetTraceRecorder $recorderResult $EventPipeTimeoutSeconds
+            Write-Error "$reason. Trace may be partial; the subject or its descendants may still be running. For managed children, check inherited DOTNET_DiagnosticPorts. Capture attempt: $attemptPath." -ErrorAction Continue
+            exit 1
+        }
+        if ($recorderResult.ExitCode -ne 0) {
+            $reason = "dotnet-trace failed (exit $($recorderResult.ExitCode))"
+            $attemptPath = Write-EventPipeCaptureAttempt $Output 'recorder-failed' $reason $dotnetTraceRecorder $recorderResult $EventPipeTimeoutSeconds
+            Write-Error "$reason. Trace may be partial. Capture attempt: $attemptPath." -ErrorAction Continue
+            exit $recorderResult.ExitCode
+        }
+        $traceFile = Get-Item -LiteralPath $Output -ErrorAction SilentlyContinue
+        if ($null -eq $traceFile -or $traceFile.PSIsContainer -or $traceFile.Length -eq 0) {
+            $reason = 'dotnet-trace exited successfully without a nonempty trace'
+            $attemptPath = Write-EventPipeCaptureAttempt $Output 'empty-trace' $reason $dotnetTraceRecorder $recorderResult $EventPipeTimeoutSeconds
+            Write-Error "$reason. Capture attempt: $attemptPath." -ErrorAction Continue
+            exit 1
+        }
+    }
+    else {
+        & $dotnetTraceRecorder.Command @collectArgs | Out-Host
+        if ($LASTEXITCODE -ne 0) { Write-Error "dotnet-trace failed (exit $LASTEXITCODE)." -ErrorAction Continue ; exit $LASTEXITCODE }
+    }
 
     if ($Metric -eq 'alloc') {
         # gc-verbose establishes allocation and GC events, but dotnet-trace profile

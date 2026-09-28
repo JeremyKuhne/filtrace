@@ -2076,6 +2076,7 @@ function Get-AgentEvalDirectoryUsage {
     param(
         [Parameter(Mandatory)][string] $Path,
         [AllowNull()][string[]] $ExcludedPaths = @(),
+        [AllowNull()][object[]] $ImmutableFiles = @(),
         [AllowNull()][string[]] $ExcludedDirectories = @(),
         [ValidateRange(1, 1024)][int] $MaxEntries = 512,
         [long] $MaxBytes = [long]::MaxValue,
@@ -2096,6 +2097,17 @@ function Get-AgentEvalDirectoryUsage {
             [void]$excluded.Add([System.IO.Path]::GetFullPath($excludedPath))
         }
     }
+    [System.Collections.Generic.Dictionary[string, object]] $immutable =
+        [System.Collections.Generic.Dictionary[string, object]]::new($pathComparer)
+    foreach ($file in $ImmutableFiles) {
+        if ($null -eq $file -or
+            -not (Test-AgentEvalPathContained -Path $file.path -Root $Path) -or
+            -not $immutable.TryAdd([System.IO.Path]::GetFullPath([string]$file.path), $file)) {
+            throw "Eval input attestation failed for '$($file.relativePath)'."
+        }
+    }
+    [System.Collections.Generic.HashSet[string]] $seenImmutable =
+        [System.Collections.Generic.HashSet[string]]::new($pathComparer)
     [System.Collections.Generic.HashSet[string]] $excludedDirectorySet =
         [System.Collections.Generic.HashSet[string]]::new($pathComparer)
     foreach ($excludedDirectory in $ExcludedDirectories) {
@@ -2124,6 +2136,17 @@ function Get-AgentEvalDirectoryUsage {
                 $pending.Push($entry)
                 continue
             }
+            [object] $immutableFile = $null
+            if ($immutable.TryGetValue($entry.FullName, [ref]$immutableFile)) {
+                if ($entry.Length -ne [long]$immutableFile.bytes -or
+                    ($immutableFile.PSObject.Properties.Name -ccontains 'verifyHashDuringRun' -and
+                        [bool]$immutableFile.verifyHashDuringRun -and
+                        (Get-AgentEvalFileHash $entry.FullName) -ne $immutableFile.sha256)) {
+                    throw "Eval input attestation failed for '$($immutableFile.relativePath)'."
+                }
+                [void]$seenImmutable.Add($entry.FullName)
+                continue
+            }
             if ($excluded.Contains($entry.FullName)) { continue }
             $entries++
             if ($entries -gt $MaxEntries) { throw "$Scope exceeded $MaxEntries entries." }
@@ -2133,6 +2156,13 @@ function Get-AgentEvalDirectoryUsage {
                 throw "$Scope file '$($entry.FullName)' exceeded $MaxFileBytes bytes."
             }
             $total += $entry.Length
+        }
+    }
+    if ($seenImmutable.Count -ne $immutable.Count) {
+        foreach ($file in $ImmutableFiles) {
+            if (-not $seenImmutable.Contains([System.IO.Path]::GetFullPath([string]$file.path))) {
+                throw "Eval input attestation failed for '$($file.relativePath)'."
+            }
         }
     }
     return [pscustomobject]@{ bytes = $total; files = $files; entries = $entries }
@@ -2201,31 +2231,19 @@ function Get-AgentEvalCopilotUsage {
             -MaxFileBytes 128MB `
             -Scope 'Copilot host runtime cache'
     }
-    [System.Collections.Generic.List[string]] $excludedPaths = [System.Collections.Generic.List[string]]::new()
-    foreach ($immutableFile in @($Context.immutableFiles)) {
-        if (-not (Test-AgentEvalPathContained -Path $immutableFile.path -Root $Context.runDirectory) -or
-            -not (Test-Path -LiteralPath $immutableFile.path -PathType Leaf)) {
-            throw "Eval input attestation failed for '$($immutableFile.relativePath)'."
-        }
-        [System.IO.FileInfo] $file = Get-Item -LiteralPath $immutableFile.path -Force
-        if (($file.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 -or
-            $file.Length -ne [long]$immutableFile.bytes -or
-            ($immutableFile.PSObject.Properties.Name -ccontains 'verifyHashDuringRun' -and
-                [bool]$immutableFile.verifyHashDuringRun -and
-                (Get-AgentEvalFileHash $file.FullName) -ne $immutableFile.sha256)) {
-            throw "Eval input attestation failed for '$($immutableFile.relativePath)'."
-        }
-        Assert-AgentEvalNoReparsePoint -Path $file.FullName -Boundary $Context.runDirectory
-        $excludedPaths.Add($file.FullName)
+    [hashtable] $artifactParameters = @{
+        Path = $Context.runDirectory
+        ExcludedDirectories = @($runtimePath)
+        MaxEntries = 512
+        MaxBytes = $MaxArtifactBytes
+        MaxFileBytes = $MaxArtifactBytes
+        Scope = 'Copilot host artifacts'
     }
-    $artifactUsage = Get-AgentEvalDirectoryUsage `
-        -Path $Context.runDirectory `
-        -ExcludedPaths $excludedPaths.ToArray() `
-        -ExcludedDirectories @($runtimePath) `
-        -MaxEntries 512 `
-        -MaxBytes $MaxArtifactBytes `
-        -MaxFileBytes $MaxArtifactBytes `
-        -Scope 'Copilot host artifacts'
+    [object[]] $immutableFiles = @($Context.immutableFiles)
+    if ($immutableFiles.Count -gt 0) {
+        $artifactParameters.ImmutableFiles = $immutableFiles
+    }
+    $artifactUsage = Get-AgentEvalDirectoryUsage @artifactParameters
     return [pscustomobject]@{
         artifacts = $artifactUsage
         hostRuntime = $runtimeUsage
