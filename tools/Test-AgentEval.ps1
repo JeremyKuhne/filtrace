@@ -462,6 +462,7 @@ try {
     foreach ($functionName in @(
             'Assert-AgentEvalEventObject', 'Assert-AgentEvalEvidenceEvent',
             'Assert-AgentEvalUniqueJsonMembers', 'ConvertFrom-AgentEvalJsonLines',
+            'Get-AgentEvalLiteralCommand', 'Test-AgentEvalCliResult',
             'Write-AgentEvalNewFile', 'Save-AgentEvalHostOutput',
             'ConvertTo-AgentEvalResultJson',
             'Split-ArgString', 'Get-AgentEvalMediatedOperation')) {
@@ -696,6 +697,38 @@ try {
     }
     Assert-True $nonStringEventTypeRejected 'The isolated JSONL parser accepted a non-string event type.'
 
+    [string] $validCliJson = '{"schemaVersion":18,"context":{"operation":"gc"},"result":{"gcCount":7}}'
+    [string] $validShellText = "$validCliJson`n<shellId: 0 completed with exit code 0>"
+    $validCliResult = [pscustomobject]@{
+        content = $validShellText
+        detailedContent = $validShellText
+    }
+    Assert-True (Test-AgentEvalCliResult -Result $validCliResult -ExpectedOperation 'gc') `
+        'The production CLI result validator rejected a grounded report result.'
+    [object[]] $invalidCliResults = @(
+        [pscustomobject]@{ mode = 'unknown-cli-schema'; json = $validCliJson.Replace('"schemaVersion":18', '"schemaVersion":17') }
+        [pscustomobject]@{ mode = 'fractional-cli-schema'; json = $validCliJson.Replace('"schemaVersion":18', '"schemaVersion":18.0') }
+        [pscustomobject]@{ mode = 'scalar-cli-result'; json = $validCliJson.Replace('"result":{"gcCount":7}', '"result":"forged"') }
+        [pscustomobject]@{ mode = 'empty-cli-result'; json = $validCliJson.Replace('"result":{"gcCount":7}', '"result":{}') }
+        [pscustomobject]@{ mode = 'duplicate-cli-context-member'; json = $validCliJson.Replace('"context":{"operation":"gc"}', '"context":{"operation":"rank","operation":"gc"}') }
+        [pscustomobject]@{ mode = 'duplicate-cli-result-member'; json = $validCliJson.Replace('"result":{"gcCount":7}', '"result":{"gcCount":6,"gcCount":7}') }
+        [pscustomobject]@{ mode = 'malformed-shell-wrapper'; json = $validCliJson }
+        [pscustomobject]@{ mode = 'mismatched-shell-content'; json = $validCliJson }
+    )
+    foreach ($case in $invalidCliResults) {
+        [string] $content = if ($case.mode -eq 'malformed-shell-wrapper') {
+            "prefix`n$($case.json)`n<shellId: 0 completed with exit code 0>"
+        }
+        else { "$($case.json)`n<shellId: 0 completed with exit code 0>" }
+        [string] $details = if ($case.mode -eq 'mismatched-shell-content') {
+            "$content changed"
+        }
+        else { $content }
+        $result = [pscustomobject]@{ content = $content; detailedContent = $details }
+        Assert-True (-not (Test-AgentEvalCliResult -Result $result -ExpectedOperation 'gc')) `
+            "The production CLI result validator accepted '$($case.mode)'."
+    }
+
     $serializedLedger = (ConvertTo-AgentEvalResultJson ([ordered]@{
                 request = [ordered]@{ arguments = [ordered]@{ view_range = @(251, 500) } }
             })) | ConvertFrom-Json
@@ -911,10 +944,6 @@ try {
         'Successful fake run did not retain the modern PowerShell metadata.'
     Assert-True (@($success.model.observedDistinct) -notcontains 'provider-model') `
         'Provider-level model metadata was used as strict host identity.'
-    [void](Invoke-FakeRun -Name 'schema validation success' -Mode success -Label validation)
-    [string] $successResultPath = @(Get-ChildItem -LiteralPath (Join-Path $temporaryRoot 'schema validation success') -File -Filter '*.json' |
-        Sort-Object LastWriteTimeUtc | Select-Object -Last 1).FullName
-    & $compareRunner -ValidateResultPath $successResultPath | Out-Null
     [string] $gcTaskPath = Join-Path $root 'eval/tasks/04-gc-report.json'
     Assert-True ($success.inputIdentity[0].taskSha256 -eq
         (Get-AgentEvalCanonicalTextFileHash $gcTaskPath)) `
@@ -976,24 +1005,59 @@ try {
         -Mode malformed-usage-output `
         -ExpectedMessage 'Copilot usage output was malformed.'
     Assert-FakeRunThrows `
-        -Name 'duplicate usage output' `
-        -Mode duplicate-usage-output `
-        -ExpectedMessage 'Copilot usage output was malformed.'
-    Assert-FakeRunThrows `
-        -Name 'case-confusable usage output' `
-        -Mode case-confusable-usage-output `
-        -ExpectedMessage 'Copilot usage output was malformed.'
-    Assert-FakeRunThrows `
         -Name 'oversized additive usage output' `
         -Mode oversized-additive-usage-output `
         -ExpectedMessage 'Copilot usage output was not a bounded ordinary file.'
+
+    [string] $usageProbeRoot = Join-Path $temporaryRoot 'direct usage schema'
+    [void][System.IO.Directory]::CreateDirectory($usageProbeRoot)
+    [string] $usageProbePath = Join-Path $usageProbeRoot 'usage.json'
+    $usageProbeContext = [pscustomobject]@{
+        runDirectory = $usageProbeRoot
+        usagePath = $usageProbePath
+    }
+    [string] $validUsageJson = [System.IO.File]::ReadAllText(
+        [string]$success.iterations[0].hostUsageFile.path)
+    [System.IO.File]::WriteAllText(
+        $usageProbePath, $validUsageJson, [System.Text.UTF8Encoding]::new($false))
+    Assert-True ((Get-AgentEvalHostUsageFile $usageProbeContext).available) `
+        'Production host-usage parser rejected the owned positive usage output.'
     foreach ($mode in @(
+            'duplicate-usage-output', 'case-confusable-usage-output',
             'empty-usage-output', 'usage-missing-token-details', 'usage-missing-token-count',
             'usage-missing-premium', 'usage-wrong-type', 'usage-negative-token')) {
-        Assert-FakeRunThrows `
-            -Name "invalid usage $mode" `
-            -Mode $mode `
-            -ExpectedMessage 'Copilot usage output schema was malformed.'
+        [string] $invalidUsageJson = if ($mode -eq 'empty-usage-output') {
+            '{}'
+        }
+        elseif ($mode -eq 'duplicate-usage-output') {
+            $validUsageJson.Replace('"currentModel":', '"currentModel":"duplicate","currentModel":')
+        }
+        elseif ($mode -eq 'case-confusable-usage-output') {
+            $validUsageJson.Replace('"currentModel":', '"CurrentModel":"confusable","currentModel":')
+        }
+        else {
+            $invalidUsage = $validUsageJson | ConvertFrom-Json -AsHashtable
+            switch ($mode) {
+                'usage-missing-token-details' { [void]$invalidUsage.Remove('tokenDetails') }
+                'usage-missing-token-count' { [void]$invalidUsage.tokenDetails.output.Remove('tokenCount') }
+                'usage-missing-premium' { [void]$invalidUsage.Remove('totalPremiumRequestCost') }
+                'usage-wrong-type' { $invalidUsage.tokenDetails.input.tokenCount = '20' }
+                'usage-negative-token' { $invalidUsage.tokenDetails.cache_read.tokenCount = -1 }
+            }
+            [string]($invalidUsage | ConvertTo-Json -Depth 6 -Compress)
+        }
+        [System.IO.File]::WriteAllText(
+            $usageProbePath, $invalidUsageJson, [System.Text.UTF8Encoding]::new($false))
+        [string] $actualError = '<no exception>'
+        try { [void](Get-AgentEvalHostUsageFile $usageProbeContext) }
+        catch { $actualError = $_.Exception.Message }
+        [string] $expectedError = if ($mode -in @(
+                'duplicate-usage-output', 'case-confusable-usage-output')) {
+            'Copilot usage output was malformed.'
+        }
+        else { 'Copilot usage output schema was malformed.' }
+        Assert-True ([string]::Equals($actualError, $expectedError, [StringComparison]::Ordinal)) `
+            "Production usage parser did not reject '$mode' with '$expectedError': $actualError"
     }
     $usageModelMismatch = Invoke-FakeRun -Name 'usage model mismatch' -Mode usage-model-mismatch
     Assert-True ($usageModelMismatch.iterations[0].success -eq $false -and
@@ -1361,6 +1425,24 @@ try {
     Assert-True ($thirdPreTool.permissionDecision -eq 'allow') 'Observed modern PowerShell metadata was denied.'
     $thirdState = Get-CopilotEvalExecutionPolicyState $policyProbe.executionPolicy
     Assert-True ($thirdState.callCount -eq 3) 'Modern pre-tool command did not atomically advance count to three.'
+    $verbs = @('report')
+    try {
+        $validRecord = $modernArguments | ConvertTo-Json -Compress | ConvertFrom-Json
+        $literalCommand = Get-AgentEvalLiteralCommand `
+            -Arguments $validRecord -Context $policyProbe.context -ExecutionPolicy $policyProbe.executionPolicy
+        Assert-True ($null -ne $literalCommand -and $literalCommand.operation -eq 'gc') `
+            'The production CLI evidence validator rejected a valid bounded report command.'
+        foreach ($invalidArguments in $invalidPowerShellArguments) {
+            $invalidRecord = $invalidArguments | ConvertTo-Json -Depth 8 -Compress | ConvertFrom-Json
+            Assert-True ($null -eq (Get-AgentEvalLiteralCommand `
+                        -Arguments $invalidRecord -Context $policyProbe.context `
+                        -ExecutionPolicy $policyProbe.executionPolicy)) `
+                'The production CLI evidence validator accepted invalid PowerShell metadata.'
+        }
+    }
+    finally {
+        Remove-Variable -Name verbs -Scope Script -ErrorAction SilentlyContinue
+    }
     $excessPreTool = Invoke-TestPolicyHook `
         -Hook $policyProbe.preToolHook `
         -RequireNativeProcess `
@@ -1717,19 +1799,19 @@ try {
     }
 
     foreach ($mode in @(
-            'answer-only', 'answer-before-analysis', 'completion-before-start', 'missing-tool', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
+            'answer-only', 'answer-before-analysis', 'completion-before-start', 'failed-completion', 'wrong-cli-path', 'wrong-answer', 'host-failure',
             'decoy-command', 'duplicate-call-id', 'missing-completion', 'unexpected-tool',
             'denied-unknown-tool', 'powershell-tool-case',
-            'model-after-analysis', 'mismatched-operation', 'unknown-cli-schema', 'fractional-cli-schema',
-            'scalar-cli-result', 'empty-cli-result', 'duplicate-cli-root-member',
-            'duplicate-cli-context-member', 'duplicate-cli-result-member', 'malformed-shell-wrapper',
-            'nonzero-shell-wrapper', 'mismatched-shell-content', 'command-member-case',
-            'description-member-case', 'mode-member-case', 'missing-command-argument',
-            'missing-description-argument', 'invalid-command-type', 'invalid-mode-type', 'async-mode',
-            'repl-mode', 'invalid-initial-wait-type', 'zero-initial-wait', 'unbounded-initial-wait',
-            'shell-sandbox-flag')) {
+            'model-after-analysis', 'mismatched-operation', 'duplicate-cli-root-member',
+            'nonzero-shell-wrapper', 'async-mode')) {
         $negative = Invoke-FakeRun -Name "cli $mode" -Mode $mode -InlinePolicyHook
         Assert-True ($negative.iterations[0].success -eq $false) "Fake CLI mode '$mode' unexpectedly passed."
+        if ($mode -eq 'answer-only') {
+            Assert-True ($negative.iterations[0].calls -eq 0 -and
+                $negative.iterations[0].execution.isolation.executionPolicyCallCount -eq 0 -and
+                $negative.iterations[0].execution.isolation.shellDefaultDenied -eq $true) `
+                'An answer without a tool call did not retain the default shell deny.'
+        }
         if ($mode -eq 'async-mode') {
             [string] $inlineMarker = Join-Path $negative.iterations[0].execution.workspace 'fake-inline-hook.txt'
             Assert-True ((Test-Path -LiteralPath $inlineMarker -PathType Leaf) -and
@@ -1752,12 +1834,6 @@ try {
         $unexecuted.iterations[0].calls -eq 0 -and
         $unexecuted.iterations[0].execution.isolation.executionPolicyCallCount -eq 1) `
         'Conservatively consumed but unexecuted command did not invalidate evidence.'
-    $fallback = Invoke-FakeRun -Name 'cli no-hook-fallback' -Mode no-hook-fallback
-    Assert-True ($fallback.iterations[0].success -eq $false -and
-        $fallback.iterations[0].calls -eq 0 -and
-        $fallback.iterations[0].execution.isolation.executionPolicyCallCount -eq 0 -and
-        $fallback.iterations[0].execution.isolation.shellDefaultDenied -eq $true) `
-        'Missing-hook fallback did not remain unexecuted under the normal shell deny.'
     Assert-FakeParserFailureArtifacts `
         -Name 'malformed jsonl' `
         -Mode malformed-jsonl `
@@ -1768,11 +1844,6 @@ try {
         -Mode unknown-event `
         -ExpectedMessage 'unknown event type' `
         -ExpectedRawText '"type":"future.event"'
-    Assert-FakeParserFailureArtifacts `
-        -Name 'case variant event' `
-        -Mode case-variant-event `
-        -ExpectedMessage 'unknown event type' `
-        -ExpectedRawText '"type":"RESULT"'
     foreach ($parserCase in @(
             [pscustomobject]@{ mode = 'duplicate-event-member'; raw = '"toolCallId":"call-1","toolCallId"'; arm = 'cli' }
             [pscustomobject]@{ mode = 'scalar-skill-inventory'; raw = '"skills":{'; arm = 'cli-skill' }
@@ -1901,9 +1972,6 @@ try {
     Assert-True ($missingModel.iterations[0].success -eq $false) 'Missing observed model unexpectedly passed.'
     Assert-True ($null -eq $missingModel.model.observed) 'Missing observed model was replaced by another identity.'
     Assert-True (@($missingModel.model.observedDistinct).Count -eq 0) 'Missing observed model produced a distinct identity.'
-    $modelVariant = Invoke-FakeRun -Name 'cli model-variant' -Mode model-variant
-    Assert-True ($modelVariant.iterations[0].success -eq $false) 'Multiple host model variants unexpectedly passed.'
-    Assert-True ($modelVariant.model.verified -eq $false) 'Multiple host model variants were marked verified.'
     $modelCaseVariant = Invoke-FakeRun -Name 'cli model-case-variant' -Mode model-case-variant
     Assert-True ($modelCaseVariant.iterations[0].success -eq $false) 'Case-distinct host model variants unexpectedly passed.'
     Assert-True ($modelCaseVariant.model.observedDistinct.Count -eq 2) `
@@ -1937,6 +2005,85 @@ try {
         'Skill arm did not expose the native skill tool.'
     Assert-True (@($skillSuccess.iterations[0].execution.isolation.availableTools) -contains 'view') `
         'Skill arm did not expose bounded related-file views.'
+    [string] $ownedSkillPath = [string]$skillSuccess.iterations[0].skill.discovery.path
+    [string[]] $skillLines = [System.IO.File]::ReadAllLines(
+        [string]$skillSuccess.iterations[0].execution.hostOutput.stdoutPath)
+    [object[]] $skillEvents = @(ConvertFrom-AgentEvalJsonLines $skillLines)
+    $validSkillEvidence = Complete-AgentEvalDiscoveredSkillEvidence `
+        -SourcePath $ownedSkillPath -Events $skillEvents
+    Assert-True $validSkillEvidence.verified `
+        "The production skill scorer rejected the owned positive transcript: $($validSkillEvidence.failure)"
+    [string] $skillEventsJson = ConvertTo-Json -InputObject $skillEvents -Depth 20 -Compress
+    [string] $skillText = [System.IO.File]::ReadAllText($ownedSkillPath).Replace("`r`n", "`n")
+    [int] $frontmatterEnd = $skillText.IndexOf("`n---`n", 4, [StringComparison]::Ordinal)
+    Assert-True ($frontmatterEnd -ge 0) 'The owned skill did not contain terminated frontmatter.'
+    [string] $skillBody = $skillText.Substring($frontmatterEnd + 6)
+    [string] $bodyPrefix = $skillBody.Substring(0, 30)
+    foreach ($skillCase in @(
+            [pscustomobject]@{ mode = 'missing-skill-discovery'; error = 'Host did not discover exactly one filtrace skill.' }
+            [pscustomobject]@{ mode = 'wrong-skill-hash'; error = 'Injected filtrace skill context did not exactly match the expected wrapper and source body.' }
+            [pscustomobject]@{ mode = 'failed-skill-load'; error = 'Filtrace skill invocation did not complete successfully.' }
+            [pscustomobject]@{ mode = 'missing-skill-context'; error = 'Host did not inject exactly one filtrace skill context.' }
+            [pscustomobject]@{ mode = 'skill-extra-context'; error = 'Injected filtrace skill context did not exactly match the expected wrapper and source body.' }
+            [pscustomobject]@{ mode = 'skill-ledger-mismatch'; error = 'Skill invocation did not select filtrace exactly.' }
+            [pscustomobject]@{ mode = 'skill-tool-case'; error = 'Host did not invoke the skill tool exactly once.' }
+            [pscustomobject]@{ mode = 'skill-argument-name-case'; error = 'Skill invocation did not select filtrace exactly.' }
+            [pscustomobject]@{ mode = 'skill-argument-value-case'; error = 'Skill invocation did not select filtrace exactly.' }
+            [pscustomobject]@{ mode = 'skill-discovery-name-case'; error = 'Host did not discover exactly one filtrace skill.' }
+            [pscustomobject]@{ mode = 'skill-discovery-source-case'; error = 'Filtrace skill discovery metadata did not match the owned project skill.' }
+            [pscustomobject]@{ mode = 'skill-context-role-case'; error = 'Host did not inject exactly one filtrace skill context.' }
+        )) {
+        [object[]] $events = @(($skillEventsJson | ConvertFrom-Json))
+        $inventory = @($events | Where-Object type -eq 'session.skills_loaded')[0]
+        $skillStart = @($events | Where-Object {
+                $_.type -eq 'tool.execution_start' -and $_.data.toolCallId -eq 'skill-load'
+            })[0]
+        $skillComplete = @($events | Where-Object {
+                $_.type -eq 'tool.execution_complete' -and $_.data.toolCallId -eq 'skill-load'
+            })[0]
+        $contextEvent = @($events | Where-Object type -eq 'model.message')[0]
+        switch ($skillCase.mode) {
+            'missing-skill-discovery' { $inventory.data.skills = @() }
+            'wrong-skill-hash' {
+                [string] $contextText = $contextEvent.data.message.content
+                Assert-True ($contextText.Contains($bodyPrefix, [StringComparison]::Ordinal)) `
+                    'Owned skill body prefix was not present in the captured context.'
+                $contextEvent.data.message.content = $contextText.Replace(
+                    $bodyPrefix, '!' + $bodyPrefix.Substring(1))
+            }
+            'failed-skill-load' {
+                $skillComplete.data.success = $false
+                [void]$skillComplete.data.PSObject.Properties.Remove('result')
+                $skillComplete.data | Add-Member -NotePropertyName error -NotePropertyValue (
+                    [pscustomobject]@{ code = 'failed'; message = 'Skill load failed.' })
+            }
+            'missing-skill-context' {
+                $events = @($events | Where-Object type -ne 'model.message')
+            }
+            'skill-extra-context' {
+                [string] $contextText = $contextEvent.data.message.content
+                Assert-True ($contextText.Contains("`n`n$bodyPrefix", [StringComparison]::Ordinal)) `
+                    'Owned skill context did not contain the expected body separator.'
+                $contextEvent.data.message.content = $contextText.Replace(
+                    "`n`n$bodyPrefix", "`nInjected text outside the skill source.`n`n$bodyPrefix")
+            }
+            'skill-ledger-mismatch' { $skillStart.data.arguments.skill = 'other-skill' }
+            'skill-tool-case' { $skillStart.data.toolName = 'Skill' }
+            'skill-argument-name-case' {
+                [void]$skillStart.data.arguments.PSObject.Properties.Remove('skill')
+                $skillStart.data.arguments | Add-Member -NotePropertyName Skill -NotePropertyValue 'filtrace'
+            }
+            'skill-argument-value-case' { $skillStart.data.arguments.skill = 'FILTRACE' }
+            'skill-discovery-name-case' { $inventory.data.skills[0].name = 'FILTRACE' }
+            'skill-discovery-source-case' { $inventory.data.skills[0].source = 'PROJECT' }
+            'skill-context-role-case' { $contextEvent.data.message.role = 'USER' }
+        }
+        $skillEvidence = Complete-AgentEvalDiscoveredSkillEvidence `
+            -SourcePath $ownedSkillPath -Events $events
+        Assert-True (-not $skillEvidence.verified -and
+            [string]::Equals([string]$skillEvidence.failure, $skillCase.error, [StringComparison]::Ordinal)) `
+            "Production skill scorer did not reject '$($skillCase.mode)' with '$($skillCase.error)': $($skillEvidence.failure)"
+    }
     [string] $baselineSkillEntrypoint = Join-Path $root 'eval/skill-variants/ep1-baseline/SKILL.md'
     $baselineSkillSuccess = Invoke-FakeRun `
         -Name 'baseline skill entrypoint success' `
@@ -2015,11 +2162,7 @@ try {
         (@($skillSuccess.iterations[0].skill.inventory).Count -eq $sourceSkillFiles.Count) `
         'Installed skill inventory did not contain every shipped file.'
     foreach ($mode in @(
-            'missing-skill-read', 'missing-skill-discovery', 'wrong-skill-hash',
-            'failed-skill-load', 'missing-skill-context', 'skill-extra-context',
-            'skill-ledger-mismatch', 'skill-tool-case', 'skill-argument-name-case',
-            'skill-argument-value-case', 'skill-discovery-name-case',
-            'skill-discovery-source-case', 'skill-context-role-case', 'skill-view-altered',
+            'missing-skill-read', 'skill-view-altered',
             'answer-before-skill-context', 'skill-context-before-completion',
             'skill-discovery-after-invocation')) {
         $negative = Invoke-FakeRun -Name "skill $mode" -Mode $mode -Arm cli-skill -InlinePolicyHook
@@ -2655,6 +2798,9 @@ try {
     $comparisonDirectory = Join-Path $temporaryRoot 'comparison'
     [void](Invoke-FakeRun -Name 'comparison baseline' -Mode success -Label baseline -OutDir $comparisonDirectory)
     [void](Invoke-FakeRun -Name 'comparison candidate' -Mode success -Label candidate -OutDir $comparisonDirectory)
+    [string] $successResultPath = @(Get-ChildItem -LiteralPath $comparisonDirectory -File -Filter '*-baseline-*.json' |
+        Select-Object -First 1).FullName
+    & $compareRunner -ValidateResultPath $successResultPath | Out-Null
     [System.IO.File]::WriteAllText((Join-Path $comparisonDirectory 'unrelated.json'), '{')
     & $pwshPath -NoProfile -File $compareRunner -Baseline baseline -Candidate candidate -ResultsDir $comparisonDirectory
     Assert-True ($LASTEXITCODE -eq 0) 'Identical fake records did not compare neutral.'

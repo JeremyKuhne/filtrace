@@ -89,9 +89,10 @@ single validation implementations. Its coverage map is:
 | Cases | Assertions retained | Execution boundary |
 | --- | --- | --- |
 | Policy-hook inputs (including command, view, malformed input, and budgets) | Every original allow/deny decision and parent-ledger state assertion | The copied hook runs with isolated input/output; representative allow, deny, hash-tamper, malformed-input, command-budget, and view-budget cases still launch its configured native process. The separate eight-process ledger race test is unchanged. |
-| 16 malformed JSONL evidence shapes | Each input is rejected for its specific schema error by the same `ConvertFrom-AgentEvalJsonLines` definition extracted from `Invoke-AgentEval.ps1` | In-process data-driven cases; malformed JSONL, unknown/case-variant events, duplicate JSON members, and scalar skill inventory still use isolated fake-host processes and retain raw-output/failure artifacts. |
+| Eight malformed host-usage output shapes | Each input is rejected with its specific error by the same `Get-AgentEvalHostUsageFile` definition used in the evaluator | In-process data-driven cases from a retained positive output; malformed JSON, oversized output, missing output, and model-mismatch cases still exercise isolated fake-host handling. |
+| 16 malformed JSONL evidence shapes | Each input is rejected for its specific schema error by the same `ConvertFrom-AgentEvalJsonLines` definition extracted from `Invoke-AgentEval.ps1` | In-process data-driven cases; case-variant event types also have a direct parser assertion. Malformed JSONL, unknown events, duplicate JSON members, and scalar skill inventory still use isolated fake-host processes and retain raw-output/failure artifacts. |
 | 39 malformed comparison records | Every original mutation is rejected by the comparator's schema-v3 validation | Malformed JSON, duplicate members, oversized results, representative shape, type, count, and evidence mismatches, and strict schema-v2 rejection also retain native comparison exit checks; other comparison verdict and pairing tests remain native. |
-| Fake CLI and skill modes, host failures, timeouts, and retained artifacts | All original per-mode and process assertions | Every case retains an isolated fake-host process and workspace. Only the 39 CLI and 17 skill rejection-mode loops enable in-process execution when a case attempts the copied hook; the positive and state/failure cases retain their native hook subprocesses. |
+| Fake CLI and skill modes, host failures, timeouts, and retained artifacts | Distinct failure boundaries and process assertions | Every retained end-to-end case has an isolated fake-host process and workspace. The 18 CLI and five skill rejection-mode loops enable in-process execution when a case attempts the copied hook; positive and state/failure cases retain native hook subprocesses. Pure CLI metadata, eight result/wrapper shapes, and twelve skill discovery/invocation/context variants use the evaluator's actual `Get-AgentEvalLiteralCommand`, `Test-AgentEvalCliResult`, and `Complete-AgentEvalDiscoveredSkillEvidence` definitions directly. Operation mismatch, duplicate CLI root, nonzero shell, skill view alteration, and `async-mode` still have isolated fake-host witnesses; the last two also retain native-hook parity checks. |
 
 An in-process hook invocation with a missing script must also restore the test
 host's console streams before reporting the failure.
@@ -106,12 +107,17 @@ artifacts, missing and changed immutable files (including a same-length policy
 edit), and reparse rejection; the host's post-exit source and copy hashes remain
 mandatory.
 
-All original input shapes remain in the automatic Windows gate; pure JSONL
-schema variants no longer each start an isolated fake host. Generated policy
-and copied inputs still get post-exit hashes checked in every retained
-end-to-end case. These changes do not alter the CI job topology or its
-20-minute limit; local timing is not a substitute for a hosted run on the
-updated head.
+The automatic Windows gate omits repeated no-tool fake modes, an extra success
+run used only to create comparator input, and redundant model/argument
+variants already covered by stricter end-to-end witnesses and standalone
+policy checks. The removed `no-hook-fallback` mode never suppressed the installed
+hook: it emitted the same no-tool transcript as `answer-only`, which now asserts
+zero calls, zero policy use, and the default shell deny. Case-variant event
+rejection uses the production JSONL validator directly rather than repeating
+the native unknown-event failure witness.
+Generated policy and copied inputs still get post-exit hashes checked in every
+retained end-to-end case. The CI job topology and its 20-minute limit are
+unchanged; local timing is not a substitute for a hosted run on this change.
 
 **Four host/arm combinations are wired:**
 

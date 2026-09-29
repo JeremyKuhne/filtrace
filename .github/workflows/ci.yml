@@ -135,44 +135,23 @@ jobs:
       - name: Test
         # The machine-wide CLR rundown and child-process tests must not compete
         # with other managed test hosts for ETW provider activation and startup.
-        run: dotnet test filtrace.slnx --configuration Release --no-build --max-parallel-test-modules 1
-
-      - name: Capture helper contract (PowerShell 7)
         shell: pwsh
-        run: ./tools/Test-CaptureBenchmarkTrace.ps1
-
-      - name: Capture helper contract (Windows PowerShell 5.1)
-        shell: powershell
-        run: ./tools/Test-CaptureBenchmarkTrace.ps1
-
-      - name: Project capture contract (PowerShell 7 and 5.1)
-        shell: pwsh
-        run: ./tools/Test-CaptureProjectTrace.ps1
-
-      - name: Command capture native argv contract
-        shell: pwsh
-        run: ./tools/Test-CaptureCommandTrace.ps1 -WindowsNativeArgv
-
-      - name: Local activation wrapper contract
-        shell: pwsh
-        run: ./tools/Test-UseLocalFiltrace.ps1
+        run: ./tools/Test-WindowsDotNet.ps1
 
       # Hosted Windows runners run elevated, so the one path that needs a real ETW
-      # capture is checked here rather than left to a developer box. Keep the build of
-      # the native fixture ahead of the capture: ilc.exe and other tools access-violate
-      # when a session with the GC heap-dump keyword is already live, so starting the
-      # session first would break unrelated builds on the same runner.
+      # capture is checked here rather than left to a developer box. All builds
+      # and ETW-dependent tests must finish before overlapping the fake-driven
+      # contracts below; other managed builds can fault while GC heap-dump is live.
       - name: Native symbol resolution gate
         shell: pwsh
         run: ./tools/Test-NativeSymbolResolution.ps1 -Configuration Release -Require
 
-      - name: Eval gate
+      # Linux ARM64 runs the complete portable command-capture contract. This
+      # Windows gate keeps its native argv, PS5.1, and failure witnesses, while
+      # overlapping independent work with the expensive isolated fake agent.
+      - name: Windows contract gates
         shell: pwsh
-        run: ./eval/Invoke-Eval.ps1 -Configuration Release
-
-      - name: Agent eval fake-host contract
-        shell: pwsh
-        run: ./tools/Test-AgentEval.ps1
+        run: ./tools/Test-WindowsContracts.ps1
 
   # The main ruleset requires this stable check name. `if: always()` and the
   # explicit result checks turn upstream failures or cancellations into a red
