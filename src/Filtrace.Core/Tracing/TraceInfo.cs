@@ -133,6 +133,12 @@ public sealed class TraceInfo
     public IReadOnlyList<string> Warnings { get; }
 
     /// <summary>
+    ///  The ETLX-reported lost-event count, kept separate from rendered warnings so
+    ///  bounded manifest results can always retain incomplete-capture evidence.
+    /// </summary>
+    internal int EventsLost { get; init; }
+
+    /// <summary>
     ///  The analyses filtrace can run against this trace format. This is a format
     ///  constraint only; use <see cref="Analyses"/> for capture enablement and event
     ///  counts.

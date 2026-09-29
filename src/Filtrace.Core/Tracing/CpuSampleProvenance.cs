@@ -11,12 +11,13 @@ namespace Filtrace.Tracing;
 ///  those weights can be interpreted as time.
 /// </summary>
 /// <param name="WeightUnit">The unit used by CPU sample weights.</param>
-/// <param name="Source">The trace evidence from which the weights were derived.</param>
+/// <param name="Source">The sample provider or recorded interval evidence from which the weights were derived.</param>
 /// <param name="TimeWeightsEstablished">
 ///  Whether the trace establishes a time weight for every included CPU sample.
 /// </param>
 /// <param name="UnknownIntervalSampleCount">
-///  Number of included periodic CPU samples for which no interval was recorded.
+///  Number of included samples without an applicable ETW PerfInfo interval, including
+///  any SampleProfiler thread-stack samples.
 /// </param>
 /// <param name="Intervals">Trace-recorded ETW timer intervals associated with included samples.</param>
 public sealed record CpuSampleProvenance(

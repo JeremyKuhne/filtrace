@@ -87,6 +87,19 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Info_EventPipeSamples_WarnsAndQualifiesCpuRoute()
+    {
+        AnalysisResult<TraceInfoView> envelope = TraceTools.Info(new TraceStore(), FixturePath(Activity));
+
+        envelope.Result.CpuSampling!.Source.Should().Be("sampleprofiler");
+        envelope.Warnings.Should().ContainSingle(warning =>
+            warning.Contains("SampleProfiler thread-stack samples", StringComparison.Ordinal));
+
+        envelope.Hints.Should().Contain(hint =>
+            hint.Contains("sampled thread stacks (not on-core CPU time) -> cpu", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public async Task Info_NetTrace_UnmarkedCache_ReportsExplicitMigration()
     {
         string path = CopyToTemp(Alloc, out string tempDirectory);
@@ -463,6 +476,9 @@ public sealed class TraceToolsTests
         scoped.Warnings.Should().Contain(
             warning => warning.Contains("179 periodic CPU records", StringComparison.Ordinal)
                 && warning.Contains("200", StringComparison.Ordinal));
+
+        scoped.Warnings.Should().ContainSingle(warning =>
+            warning.Contains("SampleProfiler thread-stack samples", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -1034,6 +1050,21 @@ public sealed class TraceToolsTests
     }
 
     [TestMethod]
+    public void Diff_EventPipeSamples_PrefixesProviderWarningsForBothArms()
+    {
+        TraceStore store = new();
+        string trace = FixturePath(Activity);
+
+        AnalysisResult<RankingDiffResult> envelope = TraceTools.Diff(store, trace, trace);
+
+        envelope.Warnings.Should().Contain(warning =>
+            warning.StartsWith("baseline: SampleProfiler thread-stack samples", StringComparison.Ordinal));
+
+        envelope.Warnings.Should().Contain(warning =>
+            warning.StartsWith("current: SampleProfiler thread-stack samples", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void Diff_UnknownMeasure_Throws()
     {
         TraceStore store = new();
@@ -1403,6 +1434,38 @@ public sealed class TraceToolsTests
         envelope.Result.Gc.Should().NotBeNull();
         envelope.Result.Cpu.Should().BeNull();
         envelope.Result.Alloc.Should().BeNull();
+        envelope.Warnings.Should().NotContain(warning =>
+            warning.Contains("SampleProfiler thread-stack samples", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Timeline_EventPipeCpuLane_WarnsAndQualifiesHint()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(
+            FixturePath(Exceptions), lanes: TimelineProvider.CpuLane);
+
+        envelope.Warnings.Should().ContainSingle(warning =>
+            warning.Contains("SampleProfiler thread-stack samples", StringComparison.Ordinal));
+
+        envelope.Hints.Should().Contain(hint =>
+            hint.Contains("thread-stack sample window", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Timeline_EventPipeSnapshot_WarnsAndQualifiesHint()
+    {
+        AnalysisResult<TimelineResult> envelope = TraceTools.Timeline(
+            FixturePath(Exceptions),
+            mode: "snapshot",
+            at: 0.0,
+            window: TimelineProvider.MaxSnapshotHalfWindowMs);
+
+        envelope.Result.Snapshot!.Cpu.SampleCount.Should().BeGreaterThan(0);
+        envelope.Warnings.Should().ContainSingle(warning =>
+            warning.Contains("SampleProfiler thread-stack samples", StringComparison.Ordinal));
+
+        envelope.Hints.Should().Contain(hint =>
+            hint.Contains("sampled thread stacks", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -1840,8 +1903,10 @@ public sealed class TraceToolsTests
         context.Unit.Should().Be("samples");
         context.Scope.Should().BeNull();
         context.CpuSampling.Should().NotBeNull();
-        context.CpuSampling!.Source.Should().Be("unavailable");
+        context.CpuSampling!.Source.Should().Be("sampleprofiler");
         context.CpuSampling.TimeWeightsEstablished.Should().BeFalse();
+        envelope.Warnings.Should().ContainSingle(warning =>
+            warning.Contains("SampleProfiler thread-stack samples", StringComparison.Ordinal));
     }
 
     [TestMethod]

@@ -66,5 +66,8 @@ public sealed class ActivityScopeTests
         scoped.Info.SampleCount.Should().Be(0);
         scoped.Info.Warnings.Should().Contain(w =>
             w.Contains("No samples remained inside the 'NoSuchActivity' activity", StringComparison.Ordinal));
+
+        scoped.Info.Warnings.Should().NotContain(w =>
+            w.Contains("SampleProfiler thread-stack samples", StringComparison.Ordinal));
     }
 }

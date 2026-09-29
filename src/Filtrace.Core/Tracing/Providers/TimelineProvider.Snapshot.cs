@@ -130,6 +130,7 @@ public sealed partial class TimelineProvider
         Dictionary<PauseIdentity, PendingPauseStart> pauseStarts = [];
         List<GcPauseInterval> pauseIntervals = [];
         SnapshotGcCollector gcCollector = new(startMs, endMs);
+        CpuSampleEvidence cpuSamples = default;
         bool detailTruncated = false;
         bool gcPauseDataIncomplete = false;
         bool unknownPauseDataIncomplete = false;
@@ -215,7 +216,8 @@ public sealed partial class TimelineProvider
             Mode = "snapshot",
             Snapshot = snapshot,
             AppliedProcessScope = FollowUpProcessScope(resolved),
-            ScopeWarnings = resolved.Warnings
+            ScopeWarnings = resolved.Warnings,
+            CpuSampleWarning = cpuSamples.Warning
         };
 
         void Accumulate(TraceEvent data)
@@ -339,6 +341,7 @@ public sealed partial class TimelineProvider
                             break;
                         }
 
+                        cpuSamples.ObserveSample(data is ClrThreadSampleTraceData);
                         cpuSampleCount++;
                         TraceCodeAddress? leafAddress = LeafCodeAddress(stack);
                         if (leafAddress is not null

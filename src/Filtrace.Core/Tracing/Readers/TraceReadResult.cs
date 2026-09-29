@@ -33,6 +33,11 @@ internal sealed record TraceReadResult(
     SourceResolutionInfo? SourceResolution = null)
 {
     /// <summary>
+    ///  The number of events ETLX reports lost during capture.
+    /// </summary>
+    internal int EventsLost { get; init; }
+
+    /// <summary>
     ///  Local native symbol lookup results, or <see langword="null"/> when no local
     ///  symbol directory was supplied or the trace had no unresolved native frames.
     /// </summary>

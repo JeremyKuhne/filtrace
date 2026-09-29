@@ -4,6 +4,8 @@
 
 using Touki;
 
+using Filtrace.Tracing.Readers;
+
 namespace Filtrace.Tracing;
 
 [TestClass]
@@ -623,6 +625,102 @@ public sealed class CaptureManifestReaderTests
     }
 
     [TestMethod]
+    public void AnalyzeBatch_LostEventsAndSampleProfiler_SurviveCaseBudget()
+    {
+        CpuSampleProvenance sampling = new(
+            "samples", CpuSampleEvidence.SampleProfilerSource,
+            TimeWeightsEstablished: false, UnknownIntervalSampleCount: 2, Intervals: []);
+
+        string sampleWarning = CpuSampleEvidence.WarningFor(sampling)!;
+        string lossWarning = TraceLogReader.EventLossWarning(eventsLost: 4)!;
+        LoadedTrace trace = Loaded(
+            "sampleprofiler", 1.0, 1.0,
+            warnings: ["first", "second", "third", "fourth", sampleWarning, lossWarning],
+            cpuSampling: sampling,
+            eventsLost: 4);
+
+        BatchRankingResult result = CaptureManifestBatchAnalyzer.Analyze(
+            Manifest(Case("sample", "Bench.Work", "Mode: Sample", "Sample")),
+            "cpu", inclusive: false, root: "", FrameNames.DefaultFoldPatterns,
+            (_, _) => trace);
+
+        IReadOnlyList<string> warnings = result.Cases.Single().Warnings;
+        warnings.Should().HaveCount(CaptureManifestOutput.MaxWarningsPerCase);
+        warnings[0].Should().StartWith("Trace records report 4 lost events");
+        warnings[1].Should().StartWith("SampleProfiler thread-stack samples");
+        warnings.Should().ContainSingle(warning =>
+            warning.StartsWith("Trace records report 4 lost events", StringComparison.Ordinal));
+
+        warnings.Should().ContainSingle(warning =>
+            warning.StartsWith("SampleProfiler thread-stack samples", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void AnalyzeBatch_PrioritizedWarnings_AreNotDuplicated()
+    {
+        CpuSampleProvenance sampling = new(
+            "samples", CpuSampleEvidence.SampleProfilerSource,
+            TimeWeightsEstablished: false, UnknownIntervalSampleCount: 2, Intervals: []);
+
+        string sampleWarning = CpuSampleEvidence.WarningFor(sampling)!;
+        string lossWarning = TraceLogReader.EventLossWarning(eventsLost: 2)!;
+        LoadedTrace trace = Loaded(
+            "sampleprofiler", 1.0, 1.0,
+            warnings: [lossWarning, sampleWarning, "Scoped to one process."],
+            cpuSampling: sampling,
+            eventsLost: 2);
+
+        BatchRankingResult result = CaptureManifestBatchAnalyzer.Analyze(
+            Manifest(Case("sample", "Bench.Work", "Mode: Sample", "Sample")),
+            "cpu", inclusive: false, root: "", FrameNames.DefaultFoldPatterns,
+            (_, _) => trace);
+
+        IReadOnlyList<string> warnings = result.Cases.Single().Warnings;
+        warnings.Should().HaveCount(3);
+        warnings[0].Should().StartWith("Trace records report 2 lost events");
+        warnings[1].Should().StartWith("SampleProfiler thread-stack samples");
+        warnings[2].Should().Be("Scoped to one process.");
+    }
+
+    [TestMethod]
+    public void AnalyzeManifestDiff_LostEventsAndSampleProfiler_SurviveBothArmBudgets()
+    {
+        CpuSampleProvenance sampling = new(
+            "samples", CpuSampleEvidence.SampleProfilerSource,
+            TimeWeightsEstablished: false, UnknownIntervalSampleCount: 2, Intervals: []);
+
+        string sampleWarning = CpuSampleEvidence.WarningFor(sampling)!;
+        string baselineLoss = TraceLogReader.EventLossWarning(eventsLost: 4)!;
+        string currentLoss = TraceLogReader.EventLossWarning(eventsLost: 7)!;
+        LoadedTrace baseline = Loaded(
+            "baseline", 1.0, 1.0,
+            warnings: ["first", "second", "third", "fourth", sampleWarning, baselineLoss],
+            cpuSampling: sampling,
+            eventsLost: 4);
+
+        LoadedTrace current = Loaded(
+            "current", 1.0, 1.0,
+            warnings: ["first", "second", "third", "fourth", sampleWarning, currentLoss],
+            cpuSampling: sampling,
+            eventsLost: 7);
+
+        CaptureManifest before = Manifest(Case("sample", "Bench.Work", "Mode: Sample", "Sample"));
+        CaptureManifest after = Manifest(Case("sample", "Bench.Work", "Mode: Sample", "Sample"));
+
+        CaptureManifestDiffAnalysis analysis = CaptureManifestDiffAnalyzer.Analyze(
+            before, after, inclusive: false, root: "",
+            FrameNames.DefaultFoldPatterns, top: 5,
+            (manifest, _) => ReferenceEquals(manifest, before) ? baseline : current);
+
+        IReadOnlyList<string> warnings = analysis.Result.Cases.Single().Warnings;
+        warnings.Should().HaveCount(CaptureManifestOutput.MaxWarningsPerCase);
+        warnings[0].Should().StartWith("baseline: Trace records report 4 lost events");
+        warnings[1].Should().StartWith("current: Trace records report 7 lost events");
+        warnings[2].Should().StartWith("baseline: SampleProfiler thread-stack samples");
+        warnings[3].Should().StartWith("current: SampleProfiler thread-stack samples");
+    }
+
+    [TestMethod]
     public void AnalyzeBatch_RootScope_CarriesPerCaseCoverage()
     {
         CaptureManifest manifest = Manifest(Case("rooted", "Bench.Work", "", "Rooted"));
@@ -806,7 +904,10 @@ public sealed class CaptureManifestReaderTests
         string path,
         double hotWeight,
         double otherWeight,
-        StackRecordSemantics recordSemantics = StackRecordSemantics.EventedIntervals)
+        StackRecordSemantics recordSemantics = StackRecordSemantics.EventedIntervals,
+        IReadOnlyList<string>? warnings = null,
+        CpuSampleProvenance? cpuSampling = null,
+        int eventsLost = 0)
     {
         SampleStack[] samples =
         [
@@ -816,16 +917,23 @@ public sealed class CaptureManifestReaderTests
 
         TraceInfo info = new(
             path,
-            TraceFormat.Speedscope,
+            cpuSampling is null ? TraceFormat.Speedscope : TraceFormat.NetTrace,
             hotWeight + otherWeight,
             samples.Length,
             1.0,
             [],
-            [],
-            ["cpu"]);
+            warnings ?? [],
+            ["cpu"])
+        {
+            CpuSampling = cpuSampling,
+            EventsLost = eventsLost
+        };
 
         return new LoadedTrace(
             info,
-            new StackSampleSource(MetricInfo.Cpu, samples, recordSemantics));
+            new StackSampleSource(
+                cpuSampling?.WeightUnit == "samples" ? MetricInfo.CpuSamples : MetricInfo.Cpu,
+                samples,
+                recordSemantics));
     }
 }

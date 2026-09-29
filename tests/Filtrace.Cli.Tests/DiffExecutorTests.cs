@@ -310,6 +310,8 @@ public sealed class DiffExecutorTests
         output.Should().NotContain("CPU self-time");
         output.Should().Contain("baseline: Only 180 periodic CPU records");
         output.Should().Contain("current: Only 180 periodic CPU records");
+        output.Should().Contain("baseline: SampleProfiler thread-stack samples");
+        output.Should().Contain("current: SampleProfiler thread-stack samples");
     }
 
     [TestMethod]

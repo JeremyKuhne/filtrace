@@ -96,6 +96,10 @@ public static class CaptureManifestDiffAnalyzer
                     root,
                     foldPatterns);
 
+                CaptureManifestOutput.AddEventLossWarning(caseWarnings, beforeTrace.Info, "baseline");
+                CaptureManifestOutput.AddEventLossWarning(caseWarnings, afterTrace.Info, "current");
+                CaptureManifestOutput.AddCpuSampleWarning(caseWarnings, beforeTrace.Info, "baseline");
+                CaptureManifestOutput.AddCpuSampleWarning(caseWarnings, afterTrace.Info, "current");
                 AddQualityWarnings(caseWarnings, "baseline", beforeTrace, beforeRanking, root);
                 AddQualityWarnings(caseWarnings, "current", afterTrace, afterRanking, root);
                 RankingDiffResult diff = Diff(
@@ -258,10 +262,7 @@ public static class CaptureManifestDiffAnalyzer
         RankingResult ranking,
         string root)
     {
-        foreach (string warning in trace.Info.Warnings.Take(4))
-        {
-            CaptureManifestOutput.AddWarning(warnings, $"{side}: {warning}");
-        }
+        CaptureManifestOutput.AddOtherTraceWarnings(warnings, trace.Info, side);
 
         if (ContributingRecordQuality.TryGetMethodWarning(
             trace.Source.RecordSemantics,

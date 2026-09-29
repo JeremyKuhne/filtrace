@@ -13,9 +13,11 @@ public sealed partial class TimelineProvider
     /// <param name="Exceptions">Exception-count buckets, or <see langword="null"/> when not requested.</param>
     /// <param name="Alloc">Allocation buckets, or <see langword="null"/> when not requested.</param>
     /// <param name="Jit">JIT compilation buckets, or <see langword="null"/> when not requested.</param>
+    /// <param name="CpuSampleWarning">A warning when the CPU lane contains SampleProfiler records.</param>
     private readonly record struct EventLanes(
         IReadOnlyList<CpuBucket>? Cpu,
         IReadOnlyList<ExceptionBucket>? Exceptions,
         IReadOnlyList<AllocBucket>? Alloc,
-        IReadOnlyList<JitBucket>? Jit);
+        IReadOnlyList<JitBucket>? Jit,
+        string? CpuSampleWarning);
 }

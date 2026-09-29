@@ -154,7 +154,9 @@ public sealed class RankingExecutorTests
         output.Should().Contain("CPU self-weight");
         output.Should().NotContain("CPU self-time");
         output.Should().Contain("samples  symbols");
-        output.Should().Contain("CPU weights are raw sample counts, not milliseconds");
+        output.Should().Contain("SampleProfiler thread-stack samples can include waits or native work");
+        output.Should().Contain("not on-core CPU milliseconds or blocked-time percentages");
+        output.Should().Contain("drill into the most sampled frame");
         output.Should().Contain("records 179");
         output.Should().Contain("Only 179 periodic CPU records");
         output.Should().Contain("at least 200");
@@ -251,8 +253,11 @@ public sealed class RankingExecutorTests
         JsonElement context = document.RootElement.GetProperty("context");
         context.GetProperty("unit").GetString().Should().Be("samples");
         JsonElement cpuSampling = context.GetProperty("cpuSampling");
-        cpuSampling.GetProperty("source").GetString().Should().Be("unavailable");
+        cpuSampling.GetProperty("source").GetString().Should().Be("sampleprofiler");
         cpuSampling.GetProperty("timeWeightsEstablished").GetBoolean().Should().BeFalse();
+        document.RootElement.GetProperty("warnings").EnumerateArray().Should().Contain(
+            warning => warning.GetProperty("message").GetString()!.Contains(
+                "SampleProfiler thread-stack samples", StringComparison.Ordinal));
     }
 
     [TestMethod]

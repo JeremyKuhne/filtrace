@@ -191,10 +191,9 @@ public static class CaptureManifestBatchAnalyzer
         RankingResult ranking,
         string root)
     {
-        foreach (string warning in trace.Info.Warnings.Take(4))
-        {
-            CaptureManifestOutput.AddWarning(warnings, warning);
-        }
+        CaptureManifestOutput.AddEventLossWarning(warnings, trace.Info);
+        CaptureManifestOutput.AddCpuSampleWarning(warnings, trace.Info);
+        CaptureManifestOutput.AddOtherTraceWarnings(warnings, trace.Info);
 
         if (ContributingRecordQuality.TryGetMethodWarning(
             trace.Source.RecordSemantics,

@@ -96,7 +96,8 @@ internal static class RankingExecutor
                 scope,
                 info.Path,
                 symbols,
-                request.SymbolOptions?.ResolveNativeRuntime == true),
+                request.SymbolOptions?.ResolveNativeRuntime == true,
+                info.CpuSampling),
             AnalysisContext.ForTrace(
                 "rank",
                 trace,

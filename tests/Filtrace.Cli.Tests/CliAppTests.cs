@@ -125,6 +125,27 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
+    public void Run_InfoEventPipeJson_WarnsAndQualifiesCpuRoute()
+    {
+        (int exit, string output, _) = Run(
+            "info", FixturePath("activity.nettrace"), "--format", "json");
+
+        exit.Should().Be(ExitCodes.Success);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement envelope = document.RootElement;
+        envelope.GetProperty("result").GetProperty("cpuSampling")
+            .GetProperty("source").GetString().Should().Be("sampleprofiler");
+
+        envelope.GetProperty("warnings").EnumerateArray().Should().Contain(warning =>
+            warning.GetProperty("message").GetString()!.Contains(
+                "SampleProfiler thread-stack samples", StringComparison.Ordinal));
+
+        envelope.GetProperty("hints").EnumerateArray().Should().Contain(hint =>
+            hint.GetProperty("reason").GetString()!.Contains(
+                "sampled thread stacks (not on-core CPU time) -> cpu", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void Run_InfoQualityPolicy_AcceptsObservedCpu()
     {
         (int exit, string output, _) = Run(
@@ -771,7 +792,7 @@ public sealed class CliAppTests
 
     [TestMethod]
     [DataRow("folding.speedscope.json", "ms", "speedscope-profile-declared-time-weights", true)]
-    [DataRow("activity.nettrace", "samples", "unavailable", false)]
+    [DataRow("activity.nettrace", "samples", "sampleprofiler", false)]
     public void Run_ProcessesJson_ReportsCpuWeightContract(
         string fixture,
         string expectedUnit,
@@ -794,6 +815,12 @@ public sealed class CliAppTests
         JsonElement cpuSampling = context.GetProperty("cpuSampling");
         cpuSampling.GetProperty("source").GetString().Should().Be(expectedSource);
         cpuSampling.GetProperty("timeWeightsEstablished").GetBoolean().Should().Be(timeWeightsEstablished);
+        if (expectedSource == "sampleprofiler")
+        {
+            root.GetProperty("warnings").EnumerateArray().Should().Contain(warning =>
+                warning.GetProperty("message").GetString()!.Contains(
+                    "SampleProfiler thread-stack samples", StringComparison.Ordinal));
+        }
     }
 
     [TestMethod]
@@ -1257,6 +1284,34 @@ public sealed class CliAppTests
         error.Should().BeEmpty();
         output.Should().Contain("\"mode\":\"snapshot\"")
             .And.Contain("\"snapshot\"");
+    }
+
+    [TestMethod]
+    public void Run_TimelineEventPipeCpu_WarnsInBucketsAndSnapshot()
+    {
+        foreach (string[] arguments in new[]
+        {
+            new[] { "--lanes", "cpu" },
+            new[] { "--mode", "snapshot", "--at", "0", "--window", "60000" }
+        })
+        {
+            (int exit, string output, _) = Run(
+                ["timeline", ExceptionsTrace, .. arguments, "--format", "json"]);
+
+            exit.Should().Be(ExitCodes.Success);
+            using JsonDocument document = JsonDocument.Parse(output);
+            JsonElement envelope = document.RootElement;
+            envelope.GetProperty("warnings").EnumerateArray().Should().Contain(warning =>
+                warning.GetProperty("message").GetString()!.Contains(
+                    "SampleProfiler thread-stack samples", StringComparison.Ordinal));
+
+            envelope.GetProperty("hints").EnumerateArray().Should().Contain(hint =>
+                hint.GetProperty("reason").GetString()!.Contains(
+                    arguments[0] == "--lanes" ? "thread-stack sample window" : "sampled thread stacks",
+                    StringComparison.Ordinal));
+
+            envelope.GetProperty("result").TryGetProperty("cpuSampleWarning", out _).Should().BeFalse();
+        }
     }
 
     [TestMethod]

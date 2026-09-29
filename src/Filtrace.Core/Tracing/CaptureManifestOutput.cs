@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using Filtrace.Tracing.Readers;
+
 namespace Filtrace.Tracing;
 
 /// <summary>
@@ -34,6 +36,60 @@ internal static class CaptureManifestOutput
         if (warnings.Count < MaxWarningsPerCase)
         {
             warnings.Add(Bound(warning, MaxWarningLength));
+        }
+    }
+
+    /// <summary>
+    ///  Reserves a bounded case warning for contributing SampleProfiler records.
+    /// </summary>
+    /// <param name="warnings">The case warnings to append to.</param>
+    /// <param name="info">The analyzed trace and its CPU sample provenance.</param>
+    /// <param name="side">The diff arm label, or <see langword="null"/> for batch.</param>
+    public static void AddCpuSampleWarning(List<string> warnings, TraceInfo info, string? side = null)
+    {
+        if (CpuSampleEvidence.WarningFor(info.CpuSampling) is string sampleWarning)
+        {
+            AddWarning(warnings, side is null ? sampleWarning : $"{side}: {sampleWarning}");
+        }
+    }
+
+    /// <summary>
+    ///  Reserves a bounded case warning for incomplete capture evidence.
+    /// </summary>
+    /// <param name="warnings">The case warnings to append to.</param>
+    /// <param name="info">The trace and its lost-event count.</param>
+    /// <param name="side">The diff arm label, or <see langword="null"/> for batch.</param>
+    public static void AddEventLossWarning(List<string> warnings, TraceInfo info, string? side = null)
+    {
+        if (TraceLogReader.EventLossWarning(info.EventsLost) is string lossWarning)
+        {
+            AddWarning(warnings, side is null ? lossWarning : $"{side}: {lossWarning}");
+        }
+    }
+
+    /// <summary>
+    ///  Adds other trace-quality warnings after the reserved SampleProfiler warning.
+    /// </summary>
+    /// <param name="warnings">The case warnings to append to.</param>
+    /// <param name="info">The analyzed trace and its quality warnings.</param>
+    /// <param name="side">The diff arm label, or <see langword="null"/> for batch.</param>
+    public static void AddOtherTraceWarnings(List<string> warnings, TraceInfo info, string? side = null)
+    {
+        string? sampleWarning = CpuSampleEvidence.WarningFor(info.CpuSampling);
+        string? lossWarning = TraceLogReader.EventLossWarning(info.EventsLost);
+        foreach (string warning in info.Warnings.Take(MaxWarningsPerCase))
+        {
+            if (string.Equals(warning, sampleWarning, StringComparison.Ordinal)
+                || string.Equals(warning, lossWarning, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            AddWarning(warnings, side is null ? warning : $"{side}: {warning}");
+            if (warnings.Count == MaxWarningsPerCase)
+            {
+                break;
+            }
         }
     }
 
