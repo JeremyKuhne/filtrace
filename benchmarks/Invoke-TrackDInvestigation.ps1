@@ -1132,14 +1132,25 @@ function Get-ValidatedCpuSampling(
             $source -cnotin @(
                 'unavailable',
                 'etw-perfinfo',
+                'sampleprofiler',
+                'mixed-etw-sampleprofiler',
                 'speedscope-profile-declared-sample-weights') -or
-            ($source -cin @('unavailable', 'speedscope-profile-declared-sample-weights') -and
+            ($source -cin @(
+                'unavailable', 'sampleprofiler',
+                'speedscope-profile-declared-sample-weights') -and
                 ($intervalCount -ne 0 -or $intervalsTruncated -or
-                    $unknownIntervalSampleCount -ne $ExpectedRecordCount)) -or
+                    $unknownIntervalSampleCount -ne $ExpectedRecordCount -or
+                    ($source -ceq 'sampleprofiler' -and $ExpectedRecordCount -eq 0))) -or
             ($source -ceq 'etw-perfinfo' -and
                 ($intervalCount -eq 0 -or
                     $unknownIntervalSampleCount -le 0 -or
-                    $unknownIntervalSampleCount -gt $ExpectedRecordCount))
+                    $unknownIntervalSampleCount -gt $ExpectedRecordCount)) -or
+            ($source -ceq 'mixed-etw-sampleprofiler' -and
+                ($ExpectedRecordCount -lt 2 -or
+                    $unknownIntervalSampleCount -le 0 -or
+                    ($intervalCount -eq 0 -and
+                        ($omittedIntervalSegmentCount -ne 0 -or
+                            $unknownIntervalSampleCount -ne $ExpectedRecordCount))))
         ) {
             throw "$Owner returned incompatible schema 17 CPU sampling provenance."
         }
@@ -1155,7 +1166,7 @@ function Get-ValidatedCpuSampling(
         throw "$Owner returned incompatible schema 17 CPU sampling provenance."
     }
 
-    if ($source -ceq 'etw-perfinfo') {
+    if ($source -cin @('etw-perfinfo', 'mixed-etw-sampleprofiler')) {
         if (
             $unknownIntervalSampleCount -gt $ExpectedRecordCount -or
             $retainedIntervalSampleCount -gt $ExpectedRecordCount - $unknownIntervalSampleCount -or

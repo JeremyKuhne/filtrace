@@ -683,6 +683,35 @@ public sealed class CaptureManifestReaderTests
     }
 
     [TestMethod]
+    public void AnalyzeBatch_RootMismatchAndIncompleteMetadata_SurviveCaptureWarnings()
+    {
+        CpuSampleProvenance sampling = new(
+            "samples", CpuSampleEvidence.SampleProfilerSource,
+            TimeWeightsEstablished: false, UnknownIntervalSampleCount: 2, Intervals: []);
+
+        LoadedTrace trace = Loaded(
+            "sampleprofiler", 1.0, 1.0,
+            warnings: ["scope one", "scope two", "scope three", "scope four"],
+            cpuSampling: sampling,
+            eventsLost: 4);
+
+        CaptureManifest manifest = Manifest(
+            Case("sample", "Bench.Work", "Mode: Sample", "Sample") with { OperationCount = 10 });
+
+        BatchRankingResult result = CaptureManifestBatchAnalyzer.Analyze(
+            manifest, "cpu", inclusive: false, root: "Absent", FrameNames.DefaultFoldPatterns,
+            (_, _) => trace);
+
+        BatchRankingCaseResult captureCase = result.Cases.Single();
+        captureCase.TopFrame.Should().BeNull();
+        captureCase.Warnings.Should().HaveCount(CaptureManifestOutput.MaxWarningsPerCase);
+        captureCase.Warnings[0].Should().StartWith("Trace records report 4 lost events");
+        captureCase.Warnings[1].Should().StartWith("SampleProfiler thread-stack samples");
+        captureCase.Warnings[2].Should().Contain("root 'Absent' matched no frames");
+        captureCase.Warnings[3].Should().Contain("per-operation values omitted");
+    }
+
+    [TestMethod]
     public void AnalyzeManifestDiff_LostEventsAndSampleProfiler_SurviveBothArmBudgets()
     {
         CpuSampleProvenance sampling = new(
@@ -714,10 +743,73 @@ public sealed class CaptureManifestReaderTests
 
         IReadOnlyList<string> warnings = analysis.Result.Cases.Single().Warnings;
         warnings.Should().HaveCount(CaptureManifestOutput.MaxWarningsPerCase);
-        warnings[0].Should().StartWith("baseline: Trace records report 4 lost events");
-        warnings[1].Should().StartWith("current: Trace records report 7 lost events");
-        warnings[2].Should().StartWith("baseline: SampleProfiler thread-stack samples");
-        warnings[3].Should().StartWith("current: SampleProfiler thread-stack samples");
+        warnings[0].Should().Contain("baseline: 4 lost events, SampleProfiler")
+            .And.Contain("current: 7 lost events, SampleProfiler")
+            .And.Contain("raw counts, not on-core CPU time");
+
+        warnings[1].Should().Be("baseline: first");
+    }
+
+    [TestMethod]
+    public void AnalyzeManifestDiff_RootMismatchAndMetadataFailure_SurviveBothCaptureArms()
+    {
+        CpuSampleProvenance sampling = new(
+            "samples", CpuSampleEvidence.SampleProfilerSource,
+            TimeWeightsEstablished: false, UnknownIntervalSampleCount: 2, Intervals: []);
+
+        LoadedTrace baseline = Loaded("baseline", 1.0, 1.0, cpuSampling: sampling, eventsLost: 4);
+        LoadedTrace current = Loaded("current", 1.0, 1.0, cpuSampling: sampling, eventsLost: 7);
+        CaptureManifest before = Manifest(
+            Case("sample", "Bench.Work", "Mode: Sample", "Sample") with
+            {
+                OperationCount = 10,
+                OperationUnit = "items"
+            });
+
+        CaptureManifest after = Manifest(
+            Case("sample", "Bench.Work", "Mode: Sample", "Sample") with
+            {
+                OperationCount = 20,
+                OperationUnit = "operations"
+            });
+
+        CaptureManifestDiffAnalysis analysis = CaptureManifestDiffAnalyzer.Analyze(
+            before, after, inclusive: false, root: "Absent",
+            FrameNames.DefaultFoldPatterns, top: 5,
+            (manifest, _) => ReferenceEquals(manifest, before) ? baseline : current);
+
+        RankingDiffCaseResult result = analysis.Result.Cases.Single();
+        result.Rows.Should().BeEmpty();
+        result.BeforeRootCoverage!.RetainedWeight.Should().Be(0.0);
+        result.AfterRootCoverage!.RetainedWeight.Should().Be(0.0);
+        result.Warnings.Should().HaveCount(CaptureManifestOutput.MaxWarningsPerCase);
+        result.Warnings[0].Should().Contain("baseline: 4 lost events, SampleProfiler")
+            .And.Contain("current: 7 lost events, SampleProfiler");
+
+        result.Warnings[1].Should().Contain("baseline: root 'Absent' matched no frames");
+        result.Warnings[2].Should().Contain("current: root 'Absent' matched no frames");
+        result.Warnings[3].Should().Contain("per-operation values omitted");
+    }
+
+    [TestMethod]
+    public void AddPairCaptureWarning_MaximumLossAndMixedSamples_StaysWithinCaseBudget()
+    {
+        CpuSampleProvenance sampling = new(
+            "samples", CpuSampleEvidence.MixedSource,
+            TimeWeightsEstablished: false, UnknownIntervalSampleCount: 2, Intervals: []);
+
+        LoadedTrace baseline = Loaded("baseline", 1.0, 1.0, cpuSampling: sampling, eventsLost: int.MaxValue);
+        LoadedTrace current = Loaded("current", 1.0, 1.0, cpuSampling: sampling, eventsLost: int.MaxValue);
+        List<string> warnings = [];
+
+        CaptureManifestOutput.AddPairCaptureWarning(warnings, baseline.Info, current.Info);
+
+        warnings.Should().ContainSingle();
+        warnings[0].Length.Should().BeLessThanOrEqualTo(CaptureManifestOutput.MaxWarningLength);
+        warnings[0].Should().Contain("baseline: 2147483647 lost events")
+            .And.Contain("current: 2147483647 lost events")
+            .And.Contain("mixed ETW/SampleProfiler")
+            .And.Contain("raw counts, not on-core CPU time");
     }
 
     [TestMethod]

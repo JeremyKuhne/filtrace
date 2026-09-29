@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Globalization;
 using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Tracing;
@@ -65,6 +66,65 @@ internal static class CaptureManifestOutput
         {
             AddWarning(warnings, side is null ? lossWarning : $"{side}: {lossWarning}");
         }
+    }
+
+    /// <summary>
+    ///  Summarizes both diff arms' capture quality in one bounded warning so
+    ///  root and per-operation diagnostics still have room in the case budget.
+    /// </summary>
+    /// <param name="warnings">The case warnings to append to.</param>
+    /// <param name="baseline">The baseline trace's capture evidence.</param>
+    /// <param name="current">The current trace's capture evidence.</param>
+    public static void AddPairCaptureWarning(List<string> warnings, TraceInfo baseline, TraceInfo current)
+    {
+        string? before = DescribeCapture(baseline);
+        string? after = DescribeCapture(current);
+        if (before is null && after is null)
+        {
+            return;
+        }
+
+        List<string> parts = [];
+        if (before is not null)
+        {
+            parts.Add($"baseline: {before}");
+        }
+
+        if (after is not null)
+        {
+            parts.Add($"current: {after}");
+        }
+
+        if (baseline.EventsLost > 0 || current.EventsLost > 0)
+        {
+            parts.Add("capture incomplete");
+        }
+
+        if (CpuSampleEvidence.ContainsSampleProfiler(baseline.CpuSampling)
+            || CpuSampleEvidence.ContainsSampleProfiler(current.CpuSampling))
+        {
+            parts.Add("thread stacks are raw counts, not on-core CPU time or blocked-time percentages");
+        }
+
+        AddWarning(warnings, string.Join("; ", parts));
+    }
+
+    private static string? DescribeCapture(TraceInfo info)
+    {
+        string? source = info.CpuSampling?.Source switch
+        {
+            CpuSampleEvidence.SampleProfilerSource => "SampleProfiler",
+            CpuSampleEvidence.MixedSource => "mixed ETW/SampleProfiler",
+            _ => null
+        };
+
+        if (info.EventsLost <= 0)
+        {
+            return source;
+        }
+
+        string loss = $"{info.EventsLost.ToString(CultureInfo.InvariantCulture)} lost events";
+        return source is null ? loss : $"{loss}, {source}";
     }
 
     /// <summary>
