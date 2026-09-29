@@ -16,10 +16,15 @@
 .PARAMETER WindowsNativeArgv
     Also run the Windows native fake-collector and argv-recorder contract. Build
     tests/Filtrace.LocalTesting.Tests in Release before using this switch.
+
+.PARAMETER NativeArgvOnly
+    With -WindowsNativeArgv, run just the Windows-native proof and its two encoder
+    mutations. The full shared fake-command contract runs on Linux ARM64 in CI.
 #>
 [CmdletBinding()]
 param(
         [switch]$WindowsNativeArgv,
+        [switch]$NativeArgvOnly,
         [switch]$EnvironmentCleanupProbe
 )
 
@@ -169,6 +174,12 @@ function Invoke-WindowsNativeArgvProof(
 if ($WindowsNativeArgv -and [System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
     throw '-WindowsNativeArgv requires Windows.'
 }
+if ($NativeArgvOnly -and -not $WindowsNativeArgv) {
+    throw '-NativeArgvOnly requires -WindowsNativeArgv.'
+}
+if ($NativeArgvOnly -and $EnvironmentCleanupProbe) {
+    throw '-NativeArgvOnly cannot be combined with -EnvironmentCleanupProbe.'
+}
 
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 try {
@@ -264,6 +275,19 @@ $PSNativeCommandArgumentPassing = $NativeArgumentPassing
     )
     Assert-True ($testElevatedDefinitions.Count -eq 1) 'Command capture helper did not contain exactly one Test-Elevated function.'
     $testElevatedDefinition = $testElevatedDefinitions[0]
+    $testCaptureSource =
+        $captureSource.Substring(0, $testElevatedDefinition.Extent.StartOffset) +
+        'function Test-Elevated { return $true }' +
+        $captureSource.Substring($testElevatedDefinition.Extent.EndOffset)
+    $testCaptureSource = $testCaptureSource.Replace('if ($IsWindows -eq $false)', 'if ($false)')
+    $testCaptureScript = Join-Path $temporaryRoot 'Capture-CommandTrace.ps1'
+    [System.IO.File]::WriteAllText(
+        $testCaptureScript,
+        $testCaptureSource,
+        [System.Text.UTF8Encoding]::new($false))
+
+    # Linux runs this complete portable matrix; Windows keeps the native proof below.
+    if (-not $NativeArgvOnly) {
     $boundedWriterDefinitions = @(
         $captureAst.FindAll(
             { param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-BoundedUtf8File' },
@@ -302,17 +326,6 @@ $PSNativeCommandArgumentPassing = $NativeArgumentPassing
     Remove-Item -LiteralPath $exactUnicodePath
     $exactUnicodeJson = $null
     $oversizedUnicodeJson = $null
-
-    $testCaptureSource =
-        $captureSource.Substring(0, $testElevatedDefinition.Extent.StartOffset) +
-        'function Test-Elevated { return $true }' +
-        $captureSource.Substring($testElevatedDefinition.Extent.EndOffset)
-    $testCaptureSource = $testCaptureSource.Replace('if ($IsWindows -eq $false)', 'if ($false)')
-    $testCaptureScript = Join-Path $temporaryRoot 'Capture-CommandTrace.ps1'
-    [System.IO.File]::WriteAllText(
-        $testCaptureScript,
-        $testCaptureSource,
-        [System.Text.UTF8Encoding]::new($false))
 
     $fakeFiltrace = Join-Path $temporaryRoot 'Fake-Filtrace.ps1'
     $fakeFiltraceText = @'
@@ -795,6 +808,7 @@ $global:LASTEXITCODE = 0
         }
     }
     Remove-Item Env:FILTRACE_COMMAND_MODE -ErrorAction SilentlyContinue
+    }
 
     if ($WindowsNativeArgv) {
         $probeBuildDirectory = Join-Path $root 'tests/Filtrace.LocalTesting.Tests/bin/Release/net10.0'
@@ -884,6 +898,19 @@ $global:LASTEXITCODE = 0
         Assert-True ($nativeEvidence.Count -eq $nativeScenarios.Count) 'The Windows native argv proof did not return every case record.'
         $evidenceText = $nativeEvidence | ForEach-Object { "$($_.Name):$($_.ArgumentCount)args/$($_.EncodedLength)chars/pid=$($_.ProcessId)" }
         Write-Host "Windows native argv proof passed under $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion) with caller mode Legacy and helper mode Standard: $($evidenceText -join '; '). Encoder mutation rejected: $mutationFailure Caller-mode mutation rejected: $callerLegacyFailure" -ForegroundColor Green
+    }
+    if ($NativeArgvOnly) {
+        $nativeSpecPath = Join-Path $temporaryRoot 'native-caller-legacy.json'
+        $nativeManifestPath = Join-Path $temporaryRoot 'native-caller-legacy/manifest.json'
+        $nativeManifestHash = (Get-FileHash -LiteralPath $nativeManifestPath -Algorithm SHA256).Hash
+        $invalidDigest = Invoke-CaptureChild $testCaptureScript $nativeSpecPath ('0' * 64)
+        Assert-True ($invalidDigest.ExitCode -ne 0 -and
+            $invalidDigest.Output.Contains('does not match the digest supplied by the parent', [StringComparison]::Ordinal) -and
+            (Get-FileHash -LiteralPath $nativeManifestPath -Algorithm SHA256).Hash -ceq $nativeManifestHash) `
+            'Windows native-only mode did not reject an invalid spec digest without changing the prior manifest.'
+        $global:LASTEXITCODE = 0
+        Write-Host 'Windows native argv contract checks passed.' -ForegroundColor Green
+        return
     }
 
     foreach ($failureMode in @('version-nonzero', 'version-empty', 'help-nonzero', 'help-missing-capability')) {

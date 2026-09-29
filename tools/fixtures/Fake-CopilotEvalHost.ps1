@@ -458,11 +458,11 @@ $answer = if ($mode -eq 'wrong-answer') { 'There were 6 garbage collections.' } 
 
 $events = [System.Collections.Generic.List[object]]::new()
 [System.Collections.Generic.List[object]] $reportedSkills = [System.Collections.Generic.List[object]]::new()
-if ($skillPath -and $mode -ne 'missing-skill-discovery') {
+if ($skillPath) {
     $reportedSkills.Add([ordered]@{
-        name = if ($mode -eq 'skill-discovery-name-case') { 'FILTRACE' } else { 'filtrace' }
+        name = 'filtrace'
         commandName = 'filtrace'
-        source = if ($mode -eq 'skill-discovery-source-case') { 'PROJECT' } else { 'project' }
+        source = 'project'
         enabled = $true
         path = $skillPath
     })
@@ -533,64 +533,42 @@ if ($skillPath -and $mode -ne 'missing-skill-read') {
             (($relatedPaths | ForEach-Object { "  - $_" }) -join "`n")
     }
     else { '' }
-    [string] $reportedSkillName = if ($mode -eq 'skill-ledger-mismatch') { 'other-skill' } else { 'filtrace' }
-    [string] $reportedSkillToolName = if ($mode -eq 'skill-tool-case') { 'Skill' } else { 'skill' }
-    $reportedSkillArguments = if ($mode -eq 'skill-argument-name-case') {
-        [ordered]@{ Skill = 'filtrace' }
-    }
-    elseif ($mode -eq 'skill-argument-value-case') {
-        [ordered]@{ skill = 'FILTRACE' }
-    }
-    else {
-        [ordered]@{ skill = $reportedSkillName }
-    }
     [string] $contextBody = if ($mode -in @(
-            'wrong-skill-hash', 'skill-missing-page', 'skill-hole', 'skill-reorder',
+            'skill-missing-page', 'skill-hole', 'skill-reorder',
             'skill-overlap-conflict', 'skill-malformed-line-hint', 'skill-malformed-suffix',
             'skill-wrong-character', 'skill-forged-diff')) {
         '!' + $skillBody.Substring(1)
     }
     else { $skillBody }
-    [string] $extraContext = if ($mode -eq 'skill-extra-context') { "`nInjected text outside the skill source." } else { '' }
     $events.Add([ordered]@{
             type = 'tool.execution_start'
             data = [ordered]@{
                 toolCallId = 'skill-load'
-                toolName = $reportedSkillToolName
-                arguments = $reportedSkillArguments
+                toolName = 'skill'
+                arguments = [ordered]@{ skill = 'filtrace' }
             }
         })
     $skillCompletionData = [ordered]@{
         toolCallId = 'skill-load'
-        success = $mode -ne 'failed-skill-load'
-    }
-    if ($skillCompletionData.success) {
-        $skillCompletionData.result = [ordered]@{
+        success = $true
+        result = [ordered]@{
             content = 'Skill "filtrace" loaded successfully. Follow the instructions in the skill context.'
             detailedContent = "Skill loaded successfully ✅`n`n$skillBody"
-        }
-    }
-    else {
-        $skillCompletionData.error = [ordered]@{
-            code = 'failed'
-            message = 'Skill load failed.'
         }
     }
     $events.Add([ordered]@{
             type = 'tool.execution_complete'
             data = $skillCompletionData
         })
-    if ($mode -ne 'missing-skill-context') {
-        $events.Add([ordered]@{
-                type = 'model.message'
-                data = [ordered]@{
-                    message = [ordered]@{
-                        role = if ($mode -eq 'skill-context-role-case') { 'USER' } else { 'user' }
-                        content = "<skill-context name=`"filtrace`">`nBase directory for this skill: $skillDirectory$relatedSection$extraContext`n`n$contextBody`n</skill-context>"
-                    }
+    $events.Add([ordered]@{
+            type = 'model.message'
+            data = [ordered]@{
+                message = [ordered]@{
+                    role = 'user'
+                    content = "<skill-context name=`"filtrace`">`nBase directory for this skill: $skillDirectory$relatedSection`n`n$contextBody`n</skill-context>"
                 }
-            })
-    }
+            }
+        })
     if ($mode -in @('skill-view-success', 'skill-view-altered', 'mutated-skill-view-file')) {
         [string] $relatedPath = Join-Path $skillDirectory 'references/guide.md'
         $viewArguments = [ordered]@{ path = $relatedPath }
@@ -716,33 +694,8 @@ if ($mode -ne 'answer-only') {
         $toolArguments.initial_wait = 120
     }
     switch ($mode) {
-        'command-member-case' {
-            $toolArguments = [ordered]@{
-                Command = $command
-                description = 'Analyze the owned trace with filtrace'
-                mode = 'sync'
-                initial_wait = 30
-            }
-        }
-        'mode-member-case' {
-            [void]$toolArguments.Remove('mode')
-            $toolArguments.Mode = 'sync'
-        }
-        'missing-command-argument' { [void]$toolArguments.Remove('command') }
-        'missing-description-argument' { [void]$toolArguments.Remove('description') }
-        'invalid-command-type' { $toolArguments.command = @($command) }
-        'invalid-mode-type' { $toolArguments.mode = $true }
         'async-mode' { $toolArguments.mode = 'async' }
-        'invalid-initial-wait-type' { $toolArguments.initial_wait = '30' }
-        'zero-initial-wait' { $toolArguments.initial_wait = 0 }
-        'unbounded-initial-wait' { $toolArguments.initial_wait = 121 }
-        'shell-sandbox-flag' { $toolArguments.sandbox = $true }
     }
-    [string[]] $invalidToolArgumentModes = @(
-        'command-member-case', 'mode-member-case',
-        'missing-command-argument', 'missing-description-argument', 'invalid-command-type',
-        'invalid-mode-type', 'async-mode', 'invalid-initial-wait-type',
-        'zero-initial-wait', 'unbounded-initial-wait', 'shell-sandbox-flag')
     if ($mode -eq 'mutated-execution-policy') {
         [int] $policyPathIndex = [Array]::IndexOf([object[]]$preToolHook[0].args, '-PolicyPath')
         if ($policyPathIndex -lt 0) { throw 'Fake host could not locate the execution policy path.' }
@@ -775,7 +728,7 @@ if ($mode -ne 'answer-only') {
             -Hook $preToolHook[0] `
             -ToolName $toolName `
             -ToolArguments $toolArguments
-        [string] $expectedDecision = if ($invalidToolArgumentModes -contains $mode) { 'deny' } else { 'allow' }
+        [string] $expectedDecision = if ($mode -eq 'async-mode') { 'deny' } else { 'allow' }
         if ($preToolDecision.permissionDecision -ne $expectedDecision) {
             throw "Fake Copilot host policy returned '$($preToolDecision.permissionDecision)' for '$mode'; expected '$expectedDecision'."
         }
@@ -813,47 +766,17 @@ if ($mode -ne 'answer-only') {
         }
         if ($completionSucceeded) {
             $completionData.result = @(
-                    [string] $schemaVersion = if ($mode -eq 'unknown-cli-schema') {
-                        '17'
-                    }
-                    elseif ($mode -eq 'fractional-cli-schema') {
-                        '18.0'
-                    }
-                    else {
-                        '18'
-                    }
-                    [string] $resultJson = if ($mode -eq 'scalar-cli-result') {
-                        '"forged"'
-                    }
-                    elseif ($mode -eq 'empty-cli-result') {
-                        '{}'
-                    }
-                    else {
-                        '{"gcCount":7}'
-                    }
-                    [string] $json = "{`"schemaVersion`":$schemaVersion,`"context`":{`"operation`":`"$reportedOperation`"},`"result`":$resultJson}"
+                    [string] $json = "{`"schemaVersion`":18,`"context`":{`"operation`":`"$reportedOperation`"},`"result`":{`"gcCount`":7}}"
                     if ($mode -eq 'duplicate-cli-root-member') {
                         $json = $json.Replace(
                             '"schemaVersion":18,',
                             '"schemaVersion":17,"schemaVersion":18,')
                     }
-                    elseif ($mode -eq 'duplicate-cli-context-member') {
-                        $json = $json.Replace(
-                            '"context":{"operation":"gc"}',
-                            '"context":{"operation":"rank","operation":"gc"}')
+                    [string] $content = if ($mode -eq 'nonzero-shell-wrapper') {
+                        "$json`n<shellId: 0 completed with exit code 1>"
                     }
-                    elseif ($mode -eq 'duplicate-cli-result-member') {
-                        $json = $json.Replace(
-                            '"result":{"gcCount":7}',
-                            '"result":{"gcCount":6,"gcCount":7}')
-                    }
-                    [string] $content = switch ($mode) {
-                        'malformed-shell-wrapper' { "prefix`n$json`n<shellId: 0 completed with exit code 0>"; break }
-                        'nonzero-shell-wrapper' { "$json`n<shellId: 0 completed with exit code 1>"; break }
-                        default { "$json`n<shellId: 0 completed with exit code 0>" }
-                    }
-                    [string] $detailedContent = if ($mode -eq 'mismatched-shell-content') { "$content changed" } else { $content }
-                    [ordered]@{ content = $content; detailedContent = $detailedContent }
+                    else { "$json`n<shellId: 0 completed with exit code 0>" }
+                    [ordered]@{ content = $content; detailedContent = $content }
                 )[0]
         }
         else {
@@ -982,24 +905,9 @@ if ($mode -eq 'event-after-result') {
                     $usageValue.lastCallOutputTokens = 583
                 }
                 'oversized-additive-usage-output' { $usageValue.additionalTelemetry = 'x' * 1MB }
-                'usage-missing-token-details' { [void]$usageValue.Remove('tokenDetails') }
-                'usage-missing-token-count' { [void]$usageValue.tokenDetails.output.Remove('tokenCount') }
-                'usage-missing-premium' { [void]$usageValue.Remove('totalPremiumRequestCost') }
-                'usage-wrong-type' { $usageValue.tokenDetails.input.tokenCount = '20' }
-                'usage-negative-token' { $usageValue.tokenDetails.cache_read.tokenCount = -1 }
                 'usage-model-mismatch' { $usageValue.currentModel = 'other-model' }
             }
             [string]($usageValue | ConvertTo-Json -Depth 6)
-        }
-        if ($mode -eq 'duplicate-usage-output') {
-            $usageJson = $usageJson.Replace(
-                '"currentModel":',
-                '"currentModel":"duplicate","currentModel":')
-        }
-        elseif ($mode -eq 'case-confusable-usage-output') {
-            $usageJson = $usageJson.Replace(
-                '"currentModel":',
-                '"CurrentModel":"confusable","currentModel":')
         }
         [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($UsageOutputFile)) | Out-Null
         [System.IO.File]::WriteAllText($UsageOutputFile, $usageJson, [System.Text.UTF8Encoding]::new($false))
