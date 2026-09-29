@@ -40,6 +40,99 @@ $steps = @(
     [pscustomobject]@{ name = 'Local activation wrapper contract'; executable = $pwsh; path = 'tools\Test-UseLocalFiltrace.ps1'; arguments = @() }
     [pscustomobject]@{ name = 'Eval gate'; executable = $pwsh; path = 'eval\Invoke-Eval.ps1'; arguments = @('-Configuration', 'Release') }
 )
+
+function Stop-OwnedProcess([System.Diagnostics.Process] $Process) {
+    try {
+        if (-not $Process.HasExited) { $Process.Kill($true) }
+    }
+    catch [System.InvalidOperationException] {
+        if (-not $Process.HasExited) { throw }
+    }
+    if (-not $Process.WaitForExit(10000)) {
+        throw "Owned process $($Process.Id) did not exit within the cleanup bound."
+    }
+}
+
+function Assert-FakeWithinDeadline(
+    [System.Diagnostics.Process] $Process,
+    [System.Diagnostics.Stopwatch] $Watch,
+    [int] $TimeoutSeconds) {
+    if ($Watch.ElapsedMilliseconds -lt ([long]$TimeoutSeconds * 1000)) { return }
+    if (-not $Process.HasExited) {
+        Stop-OwnedProcess $Process
+        throw "Fake-agent contract exceeded its $TimeoutSeconds-second deadline."
+    }
+    if (($Process.ExitTime - $Process.StartTime).TotalSeconds -gt $TimeoutSeconds) {
+        throw "Fake-agent contract exceeded its $TimeoutSeconds-second deadline."
+    }
+}
+
+function Invoke-ContractStep(
+    $Step,
+    [string] $Root,
+    [string] $WindowsPowerShell,
+    [System.Diagnostics.Process] $Fake,
+    [System.Diagnostics.Stopwatch] $FakeWatch,
+    [int] $FakeTimeoutSeconds) {
+    [string] $scriptPath = Join-Path $Root $Step.path
+    [string[]] $arguments = if ($Step.executable -eq $WindowsPowerShell) {
+        $quotedPath = $scriptPath.Replace("'", "''")
+        # A narrow child console can wrap an expected diagnostic mid-phrase.
+        $command = '$size = $Host.UI.RawUI.BufferSize; $size.Width = 200; ' +
+            '$Host.UI.RawUI.BufferSize = $size; & ' + "'" + $quotedPath + "'"
+        @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy',
+            'Bypass', '-Command', $command)
+    }
+    else {
+        @('-NoLogo', '-NoProfile', '-File', $scriptPath) + @($Step.arguments)
+    }
+
+    $info = [System.Diagnostics.ProcessStartInfo]::new([string]$Step.executable)
+    foreach ($argument in $arguments) { [void]$info.ArgumentList.Add($argument) }
+    $info.WorkingDirectory = $Root
+    $info.UseShellExecute = $false
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $process = [System.Diagnostics.Process]::new()
+    [bool] $started = $false
+    $process.StartInfo = $info
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    Write-Host "Starting $($Step.name)..."
+    try {
+        if (-not $process.Start()) { throw "Could not start $($Step.name)." }
+        $started = $true
+        Write-Host "$($Step.name) running as PID $($process.Id)."
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        while (-not $process.WaitForExit(250)) {
+            Assert-FakeWithinDeadline $Fake $FakeWatch $FakeTimeoutSeconds
+        }
+        Assert-FakeWithinDeadline $Fake $FakeWatch $FakeTimeoutSeconds
+        $drain = [System.Diagnostics.Stopwatch]::StartNew()
+        while (-not ($stdoutTask.IsCompleted -and $stderrTask.IsCompleted)) {
+            Assert-FakeWithinDeadline $Fake $FakeWatch $FakeTimeoutSeconds
+            if ($drain.ElapsedMilliseconds -ge 10000) {
+                throw "$($Step.name) child streams remained open after exit."
+            }
+            [System.Threading.Thread]::Sleep(100)
+        }
+        Assert-FakeWithinDeadline $Fake $FakeWatch $FakeTimeoutSeconds
+        [Console]::Out.Write($stdoutTask.GetAwaiter().GetResult())
+        [Console]::Error.Write($stderrTask.GetAwaiter().GetResult())
+        [int] $exitCode = $process.ExitCode
+        if ($exitCode -ne 0) { throw "$($Step.name) failed with exit code $exitCode." }
+        $watch.Stop()
+        Write-Host ("Passed {0} in {1:F2} seconds." -f $Step.name,
+            $watch.Elapsed.TotalSeconds)
+    }
+    finally {
+        try {
+            if ($started) { Stop-OwnedProcess $process }
+        }
+        finally { $process.Dispose() }
+    }
+}
+
 $originalPolicy = $env:PSExecutionPolicyPreference
 $fake = [System.Diagnostics.Process]::new()
 [bool] $started = $false
@@ -64,30 +157,10 @@ try {
     Write-Host "Fake-agent contract running as PID $($fake.Id)."
 
     foreach ($step in $steps) {
-        [string] $scriptPath = Join-Path $root $step.path
-        [string[]] $arguments = if ($step.executable -eq $windowsPowerShell) {
-            $quotedPath = $scriptPath.Replace("'", "''")
-            # A narrow child console can wrap an expected diagnostic mid-phrase.
-            $command = '$size = $Host.UI.RawUI.BufferSize; $size.Width = 200; ' +
-                '$Host.UI.RawUI.BufferSize = $size; & ' + "'" + $quotedPath + "'"
-            @('-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy',
-                'Bypass', '-Command', $command)
-        }
-        else {
-            @('-NoLogo', '-NoProfile', '-File', $scriptPath) + @($step.arguments)
-        }
-        $watch = [System.Diagnostics.Stopwatch]::StartNew()
-        Write-Host "Starting $($step.name)..."
-        & ([string]$step.executable) @arguments
-        [int] $exitCode = $LASTEXITCODE
-        $watch.Stop()
-        if ($exitCode -ne 0) {
-            throw "$($step.name) failed with exit code $exitCode."
-        }
-        Write-Host ("Passed {0} in {1:F2} seconds." -f $step.name,
-            $watch.Elapsed.TotalSeconds)
+        Invoke-ContractStep $step $root $windowsPowerShell $fake $fakeWatch $FakeTimeoutSeconds
     }
 
+    Assert-FakeWithinDeadline $fake $fakeWatch $FakeTimeoutSeconds
     [long] $remaining = [Math]::Max(0,
         ([long]$FakeTimeoutSeconds * 1000) - $fakeWatch.ElapsedMilliseconds)
     if (-not $fake.WaitForExit([int]$remaining)) {
@@ -108,13 +181,12 @@ try {
         $fakeWatch.Elapsed.TotalSeconds)
 }
 finally {
-    if ($started -and -not $fake.HasExited) {
-        $fake.Kill($true)
-        if (-not $fake.WaitForExit(10000)) {
-            Write-Warning "Owned fake-agent process $($fake.Id) may still be running."
-        }
+    try {
+        if ($started) { Stop-OwnedProcess $fake }
     }
-    $fake.Dispose()
-    $env:PSExecutionPolicyPreference = $originalPolicy
-    Pop-Location
+    finally {
+        $fake.Dispose()
+        $env:PSExecutionPolicyPreference = $originalPolicy
+        Pop-Location
+    }
 }
