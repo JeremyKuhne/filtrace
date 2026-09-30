@@ -10,9 +10,11 @@ repository's package pin, and the four open Filtrace issues (#12, #57, #92,
 and #133). The default trace engine and package-release policy are unchanged.
 
 **Current status:** VN5 is complete: the CLI registers only its 16 canonical
-commands, and MCP tool names are unchanged. No additional implementation campaign,
-agent comparison, CI-time optimization, package release, or multi-operation CLI
-feature is selected. A new item becomes active only when an explicit user
+commands, and MCP tool names are unchanged. v0.10.0 is released.
+[Post-release validation](release-validation.md) adds provenance and isolated
+package smoke checks for future releases. Another tag or package publication
+still requires separate approval. No additional feature or agent-comparison
+campaign is selected. A new item becomes active only when an explicit user
 scenario, ownership, and verification gate are agreed; a possible
 implementation is not an authorization to start one.
 

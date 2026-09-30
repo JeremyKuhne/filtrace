@@ -80,6 +80,26 @@ jobs:
         shell: pwsh
         run: ./tools/Test-Docs.ps1
 
+      - name: Release provenance contract
+        shell: pwsh
+        run: ./tools/Test-ReleaseReadiness.ps1
+
+      - name: Release package failure contract
+        shell: pwsh
+        run: ./tools/Test-ReleasePackagesContract.ps1
+
+      - name: Pack and smoke-test CLI/MCP deployment
+        shell: pwsh
+        run: |
+          dotnet pack filtrace.slnx --configuration Release --no-build --output artifacts/release-package-candidate
+          if ($LASTEXITCODE -ne 0) { throw 'Release candidate pack failed.' }
+          $version = (dotnet msbuild src/Filtrace/Filtrace.csproj -target:MinVer -property:Configuration=Release -getProperty:PackageVersion -verbosity:quiet -nologo).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read the candidate package version.' }
+          ./tools/Test-ReleasePackages.ps1 `
+            -PackagesDirectory artifacts/release-package-candidate `
+            -ExpectedVersion $version `
+            -OutputDirectory artifacts/release-package-smoke
+
       - name: Capture helper contract
         shell: pwsh
         run: ./tools/Test-CaptureBenchmarkTrace.ps1

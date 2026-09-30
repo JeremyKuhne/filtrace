@@ -15,6 +15,7 @@ or evidence for a specific still-relevant choice; none is a parallel plan.
 | [local-testing.md](local-testing.md) | Current repository-local activation ownership and recovery by durable status. |
 | [filtrace-etl-trimming.md](filtrace-etl-trimming.md) | Fixture relogging steps and the managed-frame fidelity limit. |
 | [multi-operation-query-reuse.md](multi-operation-query-reuse.md) | Private CLI/MCP reuse measurements and conditional multi-operation design options; no public command approved. |
+| [release-validation.md](release-validation.md) | Merged-main/CI provenance and isolated package-install smoke checks for future releases. |
 
 Git history and release tags retain the full experiment and PR records. Do
 not turn one of those records into another standing implementation queue.

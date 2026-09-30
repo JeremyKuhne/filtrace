@@ -44,7 +44,7 @@ Do not use an installed global `filtrace` or the MCP server to profile this repo
 that can silently analyze with different code. For an A/B investigation, use one fixed
 locally built baseline CLI to analyze both arms.
 
-CI also runs twelve contract and evaluation checks that must stay green:
+CI also runs contract and evaluation checks that must stay green:
 
 - `tools/Test-CliHelp.ps1 -Configuration Release` - every canonical command appears
   in top-level help, unsupported commands are rejected, each help
@@ -78,6 +78,13 @@ CI also runs twelve contract and evaluation checks that must stay green:
 - `tools/Test-AgentSkills.ps1 -VerifyUpstream -ReferenceValidation` - commons
   cores match the v0.14.0 artifacts, and their overlays, metadata, readability,
   and links are valid.
+- `tools/Test-ReleaseReadiness.ps1` - release tags, merged-main identity,
+  squash-tree parity, and each complete exact-head CI prerequisite fail closed.
+- `tools/Test-ReleasePackagesContract.ps1` - fake package metadata, installed-server
+  protocol failures, stream bounds, timeouts, and owned cleanup remain explicit.
+- `tools/Test-ReleasePackages.ps1 -PackagesDirectory <local-packages> -ExpectedVersion <version> -OutputDirectory <new-evidence-root>` -
+  the exact CLI and MCP packages install and run in an isolated local feed,
+  with matching package/server versions and real CLI/MCP smoke queries.
 
 ## Frozen contracts - do not rename
 
@@ -137,5 +144,8 @@ Neither mode implies permission to force-push, rewrite history, or perform
 destructive cleanup. Do not change repository visibility, publish a new package,
 create release or version tags, or trigger a publish workflow. Local build, pack,
 and AOT compilation are validation, not permission to distribute artifacts.
+The publish workflow additionally requires a clean merged-main candidate whose
+tree matches its reviewed, green PR head, then validates the installed packages
+before acquiring a publishing key; see [release validation](docs/release-validation.md).
 Checkpoint with the user before changing contracts or scope, bypassing or proceeding
 past an unresolved required gate, or acting with uncertain repository rights.

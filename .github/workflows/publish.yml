@@ -40,6 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      checks: read
+      pull-requests: read
       id-token: write   # required for the OIDC token exchange with nuget.org
     env:
       NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
@@ -47,6 +49,19 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # MinVer needs full history and tags to compute the version
+
+      - name: Verify merged-main and exact-tree CI evidence
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG_NAME: ${{ github.ref_name }}
+        run: |
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          ./tools/Assert-ReleaseReady.ps1 `
+            -TagName $env:RELEASE_TAG_NAME `
+            -CommitSha $env:GITHUB_SHA `
+            -Repository $env:GITHUB_REPOSITORY `
+            -EvidencePath artifacts/release-readiness.json
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -64,6 +79,18 @@ jobs:
 
       - name: Pack
         run: dotnet pack filtrace.slnx --configuration Release --no-build
+
+      - name: Verify and smoke-test the exact packages
+        shell: pwsh
+        env:
+          RELEASE_TAG_NAME: ${{ github.ref_name }}
+        run: |
+          Import-Module ./tools/ReleaseReadiness.psm1
+          $version = Get-ReleaseVersion -TagName $env:RELEASE_TAG_NAME
+          ./tools/Test-ReleasePackages.ps1 `
+            -PackagesDirectory artifacts/packages `
+            -ExpectedVersion $version `
+            -OutputDirectory artifacts/release-package-smoke
 
       # Request the short-lived key immediately before pushing (it is valid ~1 hour).
       - name: NuGet login (OIDC -> short-lived API key)
