@@ -27,6 +27,24 @@ if (-not ($IsWindows -or $IsLinux)) { throw 'This contract runs on Windows or Li
 [System.Management.Automation.Language.ParseError[]] $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($smokeScript, [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count -ne 0) { throw 'Release package script does not parse.' }
+Import-Module (Join-Path $PSScriptRoot 'ReleaseReadiness.psm1') -Force
+$versionValidation = $ast.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.CommandAst] -and
+    $node.GetCommandName() -ceq 'Get-ReleaseVersion'
+}, $true)
+if ($null -eq $versionValidation) { throw 'Package smoke does not reuse release-version validation.' }
+foreach ($version in @('0.10.0', '1.2.3-beta.1', '1.2.3--', '1.2.3-01', '1.2.3+build')) {
+    & {
+        [string] $ExpectedVersion = $version
+        [bool] $accepted = $true
+        try { . ([scriptblock]::Create($versionValidation.Extent.Text)) | Out-Null }
+        catch { $accepted = $false }
+        if ($accepted -ne ($version -notin @('1.2.3-01', '1.2.3+build'))) {
+            throw "Package smoke disagrees with the release-stage version grammar for '$version'."
+        }
+    }
+}
 $applicationAssignment = $ast.Find({
     param($node)
     $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and

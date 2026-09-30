@@ -49,7 +49,7 @@ function Copy-Evidence([object] $Value) {
     return ($Value | ConvertTo-Json -Depth 12 | ConvertFrom-Json -Depth 12)
 }
 
-foreach ($version in @('0.10.0', '1.2.3-beta.1', '0.10.0-rc.1')) {
+foreach ($version in @('0.10.0', '1.2.3-beta.1', '0.10.0-rc.1', '1.2.3--')) {
     if ((Get-ReleaseVersion "v$version") -cne $version) { throw 'A valid release tag did not retain its exact version.' }
 }
 foreach ($tag in @('main', 'v', 'v01.2.3', 'v0.10', 'v0.10.0+build', 'v0.10.0-01', "v0.10.0`n")) {

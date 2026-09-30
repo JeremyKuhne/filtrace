@@ -50,7 +50,6 @@
 param(
     [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string] $PackagesDirectory,
     [Parameter(Mandatory)][ValidateLength(1, 128)]
-    [ValidatePattern('^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$')]
     [string] $ExpectedVersion,
     [ValidateNotNullOrEmpty()][string] $OutputDirectory = 'artifacts/release-smoke',
     [ValidateRange(1, 600)][int] $ProcessTimeoutSeconds = 120
@@ -62,6 +61,8 @@ if (-not ($IsWindows -or $IsLinux)) {
 }
 [string] $root = Split-Path -Parent $PSScriptRoot
 [System.Text.UTF8Encoding] $utf8 = [System.Text.UTF8Encoding]::new($false)
+Import-Module (Join-Path $PSScriptRoot 'ReleaseReadiness.psm1') -Force
+[void](Get-ReleaseVersion -TagName "v$ExpectedVersion")
 
 # Reuse the offline evaluator's bounded native runner and owned-path guards.
 # No Copilot process, evaluation protocol, or LLM is involved.
