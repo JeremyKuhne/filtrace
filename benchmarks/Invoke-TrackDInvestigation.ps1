@@ -950,20 +950,22 @@ function Test-FiniteJsonNumber([object] $Value) {
 
 function ConvertTo-ValidatedSamplingCount(
     [object] $Value,
-    [string] $Owner) {
+    [string] $Owner,
+    [int] $SchemaVersion) {
+    [string] $provenanceError = "$Owner returned incompatible schema $SchemaVersion CPU sampling provenance."
     if (
         -not (Test-FiniteJsonNumber $Value) -or
         [double]$Value -lt 0 -or
         [double]$Value -ne [Math]::Truncate([double]$Value)
     ) {
-        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        throw $provenanceError
     }
 
     try {
         return [Convert]::ToInt64($Value, [Globalization.CultureInfo]::InvariantCulture)
     }
     catch {
-        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        throw $provenanceError
     }
 }
 
@@ -1027,12 +1029,13 @@ function Get-ValidatedCpuSampling(
         }
     }
 
+    [string] $provenanceError = "$Owner returned incompatible schema $SchemaVersion CPU sampling provenance."
     [object] $cpuSamplingProperty = $Container.PSObject.Properties['cpuSampling']
     if (
         $null -eq $cpuSamplingProperty -or
         $cpuSamplingProperty.Value -isnot [pscustomobject]
     ) {
-        throw "$Owner omitted schema 17 CPU sampling provenance."
+        throw "$Owner omitted schema $SchemaVersion CPU sampling provenance."
     }
     [object] $cpuSampling = $cpuSamplingProperty.Value
     [object] $weightUnitProperty = $cpuSampling.PSObject.Properties['weightUnit']
@@ -1055,16 +1058,17 @@ function Get-ValidatedCpuSampling(
         $intervalsProperty.Value.Count -gt 32 -or
         $ExpectedRecordCount -lt 0
     ) {
-        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        throw $provenanceError
     }
 
     [long] $unknownIntervalSampleCount = ConvertTo-ValidatedSamplingCount `
         $unknownCountProperty.Value `
-        $Owner
+        $Owner `
+        $SchemaVersion
     [long] $retainedIntervalSampleCount = 0
     foreach ($interval in $intervalsProperty.Value) {
         if ($null -eq $interval) {
-            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+            throw $provenanceError
         }
 
         [object] $intervalProperty = $interval.PSObject.Properties['intervalMSec']
@@ -1075,18 +1079,19 @@ function Get-ValidatedCpuSampling(
             [double]$intervalProperty.Value -le 0 -or
             $null -eq $sampleCountProperty
         ) {
-            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+            throw $provenanceError
         }
 
         [long] $sampleCount = ConvertTo-ValidatedSamplingCount `
             $sampleCountProperty.Value `
-            $Owner
+            $Owner `
+            $SchemaVersion
         if (
             $sampleCount -le 0 -or
             $sampleCount -gt $ExpectedRecordCount -or
             $retainedIntervalSampleCount -gt $ExpectedRecordCount - $sampleCount
         ) {
-            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+            throw $provenanceError
         }
         $retainedIntervalSampleCount += $sampleCount
     }
@@ -1098,13 +1103,13 @@ function Get-ValidatedCpuSampling(
         0
     }
     else {
-        ConvertTo-ValidatedSamplingCount $omittedSegmentsProperty.Value $Owner
+        ConvertTo-ValidatedSamplingCount $omittedSegmentsProperty.Value $Owner $SchemaVersion
     }
     [long] $omittedIntervalSampleCount = if ($null -eq $omittedSamplesProperty) {
         0
     }
     else {
-        ConvertTo-ValidatedSamplingCount $omittedSamplesProperty.Value $Owner
+        ConvertTo-ValidatedSamplingCount $omittedSamplesProperty.Value $Owner $SchemaVersion
     }
     [bool] $intervalsTruncated = if ($null -eq $truncatedProperty) {
         $false
@@ -1113,14 +1118,14 @@ function Get-ValidatedCpuSampling(
         $truncatedProperty.Value
     }
     else {
-        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        throw $provenanceError
     }
     if (
         $intervalsTruncated -ne ($omittedIntervalSegmentCount -gt 0) -or
         $omittedIntervalSampleCount -lt $omittedIntervalSegmentCount -or
         ($omittedIntervalSegmentCount -eq 0 -and $omittedIntervalSampleCount -ne 0)
     ) {
-        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        throw $provenanceError
     }
 
     [string] $source = [string]$sourceProperty.Value
@@ -1152,7 +1157,7 @@ function Get-ValidatedCpuSampling(
                         ($omittedIntervalSegmentCount -ne 0 -or
                             $unknownIntervalSampleCount -ne $ExpectedRecordCount))))
         ) {
-            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+            throw $provenanceError
         }
     }
     elseif (
@@ -1163,7 +1168,7 @@ function Get-ValidatedCpuSampling(
         ($source -ceq 'speedscope-profile-declared-time-weights' -and
             ($intervalCount -ne 0 -or $intervalsTruncated))
     ) {
-        throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+        throw $provenanceError
     }
 
     if ($source -cin @('etw-perfinfo', 'mixed-etw-sampleprofiler')) {
@@ -1175,7 +1180,7 @@ function Get-ValidatedCpuSampling(
             $retainedIntervalSampleCount + $omittedIntervalSampleCount +
                 $unknownIntervalSampleCount -ne $ExpectedRecordCount
         ) {
-            throw "$Owner returned incompatible schema 17 CPU sampling provenance."
+            throw $provenanceError
         }
     }
 
@@ -1544,7 +1549,8 @@ function Get-AnalysisEvidence(
             }
             $retainedSampleCount = ConvertTo-ValidatedSamplingCount `
                 $sampleCountProperty.Value `
-                "Profile analysis '$AnalysisName' info"
+                "Profile analysis '$AnalysisName' info" `
+                $schemaVersion
             [object] $infoCpuSamplingProperty =
                 $resultProperty.Value.PSObject.Properties['cpuSampling']
             [object] $infoWeightUnitProperty = if (

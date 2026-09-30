@@ -597,6 +597,13 @@ try {
         @{ Name = 'sampleprofiler-count-mismatch'; Count = 128; Mutate = {
             param($sampling) $sampling.cpuSampling.unknownIntervalSampleCount = 127
         } },
+        @{ Name = 'sampleprofiler-malformed-count'; Count = 128; Mutate = {
+            param($sampling) $sampling.cpuSampling.unknownIntervalSampleCount = '128'
+        } },
+        @{ Name = 'sampleprofiler-overflow-count'; Count = 128; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling.unknownIntervalSampleCount = [double]9223372036854775808
+        } },
         @{ Name = 'sampleprofiler-no-records'; Count = 0; Mutate = {
             param($sampling) $sampling.cpuSampling.unknownIntervalSampleCount = 0
         } },
@@ -621,6 +628,20 @@ try {
                 intervalMSec = 0.5
                 sampleCount = 100
             })
+        } },
+        @{ Name = 'mixed-malformed-interval-count'; Count = 128; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling.source = 'mixed-etw-sampleprofiler'
+            $sampling.cpuSampling.unknownIntervalSampleCount = 27
+            $sampling.cpuSampling.intervals = @([pscustomobject]@{
+                intervalMSec = 0.5
+                sampleCount = '101'
+            })
+        } },
+        @{ Name = 'mixed-malformed-omitted-count'; Count = 128; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling.source = 'mixed-etw-sampleprofiler'
+            $sampling.cpuSampling | Add-Member omittedIntervalSampleCount '1'
         } })
     foreach ($case in $invalidProviderCases) {
         [object] $invalidProvider = $schema18SampleInfo.result |
@@ -633,11 +654,44 @@ try {
         }
         catch {
             $rejected = $_.Exception.Message.Contains(
-                'incompatible schema 17 CPU sampling provenance',
+                'incompatible schema 18 CPU sampling provenance',
                 [StringComparison]::Ordinal)
         }
         Assert-True $rejected "Invalid provider case '$($case.Name)' was accepted."
     }
+
+    foreach ($version in @(17, 18)) {
+        [object] $missingProvenance = $schema18SampleInfo.result |
+            ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+        $missingProvenance.PSObject.Properties.Remove('cpuSampling')
+        [bool] $missingRejected = $false
+        try {
+            $null = Get-ValidatedCpuSampling `
+                $missingProvenance $version 'samples' 128 "missing schema $version"
+        }
+        catch {
+            $missingRejected = $_.Exception.Message.Contains(
+                "omitted schema $version CPU sampling provenance",
+                [StringComparison]::Ordinal)
+        }
+        Assert-True $missingRejected "Missing schema $version CPU sampling provenance was accepted."
+    }
+
+    [object] $invalidRetainedCount = $schema18SampleInfo |
+        ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
+    $invalidRetainedCount.result.sampleCount = '128'
+    Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $invalidRetainedCount
+    [bool] $invalidRetainedRejected = $false
+    try {
+        $null = Get-AnalysisEvidence $analysisEvidenceDirectory 'cpu' $true
+    }
+    catch {
+        $invalidRetainedRejected = $_.Exception.Message.Contains(
+            'incompatible schema 18 CPU sampling provenance',
+            [StringComparison]::Ordinal)
+    }
+    Assert-True $invalidRetainedRejected 'Malformed schema 18 retained sample count was accepted.'
+    Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $schema18SampleInfo
 
     $schema18SampleRank.context.cpuSampling.source = 'unavailable'
     Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') $schema18SampleRank
