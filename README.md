@@ -59,6 +59,9 @@ the target's recorded MCP and skill baseline and remove the private CLI with:
 
 The command requires PowerShell 5.1 or 7, Git, and the .NET 10 SDK. It does not need
 elevation, change a global tool installation, or upload the prepared package.
+For an interrupted install or restore, use the
+[repository-local recovery guide](docs/local-testing.md) rather than deleting
+state or managed target files by hand.
 
 ## Using filtrace
 

@@ -3,9 +3,9 @@
 `Filtrace.Benchmarks` is the BenchmarkDotNet harness for product performance. Pure
 analysis benchmarks use synthetic in-memory inputs; trace-read and CLI benchmarks
 use prepared committed fixtures so their cache state is explicit. Binary fixture
-generation remains under `fixtures/`. The phased microbenchmark and
-filtrace-self-profiling program is in
-[the Track D plan](../docs/parallelism-opportunities.md).
+generation remains under `fixtures/`. The measurement principles and limits are in
+[the design](../docs/design.md#performance-evidence-and-dependency-boundaries);
+the runnable benchmark and self-profiling steps are here.
 
 Run all benchmarks in Release:
 

@@ -82,10 +82,9 @@ shipped physical trim would ship this limitation with it.
 
 ## Future shipping decision
 
-Physical trim is tracked only as VC7 in [roadmap.md](roadmap.md#vc7---physical-etl-trim).
-Analysis-time `--time` scope has since shipped as the lossless way to inspect a
-spike; only a physical `[t0, t1]` relog remains part of the potential transport
-feature.
+Physical trim is **not scheduled**. Analysis-time `--time` scope is the
+lossless way to inspect a spike; a physical `[t0, t1]` relog would be a
+separate transport requirement, not a default analysis path.
 
 A user-facing trim should combine process-tree and optional time-window selection,
 state that it is for transport/fixtures rather than analysis fidelity, and either:

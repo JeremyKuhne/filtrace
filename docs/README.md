@@ -1,28 +1,23 @@
 # filtrace docs
 
-The public Filtrace roadmap controls this repository's sequencing and completion
-status. Other pages preserve product principles, executable measurement detail,
-operational guidance, and completed decision records; they are not independent work
-queues.
+The [roadmap](roadmap.md) is Filtrace's one current work queue.
+[Design](design.md) retains product contracts and the durable findings of
+completed investigations. The remaining detail pages are operational guides
+or evidence for a specific still-relevant choice; none is a parallel plan.
 
 | Page | What it is |
 | --- | --- |
-| [design.md](design.md) | Principles, goals, non-goals, and the measures of success every change is judged against. |
-| [roadmap.md](roadmap.md) | Public source of truth for Filtrace priorities, completion status, and conditional backlog. |
-| [primary-plan-closeout.md](primary-plan-closeout.md) | Final PP12 decision, measured capture-to-verification path, agent results, interface choices, and unsupported boundaries. |
-| [competitive-analysis.md](competitive-analysis.md) | How filtrace differs from other .NET performance tools, and what to learn from each. |
-| [parallelism-opportunities.md](parallelism-opportunities.md) | Historical PP02/PP08 Track D design and reusable BenchmarkDotNet/CLI self-profiling procedure; not an active queue. |
+| [design.md](design.md) | Product principles, enforced gates, and durable results from completed investigations. |
+| [roadmap.md](roadmap.md) | The current conditional work, concrete triggers, and short decision/evidence index. |
+| [workflow.md](workflow.md) | How to capture, orient, rank, drill, and compare; canonical CLI/MCP catalogs and single-sourced agent guidance. |
+| [traps.md](traps.md) | Single-sourced evidence and interpretation pitfalls for the shipped skill. |
 | [source-build.md](source-build.md) | Explicit build-only FastTrace source integration and Native AOT commands. |
-| [local-testing-redesign.md](local-testing-redesign.md) | Completed design and recovery record for repository-scoped local checkout activation. |
-| [stack-traversal-experiment.md](stack-traversal-experiment.md) | Measurement record for the indexed stack traversal retained in PR #126. |
-| [workflow.md](workflow.md) | How to drive filtrace: capture, orient, rank, drill, compare, plus the command and tool catalogs. |
-| [traps.md](traps.md) | The reasoning errors a trace invites, and how to avoid them. |
-| [traceevent-surface-assessment.md](traceevent-surface-assessment.md) | What the pinned TraceEvent 3.2.6 package does and does not provide, and which roadmap items that gates. |
-| [filtrace-etl-trimming.md](filtrace-etl-trimming.md) | Why the ETW process-tree relog is a fixture tool rather than a shipped verb. |
+| [local-testing.md](local-testing.md) | Current repository-local activation ownership and recovery by durable status. |
+| [filtrace-etl-trimming.md](filtrace-etl-trimming.md) | Fixture relogging steps and the managed-frame fidelity limit. |
+| [multi-operation-query-reuse.md](multi-operation-query-reuse.md) | Private CLI/MCP reuse measurements and conditional multi-operation design options; no public command approved. |
 
-Git history and release tags remain authoritative for what landed. Completed work
-stays here only when its design rationale, measured tradeoffs, or recovery contract
-continues to constrain future changes.
+Git history and release tags retain the full experiment and PR records. Do
+not turn one of those records into another standing implementation queue.
 
 ## Single-sourced blocks
 
