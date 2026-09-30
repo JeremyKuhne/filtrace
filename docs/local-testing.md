@@ -55,12 +55,20 @@ from the new checkout. Do not assume cross-resource rollback.
 | `restoring` | Baseline restoration may be partial. | Retry `-Action Restore`; it replays the fixed restoration order. |
 | `cleanup` | The target resources were restored; only private state/artifacts remain. | Retry `-Action Restore`; cleanup does **not** re-read or mutate current target resources. |
 
-Restore removes the CLI, reinstates the original Filtrace MCP entry while
-preserving current unrelated configuration, restores the skill baseline,
-cleans only the fixed private artifacts, and removes `state.json` **last**.
+Restore removes the CLI, restores the captured Filtrace MCP baseline
+(removing the locally added entry if none existed), preserves current
+unrelated configuration, restores the skill baseline, cleans only the
+fixed private artifacts, and removes `state.json` **last**.
 An empty leftover state directory is harmless. Keep the state and
 baseline intact after a failure; do not delete the target's `.vscode`
 or `.agents` trees or manually replace a state status to force recovery.
+
+Source preparation has a separate owned
+`.filtrace-local-testing-preparation` directory in the source checkout's
+Git directory. A timed-out or incomplete build, test, or pack retains it
+and blocks another preparation without changing the consumer installation.
+Confirm all related processes have stopped, then remove only the exact
+private directory named in the diagnostic, not the consumer's baseline.
 
 If `dotnet tool install` times out and descendant termination cannot be
 confirmed, the helper retains the owned operation directory and PID and
