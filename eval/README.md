@@ -46,7 +46,7 @@ A task is one JSON file in [tasks/](tasks/):
   "fixture": "tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json",
   "os": "any",
   "steps": [
-    { "args": ["cpu", "{fixture}", "--top", "5"] },
+    { "args": ["rank", "{fixture}", "--metric", "cpu", "--top", "5"] },
     { "args": ["callers", "{fixture}", "MyApp.Inner"] }
   ],
   "assert": [

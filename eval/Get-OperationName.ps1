@@ -11,13 +11,13 @@
   The eval harness grades two things: which exact tool an agent called
   (`expectTools`, valid only while the current MCP surface is the baseline) and
   which *operation intent* it reached for (`expectOperations`, stable across a
-  surface change). This map is what makes the second one possible: `cpu`,
-  `rank --metric cpu`, and `trace_rank` are all the `rank` operation, and
-  `lines` / `heatmap` / `trace_lines` / `trace_heatmap` are all `source`.
+  surface change). This map is what makes the second one possible:
+  `rank --metric cpu` and `trace_rank` are both the `rank` operation, and
+  `source --view lines` / `source --view heatmap` / `trace_lines` / `trace_heatmap`
+  are all `source`.
 
-  Keep the operation vocabulary aligned with docs/roadmap.md's proposed surface so
-  a consolidated tool (for example `trace_report(kind=gc)`) maps to the same
-  operation its split predecessor did.
+  Keep the operation vocabulary aligned with docs/roadmap.md's surface so
+  CLI report kinds map to the same operations as their corresponding MCP tools.
 
 .NOTES
   Dot-source the script to reuse the function:
@@ -32,17 +32,12 @@ $script:FiltraceOperations = @{
     'info'              = 'info'
     'trace_info'        = 'info'
     'rank'              = 'rank'
-    'cpu'               = 'rank'
-    'alloc'             = 'rank'
-    'exceptions'        = 'rank'
-    'threadtime'        = 'rank'
     'trace_rank'        = 'rank'
     'callers'           = 'callers'
     'trace_callers'     = 'callers'
     'tree'              = 'tree'
     'trace_tree'        = 'tree'
-    'lines'             = 'source'
-    'heatmap'           = 'source'
+    'source'            = 'source'
     'trace_lines'       = 'source'
     'trace_heatmap'     = 'source'
     'processes'         = 'processes'
@@ -61,16 +56,11 @@ $script:FiltraceOperations = @{
     'trace_export'      = 'export'
     'lifecycle'         = 'lifecycle'
     'trace_lifecycle'   = 'lifecycle'
-    'gcstats'           = 'gc'
     'trace_gc'          = 'gc'
-    'jitstats'          = 'jit'
     'trace_jit'         = 'jit'
-    'threadpool'        = 'threadpool'
     'trace_threadpool'  = 'threadpool'
-    'diskio'            = 'diskio'
     'trace_diskio'      = 'diskio'
-    'convert'           = 'cache'
-    'clean'             = 'cache'
+    'cache'             = 'cache'
     'collect'           = 'collect'
 }
 

@@ -222,12 +222,12 @@ if ($Tasks) {
 # The verb allowlist: the single-trace, JSON-envelope analysis verbs the agent may
 # invoke. Derived from the CLI's [Command("name")] set, then filtered to the verbs
 # that take one <TRACE> and render the JSON envelope. Excluded: capture (collect,
-# which launches a process), the file-op verbs (convert, clean), the two-trace diff,
+# which launches a process), the file-op verb (cache), the two-trace diff,
 # and export (whose --format selects a flamegraph writer, not the JSON envelope) -
 # the harness forces --format json, which those verbs would reject or misread. A
 # model can only ever invoke one of the remaining verbs as the first token, so a
 # response cannot launch a process or reach a shell.
-$nonAnalysisVerbs = @('collect', 'convert', 'clean', 'diff', 'export')
+$nonAnalysisVerbs = @('collect', 'cache', 'diff', 'export')
 $verbs = @(Select-String -Path $commandsFile -Pattern '\[Command\("([^"]+)"\)\]' -AllMatches |
         ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } |
         Where-Object { $nonAnalysisVerbs -notcontains $_ } | Sort-Object -Unique)
@@ -359,7 +359,7 @@ Respond with EXACTLY ONE line each turn, either:
 
 Available verbs (each takes <TRACE> as the first argument): $($verbs -join ', ').
 Give only the arguments - do not prefix the line with `filtrace`, and do not add
-any --format or --json flag (output is already JSON). Example: RUN: cpu <TRACE> --top 5
+any --format or --json flag (output is already JSON). Example: RUN: rank <TRACE> --metric cpu --top 5
 Base every claim on tool output - do not invent frames or numbers. If a command
 returns an error, read it and try a corrected command. Keep going until you can
 answer.

@@ -3,7 +3,7 @@
 **Status:** Current. This page states the principles, goals, and measures of success
 that govern further development.
 
-**Last verified:** 2026-09-30 against merged `main` at `ae608a0` and the
+**Last verified:** 2026-09-30 against the canonical-only VN5 surface and the
 repository's documentation, CLI/MCP, and test contracts.
 
 Filtrace ordering, conditional work, and completed surface decisions belong in the
@@ -91,7 +91,7 @@ metric. Structured providers - GC, JIT, thread pool, disk I/O, lifecycle, timeli
 raw events - return dedicated records instead of forcing non-stack data through the
 folding engine.
 
-Public boundaries follow from this: `callers`, `lines`, `heatmap`, `tree`, `diff`,
+Public boundaries follow from this: `callers`, `source`, `tree`, `diff`,
 and `export` are defined over the CPU stack source. Non-CPU metrics refine
 self/inclusive, root, process, activity, or time scope rather than silently
 crossing into CPU evidence.
@@ -138,10 +138,11 @@ permanent MCP schemas.
 
 ### Consolidate by intent, not by implementation
 
-A good consolidation has one user intent and compatible inputs - `gcstats`,
-`jitstats`, `threadpool`, and `diskio` are all bounded structured reports; `lines`
-and `heatmap` are both source attribution. A bad one combines different arity or
-side-effect contracts because they share a helper.
+A good consolidation has one user intent and compatible inputs:
+`report --kind` selects bounded GC, JIT, thread-pool, or disk-I/O reports,
+and `source --view` selects CPU source-line ranking or heatmap attribution.
+A bad one combines different arity or side-effect contracts because they share
+a helper.
 
 ### Constrain inputs at schema time
 
@@ -329,8 +330,8 @@ These are checked by CI; a change that breaks one is not shippable.
 | MCP `tools/list` size | <= 7,000 estimated tokens | ~6,928 tokens / 27,389 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | MCP stdout purity | pure JSON-RPC, real `tools/call` round trip | envelope `schemaVersion` 18 | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | Single analysis response | <= 25,000 tokens (`OutputBudget.DefaultCeilingTokens`) | every producer bounds its rows against `OutputBudget.DefaultRowBudgetTokens` | Core budget plus worst-case tests |
-| Per-command `--help` | <= 60 lines | 16 canonical commands; 12 hidden preview aliases remain help-addressable | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
-| Command discoverability | every canonical command in top-level help, README examples, and scope inventory; hidden aliases absent | 16 canonical commands; top-level help 27 lines / 2,171 chars | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
+| Per-command `--help` | <= 60 lines | 16 canonical commands | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
+| Command discoverability | every registered command in top-level help, README examples, and scope inventory | 16 canonical commands; top-level help within 27 lines / 2,171 chars | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
 | Catalog completeness | every canonical command and every `trace_*` tool documented | 16 commands / 18 tools | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
 | Knowledge-layer drift | zero drift between `docs/` blocks and their embedded copies | 4 blocks | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
 | Deterministic eval | every task keeps its answer, call count, and output budget | 31 tasks | [eval/Invoke-Eval.ps1](../eval/Invoke-Eval.ps1) |

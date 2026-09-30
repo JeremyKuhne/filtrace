@@ -309,6 +309,62 @@ try {
     Assert-True ($forbiddenExit -ne 0) 'Forbidden export analysis unexpectedly succeeded.'
     Assert-True (-not (Test-Path -LiteralPath $forbiddenDirectory)) 'Forbidden plan created an output directory before validation failed.'
 
+    [string] $fakeProfileProject = Join-Path $PSScriptRoot 'fixtures/Filtrace.FakeProfileTool/Filtrace.FakeProfileTool.csproj'
+    & dotnet build $fakeProfileProject -c $Configuration --nologo | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Fake profile tool build failed with exit code $LASTEXITCODE."
+    }
+    [string] $fakeProfileDirectory = Join-Path $PSScriptRoot "fixtures/Filtrace.FakeProfileTool/bin/$Configuration/net10.0"
+    [string] $fakeFiltrace = Join-Path $fakeProfileDirectory 'Filtrace.FakeProfileTool.exe'
+    if (-not (Test-Path -LiteralPath $fakeFiltrace -PathType Leaf)) {
+        $fakeFiltrace = Join-Path $fakeProfileDirectory 'Filtrace.FakeProfileTool'
+    }
+    Assert-True (Test-Path -LiteralPath $fakeFiltrace -PathType Leaf) 'Built fake profile tool was not found.'
+
+    [string] $fakeInvocationLog = Join-Path $temporaryRoot 'retired-operation-invocations.jsonl'
+    $previousProfileMode = $env:FILTRACE_TRACKD_FAKE_PROFILE_MODE
+    $previousProfileInvocations = $env:FILTRACE_TRACKD_FAKE_PROFILE_INVOCATIONS
+    try {
+        $env:FILTRACE_TRACKD_FAKE_PROFILE_MODE = 'success'
+        $env:FILTRACE_TRACKD_FAKE_PROFILE_INVOCATIONS = $fakeInvocationLog
+        & $fakeFiltrace --version | Out-Host
+        Assert-True ($LASTEXITCODE -eq 0) 'Fake profile tool invocation control failed.'
+        [object[]] $controlInvocations = @(Get-Content -LiteralPath $fakeInvocationLog | ConvertFrom-Json)
+        Assert-True ($controlInvocations.Count -eq 1 -and
+            $controlInvocations[0].arguments.Count -eq 1 -and
+            $controlInvocations[0].arguments[0] -ceq '--version') `
+            'Fake profile tool did not record its invocation control.'
+        Remove-Item -LiteralPath $fakeInvocationLog -Force
+
+        [string[]] $retiredOperations = @(
+            'alloc', 'clean', 'convert', 'cpu', 'diskio', 'exceptions', 'gcstats',
+            'heatmap', 'jitstats', 'lines', 'threadpool', 'threadtime')
+        foreach ($retiredOperation in $retiredOperations) {
+            [string] $retiredPlanPath = Join-Path $temporaryRoot "retired-$retiredOperation-plan.json"
+            Write-Json $retiredPlanPath ([ordered] @{
+                schemaVersion = 1
+                inputs = @([ordered] @{ id = 'cpu'; kind = 'trace'; path = 'inputs with spaces/cpu profile.speedscope.json' })
+                queries = @([ordered] @{
+                    id = 'retired'
+                    operation = $retiredOperation
+                    inputIds = @('cpu')
+                    arguments = @()
+                })
+            })
+            [string] $retiredDirectory = Join-Path $temporaryRoot "retired-$retiredOperation record"
+            [int] $retiredExit = Invoke-Analysis $retiredPlanPath $retiredDirectory $fakeFiltrace
+            Assert-True ($retiredExit -ne 0) "Retired operation '$retiredOperation' unexpectedly succeeded."
+            Assert-True (-not (Test-Path -LiteralPath $fakeInvocationLog)) `
+                "Retired operation '$retiredOperation' invoked the CLI before validation failed."
+            Assert-True (-not (Test-Path -LiteralPath $retiredDirectory)) `
+                "Retired operation '$retiredOperation' created an output directory before validation failed."
+        }
+    }
+    finally {
+        $env:FILTRACE_TRACKD_FAKE_PROFILE_MODE = $previousProfileMode
+        $env:FILTRACE_TRACKD_FAKE_PROFILE_INVOCATIONS = $previousProfileInvocations
+    }
+
     Add-Content -LiteralPath $cpuInput -Value 'mutation'
     [string] $replayDirectory = Join-Path $temporaryRoot 'replay record'
     [int] $replayExit = Invoke-Analysis $planPath $replayDirectory $filtrace $completedRecordPath

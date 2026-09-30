@@ -27,6 +27,33 @@ internal static class CliApp
     /// <returns>The process exit code.</returns>
     public static int Run(string[] args)
     {
+        // ConsoleAppFramework otherwise prints global help and exits successfully
+        // for an unknown command.
+        if (args.Length > 0 && args[0] is not (
+            "batch"
+                or "cache"
+                or "callers"
+                or "classify"
+                or "collect"
+                or "diff"
+                or "events"
+                or "export"
+                or "info"
+                or "lifecycle"
+                or "processes"
+                or "rank"
+                or "report"
+                or "source"
+                or "timeline"
+                or "tree"
+                or "-h"
+                or "--help"
+                or "--version"))
+        {
+            Console.Error.WriteLine($"Unknown command '{args[0]}'. Run 'filtrace --help' for the command list.");
+            return ExitCodes.UsageError;
+        }
+
         // ConsoleAppFramework's Log (help) defaults to stdout, which is correct, but
         // LogError (parse and validation failures) also defaults to stdout. Route it
         // to stderr so framework errors share the stream the verbs write their own
