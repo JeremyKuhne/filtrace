@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
-using System.Globalization;
 using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Tracing.Providers;
@@ -71,6 +70,7 @@ public sealed class ProcessInventoryProvider
         Dictionary<int, ProcessLabelCacheEntry> processLabels = [];
         Dictionary<string, (int Count, double Weight)> byProcess = new(StringComparer.Ordinal);
         CpuSampleWeighting? cpuWeighting = format == TraceFormat.Etl ? new() : null;
+        CpuSampleEvidence cpuSamples = default;
         int totalSamples = 0;
 
         foreach (TraceEvent data in traceLog.Events)
@@ -115,7 +115,7 @@ public sealed class ProcessInventoryProvider
                 ?? ProcessLabelCacheEntry.CreateLabel(processId, processName);
 
             (int Count, double Weight) accumulated = byProcess.GetValueOrDefault(process);
-            double weight = cpuWeighting?.GetSampleWeight() ?? 1.0;
+            double weight = cpuSamples.GetSampleWeight(cpuWeighting, data is ClrThreadSampleTraceData);
             byProcess[process] = (
                 AnalysisEventCounter.SaturatingIncrement(accumulated.Count),
                 accumulated.Weight + weight);
@@ -123,9 +123,9 @@ public sealed class ProcessInventoryProvider
             totalSamples = AnalysisEventCounter.SaturatingIncrement(totalSamples);
         }
 
-        bool timeWeightsEstablished = cpuWeighting?.HasCompleteIntervalEvidence == true;
+        CpuSampleProvenance cpuSampling = cpuSamples.CreateProvenance(cpuWeighting, totalSamples);
+        bool timeWeightsEstablished = cpuSampling.TimeWeightsEstablished;
         MetricInfo metric = timeWeightsEstablished ? MetricInfo.Cpu : MetricInfo.CpuSamples;
-        CpuSampleProvenance cpuSampling = CreateCpuSampling(cpuWeighting, totalSamples);
         List<ProcessSummary> processes = new(byProcess.Count);
         double totalWeight = 0.0;
         foreach (KeyValuePair<string, (int Count, double Weight)> entry in byProcess)
@@ -152,7 +152,7 @@ public sealed class ProcessInventoryProvider
 
         List<string> warnings = [];
         TraceLogReader.AddEventLossWarning(warnings, traceLog.EventsLost);
-        AddCpuWarnings(warnings, cpuWeighting, cpuSampling, totalSamples);
+        cpuSamples.AddWarnings(warnings, cpuWeighting, cpuSampling, totalSamples);
         _ = CaptureMetadataReader.Read(path, warnings);
         if (totalSamples == 0)
         {
@@ -170,57 +170,4 @@ public sealed class ProcessInventoryProvider
             cacheState);
     }
 
-    private static CpuSampleProvenance CreateCpuSampling(
-        CpuSampleWeighting? weighting,
-        int sampleCount)
-    {
-        if (weighting is null)
-        {
-            return new CpuSampleProvenance(
-                "samples",
-                "unavailable",
-                TimeWeightsEstablished: false,
-                UnknownIntervalSampleCount: sampleCount,
-                Intervals: []);
-        }
-
-        bool established = weighting.HasCompleteIntervalEvidence;
-        return new CpuSampleProvenance(
-            established ? "ms" : "samples",
-            weighting.Intervals.Count > 0 ? "etw-perfinfo" : "unavailable",
-            established,
-            weighting.UnknownIntervalSampleCount,
-            weighting.Intervals)
-        {
-            OmittedIntervalSegmentCount = weighting.OmittedIntervalSegmentCount,
-            OmittedIntervalSampleCount = weighting.OmittedIntervalSampleCount,
-            IntervalsTruncated = weighting.OmittedIntervalSegmentCount > 0
-        };
-    }
-
-    private static void AddCpuWarnings(
-        List<string> warnings,
-        CpuSampleWeighting? weighting,
-        CpuSampleProvenance provenance,
-        int sampleCount)
-    {
-        if (provenance.TimeWeightsEstablished)
-        {
-            warnings.Add(
-                provenance.Intervals.Count == 1
-                    ? $"CPU sample weights use the trace-recorded ETW PerfInfo interval ({provenance.Intervals[0].IntervalMSec.ToString("0.####", CultureInfo.InvariantCulture)} ms)."
-                    : "CPU sample weights use the trace-recorded ETW PerfInfo interval active at each sample; the interval changed during the trace.");
-        }
-        else if (sampleCount > 0)
-        {
-            warnings.Add(
-                "CPU sampling interval is not recorded for every included sample; CPU weights are raw sample counts, not milliseconds.");
-        }
-
-        if (weighting?.OmittedIntervalSegmentCount > 0)
-        {
-            warnings.Add(
-                $"CPU sampling provenance retained the first {weighting.Intervals.Count} interval segments and omitted {weighting.OmittedIntervalSegmentCount} later segments covering {weighting.OmittedIntervalSampleCount} samples.");
-        }
-    }
 }

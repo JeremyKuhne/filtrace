@@ -544,6 +544,168 @@ try {
             "Invalid profile number '$($invalidProfileNumber.Member)' value '$($invalidProfileNumber.Value)' type '$(if ($null -eq $invalidProfileNumber.Value) { '<null>' } else { $invalidProfileNumber.Value.GetType().FullName })' was accepted or rejected incorrectly. Actual: $invalidNumberMessage"
     }
 
+    [object] $schema18SampleInfo = $schema17SampleInfoJson | ConvertFrom-Json -Depth 32
+    $schema18SampleInfo.schemaVersion = 18
+    $schema18SampleInfo.result.cpuSampling.source = 'sampleprofiler'
+    [object] $schema18SampleRank = $schema17SampleRank |
+        ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
+    $schema18SampleRank.schemaVersion = 18
+    $schema18SampleRank.context.cpuSampling.source = 'sampleprofiler'
+    Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $schema18SampleInfo
+    Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') $schema18SampleRank
+    [System.Collections.IDictionary] $sampleProfilerEvidence = Get-AnalysisEvidence `
+        $analysisEvidenceDirectory 'cpu' $true
+    Assert-True `
+        ($sampleProfilerEvidence.schemaVersion -eq 18 -and
+            $sampleProfilerEvidence.weightUnit -ceq 'samples' -and
+            $sampleProfilerEvidence.cpuSampling.source -ceq 'sampleprofiler' -and
+            -not $sampleProfilerEvidence.cpuSampling.timeWeightsEstablished -and
+            $sampleProfilerEvidence.cpuSampling.unknownIntervalSampleCount -eq 128) `
+        'Schema 18 SampleProfiler counts were rejected or assigned CPU milliseconds.'
+
+    [object] $mixedWithoutInterval = $schema18SampleInfo.result |
+        ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+    $mixedWithoutInterval.cpuSampling.source = 'mixed-etw-sampleprofiler'
+    [object] $validatedMixedWithoutInterval = Get-ValidatedCpuSampling `
+        $mixedWithoutInterval 18 'samples' 128 'mixed without ETW interval'
+    Assert-True `
+        ($validatedMixedWithoutInterval.source -ceq 'mixed-etw-sampleprofiler' -and
+            $validatedMixedWithoutInterval.unknownIntervalSampleCount -eq 128) `
+        'Mixed sampling without ETW intervals did not retain raw-count provenance.'
+
+    [object] $mixedWithInterval = $validEtwSampling |
+        ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+    $mixedWithInterval.cpuSampling.source = 'mixed-etw-sampleprofiler'
+    [object] $validatedMixedWithInterval = Get-ValidatedCpuSampling `
+        $mixedWithInterval 18 'samples' 128 'mixed with ETW interval'
+    Assert-True `
+        ($validatedMixedWithInterval.source -ceq 'mixed-etw-sampleprofiler' -and
+            $validatedMixedWithInterval.unknownIntervalSampleCount -eq 27) `
+        'Mixed sampling with ETW intervals did not reconcile raw-count provenance.'
+
+    [object[]] $invalidProviderCases = @(
+        @{ Name = 'sampleprofiler-time-claim'; Count = 128; Mutate = {
+            param($sampling) $sampling.cpuSampling.timeWeightsEstablished = $true
+        } },
+        @{ Name = 'sampleprofiler-interval'; Count = 128; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling.intervals = @([pscustomobject]@{
+                intervalMSec = 1
+                sampleCount = 128
+            })
+        } },
+        @{ Name = 'sampleprofiler-count-mismatch'; Count = 128; Mutate = {
+            param($sampling) $sampling.cpuSampling.unknownIntervalSampleCount = 127
+        } },
+        @{ Name = 'sampleprofiler-malformed-count'; Count = 128; Mutate = {
+            param($sampling) $sampling.cpuSampling.unknownIntervalSampleCount = '128'
+        } },
+        @{ Name = 'sampleprofiler-overflow-count'; Count = 128; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling.unknownIntervalSampleCount = [double]9223372036854775808
+        } },
+        @{ Name = 'sampleprofiler-no-records'; Count = 0; Mutate = {
+            param($sampling) $sampling.cpuSampling.unknownIntervalSampleCount = 0
+        } },
+        @{ Name = 'sampleprofiler-case-variant'; Count = 128; Mutate = {
+            param($sampling) $sampling.cpuSampling.source = 'SAMPLEPROFILER'
+        } },
+        @{ Name = 'mixed-without-interval-count-mismatch'; Count = 128; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling.source = 'mixed-etw-sampleprofiler'
+            $sampling.cpuSampling.unknownIntervalSampleCount = 127
+        } },
+        @{ Name = 'mixed-without-interval-one-record'; Count = 1; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling.source = 'mixed-etw-sampleprofiler'
+            $sampling.cpuSampling.unknownIntervalSampleCount = 1
+        } },
+        @{ Name = 'mixed-with-interval-count-mismatch'; Count = 128; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling.source = 'mixed-etw-sampleprofiler'
+            $sampling.cpuSampling.unknownIntervalSampleCount = 27
+            $sampling.cpuSampling.intervals = @([pscustomobject]@{
+                intervalMSec = 0.5
+                sampleCount = 100
+            })
+        } },
+        @{ Name = 'mixed-malformed-interval-count'; Count = 128; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling.source = 'mixed-etw-sampleprofiler'
+            $sampling.cpuSampling.unknownIntervalSampleCount = 27
+            $sampling.cpuSampling.intervals = @([pscustomobject]@{
+                intervalMSec = 0.5
+                sampleCount = '101'
+            })
+        } },
+        @{ Name = 'mixed-malformed-omitted-count'; Count = 128; Mutate = {
+            param($sampling)
+            $sampling.cpuSampling.source = 'mixed-etw-sampleprofiler'
+            $sampling.cpuSampling | Add-Member omittedIntervalSampleCount '1'
+        } })
+    foreach ($case in $invalidProviderCases) {
+        [object] $invalidProvider = $schema18SampleInfo.result |
+            ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+        & $case.Mutate $invalidProvider
+        [bool] $rejected = $false
+        try {
+            $null = Get-ValidatedCpuSampling `
+                $invalidProvider 18 'samples' $case['Count'] "invalid '$($case.Name)'"
+        }
+        catch {
+            $rejected = $_.Exception.Message.Contains(
+                'incompatible schema 18 CPU sampling provenance',
+                [StringComparison]::Ordinal)
+        }
+        Assert-True $rejected "Invalid provider case '$($case.Name)' was accepted."
+    }
+
+    foreach ($version in @(17, 18)) {
+        [object] $missingProvenance = $schema18SampleInfo.result |
+            ConvertTo-Json -Depth 10 | ConvertFrom-Json -Depth 10
+        $missingProvenance.PSObject.Properties.Remove('cpuSampling')
+        [bool] $missingRejected = $false
+        try {
+            $null = Get-ValidatedCpuSampling `
+                $missingProvenance $version 'samples' 128 "missing schema $version"
+        }
+        catch {
+            $missingRejected = $_.Exception.Message.Contains(
+                "omitted schema $version CPU sampling provenance",
+                [StringComparison]::Ordinal)
+        }
+        Assert-True $missingRejected "Missing schema $version CPU sampling provenance was accepted."
+    }
+
+    [object] $invalidRetainedCount = $schema18SampleInfo |
+        ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
+    $invalidRetainedCount.result.sampleCount = '128'
+    Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $invalidRetainedCount
+    [bool] $invalidRetainedRejected = $false
+    try {
+        $null = Get-AnalysisEvidence $analysisEvidenceDirectory 'cpu' $true
+    }
+    catch {
+        $invalidRetainedRejected = $_.Exception.Message.Contains(
+            'incompatible schema 18 CPU sampling provenance',
+            [StringComparison]::Ordinal)
+    }
+    Assert-True $invalidRetainedRejected 'Malformed schema 18 retained sample count was accepted.'
+    Write-Json (Join-Path $analysisEvidenceDirectory 'info.json') $schema18SampleInfo
+
+    $schema18SampleRank.context.cpuSampling.source = 'unavailable'
+    Write-Json (Join-Path $analysisEvidenceDirectory 'rank.json') $schema18SampleRank
+    [bool] $mismatchedSourceRejected = $false
+    try {
+        $null = Get-AnalysisEvidence $analysisEvidenceDirectory 'cpu' $true
+    }
+    catch {
+        $mismatchedSourceRejected = $_.Exception.Message.Contains(
+            'inconsistent info and rank CPU sampling provenance',
+            [StringComparison]::Ordinal)
+    }
+    Assert-True $mismatchedSourceRejected 'Schema 18 info/rank source mismatch was accepted.'
+
     [string] $realAnalyzerName = if ($IsWindows) { 'filtrace.exe' } else { 'filtrace' }
     [string] $realAnalyzer = Join-Path `
         $root `
@@ -606,7 +768,7 @@ try {
     Assert-True `
         ($realCliEvidence.schemaVersion -eq 18 -and
             $realCliEvidence.weightUnit -ceq 'samples' -and
-            $realCliEvidence.cpuSampling.source -ceq 'unavailable' -and
+            $realCliEvidence.cpuSampling.source -ceq 'sampleprofiler' -and
             -not $realCliEvidence.cpuSampling.timeWeightsEstablished -and
             $realCliEvidence.eventCount -eq 11587 -and
             $realCliEvidence.summaries[0].scopeWeight -eq

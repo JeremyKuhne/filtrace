@@ -5,6 +5,7 @@
 using System.Globalization;
 using Filtrace.Tracing;
 using Filtrace.Tracing.Providers;
+using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Output;
 
@@ -144,7 +145,12 @@ public static class SteeringHints
         // keeps manually constructed legacy TraceInfo objects useful, but labels those
         // routes as format-supported because they carry no capture evidence.
         List<string> routes = [];
-        if (analyses.Contains("cpu")) { routes.Add("CPU-bound -> cpu"); }
+        if (analyses.Contains("cpu"))
+        {
+            routes.Add(CpuSampleEvidence.ContainsSampleProfiler(info.CpuSampling)
+                ? "sampled thread stacks (not on-core CPU time) -> cpu"
+                : "CPU-bound -> cpu");
+        }
 
         List<string> blocked = [];
         if (analyses.Contains("contention")) { blocked.Add("contention"); }
@@ -285,7 +291,32 @@ public static class SteeringHints
         ScopeRequest? scope = null,
         string? path = null,
         string? symbols = null,
-        bool nativeSymbols = false)
+        bool nativeSymbols = false) =>
+            ForRanking(ranking, metric, scope, path, symbols, nativeSymbols, cpuSampling: null);
+
+    /// <summary>
+    ///  The next-step hints for a ranking with its CPU sample provenance, preserving
+    ///  its metric and scope without calling thread-stack samples on-core CPU time.
+    /// </summary>
+    /// <param name="ranking">The ranking the hints steer from.</param>
+    /// <param name="metric">The metric the ranking carries.</param>
+    /// <param name="scope">Optional process, activity, and time scope of the ranking.</param>
+    /// <param name="path">The trace path for a complete quality follow-up.</param>
+    /// <param name="symbols">The local symbol directory, if any.</param>
+    /// <param name="nativeSymbols">Whether native symbol resolution was enabled.</param>
+    /// <param name="cpuSampling">The CPU sample provenance, if applicable.</param>
+    /// <returns>The hints and complete follow-ups, never <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException">
+    ///  <paramref name="ranking"/> or <paramref name="metric"/> is <see langword="null"/>.
+    /// </exception>
+    public static IReadOnlyList<string> ForRanking(
+        RankingResult ranking,
+        MetricInfo metric,
+        ScopeRequest? scope,
+        string? path,
+        string? symbols,
+        bool nativeSymbols,
+        CpuSampleProvenance? cpuSampling)
     {
         ArgumentNullException.ThrowIfNull(ranking);
         ArgumentNullException.ThrowIfNull(metric);
@@ -305,8 +336,12 @@ public static class SteeringHints
 
         if (scope?.ActivityName is not null || scope?.Window is not null)
         {
+            string kind = CpuSampleEvidence.ContainsSampleProfiler(cpuSampling)
+                ? "sampled-thread stack"
+                : "CPU";
+
             string reason =
-                "this CPU ranking is activity/time-scoped; callers, lines, heatmap, and tree cannot preserve that slice - refine it with self/inclusive measure or root in rank";
+                $"this {kind} ranking is activity/time-scoped; callers, lines, heatmap, and tree cannot preserve that slice - refine it with self/inclusive measure or root in rank";
 
             if (IsUnresolvedFrame(ranking.Rows[0].Frame))
             {
@@ -356,7 +391,10 @@ public static class SteeringHints
                 ]);
         }
 
-        string hint = $"drill into the hot frame with: callers {ranking.Rows[0].Frame}";
+        string hint = CpuSampleEvidence.ContainsSampleProfiler(cpuSampling)
+            ? $"drill into the most sampled frame with: callers {ranking.Rows[0].Frame}"
+            : $"drill into the hot frame with: callers {ranking.Rows[0].Frame}";
+
         string message = PreserveLocalSymbols(
             PreserveCpuScope(hint, ranking.RootFrame, scope), symbols);
 
@@ -796,7 +834,9 @@ public static class SteeringHints
             string window = $"{FormatMs(timeline.FromMs)}-{FormatMs(timeline.ToMs)} ms";
             if (snapshot.Cpu.SampleCount > 0)
             {
-                return SnapshotDrillGuidance("CPU work", "cpu", timeline, window);
+                return SnapshotDrillGuidance(
+                    timeline.CpuSampleWarning is null ? "CPU work" : "sampled thread stacks",
+                    "cpu", timeline, window);
             }
 
             if (snapshot.Alloc.Types.Count > 0)
@@ -817,7 +857,9 @@ public static class SteeringHints
         // nothing to point at, so it is skipped.
         if (TryPeakBucket(timeline.Cpu, static bucket => bucket.SampleCount, out int cpuIndex))
         {
-            return DrillWindowGuidance("CPU", "cpu", timeline, cpuIndex);
+            return DrillWindowGuidance(
+                timeline.CpuSampleWarning is null ? "CPU" : "thread-stack sample",
+                "cpu", timeline, cpuIndex);
         }
 
         if (TryPeakBucket(timeline.Alloc, static bucket => bucket.Count, out int allocIndex))

@@ -111,6 +111,10 @@ internal static class TimelineExecutor
         }
 
         warnings.AddRange(result.ScopeWarnings);
+        if (result.CpuSampleWarning is string cpuSampleWarning)
+        {
+            warnings.Add(cpuSampleWarning);
+        }
 
         // Surface the process the scope resolved to (an explicit name or the automatic
         // busiest) so a narrowed machine-wide capture is not silently one process's view.

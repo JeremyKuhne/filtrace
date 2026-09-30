@@ -83,7 +83,6 @@ public static class CaptureManifestBatchAnalyzer
                     ? trace.Aggregator.InclusiveTime(root, foldPatterns, 1)
                     : trace.Aggregator.SelfTime(root, foldPatterns, 1);
 
-                AddQualityWarnings(warnings, trace, ranking, root);
                 RankRow? top = ranking.Rows.FirstOrDefault();
                 string? operationUnit = null;
                 double? scopePerOperation = null;
@@ -94,12 +93,11 @@ public static class CaptureManifestBatchAnalyzer
                     scopePerOperation = ranking.ScopeWeight / captureCase.OperationCount!.Value;
                     topPerOperation = top?.Weight / captureCase.OperationCount.Value;
                 }
-                else if (captureCase.OperationCount is not null || captureCase.OperationUnit is not null)
-                {
-                    CaptureManifestOutput.AddWarning(
-                        warnings,
-                        "per-operation values omitted: operationCount and operationUnit must both be present");
-                }
+
+                bool incompleteOperationMetadata = !captureCase.HasCompleteOperationMetadata
+                    && (captureCase.OperationCount is not null || captureCase.OperationUnit is not null);
+
+                AddQualityWarnings(warnings, trace, ranking, root, incompleteOperationMetadata);
 
                 cases.Add(new BatchRankingCaseResult(
                     benchmark,
@@ -189,11 +187,47 @@ public static class CaptureManifestBatchAnalyzer
         List<string> warnings,
         LoadedTrace trace,
         RankingResult ranking,
-        string root)
+        string root,
+        bool incompleteOperationMetadata)
     {
-        foreach (string warning in trace.Info.Warnings.Take(4))
+        CaptureManifestOutput.AddEventLossWarning(warnings, trace.Info);
+        CaptureManifestOutput.AddCpuSampleWarning(warnings, trace.Info);
+
+        bool rootMissing = false;
+        string? ambiguousRootWarning = null;
+        if (!string.IsNullOrEmpty(root))
         {
-            CaptureManifestOutput.AddWarning(warnings, warning);
+            FrameMatchReport report = FrameMatchAnalyzer.Analyze(
+                trace.Source,
+                root,
+                FrameMatchSelection.Outermost);
+
+            rootMissing = report.Matches.Count == 0;
+            if (rootMissing)
+            {
+                CaptureManifestOutput.AddWarning(warnings, $"root '{root}' matched no frames");
+            }
+            else if (report.IsAmbiguous)
+            {
+                ambiguousRootWarning = $"root '{root}' matched {report.Matches.Count} frame definitions; outermost selected";
+            }
+        }
+
+        if (incompleteOperationMetadata)
+        {
+            CaptureManifestOutput.AddWarning(
+                warnings,
+                "per-operation values omitted: operationCount and operationUnit must both be present");
+        }
+
+        if (ranking.Rows.Count == 0 && !rootMissing)
+        {
+            CaptureManifestOutput.AddWarning(warnings, "query matched no ranked frames");
+        }
+
+        if (ambiguousRootWarning is not null)
+        {
+            CaptureManifestOutput.AddWarning(warnings, ambiguousRootWarning);
         }
 
         if (ContributingRecordQuality.TryGetMethodWarning(
@@ -204,29 +238,7 @@ public static class CaptureManifestBatchAnalyzer
             CaptureManifestOutput.AddWarning(warnings, recordWarning!);
         }
 
-        if (ranking.Rows.Count == 0)
-        {
-            CaptureManifestOutput.AddWarning(warnings, "query matched no ranked frames");
-        }
-
-        if (!string.IsNullOrEmpty(root))
-        {
-            FrameMatchReport report = FrameMatchAnalyzer.Analyze(
-                trace.Source,
-                root,
-                FrameMatchSelection.Outermost);
-
-            if (report.Matches.Count == 0)
-            {
-                CaptureManifestOutput.AddWarning(warnings, $"root '{root}' matched no frames");
-            }
-            else if (report.IsAmbiguous)
-            {
-                CaptureManifestOutput.AddWarning(
-                    warnings,
-                    $"root '{root}' matched {report.Matches.Count} frame definitions; outermost selected");
-            }
-        }
+        CaptureManifestOutput.AddOtherTraceWarnings(warnings, trace.Info);
     }
 
     private static bool IsCaseFailure(Exception exception) =>

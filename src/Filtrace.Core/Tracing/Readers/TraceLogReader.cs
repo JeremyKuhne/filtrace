@@ -14,11 +14,11 @@ namespace Filtrace.Tracing.Readers;
 /// </summary>
 /// <remarks>
 ///  <para>
-///   Both formats normalize, through <see cref="EtlxTraceLog"/>, onto the same
-///   <see cref="SampledProfileTraceData"/> CPU-sample event with a resolvable
-///   <see cref="TraceCallStack"/>. Managed method names resolve from the CLR
-///   rundown embedded in the trace, so no external symbol server is needed for
-///   managed frames; native frames may remain unresolved.
+///   ETW sampled-profile and SampleProfiler thread-stack records both normalize,
+///   through <see cref="EtlxTraceLog"/>, onto weighted samples with a resolvable
+///   <see cref="TraceCallStack"/>. Managed method names resolve from the CLR rundown
+///   embedded in the trace, so no external symbol server is needed for managed
+///   frames; native frames may remain unresolved.
 ///  </para>
 ///  <para>
 ///   ETW samples are weighted by the timer interval recorded in
@@ -306,6 +306,7 @@ internal abstract partial class TraceLogReader : ITraceReader
         List<string> leafToRoot = [];
         List<string>? leafToRootLocations = resolveSourceLocations ? [] : null;
         CpuSampleWeighting? cpuWeighting = format == TraceFormat.Etl ? new() : null;
+        CpuSampleEvidence cpuSamples = default;
 
         foreach (TraceEvent data in traceLog.Events)
         {
@@ -570,7 +571,8 @@ internal abstract partial class TraceLogReader : ITraceReader
             string process = processEntry?.GetLabel(processName)
                 ?? ProcessLabelCacheEntry.CreateLabel(processId, processName);
 
-            double weight = cpuWeighting?.GetSampleWeight() ?? 1.0;
+            bool sampleProfiler = data is ClrThreadSampleTraceData;
+            double weight = cpuSamples.GetSampleWeight(cpuWeighting, sampleProfiler);
             SampleStack sample = cachedStack is null
                 ? new SampleStack(frames, weight, thread, locations, process)
                 : cachedStack.GetOrCreateSample(weight, threadId, thread, process);
@@ -606,40 +608,15 @@ internal abstract partial class TraceLogReader : ITraceReader
             }
         }
 
-        bool timeWeightsEstablished = cpuWeighting?.HasCompleteIntervalEvidence == true;
+        CpuSampleProvenance cpuSampling = cpuSamples.CreateProvenance(cpuWeighting, samples.Count);
+        bool timeWeightsEstablished = cpuSampling.TimeWeightsEstablished;
         MetricInfo metric = timeWeightsEstablished ? MetricInfo.Cpu : MetricInfo.CpuSamples;
-        CpuSampleProvenance cpuSampling;
-
-        if (cpuWeighting is null)
+        if (!timeWeightsEstablished && cpuWeighting?.Intervals.Count > 0)
         {
-            cpuSampling = new CpuSampleProvenance(
-                "samples",
-                "unavailable",
-                TimeWeightsEstablished: false,
-                UnknownIntervalSampleCount: samples.Count,
-                Intervals: []);
-        }
-        else
-        {
-            if (!timeWeightsEstablished && cpuWeighting.Intervals.Count > 0)
+            for (int i = 0; i < samples.Count; i++)
             {
-                for (int i = 0; i < samples.Count; i++)
-                {
-                    samples[i].NormalizeCpuWeightToSampleCount();
-                }
+                samples[i].NormalizeCpuWeightToSampleCount();
             }
-
-            cpuSampling = new CpuSampleProvenance(
-                timeWeightsEstablished ? "ms" : "samples",
-                cpuWeighting.Intervals.Count > 0 ? "etw-perfinfo" : "unavailable",
-                timeWeightsEstablished,
-                cpuWeighting.UnknownIntervalSampleCount,
-                cpuWeighting.Intervals)
-            {
-                OmittedIntervalSegmentCount = cpuWeighting.OmittedIntervalSegmentCount,
-                OmittedIntervalSampleCount = cpuWeighting.OmittedIntervalSampleCount,
-                IntervalsTruncated = cpuWeighting.OmittedIntervalSegmentCount > 0
-            };
         }
 
         double resolutionRate = totalFrames > 0 ? (double)resolvedFrames / totalFrames : 0.0;
@@ -650,25 +627,7 @@ internal abstract partial class TraceLogReader : ITraceReader
 
         List<string> warnings = [.. scopeWarnings];
         AddEventLossWarning(warnings, traceLog.EventsLost);
-        if (timeWeightsEstablished)
-        {
-            warnings.Add(
-                cpuWeighting!.Intervals.Count == 1
-                    ? $"CPU sample weights use the trace-recorded ETW PerfInfo interval ({cpuWeighting.Intervals[0].IntervalMSec.ToString("0.####", CultureInfo.InvariantCulture)} ms)."
-                    : "CPU sample weights use the trace-recorded ETW PerfInfo interval active at each sample; the interval changed during the trace.");
-
-        }
-        else if (samples.Count > 0)
-        {
-            warnings.Add(
-                "CPU sampling interval is not recorded for every included sample; CPU weights are raw sample counts, not milliseconds.");
-        }
-
-        if (cpuWeighting?.OmittedIntervalSegmentCount > 0)
-        {
-            warnings.Add(
-                $"CPU sampling provenance retained the first {cpuWeighting.Intervals.Count} interval segments and omitted {cpuWeighting.OmittedIntervalSegmentCount} later segments covering {cpuWeighting.OmittedIntervalSampleCount} samples.");
-        }
+        cpuSamples.AddWarnings(warnings, cpuWeighting, cpuSampling, samples.Count);
 
         if (samples.Count == 0)
         {
@@ -755,6 +714,7 @@ internal abstract partial class TraceLogReader : ITraceReader
             analysisEvents.Counts,
             sourceResolution.CreateInfo())
         {
+            EventsLost = traceLog.EventsLost,
             NativeSymbols = nativeSymbols,
             AppliedProcessScope = resolvedScope.AppliedScope,
             AppliedActivityName = activityName,
@@ -769,13 +729,21 @@ internal abstract partial class TraceLogReader : ITraceReader
     /// <param name="eventsLost">The lost-event count retained by the trace log.</param>
     internal static void AddEventLossWarning(List<string> warnings, int eventsLost)
     {
-        if (eventsLost > 0)
+        if (EventLossWarning(eventsLost) is string warning)
         {
-            warnings.Add(
-                $"Trace records report {eventsLost.ToString(CultureInfo.InvariantCulture)} lost events; "
-                    + "analysis is incomplete and must not be treated as a complete profile.");
+            warnings.Add(warning);
         }
     }
+
+    /// <summary>
+    ///  Formats incomplete-capture evidence when ETLX reports lost events.
+    /// </summary>
+    /// <param name="eventsLost">The trace's lost-event count.</param>
+    /// <returns>The warning, or <see langword="null"/> when no events were lost.</returns>
+    internal static string? EventLossWarning(int eventsLost) => eventsLost > 0
+        ? $"Trace records report {eventsLost.ToString(CultureInfo.InvariantCulture)} lost events; "
+            + "analysis is incomplete and must not be treated as a complete profile."
+        : null;
 
     /// <summary>
     ///  Determines whether another thread label can be retained for reference sharing.

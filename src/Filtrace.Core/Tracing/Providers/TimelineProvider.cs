@@ -240,7 +240,8 @@ public sealed partial class TimelineProvider
             eventLanes.Jit)
         {
             AppliedProcessScope = FollowUpProcessScope(resolved),
-            ScopeWarnings = resolved.Warnings
+            ScopeWarnings = resolved.Warnings,
+            CpuSampleWarning = eventLanes.CpuSampleWarning
         };
     }
 
@@ -292,6 +293,7 @@ public sealed partial class TimelineProvider
         long[]? allocCount = wantAlloc ? new long[buckets] : null;
         long[]? allocBytes = wantAlloc ? new long[buckets] : null;
         int[]? jitCount = wantJit ? new int[buckets] : null;
+        CpuSampleEvidence cpuSamples = default;
         HashSet<int>? scopedAnalysisProcessIndexes = wantGc && resolvedScope.ProcessInstanceIndexes is not null
             ? []
             : null;
@@ -323,7 +325,8 @@ public sealed partial class TimelineProvider
                 wantCpu ? BuildCpuLane(cpuCount!, cpuTop!, buckets) : null,
                 wantExceptions ? BuildExceptionLane(exCount!, exTop!, buckets) : null,
                 wantAlloc ? BuildAllocLane(allocCount!, allocBytes!, buckets) : null,
-                wantJit ? BuildJitLane(jitCount!, buckets) : null)
+                wantJit ? BuildJitLane(jitCount!, buckets) : null,
+                cpuSamples.Warning)
             : default;
 
         return (gc, events);
@@ -367,6 +370,7 @@ public sealed partial class TimelineProvider
                             break;
                         }
 
+                        cpuSamples.ObserveSample(data is ClrThreadSampleTraceData);
                         int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
                         cpuCount![idx]++;
                         string? leaf = LeafMethod(stack);

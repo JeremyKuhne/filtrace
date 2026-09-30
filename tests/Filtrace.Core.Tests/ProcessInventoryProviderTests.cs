@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using Filtrace.Tracing.Providers;
+using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Tracing;
 
@@ -29,6 +30,9 @@ public sealed class ProcessInventoryProviderTests
 
         inventory.Metric.Should().Be(loaded.Aggregator.Metric);
         inventory.CpuSampling.Should().BeEquivalentTo(loaded.Info.CpuSampling);
+        inventory.Warnings.Should().NotContain(warning =>
+            warning.Contains("SampleProfiler thread-stack samples", StringComparison.Ordinal));
+
         inventory.Warnings.Should().NotContain(
             warning => warning.Contains("frames resolved", StringComparison.Ordinal));
     }
@@ -49,6 +53,9 @@ public sealed class ProcessInventoryProviderTests
 
         inventory.Metric.Should().Be(loaded.Aggregator.Metric);
         inventory.CpuSampling.Should().BeEquivalentTo(loaded.Info.CpuSampling);
+        inventory.CpuSampling.Source.Should().Be(CpuSampleEvidence.SampleProfilerSource);
+        inventory.Warnings.Should().ContainSingle(warning =>
+            warning.Contains("SampleProfiler thread-stack samples", StringComparison.Ordinal));
     }
 
     [TestMethod]

@@ -400,7 +400,8 @@ public sealed class TraceTools
                 scope,
                 info.Path,
                 resolvedSymbols,
-                nativeSymbols),
+                nativeSymbols,
+                info.CpuSampling),
             AnalysisContext.ForTrace(
                 "rank",
                 trace,
@@ -1031,6 +1032,10 @@ public sealed class TraceTools
         }
 
         warnings.AddRange(result.ScopeWarnings);
+        if (result.CpuSampleWarning is string cpuSampleWarning)
+        {
+            warnings.Add(cpuSampleWarning);
+        }
 
         // Surface the process the scope resolved to (an explicit name or the automatic
         // busiest) so a narrowed machine-wide capture is not silently one process's view.

@@ -3,6 +3,7 @@
 // See LICENSE file in the project root for full license information
 
 using System.Globalization;
+using Filtrace.Tracing.Readers;
 
 namespace Filtrace.Tracing;
 
@@ -165,11 +166,12 @@ public sealed class TraceLoaderTests
         trace.Source.Samples.Should().OnlyContain(static sample => sample.Weight == 1.0);
         trace.Info.CpuSampling.Should().NotBeNull();
         trace.Info.CpuSampling!.WeightUnit.Should().Be("samples");
-        trace.Info.CpuSampling.Source.Should().Be("unavailable");
+        trace.Info.CpuSampling.Source.Should().Be(CpuSampleEvidence.SampleProfilerSource);
         trace.Info.CpuSampling.TimeWeightsEstablished.Should().BeFalse();
         trace.Info.CpuSampling.UnknownIntervalSampleCount.Should().Be(trace.Info.SampleCount);
         trace.Info.Warnings.Should().Contain(
-            "CPU sampling interval is not recorded for every included sample; CPU weights are raw sample counts, not milliseconds.");
+            warning => warning.Contains("SampleProfiler thread-stack samples", StringComparison.Ordinal)
+                && warning.Contains("not on-core CPU milliseconds", StringComparison.Ordinal));
     }
 
     [TestMethod]

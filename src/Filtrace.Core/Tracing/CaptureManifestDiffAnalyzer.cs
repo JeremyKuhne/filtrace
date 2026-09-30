@@ -96,26 +96,69 @@ public static class CaptureManifestDiffAnalyzer
                     root,
                     foldPatterns);
 
-                AddQualityWarnings(caseWarnings, "baseline", beforeTrace, beforeRanking, root);
-                AddQualityWarnings(caseWarnings, "current", afterTrace, afterRanking, root);
                 RankingDiffResult diff = Diff(
                     beforeRanking,
                     afterRanking,
                     rowsPerCase,
                     pair.Before,
                     pair.After,
-                    caseWarnings);
+                    out string? operationWarning);
+
+                RootScopeCoverage? beforeRootCoverage = string.IsNullOrEmpty(root)
+                    ? null
+                    : beforeTrace.Aggregator.GetRootScopeCoverage(root);
+
+                RootScopeCoverage? afterRootCoverage = string.IsNullOrEmpty(root)
+                    ? null
+                    : afterTrace.Aggregator.GetRootScopeCoverage(root);
+
+                FrameMatchReport? beforeMatches = string.IsNullOrEmpty(root)
+                    ? null
+                    : FrameMatchAnalyzer.Analyze(beforeTrace.Source, root, FrameMatchSelection.Outermost);
+
+                FrameMatchReport? afterMatches = string.IsNullOrEmpty(root)
+                    ? null
+                    : FrameMatchAnalyzer.Analyze(afterTrace.Source, root, FrameMatchSelection.Outermost);
+
+                CaptureManifestOutput.AddPairCaptureWarning(caseWarnings, beforeTrace.Info, afterTrace.Info);
+                if (beforeMatches?.Matches.Count == 0)
+                {
+                    CaptureManifestOutput.AddWarning(caseWarnings, $"baseline: root '{root}' matched no frames");
+                }
+
+                if (afterMatches?.Matches.Count == 0)
+                {
+                    CaptureManifestOutput.AddWarning(caseWarnings, $"current: root '{root}' matched no frames");
+                }
+
+                if (operationWarning is not null)
+                {
+                    CaptureManifestOutput.AddWarning(caseWarnings, operationWarning);
+                }
+
+                if (beforeMatches?.IsAmbiguous == true)
+                {
+                    CaptureManifestOutput.AddWarning(
+                        caseWarnings,
+                        $"baseline: root '{root}' matched {beforeMatches.Matches.Count} frame definitions; outermost selected");
+                }
+
+                if (afterMatches?.IsAmbiguous == true)
+                {
+                    CaptureManifestOutput.AddWarning(
+                        caseWarnings,
+                        $"current: root '{root}' matched {afterMatches.Matches.Count} frame definitions; outermost selected");
+                }
+
+                AddOtherQualityWarnings(caseWarnings, "baseline", beforeTrace, beforeRanking);
+                AddOtherQualityWarnings(caseWarnings, "current", afterTrace, afterRanking);
 
                 cases.Add(ToCaseResult(
                     pair,
                     diff,
                     caseWarnings,
-                    string.IsNullOrEmpty(root)
-                        ? null
-                        : beforeTrace.Aggregator.GetRootScopeCoverage(root),
-                    string.IsNullOrEmpty(root)
-                        ? null
-                        : afterTrace.Aggregator.GetRootScopeCoverage(root)));
+                    beforeRootCoverage,
+                    afterRootCoverage));
             }
             catch (Exception exception) when (!incompatibleUnits && IsCaseFailure(exception))
             {
@@ -190,8 +233,9 @@ public static class CaptureManifestDiffAnalyzer
         int top,
         CaptureManifestCase beforeCase,
         CaptureManifestCase afterCase,
-        List<string> warnings)
+        out string? operationWarning)
     {
+        operationWarning = null;
         if (beforeCase.HasCompleteOperationMetadata
             && afterCase.HasCompleteOperationMetadata
             && string.Equals(
@@ -215,9 +259,7 @@ public static class CaptureManifestDiffAnalyzer
 
         if (hasAnyOperationMetadata)
         {
-            CaptureManifestOutput.AddWarning(
-                warnings,
-                "per-operation values omitted: both cases require positive operationCount and the same operationUnit");
+            operationWarning = "per-operation values omitted: both cases require positive operationCount and the same operationUnit";
         }
 
         return RankingDiff.Diff(before, after, top);
@@ -251,18 +293,12 @@ public static class CaptureManifestDiffAnalyzer
                 ScopeWeightPerOperationDelta = diff.ScopeWeightPerOperationDelta
             };
 
-    private static void AddQualityWarnings(
+    private static void AddOtherQualityWarnings(
         List<string> warnings,
         string side,
         LoadedTrace trace,
-        RankingResult ranking,
-        string root)
+        RankingResult ranking)
     {
-        foreach (string warning in trace.Info.Warnings.Take(4))
-        {
-            CaptureManifestOutput.AddWarning(warnings, $"{side}: {warning}");
-        }
-
         if (ContributingRecordQuality.TryGetMethodWarning(
             trace.Source.RecordSemantics,
             ranking.ContributingRecordCount,
@@ -271,26 +307,7 @@ public static class CaptureManifestDiffAnalyzer
             CaptureManifestOutput.AddWarning(warnings, $"{side}: {recordWarning}");
         }
 
-        if (!string.IsNullOrEmpty(root))
-        {
-            FrameMatchReport report = FrameMatchAnalyzer.Analyze(
-                trace.Source,
-                root,
-                FrameMatchSelection.Outermost);
-
-            if (report.Matches.Count == 0)
-            {
-                CaptureManifestOutput.AddWarning(
-                    warnings,
-                    $"{side}: root '{root}' matched no frames");
-            }
-            else if (report.IsAmbiguous)
-            {
-                CaptureManifestOutput.AddWarning(
-                    warnings,
-                    $"{side}: root '{root}' matched {report.Matches.Count} frame definitions; outermost selected");
-            }
-        }
+        CaptureManifestOutput.AddOtherTraceWarnings(warnings, trace.Info, side);
     }
 
     private static bool IsCaseFailure(Exception exception) =>

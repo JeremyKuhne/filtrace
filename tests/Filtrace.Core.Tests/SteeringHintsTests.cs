@@ -173,6 +173,25 @@ public sealed class SteeringHintsTests
     }
 
     [TestMethod]
+    public void ForRanking_SampleProfiler_OffersMostSampledFrameRatherThanHotCpu()
+    {
+        RankingResult ranking = new(25.0, "", [new RankRow("App.Work", 25.0, 100.0)]);
+        CpuSampleProvenance provenance = new(
+            "samples", "sampleprofiler", TimeWeightsEstablished: false,
+            UnknownIntervalSampleCount: 25, Intervals: []);
+
+        IReadOnlyList<string> hints = SteeringHints.ForRanking(
+            ranking, MetricInfo.CpuSamples, scope: null, path: null, symbols: null,
+            nativeSymbols: false, provenance);
+
+        hints.Should().ContainSingle().Which.Should().Be(
+            "drill into the most sampled frame with: callers App.Work");
+
+        new AnalysisResult<RankingResult>(ranking, hints: hints).NextSteps
+            .Should().ContainSingle().Which.Operation.Should().Be("callers");
+    }
+
+    [TestMethod]
     public void ForRanking_UnresolvedNamedProcess_OffersScopePreservingInfoStep()
     {
         RankingResult ranking = new(51.0, "", [new RankRow("?", 51.0, 100.0)]);
@@ -582,6 +601,26 @@ public sealed class SteeringHintsTests
         hints.Should().NotContain(h => h.Contains("slow but low CPU", StringComparison.Ordinal));
         hints.Should().Contain(h => h.Contains("capture status unknown", StringComparison.Ordinal)
             && h.Contains("wait", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ForTraceInfo_SampleProfiler_QualifiesCpuBoundRoute()
+    {
+        TraceInfo info = new(
+            "/t.nettrace", TraceFormat.NetTrace, 100.0, 100, 1.0, [], [],
+            TraceCapabilities.AnalysesFor(TraceFormat.NetTrace))
+        {
+            CpuSampling = new CpuSampleProvenance(
+                "samples", "sampleprofiler", TimeWeightsEstablished: false,
+                UnknownIntervalSampleCount: 100, Intervals: [])
+        };
+
+        IReadOnlyList<string> hints = SteeringHints.ForTraceInfo(info);
+
+        hints.Should().Contain(h => h.Contains(
+            "sampled thread stacks (not on-core CPU time) -> cpu", StringComparison.Ordinal));
+
+        hints.Should().NotContain(h => h.Contains("CPU-bound -> cpu", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -1156,6 +1195,24 @@ public sealed class SteeringHintsTests
         // unscoped timeline carries no --process on the drill.
         hints.Should().ContainSingle().Which.Should()
             .Be("busiest CPU window is bucket 2 (40-60 ms); scope a ranking with: rank --metric cpu --time 40,60");
+    }
+
+    [TestMethod]
+    public void ForTimeline_SampleProfiler_DrillsBusiestSampleWindow()
+    {
+        TimelineResult timeline = new(
+            0.0, 100.0, 20.0, 5, Process: null,
+            Gc: null, Cpu: [new CpuBucket(0, TopMethod: null), new CpuBucket(10, "App.Work"),
+                new CpuBucket(0, TopMethod: null), new CpuBucket(0, TopMethod: null), new CpuBucket(0, TopMethod: null)],
+            Exceptions: null, Alloc: null, Jit: null)
+        {
+            CpuSampleWarning = "SampleProfiler thread-stack samples"
+        };
+
+        IReadOnlyList<string> hints = SteeringHints.ForTimeline(timeline);
+
+        hints.Should().ContainSingle().Which.Should().Contain(
+            "busiest thread-stack sample window is bucket 1");
     }
 
     [TestMethod]

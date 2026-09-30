@@ -715,6 +715,20 @@ cleanly and stays cheap in tokens.
   scope. CPU units are analyzer-version dependent: call them milliseconds only when
   recorded interval provenance and interval-aware weighting are established; otherwise
   use qualified sample counts/weights. Never derive CPU time from wall clock times share.
+  SampleProfiler thread-stack samples in EventPipe captures may include waiting or
+  native execution; `cpuSampling.source: sampleprofiler` identifies their raw counts,
+  not on-core CPU time or a blocked-time percentage. A result mixing those samples
+  with ETW sampled-profile records uses counts for both (`mixed-etw-sampleprofiler`),
+  even when the ETW subset has a recorded interval. CPU-derived CLI and MCP results
+  warn on the selected SampleProfiler evidence and qualify CPU-focused hints. Use
+  ETW PerfInfo sampling when the question requires on-core CPU time; do not equate
+  SampleProfiler `External` events with blocked time.
+  Counts from a mixed-provider result need not be comparable across samplers; do
+  not treat their combined share as a CPU-time comparison.
+  Bounded manifest batch/diff cases retain lost-event and SampleProfiler evidence
+  (combined with arm labels in diff) plus root-mismatch and per-operation
+  diagnostics before lower-priority warnings. Inspect a direct trace when the
+  four-warning case budget omits further quality detail.
 - Keep counts separate from weight. `trace_info.sampleCount` describes the loaded
   whole trace after process/activity/time filters; it does not establish that a
   narrower root/method/file query is well sampled. Stack rankings and callers expose

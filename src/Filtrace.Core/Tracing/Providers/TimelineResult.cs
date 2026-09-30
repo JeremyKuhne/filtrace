@@ -64,4 +64,11 @@ public sealed record TimelineResult(
     /// </summary>
     [JsonIgnore]
     public IReadOnlyList<string> ScopeWarnings { get; init; } = [];
+
+    /// <summary>
+    ///  The warning for contributing SampleProfiler CPU-labeled samples, omitted
+    ///  from result JSON because the heads put it in the envelope warnings.
+    /// </summary>
+    [JsonIgnore]
+    public string? CpuSampleWarning { get; init; }
 }

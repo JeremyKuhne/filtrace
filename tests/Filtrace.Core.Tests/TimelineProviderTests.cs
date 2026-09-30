@@ -62,6 +62,7 @@ public sealed class TimelineProviderTests
         result.Cpu.Should().BeNull();
         result.Exceptions.Should().BeNull();
         result.Jit.Should().BeNull();
+        result.CpuSampleWarning.Should().BeNull();
     }
 
     [TestMethod]
@@ -117,6 +118,7 @@ public sealed class TimelineProviderTests
 
         result.Cpu!.Sum(static b => (long)b.SampleCount).Should().BeGreaterThan(0, "the capture carries CPU samples");
         result.Gc.Should().NotBeNull("the gc lane was requested in the same pass");
+        result.CpuSampleWarning.Should().Contain("SampleProfiler thread-stack samples");
     }
 
     [TestMethod]
@@ -136,6 +138,7 @@ public sealed class TimelineProviderTests
         result.Snapshot.Events.TypeCount.Should().BeGreaterThan(TimelineProvider.SnapshotDetailLimit);
         result.Snapshot.Events.Types.Should().HaveCount(TimelineProvider.SnapshotDetailLimit);
         result.Snapshot.Cpu.SampleCount.Should().BeGreaterThan(0);
+        result.CpuSampleWarning.Should().Contain("SampleProfiler thread-stack samples");
         result.Snapshot.Cpu.Methods.Should().NotBeEmpty()
             .And.HaveCountLessThanOrEqualTo(TimelineProvider.SnapshotDetailLimit);
 
@@ -253,6 +256,7 @@ public sealed class TimelineProviderTests
             FixturePath("etw.etl"), lanes: [TimelineProvider.CpuLane]);
 
         result.Cpu!.Sum(static b => (long)b.SampleCount).Should().BeGreaterThan(0);
+        result.CpuSampleWarning.Should().BeNull();
     }
 
     [TestMethod]

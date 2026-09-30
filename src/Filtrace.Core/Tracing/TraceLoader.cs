@@ -145,7 +145,8 @@ public sealed class TraceLoader
             result.AppliedProcessScope,
             result.AppliedActivityName,
             result.AppliedTimeWindow,
-            result.CpuSampling);
+            result.CpuSampling,
+            result.EventsLost);
 
         StackSampleSource source = new(result.Metric, result.Samples, result.RecordSemantics);
         return new LoadedTrace(info, source);
@@ -441,7 +442,8 @@ public sealed class TraceLoader
         AppliedProcessScope? appliedProcessScope = null,
         string? appliedActivityName = null,
         TimeWindow? appliedTimeWindow = null,
-        CpuSampleProvenance? cpuSampling = null)
+        CpuSampleProvenance? cpuSampling = null,
+        int eventsLost = 0)
     {
         double totalWeight = 0.0;
         Dictionary<string, int> threadCounts = new(StringComparer.Ordinal);
@@ -487,7 +489,8 @@ public sealed class TraceLoader
             AppliedProcessScope = appliedProcessScope,
             AppliedActivityName = appliedActivityName,
             AppliedTimeWindow = appliedTimeWindow,
-            CpuSampling = cpuSampling
+            CpuSampling = cpuSampling,
+            EventsLost = eventsLost
         };
     }
 
