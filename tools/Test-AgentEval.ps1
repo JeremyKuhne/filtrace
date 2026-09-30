@@ -473,6 +473,23 @@ try {
     $runnerAst = [System.Management.Automation.Language.Parser]::ParseFile(
         $runner, [ref]$runnerTokens, [ref]$runnerErrors)
     Assert-True ($runnerErrors.Count -eq 0) 'Invoke-AgentEval.ps1 did not parse for isolated function tests.'
+    $promptAssignment = $runnerAst.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+            $node.Left.VariablePath.UserPath -ceq 'systemPrompt'
+        }, $true)
+    Assert-True ($null -ne $promptAssignment) 'Could not extract the mediated system prompt.'
+    & {
+        [string[]] $verbs = @('info', 'rank')
+        . ([scriptblock]::Create($promptAssignment.Extent.Text))
+        Assert-True ($systemPrompt.Contains(
+                'Example: RUN: rank <TRACE> --metric cpu --top 5',
+                [StringComparison]::Ordinal)) 'The mediated prompt does not teach canonical CPU ranking.'
+        Assert-True ($systemPrompt.Contains(
+                'Available verbs (each takes <TRACE> as the first argument): info, rank.',
+                [StringComparison]::Ordinal)) 'The mediated prompt did not render the supplied command list.'
+    }
     foreach ($functionName in @(
             'Assert-AgentEvalEventObject', 'Assert-AgentEvalEvidenceEvent',
             'Assert-AgentEvalUniqueJsonMembers', 'ConvertFrom-AgentEvalJsonLines',

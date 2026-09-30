@@ -35,6 +35,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$script:PSNativeCommandUseErrorActionPreference = $false
 $root = Split-Path -Parent $PSScriptRoot
 $commandsFile = Join-Path $root 'src/Filtrace/Cli/TraceCommands.cs'
 $readmeFile = Join-Path $root 'README.md'

@@ -359,7 +359,7 @@ Respond with EXACTLY ONE line each turn, either:
 
 Available verbs (each takes <TRACE> as the first argument): $($verbs -join ', ').
 Give only the arguments - do not prefix the line with `filtrace`, and do not add
-any --format or --json flag (output is already JSON). Example: RUN: cpu <TRACE> --top 5
+any --format or --json flag (output is already JSON). Example: RUN: rank <TRACE> --metric cpu --top 5
 Base every claim on tool output - do not invent frames or numbers. If a command
 returns an error, read it and try a corrected command. Keep going until you can
 answer.
