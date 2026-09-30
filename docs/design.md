@@ -3,13 +3,14 @@
 **Status:** Current. This page states the principles, goals, and measures of success
 that govern further development.
 
-**Last verified:** 2026-09-08 against `main` at `a7ebd5e`.
+**Last verified:** 2026-09-30 against merged `main` at `ae608a0` and the
+repository's documentation, CLI/MCP, and test contracts.
 
 Filtrace ordering, conditional work, and completed surface decisions belong in the
 public [roadmap.md](roadmap.md). Cross-repository coordination becomes actionable in
-this repository only when reflected there. Comparisons with other tools belong in
-[competitive-analysis.md](competitive-analysis.md). This page is the standing
-contract that all of them are judged against.
+this repository only when reflected there. This page is the standing contract
+that proposed changes are judged against; dated external-tool comparisons and
+completed experiment logs are not independent sources of current work.
 
 ## What filtrace is
 
@@ -42,8 +43,9 @@ the scope it already established.
 
 ## Non-goals
 
-- **PerfView parity.** filtrace resists breadth-for-its-own-sake; the roadmap is
-  the pressure valve. See [competitive-analysis.md](competitive-analysis.md).
+- **PerfView parity.** filtrace resists breadth-for-its-own-sake; hand off
+  unsupported analysis to a specialist rather than importing a profiler's
+  entire surface.
 - **Reimplementing collectors or viewers.** Capture integrates `TraceEvent`
   sessions; rendering exports to speedscope and Chromium/Perfetto.
 - **One universal `trace_query` tool.** A single polymorphic operation trades a
@@ -54,8 +56,10 @@ the scope it already established.
 - **Prose for agents.** Markdown or fixed-width tables never replace JSON objects
   on the machine-readable path, and property names are not abbreviated into opaque
   wire codes to save tokens.
-- **Side effects behind MCP.** Capture, elevation, and ETLX cache mutation stay
-  explicit CLI responsibilities.
+- **Capture and destructive cache operations behind MCP.** Capture, elevation,
+  and explicit cache housekeeping remain CLI responsibilities. An MCP analysis
+  can still prepare or recover its adjacent ETLX as part of loading a trace;
+  "read-only tool" does not mean zero disk writes.
 - **Opaque server-side trace handles as the only address.** Paths and manifest
   identities stay reproducible across sessions.
 
@@ -183,6 +187,137 @@ project reference, so the repository builds standalone and validates the depende
 shape consumers receive. Ported third-party code keeps its upstream copyright
 notice and source provenance in addition to project-level notices.
 
+## Findings that constrain future changes
+
+These are the durable conclusions of completed investigations, not another
+implementation queue. The [roadmap](roadmap.md) carries only work with a current
+trigger. Git history and linked issue/PR evidence retain the experiment detail.
+
+### Agent evidence and interface decisions
+
+- **A smaller wire payload need not save agent context.** A JSON-text-only MCP
+  response removed the server's structured/text duplication, but the tested
+  client re-materialized `structuredContent` for the model. The visible
+  result was no smaller. Keep typed output and the text fallback until a
+  different client demonstrates a need to change the transport.
+- **Tool consolidation can harm selection.** A nested `trace_report` union
+  removed four advertised tools and about 525 estimated schema tokens but
+  reduced disk-I/O success from 100% to 90% and lifecycle success from 70%
+  to 30% on the measured low-cost model. Lost or omitted invocation-root
+  selectors mattered more than the schema saving. Keep intent-bearing tools;
+  do not resurrect a universal query merely to reduce tool count.
+- **Constrain detail with an existing axis before adding grammar.** An
+  `info` summary default regressed a measured compatibility task from 90%
+  to 40%. By contrast, allowing report `top: 0` and events `take: 0`
+  provided aggregate/count-only answers without an interacting `detail`
+  parameter. Preserve the bounded default information that an agent
+  actually needs to choose its next operation.
+- **Explicit scope matters more than a superficial skill win.** In EP1 the
+  discovered skill produced 5/10 strict answers versus 3/10 for CLI-only,
+  but the result was strongly order-sensitive. Failed skill chats accepted
+  an automatic process choice when the question named a different tree.
+  EP2's completed answer set tied 12/12 to 12/12 with zero false confidence,
+  and candidate treatment delivery was verified in only 11/12. Neither
+  experiment proves a general answer-quality or effort advantage. Validate
+  the requested process, root, units, and scope in a new agent workflow
+  rather than counting a command reduction as success.
+- **Reuse a parsed model only where its ownership is clear.** MCP already
+  injects one `TraceStore` for successive `trace_*` calls. In a three-query
+  warm-trace comparison that saved a median paired 1,445 ms on a large ETL
+  versus three fresh CLI processes, while the server used more peak sampled
+  private memory. A separate two-query CLI prototype saved 1,189 ms on that
+  ETL and 209 ms on a small EventPipe trace without a systematic private
+  memory increase when one store was shared. The query sets differ, and
+  neither test established agent efficacy or a public multi-operation CLI
+  contract. See the [measurement and options](multi-operation-query-reuse.md).
+
+### Capture, identity, and evidence limits
+
+- **A readable trace is not necessarily usable evidence.** Check capture
+  provider state, event loss, process identity, symbol and source quality,
+  contributing records, and per-provider sampling units before attribution.
+  SampleProfiler samples are raw counts and may include waiting; they are
+  not ETW on-core CPU milliseconds. A mixed source stays in counts even
+  when its ETW subset has an established interval. Warnings and qualified
+  hints must follow that provenance through CLI/MCP and manifest results.
+- **An automatic process choice can select the wrong work.** An EP1 task
+  and a later machine-wide `csc` capture both exposed the risk of name
+  matches across unrelated instances. Use process inventory and exact
+  invocation/root ids when the question identifies a specific workload.
+  Do not silently replace missing recorded ids with a name match.
+- **An ETLX is a disk cache, not proof of a valid parsed view.** Cache
+  provenance must be checked against its raw input and sidecar before
+  reuse; a changed trace at the same path cannot inherit an old answer.
+  A warm ETLX still leaves parse/model work for a fresh CLI process.
+  Capture and replay must bind inputs, symbols, effective scope, and the
+  actual analyzer build to avoid a success-shaped but substituted result.
+- **A short-command capture can measure its own observer effect.** ETW
+  session startup and CLR naming can dominate a 30-100 ms subject.
+  Keep an uninstrumented timing baseline, use the leanest provider
+  profile that can answer the question, and verify actual recorded
+  sampling rather than the requested interval alone. The `startup`
+  profile is lower perturbation, not proof of a kernel-only capture.
+  Do not schedule another capture mode without an equivalent-work
+  experiment showing that it fixes a real scenario.
+- **External profiler artifacts need exact case identity.** The
+  BenchmarkDotNet adapter currently reconciles console text and
+  profiler filenames because its JSON exporter does not expose a
+  case-to-artifact path. Ambiguous pairing fails closed; an exporter
+  with benchmark identity but no artifact path is not a substitute.
+  Revisit this boundary when a stable upstream mapping exists or a
+  reproduced producer change breaks it ([issue #57](https://github.com/JeremyKuhne/filtrace/issues/57)).
+- **Physical relogging trades fidelity for transport size.** A fixture
+  trim reduced a machine-wide disk capture enough to commit, but the
+  relogger did not rebuild the managed-method address map. Native/file
+  evidence survived; JITted managed frames did not. Use analysis-time
+  process/time scoping for lossless investigation. The necessary fixture
+  procedure and limitation remain in
+  [filtrace-etl-trimming.md](filtrace-etl-trimming.md).
+- **Native symbols are not automatically portable.** The current ETW
+  capture does not embed the PDB identity needed for off-machine native
+  resolution. Tests capture and resolve on the same machine instead of
+  promising that a committed native-symbol trace resolves everywhere.
+
+### Performance evidence and dependency boundaries
+
+- **Test the whole analysis path, not only a microbenchmark.** Frame-label
+  reuse moved a warm 1M ranking from roughly six seconds to 3.3-3.5
+  seconds. An indexed stack walk then improved the 1M row another 9.5%
+  with TraceEvent and 12% with source-integrated FastTrace, using the
+  existing public APIs. Sampled allocations fell, but process memory
+  rose on that row. Those are workload-specific consumer wins, not proof
+  that parallelization, a replacement engine, or lower retained memory
+  follows. Use an isolated benchmark, the matching end-to-end CLI
+  scenario, a fixed-analyzer attribution profile, exact output/scope
+  parity, and explicit CPU/GC/memory evidence. There is no universal
+  wall-time or memory percentage floor for future experiments; report
+  absolute effects and uncertainty. Reusable commands live in
+  [the benchmark guide](../benchmarks/README.md).
+- **The default engine remains TraceEvent 3.2.6.** Source-integrated
+  FastTrace produced useful Windows/Linux x64 JIT and Native AOT results,
+  but cold large-input throughput and working set could lose. It is a
+  namespace-adjusted source build, not a published, binary-compatible
+  replacement or a Native AOT claim for the default product. Use the
+  [source-build guide](source-build.md) only for an explicitly selected
+  comparison.
+- **Some missing answers need a different data model.** The pinned
+  TraceEvent package does not contain `MemoryGraph`, `GCHeapDump`, or
+  `GCHeapSimulator`; sampled allocation cannot answer path-to-root
+  retention or net surviving heap. Route those questions to a heap
+  snapshot/PerfView or another specialist until a compatible graph or
+  simulator is selected. PMC sampling has an analysis-side event surface
+  but still needs a proven ETW capture and fixture. Re-audit these facts
+  when the pin in [Directory.Packages.props](../Directory.Packages.props)
+  changes rather than carrying an old package inventory forward.
+- **Prefer fixed ownership for repository-local activation.** An earlier
+  general local-testing implementation accumulated path, lock, schema,
+  and rollback branches. Its replacement uses fixed per-worktree managed
+  paths, an immutable baseline, one lock, and explicit resumable states.
+  Do not add arbitrary managed paths or automatic migration without a
+  concrete contributor scenario. The current
+  [activation and recovery guide](local-testing.md) preserves the
+  operator contract.
+
 ## Measures of success
 
 ### Enforced gates
@@ -191,14 +326,14 @@ These are checked by CI; a change that breaks one is not shippable.
 
 | Measure | Gate | Current | Enforced by |
 |---|---|---|---|
-| MCP `tools/list` size | <= 7,000 estimated tokens | ~6,710 tokens / 26,538 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
+| MCP `tools/list` size | <= 7,000 estimated tokens | ~6,928 tokens / 27,389 chars over 18 tools | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | MCP stdout purity | pure JSON-RPC, real `tools/call` round trip | envelope `schemaVersion` 18 | [tools/Test-McpServer.ps1](../tools/Test-McpServer.ps1) |
 | Single analysis response | <= 25,000 tokens (`OutputBudget.DefaultCeilingTokens`) | every producer bounds its rows against `OutputBudget.DefaultRowBudgetTokens` | Core budget plus worst-case tests |
 | Per-command `--help` | <= 60 lines | 16 canonical commands; 12 hidden preview aliases remain help-addressable | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
 | Command discoverability | every canonical command in top-level help, README examples, and scope inventory; hidden aliases absent | 16 canonical commands; top-level help 27 lines / 2,171 chars | [tools/Test-CliHelp.ps1](../tools/Test-CliHelp.ps1) |
 | Catalog completeness | every canonical command and every `trace_*` tool documented | 16 commands / 18 tools | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
 | Knowledge-layer drift | zero drift between `docs/` blocks and their embedded copies | 4 blocks | [tools/Test-Docs.ps1](../tools/Test-Docs.ps1) |
-| Deterministic eval | every task keeps its answer, call count, and output budget | 29 tasks | [eval/Invoke-Eval.ps1](../eval/Invoke-Eval.ps1) |
+| Deterministic eval | every task keeps its answer, call count, and output budget | 31 tasks | [eval/Invoke-Eval.ps1](../eval/Invoke-Eval.ps1) |
 | Numeric parity | rankings match the frozen oracle within tolerance and ordering | committed fixtures | `tests/Filtrace.Parity.Tests` |
 | Capture contract | run artifacts isolated, profiles preflighted, every case in the manifest | - | [tools/Test-CaptureBenchmarkTrace.ps1](../tools/Test-CaptureBenchmarkTrace.ps1), [tools/Test-CaptureProjectTrace.ps1](../tools/Test-CaptureProjectTrace.ps1) |
 | Analysis-record contract | exact argv and hashes retained; changed inputs rejected before replay | - | [tools/Test-FiltraceAnalysis.ps1](../tools/Test-FiltraceAnalysis.ps1) |
@@ -287,7 +422,8 @@ which hosted Windows runners permit because they run elevated.
   more than an equivalent ETW-only addition.
 - **Some analysis is dependency-gated, not merely unwritten.** The pinned
   `TraceEvent` package does not ship the heap-graph or heap-simulator types that
-  retention and net-surviving-heap analysis need; see
-  [traceevent-surface-assessment.md](traceevent-surface-assessment.md).
+  retention and net-surviving-heap analysis need; route those questions to
+  a specialist and recheck the [package pin](../Directory.Packages.props)
+  before planning an in-process implementation.
 - **The permanent MCP schema is a shared budget.** Every new tool spends context on
   every conversation with every client, whether or not it is called.
