@@ -5,7 +5,7 @@
 
 <#
 .SYNOPSIS
-  Validates the filtrace MCP server's wire-protocol contracts as build artifacts.
+  Validates a built or explicitly installed filtrace MCP server's wire protocol.
 
 .DESCRIPTION
   Enforces the two checks born with the MCP facade (docs/design.md, "Measures of
@@ -38,34 +38,49 @@
   a regression is legible. The budget covers each tool's name, description, input
   schema, and output schema - everything the client puts in front of the model from
   tools/list, on every request.
-  The ceiling is a bloat guard, not a per-tool allowance: the 17 analysis tools measure
-  ~6,050 tokens, of which input schemas are ~3,700, output schemas ~1,020, and
-  descriptions ~730. Descriptions are already the smallest share, so tightening prose is
-  not where a breach is answered; consolidating behind a mode/kind parameter - the way
-  trace_rank unifies seven metrics into one tool - is.
-  This replaces the 9,000 -> 9,800 raise taken for the issue #62 startup work. That
-  exception rested on the belief that output schemas were structural and could not be
-  reclaimed, because ModelContextProtocol couples them to structured content. Measurement
-  disproved it: they were the single largest component at ~4,010 tokens (44%), repeating
-  an identical envelope 17 times and expanding every result type. Pointing each tool's
-  OutputSchemaType at the envelope alone reclaimed ~2,990 of those while structured
-  content, which is generated from the returned object rather than the advertised schema,
-  is unchanged. 7,000 is the measured 6,050 plus roughly the largest existing definition,
-  so it still admits one more tool and no general slack - and it now sits under the v.next
-  target of 7,500 with typed output schemas that docs/roadmap.md holds the
-  surface to, leaving 5,000 as the remaining stretch.
+  The ceiling is a bloat guard, not a per-tool allowance. The current 18-tool
+  surface is near this budget; the schema report separates input schemas, output
+  schemas, and descriptions so any movement is attributable. Historical transport
+  and tool-consolidation findings are retained in docs/design.md.
 
 .PARAMETER SchemaReportPath
   Where to write the per-tool schema-token breakdown (input schema, output schema,
-  description, total, parameter count) that the v.next transport and surface
-  experiments compare. Repo-relative unless rooted; defaults to the ignored
+  description, total, parameter count), plus the exercised server identity.
+  Repo-relative unless rooted; defaults to the ignored
   artifacts/ directory. Pass an empty string to skip writing it.
+
+.PARAMETER ServerExecutable
+  Explicit installed server executable. When omitted, runs dotnet with the
+  existing Configuration-specific built DLL.
+
+.PARAMETER ServerArguments
+  Argument array for ServerExecutable. Not a shell command string.
+
+.PARAMETER ExpectedVersion
+  When supplied, initialize must report this exact serverInfo.version.
+
+.PARAMETER FixturePath
+  Explicit trace_info round-trip fixture, such as an owned copy of the committed
+  folding.speedscope.json. Defaults to that committed fixture.
+
+.PARAMETER TimeoutSeconds
+  Overall protocol deadline. Defaults to 30 seconds. Shutdown and stream draining
+  each have an additional five-second bound.
+
+.PARAMETER MaxOutputBytes
+  Combined UTF-8 stdout/stderr capture bound. Defaults to 1 MiB.
 #>
 [CmdletBinding()]
 param(
     [string]$Configuration = 'Release',
     [int]$MaxSchemaTokens = 7000,
-    [string]$SchemaReportPath = 'artifacts/mcp-schema-tokens.json'
+    [string]$SchemaReportPath = 'artifacts/mcp-schema-tokens.json',
+    [string]$ServerExecutable = '',
+    [string[]]$ServerArguments = @(),
+    [string]$ExpectedVersion = '',
+    [string]$FixturePath = '',
+    [ValidateRange(1, 120)][int]$TimeoutSeconds = 30,
+    [ValidateRange(1024, 4194304)][int]$MaxOutputBytes = 1MB
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,9 +89,24 @@ $mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.
 
 # The deterministic, offline token estimator shared with the C# OutputBudget.
 . (Join-Path $PSScriptRoot 'Get-TokenEstimate.ps1')
+. (Join-Path $root 'eval/CopilotEval.Helpers.ps1')
 
-if (-not (Test-Path $mcpDll)) {
-    throw "MCP binary not found at '$mcpDll'. Build the solution first (dotnet build filtrace.slnx -c $Configuration)."
+if (-not $ServerExecutable) {
+    if ($ServerArguments.Count -ne 0) { throw 'ServerArguments requires ServerExecutable.' }
+    if (-not (Test-Path -LiteralPath $mcpDll -PathType Leaf)) {
+        throw "MCP binary not found at '$mcpDll'. Build the solution first (dotnet build filtrace.slnx -c $Configuration)."
+    }
+    $ServerExecutable = 'dotnet'
+    $ServerArguments = @($mcpDll)
+}
+$fixture = if ($FixturePath) {
+    (Resolve-Path -LiteralPath $FixturePath -ErrorAction Stop).Path
+}
+else {
+    Join-Path $root 'tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json'
+}
+if (-not (Test-Path -LiteralPath $fixture -PathType Leaf)) {
+    throw "Round-trip fixture not found at '$fixture'."
 }
 
 $failures = [System.Collections.Generic.List[string]]::new()
@@ -84,8 +114,9 @@ function Add-Failure([string]$message) { $failures.Add($message) }
 
 # Drive the server over stdio exactly as a client would.
 $psi = [System.Diagnostics.ProcessStartInfo]::new()
-$psi.FileName = 'dotnet'
-$psi.ArgumentList.Add($mcpDll)
+$psi.FileName = $ServerExecutable
+foreach ($argument in $ServerArguments) { $psi.ArgumentList.Add($argument) }
+$psi.WorkingDirectory = Split-Path -Parent $fixture
 $psi.RedirectStandardInput = $true
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
@@ -117,94 +148,133 @@ function Get-JsonRpcId($root) {
     return $null
 }
 
-Write-Host "Exercising the MCP server: $mcpDll"
-$p = [System.Diagnostics.Process]::Start($psi)
-
-# Drain stderr asynchronously from the moment the process starts. The check forces
-# Trace logging, so the server writes a lot to stderr; if nothing reads it the OS
-# pipe buffer fills, the server's next stderr write blocks, and the tools/list
-# response never arrives. Draining concurrently keeps the protocol stream flowing.
-$stderrTask = $p.StandardError.ReadToEndAsync()
-
-$p.StandardInput.WriteLine('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1.0"}}}')
-$p.StandardInput.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
-$p.StandardInput.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')
-
 # Round-trip a real tool call (id 3): invoke trace_info against a committed fixture
 # so the harness exercises the full client -> server -> service -> client path, not
 # just tools/list. ConvertTo-Json handles escaping the (possibly back-slashed) path.
-$fixture = Join-Path $root 'tests/Filtrace.Core.Tests/Fixtures/folding.speedscope.json'
-if (-not (Test-Path $fixture)) {
-    throw "Round-trip fixture not found at '$fixture'."
-}
 $callRequest = @{
     jsonrpc = '2.0'
     id      = 3
     method  = 'tools/call'
     params  = @{ name = 'trace_info'; arguments = @{ path = $fixture } }
 } | ConvertTo-Json -Compress -Depth 6
-$p.StandardInput.WriteLine($callRequest)
-$p.StandardInput.Flush()
-
-# Single async read pump with a hard overall deadline; do not break on a per-read
-# timeout because a cold server's first stdout line can take several seconds. The
-# tools/call response (id 3) is the last one expected, so reading until it arrives
-# collects the initialize, tools/list, and tools/call responses.
 $stdout = [System.Collections.Generic.List[string]]::new()
-$gotRoundTrip = $false
-$gotToolsList = $false
-$deadline = [DateTime]::UtcNow.AddSeconds(30)
-$pending = $p.StandardOutput.ReadLineAsync()
-while ([DateTime]::UtcNow -lt $deadline) {
-    if ($pending.Wait(500)) {
-        $line = $pending.Result
-        if ($null -eq $line) { break }
-        $stdout.Add($line)
-        # Track the responses we need by real JSON-RPC id (not a substring, which would
-        # also match id 30, 31, ...): tools/list is id 2, the tools/call round-trip is
-        # id 3. JSON-RPC responses can arrive in any order, so wait for BOTH before
-        # stopping - breaking on id 3 alone could miss a later-arriving tools/list and
-        # silently skip the schema-budget check. A non-JSON line is left for the purity
-        # check below to flag.
-        $trimmed = $line.Trim()
-        if ($trimmed.Length -gt 0) {
-            try {
-                $probe = [System.Text.Json.JsonDocument]::Parse($trimmed)
-                $probeId = Get-JsonRpcId $probe.RootElement
-                if ($probeId -eq 2) { $gotToolsList = $true }
-                elseif ($probeId -eq 3) { $gotRoundTrip = $true }
-                if ($gotToolsList -and $gotRoundTrip) { break }
+$responses = @{ initialize = $false; toolsList = $false; call = $false }
+function Add-ProtocolLine([string]$Line) {
+    $stdout.Add($Line)
+    try {
+        $probe = [System.Text.Json.JsonDocument]::Parse($Line.Trim())
+        try {
+            switch (Get-JsonRpcId $probe.RootElement) {
+                1 { $responses.initialize = $true }
+                2 { $responses.toolsList = $true }
+                3 { $responses.call = $true }
             }
-            catch { }
         }
-        $pending = $p.StandardOutput.ReadLineAsync()
+        finally { $probe.Dispose() }
+    }
+    catch { } # The purity check below diagnoses invalid lines.
+}
+Write-Host "Exercising the MCP server: $ServerExecutable $($ServerArguments -join ' ')"
+$p = [System.Diagnostics.Process]::new()
+$p.StartInfo = $psi
+$started = $false
+$terminated = $false
+$serverExitCode = $null
+$stderr = [System.Text.StringBuilder]::new()
+$partialLine = ''
+$capturedBytes = 0L
+$utf8 = [System.Text.Encoding]::UTF8
+try {
+    $started = $p.Start()
+    if (-not $started) { throw "Failed to start MCP server '$ServerExecutable'." }
+    # Chunk reads bound even a single unterminated stdout line. Both streams are
+    # pumped concurrently so Trace-level stderr cannot block protocol responses.
+    $stdoutBuffer = [char[]]::new(4096)
+    $stderrBuffer = [char[]]::new(4096)
+    $stdoutTask = $p.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
+    $stderrTask = $p.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
+    $stdoutClosed = $false
+    $stderrClosed = $false
+    $inputClosed = $false
+    $terminationAttempted = $false
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $p.StandardInput.WriteLine('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1.0"}}}')
+    $p.StandardInput.WriteLine('{"jsonrpc":"2.0","method":"notifications/initialized"}')
+    $p.StandardInput.WriteLine('{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}')
+    $p.StandardInput.WriteLine($callRequest)
+    $p.StandardInput.Flush()
+    while (-not ($stdoutClosed -and $stderrClosed -and $p.HasExited)) {
+        if ([DateTime]::UtcNow -ge $deadline) {
+            if ($terminationAttempted) {
+                Add-Failure 'MCP process or redirected streams did not close within the bounded shutdown.'
+                break
+            }
+            if (-not ($responses.initialize -and $responses.toolsList -and $responses.call)) {
+                Add-Failure "MCP responses did not arrive within $TimeoutSeconds seconds."
+            }
+            if (-not $p.HasExited) {
+                $terminated = $true
+                Stop-AgentEvalProcess $p $started
+            }
+            $terminationAttempted = $true
+            $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        }
+        foreach ($isStdout in @($true, $false)) {
+            if (($isStdout -and $stdoutClosed) -or (-not $isStdout -and $stderrClosed)) { continue }
+            $task = if ($isStdout) { $stdoutTask } else { $stderrTask }
+            if (-not $task.IsCompleted) { continue }
+            $count = $task.GetAwaiter().GetResult()
+            if ($count -eq 0) {
+                if ($isStdout) {
+                    $stdoutClosed = $true
+                    if ($partialLine.Length -gt 0) { Add-ProtocolLine $partialLine; $partialLine = '' }
+                }
+                else { $stderrClosed = $true }
+                continue
+            }
+            $buffer = if ($isStdout) { $stdoutBuffer } else { $stderrBuffer }
+            $chunkBytes = $utf8.GetByteCount($buffer, 0, $count)
+            if ($chunkBytes -gt ($MaxOutputBytes - $capturedBytes)) {
+                throw "MCP stdout/stderr exceeded the $MaxOutputBytes-byte capture bound."
+            }
+            $capturedBytes += $chunkBytes
+            if ($isStdout) {
+                $partialLine += [string]::new($buffer, 0, $count)
+                while (($newline = $partialLine.IndexOf("`n")) -ge 0) {
+                    Add-ProtocolLine ($partialLine.Substring(0, $newline).TrimEnd("`r"))
+                    $partialLine = $partialLine.Substring($newline + 1)
+                }
+                $stdoutTask = $p.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
+            }
+            else {
+                [void]$stderr.Append($buffer, 0, $count)
+                $stderrTask = $p.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
+            }
+        }
+        if (-not $inputClosed -and $responses.initialize -and $responses.toolsList -and $responses.call) {
+            $p.StandardInput.Close()
+            $inputClosed = $true
+            $deadline = [DateTime]::UtcNow.AddSeconds(5)
+        }
+        Start-Sleep -Milliseconds 10
+    }
+    if ($p.HasExited) { $serverExitCode = $p.ExitCode }
+    if (-not $terminated -and $serverExitCode -ne 0) {
+        Add-Failure "MCP server exited with code '$serverExitCode'."
     }
 }
-
-$p.StandardInput.Close()
-# Wait for the process - and its redirected pipes - to fully close before reading
-# results; after a Kill the streams can still be mid-flight, which races the stderr
-# drain. A plain WaitForExit() after Kill blocks until the pipes are closed.
-if (-not $p.WaitForExit(5000)) {
-    $p.Kill()
-    $p.WaitForExit()
+finally {
+    Stop-AgentEvalProcess $p $started
+    if ($started -and -not $p.HasExited) { Add-Failure 'The owned MCP server did not terminate.' }
+    $p.Dispose()
 }
-
-# The process has exited, so the stderr drain has completed; collect it for the
-# failure output. Surfaced only on failure so a passing run stays quiet.
-$stderrOutput = $stderrTask.GetAwaiter().GetResult()
-
-if (-not $gotRoundTrip) {
-    throw (
-        "The server did not return the tools/call response within the deadline.`n" +
-        "stdout:`n$($stdout -join "`n")`n" +
-        "stderr:`n$stderrOutput")
-}
+$stderrOutput = $stderr.ToString()
 
 # 1. stdout purity: every non-empty stdout line must be a JSON-RPC 2.0 message, not
 # merely parseable JSON. The tools/list response is id == 2; the tools/call is id == 3.
 $toolsLine = $null
 $callLine = $null
+$initializeLine = $null
 foreach ($line in $stdout) {
     $trimmed = $line.Trim()
     if ($trimmed.Length -eq 0) { continue }
@@ -222,9 +292,30 @@ foreach ($line in $stdout) {
     }
 
     $id = Get-JsonRpcId $doc.RootElement
-    if ($id -eq 2) { $toolsLine = $trimmed }
+    if ($id -eq 1) { $initializeLine = $trimmed }
+    elseif ($id -eq 2) { $toolsLine = $trimmed }
     elseif ($id -eq 3) { $callLine = $trimmed }
 }
+
+$serverVersion = $null
+if ($null -ne $initializeLine) {
+    $initializeDoc = [System.Text.Json.JsonDocument]::Parse($initializeLine)
+    try {
+        $serverInfo = $initializeDoc.RootElement.GetProperty('result').GetProperty('serverInfo')
+        $serverVersion = $serverInfo.GetProperty('version').GetString()
+        if ($serverInfo.GetProperty('name').GetString() -cne 'filtrace' -or
+            [string]::IsNullOrWhiteSpace($serverVersion)) {
+            Add-Failure 'initialize did not report a valid filtrace server identity.'
+        }
+        if ($ExpectedVersion -and $serverVersion -cne $ExpectedVersion) {
+            Add-Failure "initialize reported version '$serverVersion', expected '$ExpectedVersion'."
+        }
+        Write-Host "Initialize: filtrace $serverVersion"
+    }
+    catch { Add-Failure 'initialize did not return the expected serverInfo envelope.' }
+    finally { $initializeDoc.Dispose() }
+}
+else { Add-Failure 'Could not locate the initialize response (id 1).' }
 
 # 2. schema budget: measure the serialized tools array from the tools/list response.
 $toolNames = @()
@@ -312,6 +403,11 @@ if ($null -ne $toolsLine) {
             schemaVersion      = 1
             timestamp          = (Get-Date).ToString('o')
             configuration      = $Configuration
+            serverExecutable   = $ServerExecutable
+            serverArguments    = @($ServerArguments)
+            serverVersion      = $serverVersion
+            serverExitCode     = $serverExitCode
+            serverTerminated   = $terminated
             toolCount          = $toolNames.Count
             characters         = $chars
             estimatedTokens    = [int]$estimatedTokens
