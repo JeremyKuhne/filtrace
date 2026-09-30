@@ -11,6 +11,33 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'ReleaseReadiness.psm1') -Force
 
+[System.Management.Automation.Language.Token[]] $nativeTokens = $null
+[System.Management.Automation.Language.ParseError[]] $nativeErrors = $null
+$nativeAst = [System.Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $PSScriptRoot 'Assert-ReleaseReady.ps1'), [ref]$nativeTokens, [ref]$nativeErrors)
+if ($nativeErrors.Count -gt 0) { throw 'Release entrypoint does not parse.' }
+foreach ($name in @('git', 'gh')) {
+    $assignment = $nativeAst.Find({
+        param($node)
+        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $node.Left -is [System.Management.Automation.Language.ConvertExpressionAst] -and
+        $node.Left.Child -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        $node.Left.Child.VariablePath.UserPath -ceq $name
+    }, $true)
+    if ($null -eq $assignment) { throw "Could not locate '$name' application resolution." }
+    & {
+        function Get-Command {
+            param([string] $Name, $CommandType, $ErrorAction)
+            [pscustomobject]@{ Source = "$Name-first" }
+            [pscustomobject]@{ Source = "$Name-second" }
+        }
+        . ([scriptblock]::Create($assignment.Extent.Text))
+        if ((Get-Variable -Name $name -ValueOnly) -cne "$name-first") {
+            throw "Multiple '$name' applications were joined instead of selecting the first path."
+        }
+    }
+}
+
 function Assert-Rejected([scriptblock] $Action, [string] $Message) {
     [bool] $rejected = $false
     try { & $Action | Out-Null }

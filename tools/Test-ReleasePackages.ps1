@@ -344,7 +344,7 @@ try {
     }
     finally { $writer.Dispose() }
 
-    $dotnetCommand = Get-Command dotnet -CommandType Application -ErrorAction Stop
+    $dotnetCommand = @(Get-Command dotnet -CommandType Application -ErrorAction Stop)[0]
     [string] $dotnet = $dotnetCommand.Source
     $sdk = Invoke-ReleaseProcess 'sdk-version' $dotnet @('--version')
     Assert-ReleaseProcessResult $sdk 'SDK version' -RequireStdout

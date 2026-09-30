@@ -83,8 +83,8 @@ function Invoke-ReleaseQuery {
     }
 }
 
-[string] $git = (Get-Command git -CommandType Application -ErrorAction Stop).Source
-[string] $gh = (Get-Command gh -CommandType Application -ErrorAction Stop).Source
+[string] $git = @(Get-Command git -CommandType Application -ErrorAction Stop)[0].Source
+[string] $gh = @(Get-Command gh -CommandType Application -ErrorAction Stop)[0].Source
 [object] $evidence = Get-ReleaseReadinessEvidence -TagName $TagName -CommitSha $CommitSha -Repository $Repository -Query {
     param([string] $Tool, [string[]] $Arguments, [bool] $AllowEmpty)
     [string] $executable = if ($Tool -ceq 'git') { $git } else { $gh }

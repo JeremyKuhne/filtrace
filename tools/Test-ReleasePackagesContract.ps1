@@ -27,6 +27,24 @@ if (-not ($IsWindows -or $IsLinux)) { throw 'This contract runs on Windows or Li
 [System.Management.Automation.Language.ParseError[]] $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($smokeScript, [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count -ne 0) { throw 'Release package script does not parse.' }
+$applicationAssignment = $ast.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+    $node.Left.VariablePath.UserPath -ceq 'dotnetCommand'
+}, $true)
+if ($null -eq $applicationAssignment) { throw 'Could not locate native SDK resolution.' }
+& {
+    function Get-Command {
+        param([string] $Name, $CommandType, $ErrorAction)
+        [pscustomobject]@{ Source = "$Name-first" }
+        [pscustomobject]@{ Source = "$Name-second" }
+    }
+    . ([scriptblock]::Create($applicationAssignment.Extent.Text))
+    if ($dotnetCommand.Source -cne 'dotnet-first') {
+        throw 'Multiple SDK applications were joined instead of selecting the first path.'
+    }
+}
 # Load the actual pure functions without invoking the installation entry point.
 foreach ($name in @('Get-ReleaseLocalPath', 'Read-ReleaseZipText', 'ConvertFrom-ReleaseXml',
         'Get-ReleasePackageIdentity', 'Assert-ReleaseProcessResult', 'Assert-ReleaseAnalysis')) {
@@ -188,6 +206,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
     }
     if ($request.method -eq 'tools/call') { break }
 }
+if ($Mode -eq 'respond-then-hang') { Start-Sleep -Seconds 60 }
 if ($Mode -eq 'nonzero') { exit 7 }
 exit 0
 '@
@@ -200,7 +219,7 @@ exit 0
 exit $LASTEXITCODE
 '@
     foreach ($mode in @('valid', 'wrong-version', 'missing-initialize', 'wrong-id', 'missing-call',
-            'pollution', 'nonzero', 'flood-stdout', 'flood-stderr', 'hang')) {
+            'pollution', 'nonzero', 'flood-stdout', 'flood-stderr', 'hang', 'respond-then-hang')) {
         [string] $pidPath = Join-Path $run "$mode.pid"
         $result = Invoke-BoundedCopilotProcess -FilePath $hostPath -Arguments @(
             '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand',

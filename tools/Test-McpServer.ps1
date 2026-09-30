@@ -212,6 +212,9 @@ try {
             if (-not ($responses.initialize -and $responses.toolsList -and $responses.call)) {
                 Add-Failure "MCP responses did not arrive within $TimeoutSeconds seconds."
             }
+            else {
+                Add-Failure 'MCP process or redirected streams did not close within five seconds after responses and stdin closure.'
+            }
             if (-not $p.HasExited) {
                 $terminated = $true
                 Stop-AgentEvalProcess $p $started
