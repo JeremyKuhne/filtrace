@@ -4,10 +4,4 @@
 
 using Filtrace.Cli;
 
-// The M2 CLI head dispatches the verb set over the Filtrace.Core service layer,
-// parsed by ConsoleAppFramework (a source generator, no runtime dependency). The
-// engine 'rank' verb and the 'cpu' provider shortcut are the first slice; the
-// remaining verbs (callers / tree / lines / heatmap / diff / export, the other
-// family shortcuts, and the file ops convert / clean / trim) register into the
-// same TraceCommands surface as they land.
 return CliApp.Run(args);

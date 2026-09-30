@@ -10,13 +10,13 @@
 .DESCRIPTION
   Enforces the CLI help contract (docs/design.md, "Measures of success"):
 
-     1. Every canonical [Command] verb is listed in top-level help; [Hidden]
-         preview aliases remain callable but do not appear there.
+     1. Every [Command] verb is listed in top-level help; removed commands
+        are rejected, including their help requests.
      2. Top-level help does not exceed the pre-VN4 line or character baseline.
      3. Each verb's `--help` succeeds, shows a Usage line, and stays within the
        per-verb line budget (so help never grows into an unscannable wall).
      4. The README documents every canonical verb with a runnable example, teaches
-         no runnable preview-alias command, and carries the
+        no removed command, and carries the
        canonical workflow - examples live in the README because ConsoleAppFramework
        generates the per-verb `--help` from XML docs and has no examples section.
 
@@ -47,23 +47,21 @@ if (-not (Test-Path $cliDll)) {
     throw "CLI binary not found at '$cliDll'. Build the solution first (dotnet build filtrace.slnx -c $Configuration)."
 }
 
-# The command attributes are the source of truth. [Hidden] immediately before a
-# [Command] marks a callable preview alias that must not enter canonical discovery.
+# The command attributes are the source of truth; every registered verb is public.
 # @(...) forces an array so a single-verb surface does not collapse to a string
 # (which would make foreach iterate characters).
 $commandsSource = Get-Content -LiteralPath $commandsFile -Raw
-$allVerbs = @([regex]::Matches($commandsSource, '\[Command\("([^"]+)"\)\]') |
+$verbs = @([regex]::Matches($commandsSource, '\[Command\("([^"]+)"\)\]') |
     ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
-$hiddenVerbs = @([regex]::Matches(
-        $commandsSource,
-        '\[Hidden\]\s*\r?\n\s*\[Command\("([^"]+)"\)\]') |
-    ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
-$hiddenSet = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
-foreach ($hiddenVerb in $hiddenVerbs) { [void]$hiddenSet.Add($hiddenVerb) }
-$verbs = @($allVerbs | Where-Object { -not $hiddenSet.Contains($_) })
+$removedCommands = @(
+    'alloc', 'clean', 'convert', 'cpu', 'diskio', 'exceptions', 'gcstats',
+    'heatmap', 'jitstats', 'lines', 'threadpool', 'threadtime'
+)
+if ($commandsSource -match '\[Hidden\]') {
+    Add-Failure 'The CLI registers a hidden command instead of a canonical verb.'
+}
 if ($verbs.Count -eq 0) { throw "No [Command(...)] verbs found in $commandsFile." }
 Write-Host "Linting help for $($verbs.Count) canonical verbs: $($verbs -join ', ')"
-Write-Host "Hidden preview aliases: $($hiddenVerbs -join ', ')"
 
 # 1. Top-level help lists every canonical command. If the CLI itself fails to run, fail with a
 # focused message rather than letting every verb check cascade into noise.
@@ -76,14 +74,15 @@ foreach ($verb in $verbs) {
         Add-Failure "Top-level help does not list the '$verb' verb."
     }
 }
-foreach ($alias in $hiddenVerbs) {
-    if ($topHelp -match "(?m)^\s+$([regex]::Escape($alias))\s") {
-        Add-Failure "Hidden preview alias '$alias' appears in top-level help."
+foreach ($command in $removedCommands) {
+    if ($verbs -contains $command -or $topHelp -match "(?m)^\s+$([regex]::Escape($command))\s") {
+        Add-Failure "Removed command '$command' is still registered."
     }
 
-    $aliasHelp = (& dotnet $cliDll $alias --help 2>&1 | Out-String)
-    if ($LASTEXITCODE -ne 0 -or $aliasHelp -notmatch '(?m)^Usage:') {
-        Add-Failure "Hidden preview alias '$alias --help' is not callable."
+    $rejectedHelp = (& dotnet $cliDll $command --help 2>&1 | Out-String)
+    $rejectedExit = $LASTEXITCODE
+    if ($rejectedExit -ne 1 -or $rejectedHelp -notmatch [regex]::Escape($command)) {
+        Add-Failure "Removed command '$command --help' did not report a usage error."
     }
 }
 
@@ -124,7 +123,7 @@ foreach ($verb in $verbs) {
     }
 }
 
-foreach ($cpuHelpVerb in @('rank', 'cpu', 'classify')) {
+foreach ($cpuHelpVerb in @('rank', 'classify')) {
     $cpuHelp = (& dotnet $cliDll $cpuHelpVerb --help 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) {
         Add-Failure "'$cpuHelpVerb --help' failed while checking CPU weight terminology."
@@ -149,9 +148,9 @@ foreach ($verb in $verbs) {
         Add-Failure "README has no 'filtrace $verb' example."
     }
 }
-foreach ($alias in $hiddenVerbs) {
-    if ($readme -match "filtrace $([regex]::Escape($alias))(\s|``)") {
-        Add-Failure "README teaches hidden preview alias 'filtrace $alias' as a runnable command."
+foreach ($command in $removedCommands) {
+    if ($readme -match "filtrace $([regex]::Escape($command))(\s|``)") {
+        Add-Failure "README teaches removed command 'filtrace $command' as a runnable command."
     }
 }
 

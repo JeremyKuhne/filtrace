@@ -8,6 +8,7 @@
     "changes": [
       "test-the-updated-shipped-quality-first-Filtrace-skill-against-the-same-current-CLI-without-skill",
       "pin-the-updated-shipped-skill-entrypoint-and-complete-Windows-skill-manifest",
+      "align-the-prepared-skill-manifest-with-canonical-only-CLI-operations-without-authorizing-execution",
       "permit-optional-resolved-App.Work-callers-without-requiring-it-for-live-success-and-score-callers-question-mark-attempts-as-quality-failures",
       "add-attested-runner-success-as-v3-quality-anchor-without-replacing-blind-grades-or-changing-v2",
       "add-a-public-mixed-unknown-resolved-speedscope-task-with-row-not-aggregate-resolution-grading",
@@ -58,9 +59,9 @@
     "skill": {
       "entrypointPath": ".agents/skills/filtrace/SKILL.md",
       "entrypointTextSha256": "e4de3f73d4db8fea5e85e82c9339d4145e01f56a24c14e5fd39224c26c1fdca7",
-      "manifestTextSha256": "3d77a448dfcddd890d6fb281a1cfc98f3c5a8e1202a2098bdf335efc8c55a24f",
+      "manifestTextSha256": "f59cd976535a28723a75ce660b7095c226a165c8a0a17cfcdabfc44d950fb903",
       "entrypointRawSha256Windows": "8ea00ac5f3dd836a763446551dd7b585a8a14550e072b5cee5b357825396f462",
-      "manifestSha256Windows": "e1270cc906cf179f0ded2b7ae6a09ae3f8176bea1fa9f0bc02aac58fb97218d2",
+      "manifestSha256Windows": "20f7bd579f6c510c209ad98c434d1ce015cbe60d23258bdebead1756b6e8ced1",
       "fileCount": 11
     },
     "tasks": [

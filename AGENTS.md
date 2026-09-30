@@ -47,7 +47,7 @@ locally built baseline CLI to analyze both arms.
 CI also runs twelve contract and evaluation checks that must stay green:
 
 - `tools/Test-CliHelp.ps1 -Configuration Release` - every canonical command appears
-  in top-level help, hidden preview aliases remain callable but absent, each help
+  in top-level help, unsupported commands are rejected, each help
   stays within budget, and README examples use only canonical commands.
 - `tools/Test-McpServer.ps1 -Configuration Release` - stdout is pure JSON-RPC,
   the tool-list schema stays within the token budget, and a real `tools/call`

@@ -23,7 +23,7 @@ public sealed class CliAppTests
         "timeline", "tree"
     ];
 
-    private static readonly string[] s_hiddenAliases =
+    private static readonly string[] s_removedCommands =
     [
         "alloc", "clean", "convert", "cpu", "diskio", "exceptions", "gcstats",
         "heatmap", "jitstats", "lines", "threadpool", "threadtime"
@@ -76,10 +76,10 @@ public sealed class CliAppTests
                 .Should().BeTrue($"'{command}' is a canonical command");
         }
 
-        foreach (string alias in s_hiddenAliases)
+        foreach (string command in s_removedCommands)
         {
-            Regex.IsMatch(output, $"(?m)^  {Regex.Escape(alias)}\\s")
-                .Should().BeFalse($"'{alias}' is a hidden preview alias");
+            Regex.IsMatch(output, $"(?m)^  {Regex.Escape(command)}\\s")
+                .Should().BeFalse($"'{command}' is not a registered command");
         }
     }
 
@@ -203,26 +203,107 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
-    public void Run_HelpFlag_ShowsVerbList()
+    [DataRow("-h")]
+    [DataRow("--help")]
+    public void Run_HelpFlag_ShowsVerbList(string option)
     {
-        (int exit, string output, _) = Run("--help");
+        (int exit, string output, _) = Run(option);
 
         exit.Should().Be(ExitCodes.Success);
         AssertCanonicalCommandList(output);
     }
 
     [TestMethod]
-    [DynamicData(nameof(HiddenAliases))]
-    public void Run_HiddenAliasHelp_RemainsAvailable(string alias)
+    [DynamicData(nameof(RemovedCommands))]
+    public void Run_RemovedCommandHelp_ReturnsUsageError(string command)
     {
-        (int exit, string output, _) = Run(alias, "--help");
+        (int exit, string output, string error) = Run(command, "--help");
 
-        exit.Should().Be(ExitCodes.Success);
-        output.Should().Contain("Usage:");
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain(command);
     }
 
-    public static IEnumerable<object[]> HiddenAliases() =>
-        s_hiddenAliases.Select(static alias => new object[] { alias });
+    [TestMethod]
+    [DynamicData(nameof(RemovedCommands))]
+    public void Run_RemovedCommandWithoutArguments_ReturnsUsageError(string command)
+    {
+        (int exit, string output, string error) = Run(command);
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain(command);
+    }
+
+    [TestMethod]
+    [DynamicData(nameof(RemovedCommands))]
+    public void Run_RemovedCommandWithTrace_ReturnsUsageError(string command)
+    {
+        (int exit, string output, string error) = Run(command, Speedscope, "--format", "json");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain(command);
+    }
+
+    [TestMethod]
+    [DataRow("clean")]
+    [DataRow("convert")]
+    public void Run_RemovedCacheCommand_PreservesTraceAndCache(string command)
+    {
+        string directory = Path.Join(Path.GetTempPath(), $"filtrace-removed-command-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string trace = Path.Join(directory, "alloc.nettrace");
+            File.Copy(Alloc, trace);
+            byte[] traceBytes = File.ReadAllBytes(trace);
+            string cache = trace + ".etlx";
+            byte[] cacheBytes = [1, 2, 3, 4];
+            File.WriteAllBytes(cache, cacheBytes);
+            string marker = cache + ".filtrace.json";
+            File.WriteAllText(marker, "{}");
+
+            (int exit, string output, string error) = Run(command, trace);
+
+            exit.Should().Be(ExitCodes.UsageError);
+            output.Should().BeEmpty();
+            error.Should().Contain(command);
+            File.ReadAllBytes(trace).Should().Equal(traceBytes);
+            File.ReadAllBytes(cache).Should().Equal(cacheBytes);
+            File.ReadAllText(marker).Should().Be("{}");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    public static IEnumerable<object[]> RemovedCommands() =>
+        s_removedCommands.Select(static command => new object[] { command });
+
+    [TestMethod]
+    [DataRow("not-a-command")]
+    [DataRow("")]
+    [DataRow("Rank")]
+    public void Run_UnknownCommand_ReturnsUsageError(string command)
+    {
+        (int exit, string output, string error) = Run(command, "--help");
+
+        exit.Should().Be(ExitCodes.UsageError);
+        output.Should().BeEmpty();
+        error.Should().Contain("Unknown command").And.Contain("filtrace --help");
+    }
+
+    [TestMethod]
+    public void Run_VersionFlag_ReturnsVersion()
+    {
+        (int exit, string output, string error) = Run("--version");
+
+        exit.Should().Be(ExitCodes.Success);
+        output.Should().NotBeNullOrWhiteSpace();
+        error.Should().BeEmpty();
+    }
 
     [TestMethod]
     public void Run_RankHelp_ShowsOptionsAndAliases()
@@ -267,7 +348,7 @@ public sealed class CliAppTests
     [TestMethod]
     public void Run_TopAlias_LimitsRows()
     {
-        (int exit, string output, _) = Run("cpu", Speedscope, "-n", "1", "--format", "json");
+        (int exit, string output, _) = Run("rank", Speedscope, "-n", "1", "--format", "json");
 
         exit.Should().Be(ExitCodes.Success);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -308,20 +389,20 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
-    public void Run_CpuShortcut_MatchesRankDefault()
+    public void Run_RankMetricCpu_MatchesRankDefault()
     {
         (int rankExit, string rankOut, _) = Run("rank", Speedscope);
-        (int cpuExit, string cpuOut, string error) = Run("cpu", Speedscope);
+        (int cpuExit, string cpuOut, string error) = Run("rank", Speedscope, "--metric", "cpu");
 
         cpuExit.Should().Be(rankExit);
         cpuOut.Should().Be(rankOut);
-        error.Should().Contain("filtrace rank <trace> --metric cpu");
+        error.Should().BeEmpty();
     }
 
     [TestMethod]
-    public void Run_AllocShortcut_RanksAllocationBytes()
+    public void Run_RankMetricAlloc_RanksAllocationBytes()
     {
-        (int exit, string output, _) = Run("alloc", Alloc);
+        (int exit, string output, _) = Run("rank", Alloc, "--metric", "alloc");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("Allocations self-time");
@@ -329,21 +410,9 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
-    public void Run_RankMetricAlloc_MatchesAllocShortcut()
+    public void Run_RankMetricExceptions_RanksThrowCounts()
     {
-        // 'rank --metric alloc' and the 'alloc' shortcut select the same provider, so
-        // they must produce identical output.
-        (int rankExit, string rankOut, _) = Run("rank", Alloc, "--metric", "alloc");
-        (int allocExit, string allocOut, _) = Run("alloc", Alloc);
-
-        allocExit.Should().Be(rankExit);
-        allocOut.Should().Be(rankOut);
-    }
-
-    [TestMethod]
-    public void Run_ExceptionsShortcut_RanksThrowCounts()
-    {
-        (int exit, string output, _) = Run("exceptions", ExceptionsTrace);
+        (int exit, string output, _) = Run("rank", ExceptionsTrace, "--metric", "exceptions");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("Exceptions self-time");
@@ -351,36 +420,15 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
-    public void Run_RankMetricExceptions_MatchesExceptionsShortcut()
-    {
-        (int rankExit, string rankOut, _) = Run("rank", ExceptionsTrace, "--metric", "exceptions");
-        (int excExit, string excOut, _) = Run("exceptions", ExceptionsTrace);
-
-        excExit.Should().Be(rankExit);
-        excOut.Should().Be(rankOut);
-    }
-
-    [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
-    public void Run_ThreadTimeShortcut_RanksElapsedTime()
+    public void Run_RankMetricThreadTime_RanksElapsedTime()
     {
         // Reading an .etl requires the Windows-only ETW conversion, so this runs on
         // Windows and skips on the Linux CI leg.
-        (int exit, string output, _) = Run("threadtime", Etw);
+        (int exit, string output, _) = Run("rank", Etw, "--metric", "threadtime");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("ThreadTime self-time");
-    }
-
-    [TestMethod]
-    [OSCondition(OperatingSystems.Windows)]
-    public void Run_RankMetricThreadTime_MatchesThreadTimeShortcut()
-    {
-        (int rankExit, string rankOut, _) = Run("rank", Etw, "--metric", "threadtime");
-        (int ttExit, string ttOut, _) = Run("threadtime", Etw);
-
-        ttExit.Should().Be(rankExit);
-        ttOut.Should().Be(rankOut);
     }
 
     [TestMethod]
@@ -511,8 +559,7 @@ public sealed class CliAppTests
     public void Run_TimeWindow_CpuScopesAndNotesTheWindow()
     {
         // A window spanning the whole capture keeps every sample and notes the scope, so
-        // the assertion does not depend on the fixture's exact timing. --time lives on the
-        // rank verb (as --activity does), not the metric shortcuts, so drive it through rank.
+        // the assertion does not depend on the fixture's exact timing.
         (int exit, string output, _) = Run("rank", ExceptionsTrace, "--time", "0,100000");
 
         exit.Should().Be(ExitCodes.Success);
@@ -535,7 +582,7 @@ public sealed class CliAppTests
     {
         // The exceptions fixture is a BenchmarkDotNet EventPipe capture; --benchmark
         // scopes the ranking to the WorkloadAction subtree, past the harness/bootstrap.
-        (int exit, string output, _) = Run("cpu", ExceptionsTrace, "--benchmark", "--measure", "inclusive");
+        (int exit, string output, _) = Run("rank", ExceptionsTrace, "--benchmark", "--measure", "inclusive");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("scoped to 'WorkloadAction'");
@@ -548,7 +595,7 @@ public sealed class CliAppTests
     {
         // --benchmark is itself a root preset, so a second explicit --root conflicts;
         // caught before any trace read.
-        (int exit, _, string error) = Run("cpu", ExceptionsTrace, "--root", "Foo", "--benchmark");
+        (int exit, _, string error) = Run("rank", ExceptionsTrace, "--root", "Foo", "--benchmark");
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("only one of --root and --benchmark");
@@ -559,7 +606,8 @@ public sealed class CliAppTests
     {
         // --benchmark is frame-based, so it applies to the allocation family too: the
         // alloc BDN fixture scopes to the WorkloadAction subtree, past the harness.
-        (int exit, string output, _) = Run("alloc", Alloc, "--benchmark", "--measure", "inclusive");
+        (int exit, string output, _) = Run(
+            "rank", Alloc, "--metric", "alloc", "--benchmark", "--measure", "inclusive");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("scoped to 'WorkloadAction'");
@@ -567,21 +615,11 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
-    public void Run_AllocProcessOption_IsRejected()
-    {
-        // alloc reads single-process .nettrace, so it deliberately exposes no
-        // --process option; the parser rejects the unknown option as a usage error.
-        (int exit, _, _) = Run("alloc", Alloc, "--process", "MyApp");
-
-        exit.Should().Be(ExitCodes.UsageError);
-    }
-
-    [TestMethod]
     public void Run_AllProcessesOnSpeedscope_Succeeds()
     {
         // Speedscope is single-process, so --all-processes is a harmless no-op there;
         // the ranking still renders.
-        (int exit, string output, _) = Run("cpu", Speedscope, "--all-processes");
+        (int exit, string output, _) = Run("rank", Speedscope, "--all-processes");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("CPU self-time");
@@ -590,10 +628,10 @@ public sealed class CliAppTests
     [TestMethod]
     public void Run_NativeSymbolsOnSpeedscope_BindsAndIsHarmlessNoOp()
     {
-        // --native-symbols binds on the cpu verb; speedscope carries no native frames,
+        // --native-symbols binds on rank; speedscope carries no native frames,
         // so it is a no-op that reaches no symbol server (offline-safe) and still
         // renders the ranking. This proves the option is wired without a network fetch.
-        (int exit, string output, _) = Run("cpu", Speedscope, "--native-symbols");
+        (int exit, string output, _) = Run("rank", Speedscope, "--native-symbols");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("CPU self-time");
@@ -605,7 +643,7 @@ public sealed class CliAppTests
         // A '*' in --symbol-cache would corrupt the SymSrv path syntax; SymbolOptions.WithCache
         // rejects it with an ArgumentException, which must surface here as a clean usage
         // error and exit code, not an unhandled exception that crashes the process.
-        (int exit, _, string error) = Run("cpu", Speedscope, "--native-symbols", "--symbol-cache", "bad*cache");
+        (int exit, _, string error) = Run("rank", Speedscope, "--native-symbols", "--symbol-cache", "bad*cache");
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("cannot contain '*'");
@@ -626,9 +664,9 @@ public sealed class CliAppTests
     [TestMethod]
     public void Run_NoFold_BindsAndRenders()
     {
-        // --no-fold binds on the cpu verb and folds only the synthetic markers; on the
+        // --no-fold binds on rank and folds only the synthetic markers; on the
         // speedscope fixture it still renders a ranking.
-        (int exit, string output, _) = Run("cpu", Speedscope, "--no-fold");
+        (int exit, string output, _) = Run("rank", Speedscope, "--no-fold");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("CPU self-time");
@@ -639,20 +677,21 @@ public sealed class CliAppTests
     {
         // --no-fold and --fold are mutually exclusive; the conflict is caught before any
         // ranking, so it runs on every CI leg.
-        (int exit, _, string error) = Run("cpu", Speedscope, "--no-fold", "--fold", "Helper");
+        (int exit, _, string error) = Run("rank", Speedscope, "--no-fold", "--fold", "Helper");
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("only one of --fold and --no-fold");
     }
 
     [TestMethod]
-    public void Run_LinesProcessAndAllProcesses_ReturnsUsageError()
+    public void Run_SourceLinesProcessAndAllProcesses_ReturnsUsageError()
     {
-        // The scope options are wired into the lines verb and remain mutually
+        // The scope options are wired into source and remain mutually
         // exclusive; the conflict is caught before any trace read, so it runs on every
         // CI leg. A verb missing the options would instead fail with an unknown-option
         // error, so the specific message also proves the options are bound.
-        (int exit, _, string error) = Run("lines", Speedscope, "--process", "MyApp", "--all-processes");
+        (int exit, _, string error) = Run(
+            "source", Speedscope, "--view", "lines", "--process", "MyApp", "--all-processes");
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("only one of --process, --pid, and --all-processes");
@@ -692,9 +731,11 @@ public sealed class CliAppTests
     }
 
     [TestMethod]
-    public void Run_HeatmapProcessAndAllProcesses_ReturnsUsageError()
+    public void Run_SourceHeatmapProcessAndAllProcesses_ReturnsUsageError()
     {
-        (int exit, _, string error) = Run("heatmap", Speedscope, "Foo.cs", "--process", "MyApp", "--all-processes");
+        (int exit, _, string error) = Run(
+            "source", Speedscope, "--view", "heatmap", "--file", "Foo.cs",
+            "--process", "MyApp", "--all-processes");
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("only one of --process, --pid, and --all-processes");
@@ -702,12 +743,13 @@ public sealed class CliAppTests
 
     [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
-    public void Run_LinesProcessScope_OnMachineWideCapture_Narrows()
+    public void Run_SourceLinesProcessScope_OnMachineWideCapture_Narrows()
     {
-        // The lines verb now scopes a multi-process ETW capture to a named process
-        // tree, mirroring cpu/rank: the scope notice is forwarded to the output.
+        // Source scopes a multi-process ETW capture to a named process
+        // tree, mirroring rank: the scope notice is forwarded to the output.
         // Reading an .etl is Windows-only, so this is guarded.
-        (int exit, string output, _) = Run("lines", Etw, "--process", "HotLoopBench-Job");
+        (int exit, string output, _) = Run(
+            "source", Etw, "--view", "lines", "--process", "HotLoopBench-Job");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("Scoped to the");
@@ -731,8 +773,8 @@ public sealed class CliAppTests
         // a REPEATED --pid silently keeps only the last one. Pin that here: the scope
         // notice names both ids only if the comma form bound both, and the repeated form
         // is the shape every generated hint must therefore avoid.
-        (int exit, string commaOutput, _) = Run("cpu", Etw, "--pid", "9144,40356");
-        (_, string repeatedOutput, _) = Run("cpu", Etw, "--pid", "9144", "--pid", "40356");
+        (int exit, string commaOutput, _) = Run("rank", Etw, "--pid", "9144,40356");
+        (_, string repeatedOutput, _) = Run("rank", Etw, "--pid", "9144", "--pid", "40356");
 
         exit.Should().Be(ExitCodes.Success);
         commaOutput.Should().Contain("Scoped to the process tree of pids 9144, 40356");
@@ -743,7 +785,7 @@ public sealed class CliAppTests
     [OSCondition(OperatingSystems.Windows)]
     public void Run_PidScopeExcludingChildren_OnMachineWideCapture_ReportsParentOnly()
     {
-        (int exit, string output, _) = Run("cpu", Etw, "--pid", "40356", "--children", "exclude");
+        (int exit, string output, _) = Run("rank", Etw, "--pid", "40356", "--children", "exclude");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("Scoped to pid 40356 (no children)");
@@ -755,7 +797,7 @@ public sealed class CliAppTests
         // The three selectors are mutually exclusive; the conflict is caught before any
         // trace read, so it runs on every CI leg. A verb missing --pid would instead
         // fail with an unknown-option error, so the message also proves the option binds.
-        (int exit, _, string error) = Run("cpu", Speedscope, "--pid", "42", "--process", "MyApp");
+        (int exit, _, string error) = Run("rank", Speedscope, "--pid", "42", "--process", "MyApp");
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("only one of --process, --pid, and --all-processes");
@@ -764,7 +806,7 @@ public sealed class CliAppTests
     [TestMethod]
     public void Run_NonPositivePid_ReturnsUsageError()
     {
-        (int exit, _, string error) = Run("cpu", Speedscope, "--pid", "0");
+        (int exit, _, string error) = Run("rank", Speedscope, "--pid", "0");
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("not a valid process id");
@@ -773,7 +815,7 @@ public sealed class CliAppTests
     [TestMethod]
     public void Run_ChildrenWithAllProcesses_ReturnsUsageError()
     {
-        (int exit, _, string error) = Run("cpu", Speedscope, "--children", "exclude", "--all-processes");
+        (int exit, _, string error) = Run("rank", Speedscope, "--children", "exclude", "--all-processes");
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("--all-processes already reads every process");
@@ -884,7 +926,7 @@ public sealed class CliAppTests
     {
         // An explicit --process that drops part of an ETW capture surfaces the scope
         // notice. Reading an .etl is Windows-only, so this is guarded.
-        (int exit, string output, _) = Run("cpu", Etw, "--process", "HotLoopBench-Job");
+        (int exit, string output, _) = Run("rank", Etw, "--process", "HotLoopBench-Job");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("Scoped to the");
@@ -897,7 +939,7 @@ public sealed class CliAppTests
     {
         // The default (no scope option) auto-scopes a multi-process ETW capture to the
         // busiest process tree and still renders a ranking.
-        (int exit, string output, _) = Run("cpu", Etw);
+        (int exit, string output, _) = Run("rank", Etw);
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("CPU self-weight");
@@ -918,7 +960,7 @@ public sealed class CliAppTests
     [OSCondition(OperatingSystems.Windows)]
     public void Run_AllProcesses_OnMachineWideCapture_DoesNotWarn()
     {
-        (int exit, string output, _) = Run("cpu", Etw, "--all-processes");
+        (int exit, string output, _) = Run("rank", Etw, "--all-processes");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().NotContain("Scoped to the");
@@ -926,13 +968,13 @@ public sealed class CliAppTests
 
     [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
-    public void Run_Cpu_ForwardsTheLoaderQualityWarnings()
+    public void Run_Rank_ForwardsTheLoaderQualityWarnings()
     {
         // The executors forward the full TraceInfo.Warnings list, so the reader's
         // low-symbol-resolution warning (this fixture resolves few frames) reaches the
         // output rather than being dropped by a cherry-picking helper. Reading an .etl
         // is Windows-only.
-        (int exit, string output, _) = Run("cpu", Etw, "--all-processes");
+        (int exit, string output, _) = Run("rank", Etw, "--all-processes");
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("frames resolved to a method name");
@@ -1066,20 +1108,6 @@ public sealed class CliAppTests
 
         exit.Should().Be(ExitCodes.Success);
         output.Should().Contain("source heatmap 'Program.cs'");
-    }
-
-    [TestMethod]
-    public void Run_LinesAlias_MatchesSourceLinesAndWarns()
-    {
-        (int sourceExit, string sourceOutput, _) = Run(
-            "source", Speedscope, "--view", "lines", "--format", "json");
-
-        (int aliasExit, string aliasOutput, string aliasError) = Run(
-            "lines", Speedscope, "--format", "json");
-
-        aliasExit.Should().Be(sourceExit);
-        aliasOutput.Should().Be(sourceOutput);
-        aliasError.Should().Contain("filtrace source <trace> --view lines");
     }
 
     [TestMethod]
@@ -1564,20 +1592,6 @@ public sealed class CliAppTests
 
         exit.Should().Be(ExitCodes.UsageError);
         error.Should().Contain("apply only to --kind diskio");
-    }
-
-    [TestMethod]
-    public void Run_GcStatsAlias_MatchesReportAndWarns()
-    {
-        (int reportExit, string reportOutput, _) = Run(
-            "report", Alloc, "--kind", "gc", "--format", "json");
-
-        (int aliasExit, string aliasOutput, string aliasError) = Run(
-            "gcstats", Alloc, "--format", "json");
-
-        aliasExit.Should().Be(reportExit);
-        aliasOutput.Should().Be(reportOutput);
-        aliasError.Should().Contain("filtrace report <trace> --kind gc");
     }
 
     [TestMethod]

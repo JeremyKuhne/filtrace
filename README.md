@@ -302,24 +302,9 @@ of the entire trace. A readable ETLX with no valid marker is **not** reused or
 overwritten: run `filtrace cache app.nettrace --action clean` to explicitly
 discard it, then convert or analyze again. This one-time rebuild can take
 seconds for large traces. Owned caches rebuild when the source changes, and
-interrupted publications recover. `clean` removes both ETLX and its marker.
+interrupted publications recover. `cache --action clean` removes both ETLX and its marker.
 Same-trace MCP queries may run in parallel; `trace_info.etlxCacheState` and
 `cache --action convert` report `hit`, `waited`, `converted`, or `recovered`.
-
-### Preview alias migration
-
-The previous command names remain callable during the current migration window and
-print their canonical replacement to stderr, but they are hidden from top-level help
-and are not used in examples or generated guidance. Removal requires the explicit
-VN5 migration policy; it is not tied automatically to the passage of one preview
-release:
-
-| Previous names | Canonical command |
-|---|---|
-| `cpu`, `alloc`, `exceptions`, `threadtime` | `rank --metric <name>` |
-| `lines`, `heatmap` | `source --view <name>` |
-| `gcstats`, `jitstats`, `threadpool`, `diskio` | `report --kind gc|jit|threadpool|diskio` |
-| `convert`, `clean` | `cache --action convert|clean` |
 
 Run `filtrace <command> --help` for the full option set of any command.
 
@@ -359,7 +344,7 @@ methods resolve sequence points; `unmappedNamedManagedFrameCount` and
 Use the generated BenchmarkDotNet child output when the outer build PDB does not
 match; use native symbols for CPU ETW runtime frames as applicable. Rank by the metric that matches the question (cpu, alloc, exceptions,
 threadtime, contention, wait, activity); for an unwindowed CPU ranking, drill the
-hot frame with callers / lines / tree; diff comparable CPU traces against a baseline.
+hot frame with callers / source / tree; diff comparable CPU traces against a baseline.
 <!-- filtrace:end agents-snippet -->
 
 ## Layout

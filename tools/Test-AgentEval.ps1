@@ -380,6 +380,20 @@ function Read-TestResult([string] $Path) {
 }
 
 try {
+    [string[]] $removedCliVerbs = @(
+        'alloc', 'clean', 'convert', 'cpu', 'diskio', 'exceptions', 'gcstats',
+        'heatmap', 'jitstats', 'lines', 'threadpool', 'threadtime')
+    foreach ($removedCliVerb in $removedCliVerbs) {
+        Assert-True ((Get-OperationName -Name $removedCliVerb) -ceq $removedCliVerb) `
+            "Removed CLI verb '$removedCliVerb' was normalized to a supported operation."
+    }
+    [string[]] $expectedOperations = @(
+        'batch', 'cache', 'callers', 'classify', 'collect', 'diff', 'diskio', 'events',
+        'export', 'gc', 'info', 'jit', 'lifecycle', 'processes', 'rank', 'source',
+        'threadpool', 'timeline', 'tree')
+    Assert-True (((Get-KnownOperations) -join ',') -ceq ($expectedOperations -join ',')) `
+        'Canonical CLI and MCP operation vocabulary changed after removing CLI verbs.'
+
     [System.Text.RegularExpressions.RegexOptions] $modelPatternOptions =
         [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor
         [System.Text.RegularExpressions.RegexOptions]::CultureInvariant
@@ -465,7 +479,7 @@ try {
             'Get-AgentEvalLiteralCommand', 'Test-AgentEvalCliResult',
             'Write-AgentEvalNewFile', 'Save-AgentEvalHostOutput',
             'ConvertTo-AgentEvalResultJson',
-            'Split-ArgString', 'Get-AgentEvalMediatedOperation')) {
+            'Split-ArgString', 'Get-AgentEvalMediatedOperation', 'Invoke-FiltraceForAgent')) {
         $functionAst = $runnerAst.Find({
                 param($node)
                 $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -473,6 +487,31 @@ try {
             }, $true)
         Assert-True ($null -ne $functionAst) "Could not extract '$functionName' from Invoke-AgentEval.ps1."
         Invoke-Expression $functionAst.Extent.Text
+    }
+    $excludedVerbAssignment = $runnerAst.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+            $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+            $node.Left.VariablePath.UserPath -ceq 'nonAnalysisVerbs'
+        }, $true)
+    Assert-True ($null -ne $excludedVerbAssignment) 'Could not extract the analysis verb exclusions.'
+    [System.Management.Automation.Language.ArrayLiteralAst] $excludedVerbLiteral =
+        $excludedVerbAssignment.Right.Expression.SubExpression.Statements[0].PipelineElements[0].Expression
+    [string[]] $excludedVerbs = $excludedVerbLiteral.SafeGetValue()
+    & {
+        function dotnet { throw 'A rejected cache command reached the native CLI.' }
+        [string[]] $verbs = @(Select-String -Path (Join-Path $root 'src/Filtrace/Cli/TraceCommands.cs') `
+                -Pattern '\[Command\("([^"]+)"\)\]' -AllMatches |
+                ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } |
+                Where-Object { $excludedVerbs -notcontains $_ } | Sort-Object -Unique)
+        [string] $cliDll = 'test-cli.dll'
+        foreach ($action in @('convert', 'clean')) {
+            [object[]] $cacheOutcome = @(Invoke-FiltraceForAgent `
+                    -ArgString "cache <TRACE> --action $action" -FixtureAbs 'test-trace.nettrace')
+            Assert-True ($cacheOutcome.Count -eq 2 -and $cacheOutcome[0] -eq $false -and
+                $cacheOutcome[1] -like "rejected: 'cache' is not a filtrace verb*") `
+                "The mediated analysis arm accepted cache --action $action."
+        }
     }
     $cpuTask = Get-Content -LiteralPath (Join-Path $root 'eval/tasks/01-cpu-hotspot.json') -Raw | ConvertFrom-Json
     [string[]] $cpuOperations = @(Get-AgentEvalTaskExpectedOperations $cpuTask)

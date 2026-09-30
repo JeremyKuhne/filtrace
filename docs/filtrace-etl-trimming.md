@@ -71,9 +71,9 @@ processes). Getting a *usable* trimmed trace took three non-obvious steps:
 The raw `ETWReloggerTraceEventSource` re-injects events but does **not** rebuild the
 managed-method address map that a full `TraceLog` conversion builds. Even with the
 complete CLR method/module rundown preserved, a trimmed `.etl` resolves native
-modules but shows JITted managed methods as an unresolved `?` frame (a `threadtime`
-of the trimmed disk fixture credited ~804 ms to `?`). So the current trim is a
-**native-only file shrink**, fine for a by-file `diskio` report or a native-frame
+modules but shows JITted managed methods as an unresolved `?` frame (`rank --metric threadtime`
+on the trimmed disk fixture credited ~804 ms to `?`). So the current trim is a
+**native-only file shrink**, fine for a by-file `report --kind diskio` or a native-frame
 view, but not a substitute for analyzing the full trace when managed stacks matter.
 
 This is why the trim is a fixture-generation tool, not a shipped verb: the
