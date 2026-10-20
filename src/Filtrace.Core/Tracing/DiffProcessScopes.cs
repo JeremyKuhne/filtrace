@@ -31,6 +31,7 @@ public sealed class DiffProcessScopes
     /// <summary>
     ///  Whether each trace has its own exact process-id selector.
     /// </summary>
+    [MemberNotNullWhen(returnValue: true, nameof(Before), nameof(After))]
     public bool HasPerArmIds { get; }
 
     /// <summary>
@@ -129,8 +130,10 @@ public sealed class DiffProcessScopes
             return $"{side} per-arm PID selection was not applied to this .etl trace.";
         }
 
-        ScopeRequest scope = (before ? Before : After)!;
-        ProcessIdSelector selector = (ProcessIdSelector)scope.Selector!;
+        ScopeRequest scope = before ? Before : After;
+        ProcessIdSelector selector = scope.Selector as ProcessIdSelector
+            ?? throw new InvalidOperationException("A per-arm process scope must have an exact process-id selector.");
+
         int[] missing = [.. selector.ProcessIds.Except(applied.RootProcessIds)];
         return missing.Length == 0
             ? null

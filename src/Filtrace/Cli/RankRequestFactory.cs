@@ -227,9 +227,9 @@ internal static class RankRequestFactory
             return false;
         }
 
-        if (hasIds)
+        if (processIds is { Length: > 0 })
         {
-            foreach (int processId in processIds!)
+            foreach (int processId in processIds)
             {
                 // Caught here rather than at the selector so a typo is a usage error with
                 // the offending value, not an unhandled argument exception.

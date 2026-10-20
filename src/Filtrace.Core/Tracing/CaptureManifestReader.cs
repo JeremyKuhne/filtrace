@@ -120,7 +120,9 @@ public static class CaptureManifestReader
             }
 
             string? process = OptionalBoundedString(root, "process", MaxProcessLength);
-            string manifestDirectory = Path.GetDirectoryName(fullPath)!;
+            string manifestDirectory = Path.GetDirectoryName(fullPath)
+                ?? throw new InvalidDataException("Capture manifest path must have a parent directory.");
+
             List<CaptureManifestCase> cases = new(caseCount);
             HashSet<string> ids = new(StringComparer.Ordinal);
             foreach (JsonElement caseElement in casesElement.EnumerateArray())
@@ -353,7 +355,9 @@ public static class CaptureManifestReader
             throw new InvalidDataException($"Capture manifest field '{name}' must be a string or null.");
         }
 
-        string text = value.GetString()!;
+        string text = value.GetString()
+            ?? throw new InvalidDataException($"Capture manifest field '{name}' must be a string.");
+
         if ((!allowEmpty && text.Length == 0)
             || text.Length > maxLength
             || text.Any(char.IsControl))

@@ -139,8 +139,9 @@ public sealed record AnalysisScopeContext
     {
         bool hasRoot = !string.IsNullOrEmpty(root);
         bool hasProcessSelector = processScope is { Mode: not "all" };
-        bool hasRequestedIds = processScope is { Mode: "ids" };
-        bool hasDescendants = hasProcessSelector && processScope!.IncludeChildren;
+        AppliedProcessScope? selectedProcess = hasProcessSelector ? processScope : null;
+        AppliedProcessScope? requestedIds = processScope is { Mode: "ids" } ? processScope : null;
+        AppliedProcessScope? descendants = selectedProcess is { IncludeChildren: true } ? selectedProcess : null;
         bool hasActivity = !string.IsNullOrEmpty(activityName);
         bool hasWindow = window is TimeWindow appliedWindow && appliedWindow.IsBounded;
         if (!hasRoot && !hasProcessSelector && !hasActivity && !hasWindow)
@@ -159,19 +160,19 @@ public sealed record AnalysisScopeContext
             Process = processScope?.Process is string scopeProcess
                 ? TimelineProvider.BoundSnapshotName(scopeProcess, out _)
                 : null,
-            RequestedProcessIds = hasRequestedIds ? Bounded(processScope!.RequestedProcessIds) : null,
-            RootProcessIds = hasProcessSelector ? Bounded(processScope!.RootProcessIds) : null,
-            DescendantProcessIds = hasDescendants ? Bounded(processScope!.DescendantProcessIds) : null,
-            RequestedProcessIdCount = hasRequestedIds ? processScope!.RequestedProcessIds.Count : null,
-            RootProcessIdCount = hasProcessSelector ? processScope!.RootProcessIds.Count : null,
-            DescendantProcessIdCount = hasDescendants ? processScope!.DescendantProcessIds.Count : null,
+            RequestedProcessIds = requestedIds is not null ? Bounded(requestedIds.RequestedProcessIds) : null,
+            RootProcessIds = selectedProcess is not null ? Bounded(selectedProcess.RootProcessIds) : null,
+            DescendantProcessIds = descendants is not null ? Bounded(descendants.DescendantProcessIds) : null,
+            RequestedProcessIdCount = requestedIds?.RequestedProcessIds.Count,
+            RootProcessIdCount = selectedProcess?.RootProcessIds.Count,
+            DescendantProcessIdCount = descendants?.DescendantProcessIds.Count,
             ProcessIdsTruncated = IsTruncated(processScope?.RequestedProcessIds)
                 || IsTruncated(processScope?.RootProcessIds)
                 || IsTruncated(processScope?.DescendantProcessIds),
-            IncludeChildren = hasProcessSelector ? processScope!.IncludeChildren : null,
+            IncludeChildren = selectedProcess?.IncludeChildren,
             Activity = hasActivity ? activityName : null,
-            FromMs = hasWindow ? window!.Value.StartMSec : null,
-            ToMs = hasWindow ? window!.Value.EndMSec : null
+            FromMs = window is { IsBounded: true } ? window.Value.StartMSec : null,
+            ToMs = window is { IsBounded: true } ? window.Value.EndMSec : null
         };
     }
 

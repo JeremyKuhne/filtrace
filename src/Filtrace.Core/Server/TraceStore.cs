@@ -263,23 +263,24 @@ public sealed partial class TraceStore
             : "-";
 
         string children = scope is null || scope.IncludeChildren ? "+" : "-";
+        ProcessSelector? selector = scope?.Selector;
 
-        if (scope is null || (scope.Selector is null && !scope.IncludeAll))
-        {
-            return $"auto{children}:{activity}";
-        }
-
-        if (scope.IncludeAll)
+        if (scope is { IncludeAll: true })
         {
             return $"all:{activity}";
         }
 
-        if (scope.Selector is ProcessIdSelector ids)
+        if (selector is null)
+        {
+            return $"auto{children}:{activity}";
+        }
+
+        if (selector is ProcessIdSelector ids)
         {
             return $"i{children}{string.Join(",", ids.ProcessIds)}:{activity}";
         }
 
-        string processName = ((ProcessNameSelector)scope.Selector!).NameSubstring;
+        string processName = ((ProcessNameSelector)selector).NameSubstring;
         return $"p{children}{processName.Length}:{processName}:{activity}";
     }
 
@@ -303,10 +304,10 @@ public sealed partial class TraceStore
         string fullPath,
         CancellationToken cancellationToken)
     {
-        ConversionGate gate;
+        ConversionGate? gate;
         lock (_conversionGatesLock)
         {
-            if (!_conversionGates.TryGetValue(fullPath, out gate!))
+            if (!_conversionGates.TryGetValue(fullPath, out gate))
             {
                 gate = new ConversionGate();
                 _conversionGates.Add(fullPath, gate);

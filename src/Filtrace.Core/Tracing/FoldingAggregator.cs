@@ -470,7 +470,9 @@ public sealed partial class FoldingAggregator
 
         warning =
             $"Showing {keptCallers.Count} of {callers.Callers.Count} callers"
-                + (callers.Callees is null ? string.Empty : $" and {keptCallees!.Count} of {callers.Callees.Count} callees")
+                + (keptCallees is not null && callers.Callees is not null
+                    ? $" and {keptCallees.Count} of {callers.Callees.Count} callees"
+                    : string.Empty)
                 + $"; more would exceed the {OutputBudget.DefaultRowBudgetTokens}-token row budget that holds the whole "
                 + $"response under the {OutputBudget.DefaultCeilingTokens}-token ceiling. The focus totals still cover "
                 + "every call site.";
@@ -618,9 +620,9 @@ public sealed partial class FoldingAggregator
             // fold pattern (say it contains WriteBarrier or JIT_) from being hidden as
             // self-time when it has real frames beneath it.
             int realLeaf = frames.Count - 1;
-            if (includeCallees)
+            if (fold is not null)
             {
-                while (realLeaf > startIdx && FrameNames.IsFolded(ShortOf(frames[realLeaf]), fold!))
+                while (realLeaf > startIdx && FrameNames.IsFolded(ShortOf(frames[realLeaf]), fold))
                 {
                     realLeaf--;
                 }
@@ -640,12 +642,12 @@ public sealed partial class FoldingAggregator
                 callerTime.TryGetValue(caller, out double currentCaller);
                 callerTime[caller] = currentCaller + sample.Weight;
 
-                if (includeCallees)
+                if (calleeTime is not null)
                 {
                     // At or below the real leaf the focus frame is executing itself - its
                     // time is self-time; above it, the next frame down is the real callee.
                     string callee = si >= realLeaf ? "<self>" : ShortOf(frames[si + 1]);
-                    calleeTime!.TryGetValue(callee, out double currentCallee);
+                    calleeTime.TryGetValue(callee, out double currentCallee);
                     calleeTime[callee] = currentCallee + sample.Weight;
                 }
 
@@ -673,10 +675,10 @@ public sealed partial class FoldingAggregator
         }
 
         IReadOnlyList<CalleeRow>? calleeRows = null;
-        if (includeCallees)
+        if (calleeTime is not null)
         {
             List<CalleeRow> callees = [];
-            foreach (KeyValuePair<string, double> pair in calleeTime!)
+            foreach (KeyValuePair<string, double> pair in calleeTime)
             {
                 double pct = targetTotal > 0 ? 100.0 * pair.Value / targetTotal : 0.0;
                 callees.Add(new CalleeRow(pair.Key, pair.Value, pct));

@@ -4,6 +4,8 @@
 
 using Filtrace.Tracing.Readers;
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace Filtrace.Tracing.Providers;
 
 /// <summary>
@@ -116,7 +118,10 @@ public sealed partial class TimelineProvider
     /// <param name="resolved">The resolved lane names on success; an empty list on failure.</param>
     /// <param name="error">The validation error on failure, or <see langword="null"/> on success.</param>
     /// <returns><see langword="true"/> when the selector resolved; otherwise <see langword="false"/>.</returns>
-    public static bool TryResolveLanes(string? lanes, out IReadOnlyList<string> resolved, out string? error)
+    public static bool TryResolveLanes(
+        string? lanes,
+        out IReadOnlyList<string> resolved,
+        [NotNullWhen(returnValue: false)] out string? error)
     {
         if (string.IsNullOrWhiteSpace(lanes))
         {
@@ -322,10 +327,10 @@ public sealed partial class TimelineProvider
 
         EventLanes events = wantEvents
             ? new EventLanes(
-                wantCpu ? BuildCpuLane(cpuCount!, cpuTop!, buckets) : null,
-                wantExceptions ? BuildExceptionLane(exCount!, exTop!, buckets) : null,
-                wantAlloc ? BuildAllocLane(allocCount!, allocBytes!, buckets) : null,
-                wantJit ? BuildJitLane(jitCount!, buckets) : null,
+                cpuCount is not null && cpuTop is not null ? BuildCpuLane(cpuCount, cpuTop, buckets) : null,
+                exCount is not null && exTop is not null ? BuildExceptionLane(exCount, exTop, buckets) : null,
+                allocCount is not null && allocBytes is not null ? BuildAllocLane(allocCount, allocBytes, buckets) : null,
+                jitCount is not null ? BuildJitLane(jitCount, buckets) : null,
                 cpuSamples.Warning)
             : default;
 
@@ -356,8 +361,8 @@ public sealed partial class TimelineProvider
 
             switch (data)
             {
-                case SampledProfileTraceData when wantCpu:
-                case ClrThreadSampleTraceData { Type: not ClrThreadSampleType.Error } when wantCpu:
+                case SampledProfileTraceData or ClrThreadSampleTraceData { Type: not ClrThreadSampleType.Error }
+                    when cpuCount is not null && cpuTop is not null:
                     {
                         // Match the CPU reader's sample selection so the lane's count agrees with
                         // the cpu ranking: a sample counts only if it carries a call stack, which
@@ -372,29 +377,29 @@ public sealed partial class TimelineProvider
 
                         cpuSamples.ObserveSample(data is ClrThreadSampleTraceData);
                         int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
-                        cpuCount![idx]++;
+                        cpuCount[idx]++;
                         string? leaf = LeafMethod(stack);
                         if (leaf is not null)
                         {
-                            Tally(cpuTop![idx], leaf);
+                            Tally(cpuTop[idx], leaf);
                         }
 
                         break;
                     }
 
-                case ExceptionTraceData exception when wantExceptions:
+                case ExceptionTraceData exception when exCount is not null && exTop is not null:
                     {
                         int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
-                        exCount![idx]++;
+                        exCount[idx]++;
                         string type = string.IsNullOrEmpty(exception.ExceptionType)
                             ? "(unknown exception type)"
                             : exception.ExceptionType;
 
-                        Tally(exTop![idx], type);
+                        Tally(exTop[idx], type);
                         break;
                     }
 
-                case GCAllocationTickTraceData alloc when wantAlloc:
+                case GCAllocationTickTraceData alloc when allocCount is not null && allocBytes is not null:
                     {
                         long bytes = alloc.AllocationAmount64;
                         if (bytes <= 0)
@@ -403,15 +408,15 @@ public sealed partial class TimelineProvider
                         }
 
                         int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
-                        allocCount![idx]++;
-                        allocBytes![idx] += bytes;
+                        allocCount[idx]++;
+                        allocBytes[idx] += bytes;
                         break;
                     }
 
-                case MethodJittingStartedTraceData when wantJit:
+                case MethodJittingStartedTraceData when jitCount is not null:
                     {
                         int idx = BucketIndex(time, startMs, bucketSizeMs, buckets);
-                        jitCount![idx]++;
+                        jitCount[idx]++;
                         break;
                     }
             }

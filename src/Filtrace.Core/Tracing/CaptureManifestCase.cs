@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace Filtrace.Tracing;
 
 /// <summary>
@@ -47,6 +49,7 @@ public sealed record CaptureManifestCase(
     /// <summary>
     ///  Whether count and unit are both present and usable.
     /// </summary>
+    [MemberNotNullWhen(returnValue: true, nameof(OperationCount), nameof(OperationUnit))]
     public bool HasCompleteOperationMetadata =>
         OperationCount is > 0.0 && OperationUnit is not null;
 }

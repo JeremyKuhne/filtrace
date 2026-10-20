@@ -190,7 +190,7 @@ internal static partial class ProcessTree
                 ProcessNameSelector name => process.ProcessId > 0
                     && process.Name is not null
                     && process.Name.Contains(name.NameSubstring, StringComparison.OrdinalIgnoreCase),
-                ProcessIdSelector => requestedProcessIds!.Contains(process.ProcessId),
+                ProcessIdSelector when requestedProcessIds is not null => requestedProcessIds.Contains(process.ProcessId),
                 _ => false
             };
 

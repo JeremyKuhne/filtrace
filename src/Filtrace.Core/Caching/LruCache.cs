@@ -104,7 +104,9 @@ internal sealed class LruCache<TKey, TValue>
 
             if (_map.Count > _capacity)
             {
-                LinkedListNode<KeyValuePair<TKey, TValue>> lru = _order.Last!;
+                LinkedListNode<KeyValuePair<TKey, TValue>> lru = _order.Last
+                    ?? throw new InvalidOperationException("A nonempty cache must have a least-recently-used entry.");
+
                 _order.RemoveLast();
                 _map.Remove(lru.Value.Key);
             }
