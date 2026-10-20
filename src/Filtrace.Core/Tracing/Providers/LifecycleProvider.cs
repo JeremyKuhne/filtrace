@@ -34,6 +34,7 @@ public sealed class LifecycleProvider
     // driven by the child count rather than by anything the caller passes.
     private const int InvocationScaffoldTokens = 44;
     private const int ProcessScaffoldTokens = 55;
+
     /// <summary>
     ///  The largest number of root invocations reported. A capture matrix runs tens of
     ///  invocations; a name that matches a busy system host could otherwise match
