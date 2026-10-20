@@ -31,6 +31,7 @@ public sealed partial class FoldingAggregator
 
         // Allocated lazily: a leaf node (the common case at the bottom of every stack)
         // never calls anything, so most nodes keep this null.
+
         /// <summary>
         ///  Gets child nodes keyed by frame, or <see langword="null"/> while this node remains a leaf.
         /// </summary>

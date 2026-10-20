@@ -25,6 +25,7 @@ public sealed class GcStatsProvider
     // punctuation, and the numeric generation, pause, heap, and promoted fields -
     // which the per-record estimate adds to the record's variable text.
     private const int RecordScaffoldTokens = 40;
+
     /// <summary>
     ///  Reads the GC-stats report from the EventPipe trace at <paramref name="path"/>.
     /// </summary>
