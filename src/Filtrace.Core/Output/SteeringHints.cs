@@ -1043,8 +1043,8 @@ public static class SteeringHints
 
         int? processIdCount = sourceIds?.Count;
         bool processIdsTruncated = sourceIds is { Count: > AnalysisScopeContext.MaxReportedProcessIds };
-        IReadOnlyList<int>? processIds = processIdsTruncated
-            ? [.. sourceIds!.Take(AnalysisScopeContext.MaxReportedProcessIds)]
+        IReadOnlyList<int>? processIds = sourceIds is { Count: > AnalysisScopeContext.MaxReportedProcessIds }
+            ? [.. sourceIds.Take(AnalysisScopeContext.MaxReportedProcessIds)]
             : sourceIds;
 
         return new AnalysisNextStepArguments

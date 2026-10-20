@@ -59,7 +59,7 @@ internal static class HeatmapExecutor
             heatmap.AttributedRecordCount,
             out string? recordWarning))
         {
-            warnings.Add(recordWarning!);
+            warnings.Add(recordWarning);
         }
 
         AnalysisResult<SourceHeatmapResult> envelope = new(

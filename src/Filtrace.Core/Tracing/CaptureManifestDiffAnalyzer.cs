@@ -63,6 +63,9 @@ public static class CaptureManifestDiffAnalyzer
         List<RankingDiffCaseResult> cases = new(pairing.Pairs.Count);
         foreach (CaptureManifestCasePair pair in pairing.Pairs)
         {
+            string benchmark = pair.Before.Benchmark
+                ?? throw new InvalidOperationException("A paired capture case must have a benchmark identity.");
+
             List<string> caseWarnings = [];
             bool incompatibleUnits = false;
             try
@@ -155,6 +158,7 @@ public static class CaptureManifestDiffAnalyzer
 
                 cases.Add(ToCaseResult(
                     pair,
+                    benchmark,
                     diff,
                     caseWarnings,
                     beforeRootCoverage,
@@ -164,7 +168,7 @@ public static class CaptureManifestDiffAnalyzer
             {
                 CaptureManifestOutput.AddWarning(caseWarnings, exception.Message);
                 cases.Add(new RankingDiffCaseResult(
-                    pair.Before.Benchmark!,
+                    benchmark,
                     pair.Before.Parameters,
                     0.0,
                     0.0,
@@ -247,9 +251,9 @@ public static class CaptureManifestDiffAnalyzer
                 before,
                 after,
                 top,
-                beforeCase.OperationCount!.Value,
-                afterCase.OperationCount!.Value,
-                beforeCase.OperationUnit!);
+                beforeCase.OperationCount.Value,
+                afterCase.OperationCount.Value,
+                beforeCase.OperationUnit);
         }
 
         bool hasAnyOperationMetadata = beforeCase.OperationCount is not null
@@ -267,12 +271,13 @@ public static class CaptureManifestDiffAnalyzer
 
     private static RankingDiffCaseResult ToCaseResult(
         CaptureManifestCasePair pair,
+        string benchmark,
         RankingDiffResult diff,
         IReadOnlyList<string> warnings,
         RootScopeCoverage? beforeRootCoverage,
         RootScopeCoverage? afterRootCoverage) =>
             new(
-                pair.Before.Benchmark!,
+                benchmark,
                 pair.Before.Parameters,
                 diff.BeforeScopeWeight,
                 diff.AfterScopeWeight,

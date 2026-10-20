@@ -55,7 +55,7 @@ internal static class LinesExecutor
             lines.AttributedRecordCount,
             out string? recordWarning))
         {
-            warnings.Add(recordWarning!);
+            warnings.Add(recordWarning);
         }
 
         AnalysisResult<LineRankingResult> envelope = new(

@@ -50,7 +50,7 @@ internal static class CallersExecutor
             callers.ContributingRecordCount,
             out string? recordWarning))
         {
-            warnings.Add(recordWarning!);
+            warnings.Add(recordWarning);
         }
 
         AnalysisResult<CallersResult> envelope = new(

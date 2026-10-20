@@ -28,6 +28,9 @@ dotnet_diagnostic.SYSLIB1045.severity = warning
 
 # Touki's house-style analyzers ship disabled so consuming repositories opt in
 # deliberately. Filtrace enables the complete analyzer set.
+# Null-forgiving operators are restricted only in product sources below.
+dotnet_diagnostic.TOUKI0005.severity = none
+
 # Derive disposable classes from DisposableBase (TOUKI0012)
 dotnet_diagnostic.TOUKI0012.severity = warning
 
@@ -48,3 +51,7 @@ dotnet_diagnostic.TOUKI0029.severity = warning
 
 # Naming rule violation (TOUKI0041)
 dotnet_diagnostic.TOUKI0041.severity = warning
+
+[src/**/*.cs]
+# Avoid null-forgiving operators in product projects (TOUKI0005).
+dotnet_diagnostic.TOUKI0005.severity = warning

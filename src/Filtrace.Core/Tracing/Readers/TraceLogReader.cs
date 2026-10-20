@@ -365,7 +365,11 @@ internal abstract partial class TraceLogReader : ITraceReader
             stackCacheProbe?.Add(stackKey);
             Dictionary<int, CachedSampleStack?>? activeStackCache = sampleStackCache;
             CachedSampleStack? cachedStack = null;
-            bool seenBefore = activeStackCache is not null && activeStackCache.TryGetValue(stackKey, out cachedStack);
+            Dictionary<int, CachedSampleStack?>? seenStackCache =
+                activeStackCache is not null && activeStackCache.TryGetValue(stackKey, out cachedStack)
+                    ? activeStackCache
+                    : null;
+
             IReadOnlyList<string> frames;
             IReadOnlyList<string>? locations;
             if (cachedStack is null)
@@ -443,7 +447,9 @@ internal abstract partial class TraceLogReader : ITraceReader
                             }
                             else
                             {
-                                entry = entrySlot!;
+                                entry = entrySlot
+                                    ?? throw new InvalidOperationException("An existing frame-name cache entry must be initialized.");
+
                                 name = entry.Name;
                             }
 
@@ -466,18 +472,18 @@ internal abstract partial class TraceLogReader : ITraceReader
 
                     leafToRoot.Add(name);
                     string location = string.Empty;
-                    if (locationCache is not null)
+                    if (locationCache is not null && leafToRootLocations is not null)
                     {
                         address ??= traceLog.CodeAddresses[codeAddressIndex];
                         location = ResolveLocation(symbolReader, address, locationCache, sourceLookupModules);
-                        leafToRootLocations!.Add(location);
+                        leafToRootLocations.Add(location);
                     }
 
                     if (methodKey != (int)MethodIndex.Invalid)
                     {
-                        if (retainFrameIdentity)
+                        if (entry is not null)
                         {
-                            entry!.Observe(
+                            entry.Observe(
                                 sampledFrames: 1,
                                 mappedFrames: location.Length > 0 ? 1 : 0);
                         }
@@ -504,20 +510,20 @@ internal abstract partial class TraceLogReader : ITraceReader
                 for (int i = 0; i < count; i++)
                 {
                     frameArray[i] = leafToRoot[count - 1 - i];
-                    if (locationArray is not null)
+                    if (locationArray is not null && leafToRootLocations is not null)
                     {
-                        locationArray[i] = leafToRootLocations![count - 1 - i];
+                        locationArray[i] = leafToRootLocations[count - 1 - i];
                     }
                 }
 
-                if (seenBefore)
+                if (seenStackCache is not null)
                 {
                     cachedStack = new CachedSampleStack(
                         Array.AsReadOnly(frameArray),
                         locationArray is null ? null : Array.AsReadOnly(locationArray),
                         resolvedStackFrames);
 
-                    activeStackCache![stackKey] = cachedStack;
+                    seenStackCache[stackKey] = cachedStack;
                     frames = cachedStack.Frames;
                     locations = cachedStack.FrameLocations;
                 }

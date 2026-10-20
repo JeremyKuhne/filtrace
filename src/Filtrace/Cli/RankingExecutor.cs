@@ -84,7 +84,7 @@ internal static class RankingExecutor
             ranking.ContributingRecordCount,
             out string? recordWarning))
         {
-            warnings.Add(recordWarning!);
+            warnings.Add(recordWarning);
         }
 
         AnalysisResult<RankingResult> envelope = new(

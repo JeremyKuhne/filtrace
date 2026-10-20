@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // See LICENSE file in the project root for full license information
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace Filtrace.Tracing;
 
 /// <summary>
@@ -30,7 +32,7 @@ public static class ContributingRecordQuality
     public static bool TryGetMethodWarning(
         StackRecordSemantics semantics,
         int? contributingRecordCount,
-        out string? warning,
+        [NotNullWhen(returnValue: true)] out string? warning,
         int minimumRecords = DefaultMinimumMethodRecords) =>
             TryGetWarning(semantics, contributingRecordCount, minimumRecords, "method-level", out warning);
 
@@ -45,7 +47,7 @@ public static class ContributingRecordQuality
     public static bool TryGetLineWarning(
         StackRecordSemantics semantics,
         int? attributedRecordCount,
-        out string? warning,
+        [NotNullWhen(returnValue: true)] out string? warning,
         int minimumRecords = DefaultMinimumLineRecords) =>
             TryGetWarning(semantics, attributedRecordCount, minimumRecords, "line-level", out warning);
 
@@ -54,7 +56,7 @@ public static class ContributingRecordQuality
         int? recordCount,
         int minimumRecords,
         string level,
-        out string? warning)
+        [NotNullWhen(returnValue: true)] out string? warning)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(minimumRecords);
         if (semantics != StackRecordSemantics.PeriodicCpuSamples

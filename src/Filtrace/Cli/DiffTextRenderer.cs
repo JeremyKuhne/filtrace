@@ -106,10 +106,13 @@ internal static class DiffTextRenderer
 
             if (captureCase.OperationUnit is not null)
             {
+                double delta = captureCase.ScopeWeightPerOperationDelta
+                    ?? throw new InvalidOperationException("A per-operation case must include its scope delta.");
+
                 output.WriteLine(
                     $"  per {captureCase.OperationUnit}: {captureCase.BeforeScopeWeightPerOperation:N4} -> "
                         + $"{captureCase.AfterScopeWeightPerOperation:N4} {metric.Unit} "
-                        + $"(delta {Signed(captureCase.ScopeWeightPerOperationDelta!.Value)} {metric.Unit})");
+                        + $"(delta {Signed(delta)} {metric.Unit})");
             }
 
             if (captureCase.Rows.Count == 0)
@@ -158,9 +161,12 @@ internal static class DiffTextRenderer
 
             if (operationUnit is not null)
             {
+                double delta = row.PerOperationDelta
+                    ?? throw new InvalidOperationException("A per-operation row must include its delta.");
+
                 output.WriteLine(
                     $"  {"",WeightColumnWidth}  per {operationUnit}: {row.BeforeWeightPerOperation:N4} -> "
-                        + $"{row.AfterWeightPerOperation:N4} {unit} (delta {Signed(row.PerOperationDelta!.Value)} {unit})");
+                        + $"{row.AfterWeightPerOperation:N4} {unit} (delta {Signed(delta)} {unit})");
             }
         }
     }

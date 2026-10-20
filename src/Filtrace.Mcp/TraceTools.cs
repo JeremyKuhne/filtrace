@@ -1012,7 +1012,7 @@ public sealed class TraceTools
 
             if (!TimelineProvider.TryResolveLanes(lanes, out IReadOnlyList<string> resolvedLanes, out string? laneError))
             {
-                throw new McpException(laneError!);
+                throw new McpException(laneError);
             }
 
             int resolvedBuckets = TimelineProvider.ClampBucketCount(
@@ -1136,7 +1136,8 @@ public sealed class TraceTools
         }
 
         ScopeRequest scope = hasSelector
-            ? ResolveScope(process, pid, children)!
+            ? ResolveScope(process, pid, children)
+                ?? throw new McpException("An explicit disk I/O selector must resolve to a process scope.")
             : ScopeRequest.AllProcesses;
 
         if (!TimeWindow.TryParse(time, out double? startMSec, out double? endMSec, out string? timeError))
@@ -2044,8 +2045,12 @@ public sealed class TraceTools
                 out resolvedScope,
                 out resolvedWarnings));
 
-        appliedProcessScope = resolvedScope!;
-        scopeWarnings = resolvedWarnings!;
+        appliedProcessScope = resolvedScope
+            ?? throw new McpException("The disk I/O read completed without a resolved process scope.");
+
+        scopeWarnings = resolvedWarnings
+            ?? throw new McpException("The disk I/O read completed without scope warnings.");
+
         return result;
     }
 
@@ -2227,7 +2232,7 @@ public sealed class TraceTools
             contributingRecordCount,
             out string? warning))
         {
-            warnings.Add(warning!);
+            warnings.Add(warning);
         }
     }
 
@@ -2256,7 +2261,7 @@ public sealed class TraceTools
             attributedRecordCount,
             out string? warning))
         {
-            warnings.Add(warning!);
+            warnings.Add(warning);
         }
     }
 
@@ -2300,9 +2305,9 @@ public sealed class TraceTools
                 "children applies to process, pid, or automatic scope; allProcesses already reads every process.");
         }
 
-        if (hasProcessIds)
+        if (processIds is { Length: > 0 })
         {
-            foreach (int processId in processIds!)
+            foreach (int processId in processIds)
             {
                 if (processId <= 0)
                 {
@@ -2310,7 +2315,7 @@ public sealed class TraceTools
                 }
             }
 
-            return ScopeRequest.ForProcessIds(processIds!, children);
+            return ScopeRequest.ForProcessIds(processIds, children);
         }
 
         return allProcesses

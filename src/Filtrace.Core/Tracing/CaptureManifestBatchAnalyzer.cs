@@ -90,7 +90,7 @@ public static class CaptureManifestBatchAnalyzer
                 if (captureCase.HasCompleteOperationMetadata)
                 {
                     operationUnit = captureCase.OperationUnit;
-                    scopePerOperation = ranking.ScopeWeight / captureCase.OperationCount!.Value;
+                    scopePerOperation = ranking.ScopeWeight / captureCase.OperationCount.Value;
                     topPerOperation = top?.Weight / captureCase.OperationCount.Value;
                 }
 
@@ -235,7 +235,7 @@ public static class CaptureManifestBatchAnalyzer
             ranking.ContributingRecordCount,
             out string? recordWarning))
         {
-            CaptureManifestOutput.AddWarning(warnings, recordWarning!);
+            CaptureManifestOutput.AddWarning(warnings, recordWarning);
         }
 
         CaptureManifestOutput.AddOtherTraceWarnings(warnings, trace.Info);

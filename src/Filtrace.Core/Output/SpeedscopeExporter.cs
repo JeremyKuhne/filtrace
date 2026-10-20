@@ -139,7 +139,7 @@ public static class SpeedscopeExporter
         // which would copy the whole payload first; the stream is ours, so the
         // buffer is always exposable.
         return stream.TryGetBuffer(out ArraySegment<byte> buffer)
-            ? System.Text.Encoding.UTF8.GetString(buffer.Array!, buffer.Offset, buffer.Count)
+            ? System.Text.Encoding.UTF8.GetString(buffer.AsSpan())
             : System.Text.Encoding.UTF8.GetString(stream.ToArray());
     }
 
