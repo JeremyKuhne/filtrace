@@ -46,8 +46,10 @@ From the repository root with the .NET 11 SDK:
 ./fixtures/capture-diskio.ps1
 ```
 
-The capture scripts use net11.0. `HotLoopBench` and `AotStartup` also target
-net10.0; pass `-f net10.0` to a direct build or run to use the LTS runtime.
+`make-fixtures.ps1` captures its EventPipe corpus on net10.0 so the frozen parity
+oracle continues to use its validated runtime. `HotLoopBench` and `AotStartup`
+target net10.0; `HotLoopBench` also targets net11.0 for direct checks. Pass
+`-f net11.0` to a direct benchmark build or run on that runtime.
 
 `make-fixtures.ps1` refreshes the parity
 `hotloop.speedscope.json` / `hotloop.oracle.json` pair together and writes the
