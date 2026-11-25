@@ -17,8 +17,9 @@ replacing a global Filtrace installation:
 `Install` on an already-active target is a Refresh; it does not replace
 the original baseline. `-TargetRepository` defaults to the caller's
 current directory. The wrapper requires PowerShell 5.1 or 7, directly
-launchable `git` and `dotnet`, and the .NET 10 SDK. It does not elevate,
+launchable `git` and `dotnet`, and the .NET 11 SDK. It does not elevate,
 mutate a global tool, or upload a prepared package.
+Source preparation tests the .NET 11 CLI and MCP targets used by local activation.
 
 ## Owned locations
 

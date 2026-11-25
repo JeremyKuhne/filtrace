@@ -3,12 +3,12 @@
     Regenerates the filtrace EventPipe fixture corpus and frozen CPU parity oracle.
 
 .DESCRIPTION
-    Captures bounded net10 EventPipe profiles for CPU, allocation/GC, JIT,
+    Captures bounded net11 EventPipe profiles for CPU, allocation/GC, JIT,
     exceptions, contention, .NET 9+ wait handles, start-stop activities, and
     thread-pool starvation. It copies those smokes into the core-test fixtures,
     copies the CPU speedscope export into the parity fixtures, and freezes the
     legacy oracle's (Get-TraceHotspots.ps1) self- and inclusive-time rankings as
-    the matched JSON golden. Run with the .NET 10 SDK when the workloads,
+    the matched JSON golden. Run with the .NET 11 SDK when the workloads,
     TraceEvent, BenchmarkDotNet, or capture profiles move; it is not part of the
     normal build/test loop.
 
@@ -42,7 +42,7 @@ if (Test-Path $artifacts)
 Push-Location $benchProject
 try
 {
-    dotnet run -c Release -f net10.0 -- --filter '*HotLoop*' | Out-Host
+    dotnet run -c Release -f net11.0 -- --filter '*HotLoop*' | Out-Host
     if ($LASTEXITCODE -ne 0)
     {
         throw "Benchmark capture failed with exit code $LASTEXITCODE."
@@ -132,7 +132,7 @@ Write-Host 'Capturing the allocation smoke trace (GC-verbose)...'
 Push-Location $benchProject
 try
 {
-    dotnet run -c Release -f net10.0 -- --filter '*AllocLoop*' | Out-Host
+    dotnet run -c Release -f net11.0 -- --filter '*AllocLoop*' | Out-Host
     if ($LASTEXITCODE -ne 0)
     {
         throw "Allocation capture failed with exit code $LASTEXITCODE."
@@ -162,7 +162,7 @@ Write-Host 'Capturing the JIT smoke trace...'
 Push-Location $benchProject
 try
 {
-    dotnet run -c Release -f net10.0 -- --filter '*JitLoop*' | Out-Host
+    dotnet run -c Release -f net11.0 -- --filter '*JitLoop*' | Out-Host
     if ($LASTEXITCODE -ne 0)
     {
         throw "JIT capture failed with exit code $LASTEXITCODE."
@@ -193,7 +193,7 @@ Write-Host 'Capturing the exceptions smoke trace...'
 Push-Location $benchProject
 try
 {
-    dotnet run -c Release -f net10.0 -- --filter '*ExceptionLoop*' | Out-Host
+    dotnet run -c Release -f net11.0 -- --filter '*ExceptionLoop*' | Out-Host
     if ($LASTEXITCODE -ne 0)
     {
         throw "Exceptions capture failed with exit code $LASTEXITCODE."
@@ -224,7 +224,7 @@ Write-Host 'Capturing the contention smoke trace...'
 Push-Location $benchProject
 try
 {
-    dotnet run -c Release -f net10.0 -- --filter '*ContentionLoop*' | Out-Host
+    dotnet run -c Release -f net11.0 -- --filter '*ContentionLoop*' | Out-Host
     if ($LASTEXITCODE -ne 0)
     {
         throw "Contention capture failed with exit code $LASTEXITCODE."
@@ -255,7 +255,7 @@ Write-Host 'Capturing the wait smoke trace...'
 Push-Location $benchProject
 try
 {
-    dotnet run -c Release -f net10.0 -- --filter '*WaitLoop*' | Out-Host
+    dotnet run -c Release -f net11.0 -- --filter '*WaitLoop*' | Out-Host
     if ($LASTEXITCODE -ne 0)
     {
         throw "Wait capture failed with exit code $LASTEXITCODE."
@@ -287,7 +287,7 @@ Write-Host 'Capturing the activity smoke trace...'
 Push-Location $benchProject
 try
 {
-    dotnet run -c Release -f net10.0 -- --filter '*ActivityLoop*' | Out-Host
+    dotnet run -c Release -f net11.0 -- --filter '*ActivityLoop*' | Out-Host
     if ($LASTEXITCODE -ne 0)
     {
         throw "Activity capture failed with exit code $LASTEXITCODE."
@@ -320,7 +320,7 @@ Write-Host 'Capturing the thread-pool smoke trace...'
 Push-Location $benchProject
 try
 {
-    dotnet run -c Release -f net10.0 -- --filter '*ThreadPoolStarveLoop*' | Out-Host
+    dotnet run -c Release -f net11.0 -- --filter '*ThreadPoolStarveLoop*' | Out-Host
     if ($LASTEXITCODE -ne 0)
     {
         throw "Thread-pool capture failed with exit code $LASTEXITCODE."

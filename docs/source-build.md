@@ -1,6 +1,6 @@
 # FastTrace Source Build
 
-Filtrace uses `Microsoft.Diagnostics.Tracing.TraceEvent` 3.2.6 by default. For
+Filtrace uses `Microsoft.Diagnostics.Tracing.TraceEvent` 4.0.2 by default. For
 bounded FastTrace source evaluation, pass an explicit absolute FastTrace checkout path:
 
 ```pwsh
@@ -19,12 +19,17 @@ source-build experiment must pin its selected FastTrace revision rather than
 silently reusing this historical hash. This namespace-adjusted source integration
 is not a binary assembly-identity drop-in.
 
+The historical pin does not currently build against Filtrace's newer ETW capture
+APIs, and the .NET 11 SDK also reports a warning in that pinned source as an
+error. Source-adoption validation remains blocked until a compatible FastTrace
+revision is selected and validated separately.
+
 To publish an owned native CLI output on a native x64 host, first install the
 [Native AOT prerequisites](https://learn.microsoft.com/dotnet/core/deploying/native-aot/#prerequisites)
 for that host, then run:
 
 ```pwsh
-dotnet publish src/Filtrace/Filtrace.csproj -c Release -r win-x64 `
+dotnet publish src/Filtrace/Filtrace.csproj -c Release -f net11.0 -r win-x64 `
   -p:PublishAot=true -p:PackAsTool=false -p:IsPackable=false `
   -p:RestoreLockedMode=false `
   -p:FastTraceRepoRoot="<absolute FastTrace checkout path>" `
@@ -57,6 +62,8 @@ Run the adoption check locally on a host matching the requested runtime identifi
   -RuntimeIdentifier win-x64 `
   -OutputDirectory "<new owned evidence directory>"
 ```
+
+The check defaults to `net11.0`; pass `-Framework net10.0` to validate the LTS target.
 
 The check builds the complete framework-dependent and Native AOT CLIs, then requires
 exact JSON agreement for six committed-fixture queries. Use an isolated checkout for

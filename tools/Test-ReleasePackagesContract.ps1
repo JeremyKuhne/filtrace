@@ -104,11 +104,15 @@ function New-FakeReleasePackage([string] $Path, [string] $Id, [string] $Mode = '
     if ($Mode -eq 'manifest-version') { $manifest.packages[0].version = '0.9.0' }
     [System.Collections.Specialized.OrderedDictionary] $content = [ordered]@{
         "$Id.nuspec" = $nuspec
-        'tools/net10.0/any/DotnetToolSettings.xml' = $settings
-        'tools/net10.0/any/tool.dll' = 'not an executable; never installed'
+    }
+    foreach ($framework in @('net10.0', 'net11.0')) {
+        if ($Mode -eq "missing-$framework") { continue }
+        [string] $toolDirectory = "tools/$framework/any"
+        $content["$toolDirectory/DotnetToolSettings.xml"] = $settings
+        $content["$toolDirectory/tool.dll"] = 'not an executable; never installed'
     }
     if ($Mode -eq 'missing-tool') { $content.Remove('tools/net10.0/any/DotnetToolSettings.xml') }
-    if ($Mode -eq 'missing-entry') { $content.Remove('tools/net10.0/any/tool.dll') }
+    if ($Mode -eq 'missing-entry') { $content.Remove('tools/net11.0/any/tool.dll') }
     if ($Mode -eq 'unsafe-entry') { $content['../escape.dll'] = 'invalid' }
     if ($Id.EndsWith('.Mcp') -and $Mode -ne 'missing-manifest') {
         $content['.mcp/server.json'] = if ($Mode -eq 'invalid-manifest') { 'not-json' } else {
@@ -144,7 +148,7 @@ $context = [pscustomobject]@{
 try {
     [string] $id = 'KlutzyNinja.Filtrace.Mcp'
     foreach ($mode in @('valid', 'wrong-id', 'wrong-version', 'dtd', 'oversized-metadata',
-            'wrong-command', 'missing-tool', 'missing-entry', 'unsafe-entry', 'sentinel',
+            'wrong-command', 'missing-tool', 'missing-entry', 'missing-net10.0', 'missing-net11.0', 'unsafe-entry', 'sentinel',
             'manifest-version', 'missing-manifest', 'invalid-manifest', 'duplicate-entry')) {
         [string] $path = Join-Path $run "$mode [package].nupkg"
         New-FakeReleasePackage $path $id $mode

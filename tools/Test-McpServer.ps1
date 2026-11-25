@@ -30,6 +30,9 @@
 .PARAMETER Configuration
   The build configuration whose MCP binary to exercise. Defaults to Release.
 
+.PARAMETER Framework
+  The target framework whose built MCP binary to exercise. Defaults to net11.0.
+
 .PARAMETER MaxSchemaTokens
   The tool-list token budget. Defaults to 7000. Tokens are estimated by
   tools/Get-TokenEstimate.ps1 (a deterministic, offline pre-tokenizer estimate -
@@ -73,6 +76,7 @@
 [CmdletBinding()]
 param(
     [string]$Configuration = 'Release',
+    [ValidateSet('net10.0', 'net11.0')][string]$Framework = 'net11.0',
     [int]$MaxSchemaTokens = 7000,
     [string]$SchemaReportPath = 'artifacts/mcp-schema-tokens.json',
     [string]$ServerExecutable = '',
@@ -85,7 +89,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
+$mcpDll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/$Framework/Filtrace.Mcp.dll"
 
 # The deterministic, offline token estimator shared with the C# OutputBudget.
 . (Join-Path $PSScriptRoot 'Get-TokenEstimate.ps1')

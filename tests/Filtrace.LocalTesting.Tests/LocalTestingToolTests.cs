@@ -631,7 +631,7 @@ public sealed class LocalTestingToolTests
             if (invocation.Arguments[0].Equals("build", StringComparison.Ordinal)
                 && invocation.Arguments[1].Contains("Filtrace.Mcp", StringComparison.Ordinal))
             {
-                string output = Path.Join(Source, "src", "Filtrace.Mcp", "bin", "Debug", "net10.0");
+                string output = Path.Join(Source, "src", "Filtrace.Mcp", "bin", "Debug", "net11.0");
                 Directory.CreateDirectory(output);
                 File.WriteAllText(Path.Join(output, "Filtrace.Mcp.dll"), "mcp");
             }

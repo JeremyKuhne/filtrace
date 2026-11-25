@@ -35,7 +35,7 @@ then run the full test/eval suite and review every changed assertion or baseline
 
 ## Regenerating
 
-From the repository root with the .NET 10 SDK:
+From the repository root with the .NET 11 SDK:
 
 ```pwsh
 # EventPipe corpus; no elevation.
@@ -45,6 +45,9 @@ From the repository root with the .NET 10 SDK:
 ./fixtures/capture-etw.ps1
 ./fixtures/capture-diskio.ps1
 ```
+
+The capture scripts use net11.0. `HotLoopBench` and `AotStartup` also target
+net10.0; pass `-f net10.0` to a direct build or run to use the LTS runtime.
 
 `make-fixtures.ps1` refreshes the parity
 `hotloop.speedscope.json` / `hotloop.oracle.json` pair together and writes the

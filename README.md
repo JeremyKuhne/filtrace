@@ -13,7 +13,7 @@ blocking, and wall-clock traces. Built on the
 
 ## Install
 
-filtrace targets **.NET 10**. Both heads are published on NuGet.org:
+filtrace targets **.NET 10 (LTS)** and **.NET 11**. Both heads are published on NuGet.org:
 [`KlutzyNinja.Filtrace`](https://www.nuget.org/packages/KlutzyNinja.Filtrace)
 (the `filtrace` CLI) and
 [`KlutzyNinja.Filtrace.Mcp`](https://www.nuget.org/packages/KlutzyNinja.Filtrace.Mcp)
@@ -21,13 +21,16 @@ filtrace targets **.NET 10**. Both heads are published on NuGet.org:
 
 ### CLI (global tool)
 
-Installing the CLI as a .NET global tool needs the .NET 10 SDK (`dotnet tool`
-ships with it):
+Installing the CLI as a .NET global tool needs the .NET 10 SDK or later (`dotnet
+tool` ships with it). The SDK selects the compatible tool target:
 
 ```pwsh
 dotnet tool install --global KlutzyNinja.Filtrace
 filtrace rank app.nettrace --metric cpu
 ```
+
+With the .NET 11 SDK, pass `--framework net10.0` to install the LTS target
+explicitly; the .NET 10 runtime must also be installed.
 
 Update or remove it later with `dotnet tool update --global KlutzyNinja.Filtrace`
 or `dotnet tool uninstall --global KlutzyNinja.Filtrace`.
@@ -35,7 +38,7 @@ or `dotnet tool uninstall --global KlutzyNinja.Filtrace`.
 ### MCP server
 
 The MCP server runs on demand - there is no install step. Add the stdio server to
-your agent's MCP config and `dnx` (bundled with the .NET 10 SDK) fetches
+your agent's MCP config and `dnx` (bundled with the .NET 10 SDK or later) fetches
 `KlutzyNinja.Filtrace.Mcp` and launches it. See
 [Using filtrace from an AI agent](#using-filtrace-from-an-ai-agent) for the exact
 config block and the tool workflow.
@@ -57,7 +60,7 @@ the target's recorded MCP and skill baseline and remove the private CLI with:
 ./tools/Use-LocalFiltrace.ps1 -Action Restore -TargetRepository ../consumer -Configuration Release
 ```
 
-The command requires PowerShell 5.1 or 7, Git, and the .NET 10 SDK. It does not need
+The command requires PowerShell 5.1 or 7, Git, and the .NET 11 SDK. It does not need
 elevation, change a global tool installation, or upload the prepared package.
 For an interrupted install or restore, use the
 [repository-local recovery guide](docs/local-testing.md) rather than deleting
@@ -76,7 +79,7 @@ ranking when needed, then diff comparable traces or capture manifests against a 
 filtrace info app.nettrace                     # 0. orient: format, providers, event counts, symbol rate
 filtrace rank app.nettrace --metric cpu        # 1. what's hot (self weight: milliseconds or raw samples)
 filtrace callers app.nettrace MyApp.Parse      # 2. who calls the hot frame
-filtrace source app.nettrace --view lines --symbols bin/Release/net10.0   # 3. hot source lines
+filtrace source app.nettrace --view lines --symbols bin/Release/net11.0   # 3. hot source lines
 filtrace diff before.nettrace after.nettrace   # 4. what changed between runs
 filtrace batch BenchmarkDotNet.Artifacts/filtrace-runs/run/manifest.json
 ```
@@ -241,10 +244,10 @@ filtrace rank app.etl --metric cpu --process MyApp --native-symbols   # name the
 
 | Command | Purpose | Example |
 |---|---|---|
-| `collect` | Launch an executable and record a CPU, thread-time, startup, or physical disk-I/O `.etl` | `filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl --profile threadtime` |
+| `collect` | Launch an executable and record a CPU, thread-time, startup, or physical disk-I/O `.etl` | `filtrace collect --launch bin/Release/net11.0/MyApp.exe --output myapp.etl --profile threadtime` |
 
 ```pwsh
-filtrace collect --launch bin/Release/net10.0/MyApp.exe --output myapp.etl              # CPU
+filtrace collect --launch bin/Release/net11.0/MyApp.exe --output myapp.etl              # CPU
 filtrace collect --launch dotnet --launch-args MyApp.dll --output tt.etl --profile threadtime
 filtrace collect --launch MyApp.exe --output start.etl --profile startup                # low perturbation
 filtrace collect --launch MyApp.exe --output io.etl --profile diskio                    # physical disk/files
@@ -298,9 +301,10 @@ processes, with unique temporary files and atomic publication. Filtrace records
 the converter epoch, backend binary and source/cache file facts in
 `<ETLX path>.filtrace.json` (distinct from capture metadata at
 `<trace path>.filtrace.json`); a cache hit checks these small facts, not a hash
-of the entire trace. A readable ETLX with no valid marker is **not** reused or
-overwritten: run `filtrace cache app.nettrace --action clean` to explicitly
-discard it, then convert or analyze again. This one-time rebuild can take
+of the entire trace. A readable ETLX with no valid marker or a different TraceEvent
+backend is **not** reused or overwritten: run
+`filtrace cache app.nettrace --action clean` to explicitly discard it, then convert
+or analyze again. This one-time rebuild can take
 seconds for large traces. Owned caches rebuild when the source changes, and
 interrupted publications recover. `cache --action clean` removes both ETLX and its marker.
 Same-trace MCP queries may run in parallel; `trace_info.etlxCacheState` and
@@ -374,5 +378,5 @@ published `KlutzyNinja.Touki` NuGet package; it references no other project.
 ```pwsh
 cd filtrace
 dotnet build filtrace.slnx
-dotnet test filtrace.slnx
+dotnet test --solution filtrace.slnx
 ```

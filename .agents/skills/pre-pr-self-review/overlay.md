@@ -11,7 +11,7 @@ Run the read-only review pass with the host's code-review or exploration persona
 (VS Code: `Explore`), then run:
 
 ```pwsh
-dotnet test filtrace.slnx -c Release --no-restore
+dotnet test --solution filtrace.slnx -c Release --no-restore
 ./tools/Test-CliHelp.ps1 -Configuration Release
 ./tools/Test-McpServer.ps1 -Configuration Release
 ./tools/Test-Docs.ps1
@@ -20,10 +20,10 @@ dotnet test filtrace.slnx -c Release --no-restore
 git diff --check
 ```
 
-Filtrace itself targets net10.0 only. It reads net481 traces, but that does not make
-normal production changes multi-targeted. Apply the core's Framework/polyfill items
-only when changing `fixtures/HotLoopBench` net481 capture code or an actual
-downlevel contract.
+Filtrace targets net10.0 and net11.0; validate changes on both. It reads net481
+traces, but production code does not target .NET Framework. Apply the core's
+Framework/polyfill items only when changing `fixtures/HotLoopBench` net481 capture
+code or an actual downlevel contract.
 
 Changes to trace readers, event queries, regular expressions, output limits, or
 other caller-supplied input also invoke the security-review skill. Changes under

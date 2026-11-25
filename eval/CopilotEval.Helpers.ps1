@@ -1316,7 +1316,7 @@ function Get-AgentEvalCliOutputDirectory([string] $Root, [string] $Configuration
     }
     [string] $buildRoot = [System.IO.Path]::GetFullPath((Join-Path $Root 'src/Filtrace/bin'))
     [string] $outputDirectory = [System.IO.Path]::GetFullPath(
-        (Join-Path $buildRoot (Join-Path $Configuration 'net10.0')))
+        (Join-Path $buildRoot (Join-Path $Configuration 'net11.0')))
     if (-not (Test-AgentEvalPathContained -Path $outputDirectory -Root $buildRoot)) {
         throw "Eval build configuration '$Configuration' escaped '$buildRoot'."
     }

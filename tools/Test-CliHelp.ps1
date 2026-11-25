@@ -25,12 +25,16 @@
 .PARAMETER Configuration
   The build configuration whose CLI binary to lint. Defaults to Release.
 
+.PARAMETER Framework
+  The target framework whose CLI binary to lint. Defaults to net11.0.
+
 .PARAMETER MaxVerbHelpLines
   The per-verb `--help` line budget. Defaults to 60.
 #>
 [CmdletBinding()]
 param(
     [string]$Configuration = 'Release',
+    [ValidateSet('net10.0', 'net11.0')][string]$Framework = 'net11.0',
     [int]$MaxVerbHelpLines = 60
 )
 
@@ -39,7 +43,7 @@ $script:PSNativeCommandUseErrorActionPreference = $false
 $root = Split-Path -Parent $PSScriptRoot
 $commandsFile = Join-Path $root 'src/Filtrace/Cli/TraceCommands.cs'
 $readmeFile = Join-Path $root 'README.md'
-$cliDll = Join-Path $root "src/Filtrace/bin/$Configuration/net10.0/filtrace.dll"
+$cliDll = Join-Path $root "src/Filtrace/bin/$Configuration/$Framework/filtrace.dll"
 
 $failures = [System.Collections.Generic.List[string]]::new()
 function Add-Failure([string]$message) { $failures.Add($message) }

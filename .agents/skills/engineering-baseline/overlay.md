@@ -7,7 +7,7 @@ core-pin: v0.14.0
 
 ## Filtrace binding
 
-- Filtrace is an existing net10.0 CLI, library, and MCP repository. Use the
+- Filtrace is an existing net10.0/net11.0 CLI, library, and MCP repository. Use the
   brownfield assessment path; do not replace its established scaffold with the
   greenfield templates.
 - [AGENTS.md](../../../AGENTS.md) owns build, test, style, frozen-contract, and

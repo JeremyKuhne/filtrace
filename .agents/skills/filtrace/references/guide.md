@@ -5,7 +5,7 @@ thread-time data, reports GC / JIT / thread-pool / disk / process-lifecycle acti
 and drills into, diffs, or exports CPU profiles from `.nettrace`, `.etl`, and speedscope
 captures. It reads both modern .NET and .NET Framework traces. It is a command-line tool
 and an MCP server - there is no GUI. Output is dense text by default, or compact JSON
-(`--format json`); the analyzer itself runs on .NET 10.
+(`--format json`); the analyzer itself runs on .NET 10 or .NET 11.
 
 This guide preserves the complete workflow reference. Load only the section selected
 by the routing entrypoint in [SKILL.md](../SKILL.md).
@@ -122,7 +122,7 @@ Almost every investigation is the same four moves:
 filtrace info app.nettrace                   # 1. orient: format, symbol rate, analyses
 filtrace rank app.nettrace --metric cpu      # 2. rank self-time
 filtrace callers app.nettrace MyApp.Parse    # 3. who drives the hot frame
-filtrace source app.nettrace --view lines --symbols bin/Release/net10.0   # 3. hot source lines
+filtrace source app.nettrace --view lines --symbols bin/Release/net11.0   # 3. hot source lines
 filtrace diff before.nettrace after.nettrace # 4. what changed
 ```
 

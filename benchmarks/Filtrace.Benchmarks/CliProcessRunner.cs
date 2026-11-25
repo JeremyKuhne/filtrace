@@ -56,13 +56,20 @@ internal static partial class CliProcessRunner
                 $"Could not find the repository root above '{AppContext.BaseDirectory}'.");
         }
 
+#if NET10_0
+        const string TargetFramework = "net10.0";
+#elif NET11_0
+        const string TargetFramework = "net11.0";
+#else
+#error Unsupported benchmark target framework.
+#endif
         string executable = Path.Join(
             directory.FullName,
             "src",
             "Filtrace",
             "bin",
             "Release",
-            "net10.0",
+            TargetFramework,
             OperatingSystem.IsWindows() ? "filtrace.exe" : "filtrace");
 
         if (!File.Exists(executable))

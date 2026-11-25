@@ -14,8 +14,6 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>Filtrace.Fixtures.AotStartup</RootNamespace>
     <AssemblyName>AotStartup</AssemblyName>
-    <TargetFramework>net10.0</TargetFramework>
-
     <!-- The point of the fixture: one native image, with its own PDB beside it. -->
     <PublishAot>true</PublishAot>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

@@ -7,6 +7,9 @@ param(
     [ValidateSet('win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'osx-x64', 'osx-arm64')]
     [string] $RuntimeIdentifier,
 
+    [ValidateSet('net10.0', 'net11.0')]
+    [string] $Framework = 'net11.0',
+
     [Parameter(Mandatory = $true)]
     [string] $OutputDirectory
 )
@@ -158,6 +161,7 @@ $nativeArtifacts = Join-Path $outputRoot 'build/native-artifacts'
 $jitArguments = @(
     'publish', $project,
     '--configuration', 'Release',
+    '--framework', $Framework,
     '-p:PublishAot=false',
     '-p:SelfContained=false',
     '-p:PackAsTool=false',
@@ -171,6 +175,7 @@ Invoke-Build $jitArguments (Join-Path $logsDirectory 'jit-publish.log')
 $nativeArguments = @(
     'publish', $project,
     '--configuration', 'Release',
+    '--framework', $Framework,
     '--runtime', $RuntimeIdentifier,
     '-p:PublishAot=true',
     '-p:PackAsTool=false',
@@ -348,6 +353,7 @@ foreach ($case in $cases) {
 
 $summary = [ordered]@{
     schemaVersion = 1
+    targetFramework = $Framework
     runtimeIdentifier = $RuntimeIdentifier
     hostOSArchitecture = $hostArchitecture
     filtraceCommit = Invoke-GitRevision $root

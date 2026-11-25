@@ -360,7 +360,7 @@ function Test-HostContract(
     Assert-Equal $result.Stderr '' "$HostName valid-empty stderr mismatch."
     [string[]]$expected = @(
         'TOOL=dotnet', "CWD=$fixtureSource", 'ARG=run', 'ARG=--project', "ARG=$project",
-        'ARG=--configuration', 'ARG=Release', 'ARG=--no-launch-profile', 'ARG=--',
+        'ARG=--configuration', 'ARG=Release', 'ARG=--framework', 'ARG=net11.0', 'ARG=--no-launch-profile', 'ARG=--',
         'ARG=--action', 'ARG=install', 'ARG=--target-repository', "ARG=$target",
         'ARG=--configuration', 'ARG=Release', 'ARG=--source-checkout', "ARG=$fixtureSource",
         'ARG=--dotnet-path', "ARG=$(Join-Path $first 'dotnet.exe')",
@@ -373,7 +373,7 @@ function Test-HostContract(
     Assert-Equal $result.Stdout "helper output$([Environment]::NewLine)" "$HostName text stdout mismatch."
     Assert-Equal $result.Stderr '' "$HostName text stderr mismatch."
     [string[]]$textLines = [System.IO.File]::ReadAllLines($textLog)
-    Assert-Equal (($textLines | Select-Object -Index 6, 14) -join ',') 'ARG=Debug,ARG=Debug' "$HostName explicit Debug forwarding mismatch."
+    Assert-Equal (($textLines | Select-Object -Index 6, 16) -join ',') 'ARG=Debug,ARG=Debug' "$HostName explicit Debug forwarding mismatch."
     $failureLog = Join-Path $hostRoot 'failure.txt'
     $result = Invoke-Wrapper $HostPath $FixtureWrapper $InvokerPath $pathValue install $target -LogPath $failureLog -ReadinessPath $ReadinessPath -NativeExitCode 37 -NativeStdout "failure output$([Environment]::NewLine)" -NativeStderr "failure error$([Environment]::NewLine)"
     Assert-Equal $result.ExitCode 37 "$HostName native failure exit mismatch."
@@ -453,7 +453,7 @@ function Test-RealHelperInvocation(
 $resolvedWrapper = (Resolve-Path -LiteralPath $WrapperPath).Path
 Test-HostGuardContract $resolvedWrapper
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$probeOutput = Join-Path $repositoryRoot "tests/Filtrace.LocalTesting.Tests/bin/$Configuration/net10.0"
+$probeOutput = Join-Path $repositoryRoot "tests/Filtrace.LocalTesting.Tests/bin/$Configuration/net11.0"
 $probeAppHost = Join-Path $probeOutput 'Filtrace.LocalTesting.Tests.exe'
 $helperAssembly = Join-Path $probeOutput 'Filtrace.LocalTesting.dll'
 if (-not (Test-Path -LiteralPath $probeAppHost) -or -not (Test-Path -LiteralPath $helperAssembly)) {
@@ -515,6 +515,22 @@ exit $LASTEXITCODE
     }
     catch {
         $failures.Add("Real helper invocation: $($_.Exception.Message)")
+    }
+    try {
+        $realTarget = Join-Path $root 'real dotnet target'
+        [void][System.IO.Directory]::CreateDirectory($realTarget)
+        $realGitPath = @(Get-Command git.exe -CommandType Application -ErrorAction Stop)[0].Source
+        $init = Invoke-BoundedProcess -FilePath $realGitPath -ArgumentList @('init', '--quiet', $realTarget) -Environment @{}
+        Assert-Equal $init.ExitCode 0 'Real target Git initialization failed.'
+        $realRun = Invoke-BoundedProcess -FilePath $hosts['PowerShell 7'][0] -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $resolvedWrapper,
+            '-Action', 'Restore', '-TargetRepository', $realTarget, '-Configuration', $Configuration
+        ) -Environment @{}
+        Assert-Equal $realRun.ExitCode 1 'Real dotnet wrapper missing-state exit mismatch.'
+        Assert-Contains $realRun.Stderr 'Restore requires existing local-testing state.' 'Real dotnet wrapper did not reach the helper.'
+    }
+    catch {
+        $failures.Add("Real dotnet wrapper: $($_.Exception.Message)")
     }
     $currentPreference = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
     Assert-Equal ($null -ne $currentPreference) $nativePreferenceWasDefined 'The contract changed whether the parent native-error preference was defined.'

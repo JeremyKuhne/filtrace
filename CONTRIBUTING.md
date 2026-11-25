@@ -17,11 +17,12 @@ redistribute it.
 
 ## Building and testing
 
-filtrace targets **.NET 10** and uses the Microsoft.Testing.Platform runner.
+filtrace targets **.NET 10 and .NET 11**, builds with the .NET 11 SDK, and uses
+the Microsoft.Testing.Platform runner.
 
 ```pwsh
 dotnet build filtrace.slnx -c Release
-dotnet test filtrace.slnx -c Release
+dotnet test --solution filtrace.slnx -c Release
 ```
 
 CI also runs ten cross-platform contract/eval checks that must stay green; run

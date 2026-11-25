@@ -416,7 +416,7 @@ function Invoke-OllamaIteration {
 # the trace_* tools directly - exercising the MCP tool descriptions the cli arm
 # never touches.
 function New-FiltraceMcpConfig {
-    $dll = if ($McpDll) { $McpDll } else { Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll" }
+    $dll = if ($McpDll) { $McpDll } else { Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net11.0/Filtrace.Mcp.dll" }
     if (-not (Test-Path $dll)) {
         throw "Filtrace.Mcp server not found at '$dll'. Build it: dotnet build src/Filtrace.Mcp/Filtrace.Mcp.csproj -c $Configuration, or pass -McpDll."
     }

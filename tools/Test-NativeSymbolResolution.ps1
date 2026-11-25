@@ -50,7 +50,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $fixture = Join-Path $repoRoot 'fixtures/NativeLoop'
 $source = Join-Path $fixture 'NativeLoop.cpp'
 $executable = Join-Path $fixture 'NativeLoop.exe'
-$filtrace = Join-Path $repoRoot "src/Filtrace/bin/$Configuration/net10.0/filtrace.exe"
+$filtrace = Join-Path $repoRoot "src/Filtrace/bin/$Configuration/net11.0/filtrace.exe"
 
 function Skip-Or-Fail([string]$reason) {
     if ($Require) {

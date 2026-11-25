@@ -12,8 +12,8 @@
 <Project>
 
   <PropertyGroup>
-    <!-- net10-only: filtrace reads traces produced by both TFMs but runs only on modern .NET. -->
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- The analyzer runs on the current LTS and latest .NET releases. -->
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

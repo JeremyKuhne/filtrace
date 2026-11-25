@@ -26,7 +26,7 @@ jobs:
           - runner: macos-15-intel
             rid: osx-x64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Check out Filtrace
         uses: actions/checkout@v5
@@ -44,19 +44,23 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Setup .NET
+      - name: Setup .NET 10 and 11
         uses: actions/setup-dotnet@v5
         with:
+          dotnet-version: 10.0.x
           global-json-file: filtrace/global.json
 
       - name: Build and compare JIT with native AOT
         shell: pwsh
         working-directory: filtrace
-        run: >-
-          ./tools/Test-FastTraceSourceBuild.ps1
-          -FastTraceRepoRoot '${{ github.workspace }}/fasttrace'
-          -RuntimeIdentifier '${{ matrix.rid }}'
-          -OutputDirectory '${{ runner.temp }}/source-adoption-${{ matrix.rid }}'
+        run: |
+          foreach ($framework in @('net10.0', 'net11.0')) {
+            ./tools/Test-FastTraceSourceBuild.ps1 `
+              -FastTraceRepoRoot '${{ github.workspace }}/fasttrace' `
+              -RuntimeIdentifier '${{ matrix.rid }}' `
+              -Framework $framework `
+              -OutputDirectory "${{ runner.temp }}/source-adoption-${{ matrix.rid }}-$framework"
+          }
 
       - name: Upload bounded adoption evidence
         if: always()
@@ -64,8 +68,8 @@ jobs:
         with:
           name: source-adoption-${{ matrix.rid }}
           path: |
-            ${{ runner.temp }}/source-adoption-${{ matrix.rid }}/summary.json
-            ${{ runner.temp }}/source-adoption-${{ matrix.rid }}/logs/*.log
-            ${{ runner.temp }}/source-adoption-${{ matrix.rid }}/results/*.json
+            ${{ runner.temp }}/source-adoption-${{ matrix.rid }}-*/summary.json
+            ${{ runner.temp }}/source-adoption-${{ matrix.rid }}-*/logs/*.log
+            ${{ runner.temp }}/source-adoption-${{ matrix.rid }}-*/results/*.json
           if-no-files-found: warn
           retention-days: 5
