@@ -9,7 +9,7 @@
       Publish the stdio MCP server as a NuGet `McpServer` tool package. NuGet.org renders
       the "MCP Server" tab from the embedded .mcp/server.json and consumers launch it with
       `dnx KlutzyNinja.Filtrace.Mcp` on demand. Framework-dependent (no RuntimeIdentifiers or
-      SelfContained): dnx supplies the .NET 10 runtime, and the trace-reading dependency
+      SelfContained): the selected tool target needs its .NET runtime, and the trace-reading dependency
       (TraceEvent) is not yet trim/AOT/single-file clean, so per-RID self-contained packaging
       stays a deliberate, separately-validated follow-up. The version is stamped by MinVer.
     -->

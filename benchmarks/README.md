@@ -7,17 +7,19 @@ generation remains under `fixtures/`. The measurement principles and limits are 
 [the design](../docs/design.md#performance-evidence-and-dependency-boundaries);
 the runnable benchmark and self-profiling steps are here.
 
-Run all benchmarks in Release:
+Run all benchmarks in Release, selecting the target framework:
 
 ```pwsh
-dotnet run -c Release --project benchmarks/Filtrace.Benchmarks
+dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks
 ```
 
 Filter to one class or method while iterating:
 
 ```pwsh
-dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*FoldingAggregatorBenchmarks*' --job short
+dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks -- --filter '*FoldingAggregatorBenchmarks*' --job short
 ```
+
+Use `-f net10.0` to run the same benchmarks on the LTS runtime.
 
 Every benchmark class uses `[MemoryDiagnoser]`, performs setup outside the measured
 method, and returns a value derived from the work. Generated
@@ -26,11 +28,11 @@ method, and returns a value derived from the work. Generated
 Run the Phase 0 trace-read, symbol-scan, and process-launch smokes:
 
 ```pwsh
-dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*ActivityReadBenchmarks*' --job dry
-dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*TimelineProviderBenchmarks*' --job dry
-dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*EmbeddedPdbBenchmarks*' --job dry
-dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*FoldingAggregatorMetricBenchmarks*' --job dry
-dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*Cli*Benchmarks*' --job dry
+dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks -- --filter '*ActivityReadBenchmarks*' --job dry
+dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks -- --filter '*TimelineProviderBenchmarks*' --job dry
+dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks -- --filter '*EmbeddedPdbBenchmarks*' --job dry
+dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks -- --filter '*FoldingAggregatorMetricBenchmarks*' --job dry
+dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks -- --filter '*Cli*Benchmarks*' --job dry
 ```
 
 `TimelineProviderBenchmarks` compares the default five-lane timeline with a
@@ -47,7 +49,7 @@ iterating (the default is 25) with:
 $telemetry = 'artifacts/perf-smoke'
 New-Item -ItemType Directory -Force $telemetry | Out-Null
 Copy-Item tests/Filtrace.Core.Tests/Fixtures/activity.nettrace "$telemetry/activity.nettrace"
-dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- `
+dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks -- `
   --cli-telemetry `
   --scenario info-warm `
   --trace "$telemetry/activity.nettrace" `
@@ -60,7 +62,7 @@ repeat `--argument` once for each child token:
 
 ```pwsh
 $trace = (Resolve-Path "$telemetry/activity.nettrace").Path
-dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- `
+dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks -- `
   --cli-telemetry `
   --scenario threadtime-process-1234 `
   --trace $trace `
@@ -110,11 +112,12 @@ To profile a benchmark with filtrace:
 ```pwsh
 dotnet build src/Filtrace/Filtrace.csproj -c Release
 $filtraceName = if ($IsWindows) { 'filtrace.exe' } else { 'filtrace' }
-$filtrace = (Resolve-Path (Join-Path 'src/Filtrace/bin/Release/net10.0' $filtraceName)).Path
+$filtrace = (Resolve-Path (Join-Path 'src/Filtrace/bin/Release/net11.0' $filtraceName)).Path
 $captureRoot = (New-Item -ItemType Directory -Force artifacts/filtrace-captures).FullName
 ./.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1 `
   -Project benchmarks/Filtrace.Benchmarks `
   -Filter '*TimelineProviderBenchmarks.Snapshot*' `
+  -Tfm net11.0 `
   -FiltracePath $filtrace `
   -OutputDirectory $captureRoot
 ```
@@ -131,12 +134,12 @@ the historical Track D scale corpus. These commands are reusable when a new
 performance question independently selects this harness. Smoke both modes directly:
 
 ```pwsh
-dotnet run -c Release --project benchmarks/Filtrace.PerfWorkload -- cpu --workers 2 --duration-ms 500 --depth 5
-dotnet run -c Release --project benchmarks/Filtrace.PerfWorkload -- activity --workers 2 --duration-ms 500 --depth 5 --activity-rounds 10
+dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.PerfWorkload -- cpu --workers 2 --duration-ms 500 --depth 5
+dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.PerfWorkload -- activity --workers 2 --duration-ms 500 --depth 5 --activity-rounds 10
 ```
 
 Capture and archive one CPU/activity corpus pair with exact hashes and filtrace
-verification:
+verification. The Track D harness uses net10.0 so older baselines remain comparable:
 
 ```pwsh
 ./benchmarks/Capture-TrackDCorpus.ps1 -Workers 8 -CpuDurationMilliseconds 15000 -ActivityDurationMilliseconds 15000 -Depth 20

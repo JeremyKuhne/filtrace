@@ -53,7 +53,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$cliDll = Join-Path $root "src/Filtrace/bin/$Configuration/net10.0/filtrace.dll"
+$cliDll = Join-Path $root "src/Filtrace/bin/$Configuration/net11.0/filtrace.dll"
 $tasksDir = Join-Path $PSScriptRoot 'tasks'
 $baselinePath = Join-Path $PSScriptRoot 'baselines.json'
 $mcpQaPath = Join-Path $PSScriptRoot 'mcp-qa.jsonl'

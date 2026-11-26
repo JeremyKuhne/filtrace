@@ -9,8 +9,8 @@ other tool that supports the [AGENTS.md](https://agents.md/) standard.
 `filtrace` is a .NET **trace analyzer**: a command-line tool and an MCP server
 that rank, drill into, diff, and export CPU / allocation / exception /
 thread-time profiles from `.nettrace`, `.etl`, and speedscope captures. It runs
-on **.NET 10 only** - it reads traces produced by both modern .NET and .NET
-Framework, but the analyzer itself targets net10.0.
+on **.NET 10 and .NET 11** - it reads traces produced by both modern .NET and
+.NET Framework, but the analyzer itself targets net10.0 and net11.0.
 
 Layout:
 
@@ -27,15 +27,18 @@ Layout:
 ## Build and test
 
 - `dotnet build filtrace.slnx -c Release`
-- `dotnet test filtrace.slnx -c Release`
-- `dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter *FoldingAggregatorBenchmarks*`
-- `dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter *TimelineProviderBenchmarks* --job short`
+- `dotnet test --solution filtrace.slnx -c Release`
+- `dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks -- --filter *FoldingAggregatorBenchmarks*`
+- `dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks -- --filter *TimelineProviderBenchmarks* --job short`
+
+Building requires the .NET 11 SDK. Run benchmarks on `net10.0` as well when
+comparing behavior across the two supported runtimes.
 
 For deeper performance investigation, build and analyze with this checkout's CLI:
 
 ```pwsh
 dotnet build src/Filtrace/Filtrace.csproj -c Release
-$filtraceDll = (Resolve-Path src/Filtrace/bin/Release/net10.0/filtrace.dll).Path
+$filtraceDll = (Resolve-Path src/Filtrace/bin/Release/net11.0/filtrace.dll).Path
 $trace = (Resolve-Path tests/Filtrace.Core.Tests/Fixtures/threadpool.nettrace).Path
 dotnet $filtraceDll info $trace
 ```

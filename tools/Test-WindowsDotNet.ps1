@@ -31,10 +31,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not list projects in filtrace.slnx.' }
         if (-not $name.EndsWith('.Tests', [StringComparison]::Ordinal)) {
             throw "Unexpected test project name in solution: $project"
         }
-        [string] $binary = Join-Path $root (
-            "tests\$name\bin\Release\net10.0\$name.dll")
-        if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
-            throw "Release test module was not built: $binary"
+        foreach ($framework in @('net10.0', 'net11.0')) {
+            [string] $binary = Join-Path $root (
+                "tests\$name\bin\Release\$framework\$name.dll")
+            if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+                throw "Release test module was not built: $binary"
+            }
         }
         $name
     }
@@ -48,10 +50,11 @@ if ($cliModules.Count -ne 1 -or $otherModules.Count -lt 1 -or
 
 function Invoke-TestModuleGroup(
     [string[]] $Names,
+    [string] $Framework,
     [int] $Parallelism,
     [int] $MinimumExpectedTests) {
     [string] $selection = (@($Names | ForEach-Object {
-                "*/bin/Release/net10.0/$_.dll"
+                "*/bin/Release/$Framework/$_.dll"
             }) -join ';')
     [object[]] $lines = @()
     & dotnet test --test-modules $selection --root-directory $testsRoot `
@@ -75,6 +78,8 @@ function Invoke-TestModuleGroup(
 
 # All test projects still run on Windows. Only the CLI test module starts ETW
 # sessions; wait for the non-ETW hosts to exit before launching it.
-Invoke-TestModuleGroup -Names $otherModules -Parallelism 4 -MinimumExpectedTests 1514
-Invoke-TestModuleGroup -Names $cliModules -Parallelism 1 -MinimumExpectedTests 399
-Write-Host "Windows Release test gate passed $($testModules.Count) modules."
+foreach ($framework in @('net10.0', 'net11.0')) {
+    Invoke-TestModuleGroup -Names $otherModules -Framework $framework -Parallelism 4 -MinimumExpectedTests 1514
+    Invoke-TestModuleGroup -Names $cliModules -Framework $framework -Parallelism 1 -MinimumExpectedTests 399
+}
+Write-Host "Windows Release test gate passed $($testModules.Count) modules on both target frameworks."

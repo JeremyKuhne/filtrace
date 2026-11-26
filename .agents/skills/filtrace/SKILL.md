@@ -18,9 +18,9 @@ metadata:
 If `overlay.md` exists beside this file, read it before acting; it contains
 consumer-specific bindings. This core remains usable without it.
 
-filtrace analyzes `.nettrace`, `.etl`, and speedscope captures through a .NET 10 CLI
-or eighteen `trace_*` MCP tools. Use compact JSON and load linked detail only when
-the selected question needs it.
+filtrace analyzes `.nettrace`, `.etl`, and speedscope captures through a .NET 10
+or .NET 11 CLI or eighteen `trace_*` MCP tools. Use compact JSON and load linked
+detail only when the selected question needs it.
 
 ## Route from the question
 

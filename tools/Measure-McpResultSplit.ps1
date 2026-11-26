@@ -33,7 +33,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $root 'tools/Get-TokenEstimate.ps1')
 
-$dll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net10.0/Filtrace.Mcp.dll"
+$dll = Join-Path $root "src/Filtrace.Mcp/bin/$Configuration/net11.0/Filtrace.Mcp.dll"
 if (-not (Test-Path $dll)) { throw "MCP server not built at '$dll'. Build the solution first." }
 
 function Get-Fixture([string]$name) { Join-Path $root "tests/Filtrace.Core.Tests/Fixtures/$name" }

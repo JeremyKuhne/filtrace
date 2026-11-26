@@ -18,7 +18,7 @@ filtrace is a .NET trace analyzer with two heads over one analysis library: a
 `filtrace` CLI and a stdio MCP server. It reads EventPipe (`.nettrace`),
 speedscope (`.speedscope.json`), and Windows ETW (`.etl`) captures produced by
 modern .NET and by .NET Framework, and answers where time, allocation, exceptions,
-blocking, and wall clock went. The analyzer itself targets .NET 10.
+blocking, and wall clock went. The analyzer itself targets .NET 10 and .NET 11.
 
 It exists because an AI agent investigating a performance question needs three
 things a screen-scraped profiler cannot give it: a typed result it can bind to, a
@@ -294,7 +294,7 @@ trigger. Git history and linked issue/PR evidence retain the experiment detail.
   wall-time or memory percentage floor for future experiments; report
   absolute effects and uncertainty. Reusable commands live in
   [the benchmark guide](../benchmarks/README.md).
-- **The default engine remains TraceEvent 3.2.6.** Source-integrated
+- **The default engine remains TraceEvent 4.0.2.** Source-integrated
   FastTrace produced useful Windows/Linux x64 JIT and Native AOT results,
   but cold large-input throughput and working set could lose. It is a
   namespace-adjusted source build, not a published, binary-compatible

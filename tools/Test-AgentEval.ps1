@@ -429,7 +429,7 @@ try {
 
     [string] $sourceReparseRepository = Join-Path $temporaryRoot 'source reparse repository'
     [string] $sourceReparseTarget = Join-Path $temporaryRoot 'source reparse target'
-    [System.IO.Directory]::CreateDirectory((Join-Path $sourceReparseTarget 'Filtrace/bin/Release/net10.0')) | Out-Null
+    [System.IO.Directory]::CreateDirectory((Join-Path $sourceReparseTarget 'Filtrace/bin/Release/net11.0')) | Out-Null
     [System.IO.Directory]::CreateDirectory($sourceReparseRepository) | Out-Null
     $sourceLinkType = if ([System.OperatingSystem]::IsWindows()) { 'Junction' } else { 'SymbolicLink' }
     New-Item -ItemType $sourceLinkType -Path (Join-Path $sourceReparseRepository 'src') -Target $sourceReparseTarget | Out-Null
@@ -840,9 +840,9 @@ try {
                 -ToolName 'trace_callers' -ToolArguments $null)) `
         'Missing MCP arguments were treated as an unknown frame.'
 
-    [string] $builtCliDll = Join-Path $root 'src/Filtrace/bin/Release/net10.0/filtrace.dll'
+    [string] $builtCliDll = Join-Path $root 'src/Filtrace/bin/Release/net11.0/filtrace.dll'
     [string] $hiddenCliDll = "$builtCliDll.$([Guid]::NewGuid().ToString('N')).hidden"
-    [string] $mcpDllPath = Join-Path $root 'src/Filtrace.Mcp/bin/Release/net10.0/Filtrace.Mcp.dll'
+    [string] $mcpDllPath = Join-Path $root 'src/Filtrace.Mcp/bin/Release/net11.0/Filtrace.Mcp.dll'
     [string] $builtCliHash = Get-AgentEvalFileHash $builtCliDll
     [string] $mcpOnlyRunOutput = Join-Path $temporaryRoot 'mcp only process output'
     try {
@@ -953,10 +953,27 @@ try {
     Assert-True `
         ($success.iterations[0].execution.cli.sourceSha256 -eq $success.iterations[0].execution.cli.sha256) `
         'Owned apphost hash did not match its current-checkout source.'
-    Assert-True (@($success.iterations[0].execution.cli.inventory).Count -eq 20) 'Owned CLI inventory did not contain the selected runtime bundle.'
-    foreach ($runtimeFile in @($success.iterations[0].execution.cli.inventory)) {
-        Assert-True ((Get-FileHash -LiteralPath $runtimeFile.path -Algorithm SHA256).Hash.ToLowerInvariant() -eq $runtimeFile.sha256) `
-            "Owned CLI inventory hash did not match '$($runtimeFile.relativePath)'."
+    [string] $cliBuildDirectory = Split-Path -Parent $builtCliDll
+    [string] $architectureDirectory = switch ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) {
+        ([System.Runtime.InteropServices.Architecture]::X64) { 'amd64' }
+        ([System.Runtime.InteropServices.Architecture]::Arm64) { 'arm64' }
+        default { throw "Unsupported eval process architecture '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)'." }
+    }
+    [object[]] $expectedRuntimeFiles = @(
+        Get-ChildItem -LiteralPath $cliBuildDirectory -File -Force |
+            Where-Object { $_.Extension -notin @('.pdb', '.xml') }
+        Get-ChildItem -LiteralPath (Join-Path $cliBuildDirectory $architectureDirectory) -Recurse -File -Force
+    )
+    [object[]] $runtimeInventory = @($success.iterations[0].execution.cli.inventory)
+    Assert-True ($expectedRuntimeFiles.Count -gt 0 -and $runtimeInventory.Count -eq $expectedRuntimeFiles.Count) `
+        'Owned CLI inventory did not contain the selected runtime bundle.'
+    foreach ($sourceFile in $expectedRuntimeFiles) {
+        [string] $relativePath = [System.IO.Path]::GetRelativePath($cliBuildDirectory, $sourceFile.FullName).Replace('\', '/')
+        [object[]] $matchingRuntimeFiles = @($runtimeInventory | Where-Object relativePath -ceq $relativePath)
+        Assert-True ($matchingRuntimeFiles.Count -eq 1) "Owned CLI inventory did not contain '$relativePath' exactly once."
+        Assert-True ((Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -eq $matchingRuntimeFiles[0].sha256 -and
+            (Get-FileHash -LiteralPath $matchingRuntimeFiles[0].path -Algorithm SHA256).Hash.ToLowerInvariant() -eq $matchingRuntimeFiles[0].sha256) `
+            "Owned CLI inventory hash did not match '$relativePath'."
     }
     $ownedCliOutput = & $success.iterations[0].execution.cli.path `
         report $success.iterations[0].execution.fixture.path --kind gc --format json

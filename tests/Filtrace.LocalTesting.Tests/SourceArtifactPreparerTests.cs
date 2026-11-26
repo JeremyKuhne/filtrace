@@ -33,8 +33,8 @@ public sealed class SourceArtifactPreparerTests
         [
             ["build", "src/Filtrace/Filtrace.csproj", "--configuration", "Release", "--nologo"],
             ["build", "src/Filtrace.Mcp/Filtrace.Mcp.csproj", "--configuration", "Release", "--nologo"],
-            ["test", "tests/Filtrace.Cli.Tests/Filtrace.Cli.Tests.csproj", "--configuration", "Release"],
-            ["test", "tests/Filtrace.Mcp.Tests/Filtrace.Mcp.Tests.csproj", "--configuration", "Release"],
+            ["test", "--project", "tests/Filtrace.Cli.Tests/Filtrace.Cli.Tests.csproj", "--configuration", "Release", "--framework", "net11.0"],
+            ["test", "--project", "tests/Filtrace.Mcp.Tests/Filtrace.Mcp.Tests.csproj", "--configuration", "Release", "--framework", "net11.0"],
             [
                 "pack",
                 "src/Filtrace/Filtrace.csproj",
@@ -594,7 +594,7 @@ public sealed class SourceArtifactPreparerTests
                 && invocation.Arguments[1].Contains("Filtrace.Mcp", StringComparison.Ordinal))
             {
                 string configuration = invocation.Arguments[3];
-                string output = Path.Join(source, "src", "Filtrace.Mcp", "bin", configuration, "net10.0");
+                string output = Path.Join(source, "src", "Filtrace.Mcp", "bin", configuration, "net11.0");
                 Directory.CreateDirectory(output);
                 File.WriteAllText(Path.Join(output, "Filtrace.Mcp.dll"), "mcp");
             }

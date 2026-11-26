@@ -29,7 +29,11 @@ namespace TraceQ.Fixtures.HotLoopBench;
 ///  </para>
 /// </remarks>
 [EventPipeProfiler(EventPipeProfile.CpuSampling)]
+#if NET11_0
+[SimpleJob(RuntimeMoniker.Net11_0, warmupCount: 1, iterationCount: 3, launchCount: 1)]
+#else
 [SimpleJob(RuntimeMoniker.Net10_0, warmupCount: 1, iterationCount: 3, launchCount: 1)]
+#endif
 public class HotLoop
 {
     /// <summary>
@@ -322,7 +326,7 @@ public class ContentionLoop
 
 /// <summary>
 ///  The BenchmarkDotNet configuration for the wait (<c>WaitHandleWait</c>) EventPipe
-///  capture: a net10 job whose runtime provider explicitly enables the
+///  capture: a modern .NET job whose runtime provider explicitly enables the
 ///  <c>WaitHandle</c> keyword the wait provider needs.
 /// </summary>
 /// <remarks>
@@ -341,7 +345,11 @@ internal sealed class WaitCaptureConfig : ManualConfig
     public WaitCaptureConfig()
     {
         AddJob(Job.Default
+#if NET11_0
+            .WithRuntime(CoreRuntime.Core11_0)
+#else
             .WithRuntime(CoreRuntime.Core10_0)
+#endif
             .WithStrategy(RunStrategy.Monitoring)
             .WithLaunchCount(1)
             .WithWarmupCount(0)
@@ -434,7 +442,7 @@ public class WaitLoop
 
 /// <summary>
 ///  The BenchmarkDotNet configuration for the thread-pool starvation capture: a
-///  net10 Monitoring job that forces the runtime thread pool to start with a single
+///  modern .NET Monitoring job that forces the runtime thread pool to start with a single
 ///  worker thread (via the <c>DOTNET_ThreadPool_ForceMinWorkerThreads</c> runtime
 ///  knob) and is profiled by <see cref="EventPipeProfiler"/> under the CpuSampling
 ///  profile.
@@ -457,7 +465,11 @@ internal sealed class ThreadPoolStarveConfig : ManualConfig
     public ThreadPoolStarveConfig()
     {
         AddJob(Job.Default
+#if NET11_0
+            .WithRuntime(CoreRuntime.Core11_0)
+#else
             .WithRuntime(CoreRuntime.Core10_0)
+#endif
             .WithStrategy(RunStrategy.Monitoring)
             .WithLaunchCount(1)
             .WithWarmupCount(0)
@@ -650,7 +662,7 @@ public class EtwLoop
 ///   the physical disk and the writing thread blocks on it), flushes to disk, reads them
 ///   back, then deletes them - defeating the write cache so the capture carries real
 ///   <c>DiskIO</c> write events. The machine-wide <c>FileIO</c> keyword is deliberately
-///   not enabled - it is extremely high volume even in a short window. Runs on net10;
+///   not enabled - it is extremely high volume even in a short window. Runs on modern .NET;
 ///   Windows-only and elevated.
 ///  </para>
 /// </remarks>

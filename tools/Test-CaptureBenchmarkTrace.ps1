@@ -362,7 +362,7 @@ if ($args[0] -eq 'msbuild') {
         [ordered]@{
             Properties = [ordered]@{
                 TargetFramework = if ($env:FILTRACE_CAPTURE_PROJECT_MODE -eq 'spaced-target-frameworks') { '' } else { 'net10.0' }
-                TargetFrameworks = if ($env:FILTRACE_CAPTURE_PROJECT_MODE -eq 'spaced-target-frameworks') { 'net9.0; net10.0 ' } else { '' }
+                TargetFrameworks = if ($env:FILTRACE_CAPTURE_PROJECT_MODE -eq 'spaced-target-frameworks') { 'net10.0; net11.0 ' } else { '' }
             }
         } | ConvertTo-Json -Depth 4 -Compress
     }
@@ -503,6 +503,7 @@ Write-Output 'fake BenchmarkDotNet capture completed'
     try {
         $env:FILTRACE_CAPTURE_PROJECT_MODE = 'spaced-target-frameworks'
         Assert-ProjectPreflight $projectPath 'net10.0' 'EP' $fakeDotnet
+        Assert-ProjectPreflight $projectPath 'net11.0' 'EP' $fakeDotnet
     }
     finally {
         $env:FILTRACE_CAPTURE_PROJECT_MODE = $previousProjectMode

@@ -6,7 +6,7 @@
 namespace Filtrace.Tracing.Readers;
 
 /// <summary>
-///  Reads a .NET EventPipe trace (<c>.nettrace</c>) - the net10
+///  Reads a .NET EventPipe trace (<c>.nettrace</c>) - the modern .NET
 ///  <c>[EventPipeProfiler]</c> output - into weighted samples.
 /// </summary>
 internal sealed class NetTraceReader : TraceLogReader

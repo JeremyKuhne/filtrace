@@ -49,7 +49,7 @@ The remaining commons cores are intentionally not vendored:
 
 - `cswin32-com` and `cswin32-interop`: filtrace has no CsWin32 or COM surface;
 - `dotnet-polyfills`, `framework-jit-optimization`, and
-  `scratch-buffer-strategy`: the analyzer product targets net10.0 only, while the
+  `scratch-buffer-strategy`: the analyzer product targets modern .NET only, while the
   net481 benchmark fixture is captured input rather than a product target;
 - `roslyn-analyzers`: this repository does not author diagnostic analyzers or code
   fixes.

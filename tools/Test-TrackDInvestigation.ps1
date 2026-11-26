@@ -965,7 +965,7 @@ try {
     $probeStart.RedirectStandardOutput = $true
     $probeStart.RedirectStandardError = $true
     foreach ($argument in @(
-        'run', '-c', 'Release', '--no-build',
+        'run', '-c', 'Release', '--framework', 'net10.0', '--no-build',
         '--project', 'benchmarks/Filtrace.Benchmarks', '--',
         '--cli-telemetry',
         '--scenario', 'exact-argv-probe',

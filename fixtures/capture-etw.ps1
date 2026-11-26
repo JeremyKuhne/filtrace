@@ -15,7 +15,7 @@
     therefore an independent, elevation-only operation.
 
 .NOTES
-    Run from an administrator terminal on a Windows machine with the .NET 10
+    Run from an administrator terminal on a Windows machine with the .NET 11
     SDK and the net481 targeting pack. The `.etl` is the committed in-repo smoke;
     the generated `.etlx` is ignored. Larger captures are regenerated on demand.
 #>
@@ -41,8 +41,8 @@ Write-Host 'Capturing the net481 ETW profile (elevated)...'
 Push-Location $benchProject
 try
 {
-    # The host runs on net10; the EtwCaptureConfig pins the profiled job to net481.
-    dotnet run -c Release -f net10.0 -- --filter '*EtwLoop*' | Out-Host
+    # The host runs on net11; the EtwCaptureConfig pins the profiled job to net481.
+    dotnet run -c Release -f net11.0 -- --filter '*EtwLoop*' | Out-Host
     if ($LASTEXITCODE -ne 0)
     {
         throw "ETW capture failed with exit code $LASTEXITCODE."
@@ -71,7 +71,7 @@ $fixtureEtlx = Join-Path $coreFixtures 'etw.etlx'
 Push-Location $benchProject
 try
 {
-    dotnet run -c Release -f net10.0 -- convert $fixtureEtl $fixtureEtlx | Out-Host
+    dotnet run -c Release -f net11.0 -- convert $fixtureEtl $fixtureEtlx | Out-Host
     if ($LASTEXITCODE -ne 0)
     {
         throw "ETL -> ETLX conversion failed with exit code $LASTEXITCODE."

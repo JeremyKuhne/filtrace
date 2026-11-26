@@ -54,7 +54,7 @@ $project = Join-Path $sourceCheckout 'tools/Filtrace.LocalTesting/Filtrace.Local
 
 Push-Location $sourceCheckout
 try {
-    & $dotnetPath run --project $project --configuration $Configuration --no-launch-profile -- `
+    & $dotnetPath run --project $project --configuration $Configuration --framework net11.0 --no-launch-profile -- `
         --action $Action `
         --target-repository $target `
         --configuration $Configuration `

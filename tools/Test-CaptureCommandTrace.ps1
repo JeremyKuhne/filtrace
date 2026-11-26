@@ -811,7 +811,7 @@ $global:LASTEXITCODE = 0
     }
 
     if ($WindowsNativeArgv) {
-        $probeBuildDirectory = Join-Path $root 'tests/Filtrace.LocalTesting.Tests/bin/Release/net10.0'
+        $probeBuildDirectory = Join-Path $root 'tests/Filtrace.LocalTesting.Tests/bin/Release/net11.0'
         $probeApphost = Join-Path $probeBuildDirectory 'Filtrace.LocalTesting.Tests.exe'
         if (-not (Test-Path -LiteralPath $probeApphost -PathType Leaf)) {
             throw "Windows native argv contract requires '$probeApphost'. Build tests/Filtrace.LocalTesting.Tests in Release first."

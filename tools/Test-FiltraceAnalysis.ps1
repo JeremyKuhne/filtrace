@@ -94,7 +94,7 @@ try {
         throw "Filtrace build failed with exit code $LASTEXITCODE."
     }
 
-    [string] $filtraceDirectory = Join-Path $root "src/Filtrace/bin/$Configuration/net10.0"
+    [string] $filtraceDirectory = Join-Path $root "src/Filtrace/bin/$Configuration/net11.0"
     [string] $filtrace = Join-Path $filtraceDirectory 'filtrace.exe'
     if (-not (Test-Path -LiteralPath $filtrace -PathType Leaf)) {
         $filtrace = Join-Path $filtraceDirectory 'filtrace'
@@ -314,7 +314,7 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Fake profile tool build failed with exit code $LASTEXITCODE."
     }
-    [string] $fakeProfileDirectory = Join-Path $PSScriptRoot "fixtures/Filtrace.FakeProfileTool/bin/$Configuration/net10.0"
+    [string] $fakeProfileDirectory = Join-Path $PSScriptRoot "fixtures/Filtrace.FakeProfileTool/bin/$Configuration/net11.0"
     [string] $fakeFiltrace = Join-Path $fakeProfileDirectory 'Filtrace.FakeProfileTool.exe'
     if (-not (Test-Path -LiteralPath $fakeFiltrace -PathType Leaf)) {
         $fakeFiltrace = Join-Path $fakeProfileDirectory 'Filtrace.FakeProfileTool'

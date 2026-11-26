@@ -2397,7 +2397,7 @@ function Test-TelemetryCapability([string] $Checkout, [string] $ArmName) {
     [string] $help = Invoke-NativeText `
         $script:dotnet `
         @(
-            'run', '-c', 'Release', '--no-build',
+            'run', '-c', 'Release', '--framework', 'net10.0', '--no-build',
             '--project', 'benchmarks/Filtrace.Benchmarks', '--',
             '--cli-telemetry', '--help') `
         $Checkout `
@@ -2706,6 +2706,7 @@ try {
         [System.Collections.Generic.List[string]] $bdnArguments = @(
             'run',
             '-c', 'Release',
+            '--framework', 'net10.0',
             '--no-build',
             '--project', 'benchmarks/Filtrace.Benchmarks',
             '--',
@@ -2741,7 +2742,7 @@ try {
         Invoke-NativeChecked `
             $script:dotnet `
             @(
-                'run', '-c', 'Release', '--no-build',
+                'run', '-c', 'Release', '--framework', 'net10.0', '--no-build',
                 '--project', 'benchmarks/Filtrace.Benchmarks', '--',
                 '--cli-telemetry',
                 '--scenario', $CliScenario,

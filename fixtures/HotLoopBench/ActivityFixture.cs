@@ -61,7 +61,7 @@ internal sealed class ActivityBenchEventSource : System.Diagnostics.Tracing.Even
 }
 
 /// <summary>
-///  The BenchmarkDotNet configuration for the activity EventPipe capture: a net10
+///  The BenchmarkDotNet configuration for the activity EventPipe capture: a modern .NET
 ///  Monitoring job whose capture enables the custom
 ///  <see cref="ActivityBenchEventSource"/> provider alongside the CpuSampling profile.
 /// </summary>
@@ -79,7 +79,11 @@ internal sealed class ActivityCaptureConfig : ManualConfig
     public ActivityCaptureConfig()
     {
         AddJob(Job.Default
+#if NET11_0
+            .WithRuntime(CoreRuntime.Core11_0)
+#else
             .WithRuntime(CoreRuntime.Core10_0)
+#endif
             .WithStrategy(RunStrategy.Monitoring)
             .WithLaunchCount(1)
             .WithWarmupCount(0)

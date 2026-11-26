@@ -8,9 +8,9 @@
     thread-pool starvation. It copies those smokes into the core-test fixtures,
     copies the CPU speedscope export into the parity fixtures, and freezes the
     legacy oracle's (Get-TraceHotspots.ps1) self- and inclusive-time rankings as
-    the matched JSON golden. Run with the .NET 10 SDK when the workloads,
-    TraceEvent, BenchmarkDotNet, or capture profiles move; it is not part of the
-    normal build/test loop.
+    the matched JSON golden. Run with the .NET 11 SDK and net10.0 runtime when the
+    workloads, TraceEvent, BenchmarkDotNet, or capture profiles move; it is not
+    part of the normal build/test loop.
 
     The net481 ETW (.etl) half of the corpus is captured separately by the
     sibling capture-etw.ps1, which needs an elevated session (ETW kernel tracing

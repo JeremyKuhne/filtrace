@@ -9,9 +9,9 @@
   Smoke-tests the two packed filtrace tools without using published packages.
 
 .DESCRIPTION
-  Requires PowerShell 7.2 or newer on Windows or Linux, the .NET 10 SDK selected
-  by this repository's global.json, the .NET 10 runtime, and the committed
-  fixtures and test helpers.
+  Requires PowerShell 7.2 or newer on Windows or Linux, the .NET 11 SDK selected
+  by this repository's global.json, the selected .NET runtime, and the
+  committed fixtures and test helpers.
   PackagesDirectory must contain exactly the CLI and MCP .nupkg files at
   ExpectedVersion; .snupkg files are ignored. Inspects their identities, tool
   entry points, and stamped MCP manifest before installation.
@@ -39,6 +39,10 @@
   On Windows, choose a short enough path for the installed native shims to remain
   below 260 characters; unsupported long launch paths are rejected before writing.
 
+.PARAMETER Framework
+  Target framework to install and test. Defaults to net11.0; use net10.0 to
+  validate the LTS tool packages.
+
 .PARAMETER ProcessTimeoutSeconds
   Per-child deadline, including installation. Defaults to 120 seconds.
 
@@ -52,6 +56,7 @@ param(
     [Parameter(Mandatory)][ValidateLength(1, 128)]
     [string] $ExpectedVersion,
     [ValidateNotNullOrEmpty()][string] $OutputDirectory = 'artifacts/release-smoke',
+    [ValidateSet('net10.0', 'net11.0')][string] $Framework = 'net11.0',
     [ValidateRange(1, 600)][int] $ProcessTimeoutSeconds = 120
 )
 
@@ -140,18 +145,21 @@ function Get-ReleasePackageIdentity(
             throw "Package '$Path' does not identify '$PackageId' at exact version '$Version'."
         }
 
-        [string] $settingsPath = 'tools/net10.0/any/DotnetToolSettings.xml'
-        if (-not $entries.ContainsKey($settingsPath)) { throw "Package '$Path' has no net10.0 tool settings." }
-        [System.Xml.XmlDocument] $toolSettings = ConvertFrom-ReleaseXml (Read-ReleaseZipText $entries[$settingsPath])
-        $commands = $toolSettings.SelectNodes('/DotNetCliTool/Commands/Command')
-        if ($commands.Count -ne 1 -or $commands[0].GetAttribute('Name') -cne $CommandName -or
-            $commands[0].GetAttribute('Runner') -cne 'dotnet') {
-            throw "Package '$Path' does not expose the expected '$CommandName' dotnet tool."
-        }
-        [string] $entryPoint = $commands[0].GetAttribute('EntryPoint')
-        if ([string]::IsNullOrWhiteSpace($entryPoint) -or $entryPoint.Contains('/') -or
-            $entryPoint.Contains('\') -or -not $entries.ContainsKey("tools/net10.0/any/$entryPoint")) {
-            throw "Package '$Path' has a missing or invalid tool entry point."
+        foreach ($targetFramework in @('net10.0', 'net11.0')) {
+            [string] $toolDirectory = "tools/$targetFramework/any"
+            [string] $settingsPath = "$toolDirectory/DotnetToolSettings.xml"
+            if (-not $entries.ContainsKey($settingsPath)) { throw "Package '$Path' has no $targetFramework tool settings." }
+            [System.Xml.XmlDocument] $toolSettings = ConvertFrom-ReleaseXml (Read-ReleaseZipText $entries[$settingsPath])
+            $commands = $toolSettings.SelectNodes('/DotNetCliTool/Commands/Command')
+            if ($commands.Count -ne 1 -or $commands[0].GetAttribute('Name') -cne $CommandName -or
+                $commands[0].GetAttribute('Runner') -cne 'dotnet') {
+                throw "Package '$Path' does not expose the expected '$CommandName' dotnet tool for $targetFramework."
+            }
+            [string] $entryPoint = $commands[0].GetAttribute('EntryPoint')
+            if ([string]::IsNullOrWhiteSpace($entryPoint) -or $entryPoint.Contains('/') -or
+                $entryPoint.Contains('\') -or -not $entries.ContainsKey("$toolDirectory/$entryPoint")) {
+                throw "Package '$Path' has a missing or invalid $targetFramework tool entry point."
+            }
         }
 
         $manifest = $null
@@ -269,7 +277,7 @@ if ($IsWindows -and (Join-Path (Join-Path $work 'mcp') 'filtrace-mcp.exe').Lengt
     throw 'The Windows native tool launch path would reach 260 characters. Choose a shorter OutputDirectory.'
 }
 [System.Collections.Specialized.OrderedDictionary] $report = [ordered]@{
-    schemaVersion = 1; expectedVersion = $ExpectedVersion
+    schemaVersion = 1; expectedVersion = $ExpectedVersion; framework = $Framework
     startedUtc = [DateTime]::UtcNow.ToString('o')
     platform = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
     powershell = $PSVersionTable.PSVersion.ToString()
@@ -349,17 +357,20 @@ try {
     [string] $dotnet = $dotnetCommand.Source
     $sdk = Invoke-ReleaseProcess 'sdk-version' $dotnet @('--version')
     Assert-ReleaseProcessResult $sdk 'SDK version' -RequireStdout
-    if ($sdk.stdoutText.Trim() -notmatch '^10\.') { throw 'The repository-selected .NET 10 SDK is required.' }
+    if ($sdk.stdoutText.Trim() -notmatch '^11\.') { throw 'The repository-selected .NET 11 SDK is required.' }
     $report.sdk = $sdk.stdoutText.Trim()
     $runtimes = Invoke-ReleaseProcess 'runtimes' $dotnet @('--list-runtimes')
     Assert-ReleaseProcessResult $runtimes 'Runtime list' -RequireStdout
-    if ($runtimes.stdoutText -notmatch '(?m)^Microsoft\.NETCore\.App 10\.') { throw 'The .NET 10 runtime is required.' }
+    [string] $runtimeVersion = $Framework.Substring(3)
+    if ($runtimes.stdoutText -notmatch "(?m)^Microsoft\.NETCore\.App $([regex]::Escape($runtimeVersion))\.") {
+        throw "The .NET $runtimeVersion runtime is required."
+    }
 
     foreach ($packageInput in $inputs) {
         [string] $toolPath = Join-Path $work $packageInput.directory
         $install = Invoke-ReleaseProcess ("install-" + $packageInput.command) $dotnet @(
             'tool', 'install', $packageInput.id, '--version', $ExpectedVersion, '--tool-path', $toolPath,
-            '--framework', 'net10.0', '--configfile', $config, '--source', $feed,
+            '--framework', $Framework, '--configfile', $config, '--source', $feed,
             '--no-http-cache', '--verbosity', 'minimal')
         Assert-ReleaseProcessResult $install "Installation of $($packageInput.id)" -RequireStdout
         [string] $shim = Join-Path $toolPath ($packageInput.command + $(if ($IsWindows) { '.exe' } else { '' }))

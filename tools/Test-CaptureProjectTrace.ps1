@@ -365,7 +365,7 @@ switch ($env:FILTRACE_FAKE_RECORDER_MODE) {
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <OutputType>Exe</OutputType>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     </PropertyGroup>
     <Target Name="MarkBuildStart" BeforeTargets="Build">
         <WriteLinesToFile File="$escapedMarker" Lines="build started" Overwrite="true" />
@@ -476,7 +476,7 @@ switch ($env:FILTRACE_FAKE_RECORDER_MODE) {
     $argumentWrapper = Join-Path $temporaryRoot 'invoke-array-args.ps1'
     $argumentSource = @'
 & $env:FILTRACE_CAPTURE_SCRIPT -Project $env:FILTRACE_TEST_PROJECT -Profiler EP -Metric alloc `
-    -Tfm net10.0 -DotnetTracePath $env:FILTRACE_FAKE_RECORDER -Output $env:FILTRACE_TEST_TRACE `
+    -Tfm net11.0 -DotnetTracePath $env:FILTRACE_FAKE_RECORDER -Output $env:FILTRACE_TEST_TRACE `
     -EventPipeTimeoutSeconds 10 -AppArgs @('space in one arg', 'quote"inside', 'C:\with spaces\', '')
 exit $LASTEXITCODE
 '@
@@ -494,11 +494,12 @@ exit $LASTEXITCODE
             $hostName = [System.IO.Path]::GetFileNameWithoutExtension($hostPath)
             $common = @('-NoProfile', '-NonInteractive', '-File', $captureScript,
                 '-Project', $projectPath, '-Profiler', 'EP', '-Metric', 'alloc',
-                '-Tfm', 'net10.0', '-DotnetTracePath', $fakeRecorder)
+                '-DotnetTracePath', $fakeRecorder)
             $defaultTrace = Join-Path $runtimeOutput "$hostName-default.nettrace"
             $env:FILTRACE_FAKE_COLLECT_MODE = 'success'
             $default = Invoke-ProjectCapture $hostPath ($common + @('-Output', $defaultTrace))
             Assert-True ($default.ExitCode -eq 0) "$hostName default capture failed: $($default.Stderr)"
+            Assert-True ($default.Stdout.Contains('(Release, net10.0)')) "$hostName default capture did not use the LTS target."
             Assert-True (Test-Path -LiteralPath "$defaultTrace.filtrace.json") "$hostName default capture omitted metadata."
             Assert-True (-not (Test-Path -LiteralPath "$defaultTrace.capture-attempt.json")) "$hostName default capture wrote a failure record."
 
@@ -539,6 +540,7 @@ exit $LASTEXITCODE
             $successArgs = @('-NoProfile', '-NonInteractive', '-File', $argumentWrapper)
             $success = Invoke-ProjectCapture $hostPath $successArgs
             Assert-True ($success.ExitCode -eq 0) "$hostName opted-in capture failed: $($success.Stderr)"
+            Assert-True ($success.Stdout.Contains('(Release, net11.0)')) "$hostName capture did not use the requested .NET 11 target."
             Assert-True ($success.Stdout.Contains('Next-step filtrace commands:')) "$hostName success omitted analysis commands."
             Assert-True (Test-Path -LiteralPath "$successTrace.filtrace.json") "$hostName opted-in capture omitted metadata."
             $recorded = @(Get-Content -LiteralPath $env:FILTRACE_FAKE_ARGS_FILE -Raw | ConvertFrom-Json)

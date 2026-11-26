@@ -7,18 +7,16 @@ core-pin: v0.14.0
 
 ## Project binding
 
-- **Repository override:** the product perf project is single-target `net10.0`.
-  Do not apply the core's multi-target `-f` or both-TFM rules to this project. The
-  product perf project is
+- The product perf project is
   [benchmarks/Filtrace.Benchmarks](../../../benchmarks/Filtrace.Benchmarks).
-  It targets net10.0 and lives in `filtrace.slnx`. Pure analysis paths use synthetic
+  It targets net10.0 and net11.0 and lives in `filtrace.slnx`. Pure analysis paths use synthetic
   inputs. Trace-provider benchmarks use committed raw fixtures and prime their
   generated ETLX cache during global setup when conversion must stay outside the
   measured operation.
 - Run it in Release with an explicit filter:
 
   ```pwsh
-  dotnet run -c Release --project benchmarks/Filtrace.Benchmarks -- --filter '*TimelineProviderBenchmarks*'
+  dotnet run -c Release -f net11.0 --project benchmarks/Filtrace.Benchmarks -- --filter '*TimelineProviderBenchmarks*'
   ```
 - The separate
   [fixtures/HotLoopBench/HotLoopBench.csproj](../../../fixtures/HotLoopBench/HotLoopBench.csproj)
@@ -26,7 +24,7 @@ core-pin: v0.14.0
   target only for the explicit ETW fixture jobs that exercise .NET Framework capture
   behavior; do not put product microbenchmarks there.
 - The generic `framework-jit-optimization` and `scratch-buffer-strategy` branches
-  are not vendored here because the analyzer product is net10.0-only. Continue with
+  are not vendored here because the analyzer product targets modern .NET only. Continue with
   existing local C# patterns, then validate through this benchmark/profile loop.
 
 ## Capture and analysis handoff
@@ -46,7 +44,7 @@ core-pin: v0.14.0
   ```pwsh
   dotnet build src/Filtrace/Filtrace.csproj -c Release
   $filtraceName = if ($IsWindows) { 'filtrace.exe' } else { 'filtrace' }
-  $filtrace = (Resolve-Path (Join-Path 'src/Filtrace/bin/Release/net10.0' $filtraceName)).Path
+  $filtrace = (Resolve-Path (Join-Path 'src/Filtrace/bin/Release/net11.0' $filtraceName)).Path
   $captureRoot = (New-Item -ItemType Directory -Force artifacts/filtrace-captures).FullName
   ```
 - Profile one product benchmark with
@@ -56,6 +54,7 @@ core-pin: v0.14.0
   ./.agents/skills/filtrace/scripts/Capture-BenchmarkTrace.ps1 `
     -Project benchmarks/Filtrace.Benchmarks `
     -Filter '*TimelineProviderBenchmarks.Snapshot*' `
+    -Tfm net11.0 `
     -FiltracePath $filtrace `
     -OutputDirectory $captureRoot
   ```

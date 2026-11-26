@@ -7,7 +7,7 @@ core-pin: v0.14.0
 
 ## Filtrace binding
 
-- Filtrace does not yet have a fuzz project. Creating a standalone net10.0 harness
+- Filtrace does not yet have a fuzz project. Creating a standalone net10.0 or net11.0 harness
   is a prerequisite before this skill can run; normal `dotnet test` must not execute
   it.
 - Initial target candidates are

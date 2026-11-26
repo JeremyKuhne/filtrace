@@ -76,8 +76,8 @@ internal sealed class SourceArtifactPreparer
         {
             await RunAsync(operation, dotnetPath, source, "build", "src/Filtrace/Filtrace.csproj", "--configuration", configuration, "--nologo");
             await RunAsync(operation, dotnetPath, source, "build", "src/Filtrace.Mcp/Filtrace.Mcp.csproj", "--configuration", configuration, "--nologo");
-            await RunAsync(operation, dotnetPath, source, "test", "tests/Filtrace.Cli.Tests/Filtrace.Cli.Tests.csproj", "--configuration", configuration);
-            await RunAsync(operation, dotnetPath, source, "test", "tests/Filtrace.Mcp.Tests/Filtrace.Mcp.Tests.csproj", "--configuration", configuration);
+            await RunAsync(operation, dotnetPath, source, "test", "--project", "tests/Filtrace.Cli.Tests/Filtrace.Cli.Tests.csproj", "--configuration", configuration, "--framework", "net11.0");
+            await RunAsync(operation, dotnetPath, source, "test", "--project", "tests/Filtrace.Mcp.Tests/Filtrace.Mcp.Tests.csproj", "--configuration", configuration, "--framework", "net11.0");
             await RunAsync(
                 operation,
                 dotnetPath,
@@ -109,7 +109,7 @@ internal sealed class SourceArtifactPreparer
                 "Filtrace.Mcp",
                 "bin",
                 configuration,
-                "net10.0",
+                "net11.0",
                 "Filtrace.Mcp.dll");
 
             LocalTestingInstallInputs inputs = LocalTestingInstallInputs.Create(

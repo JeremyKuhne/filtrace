@@ -20,7 +20,7 @@
     `etw.etl`) so the shared thread-time fixture stays untouched.
 
 .NOTES
-    Run from an administrator terminal on a Windows machine with the .NET 10
+    Run from an administrator terminal on a Windows machine with the .NET 11
     SDK. ETW kernel tracing requires elevation.
 #>
 [CmdletBinding()]
@@ -42,18 +42,18 @@ if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Adm
 
 $fixtureEtl = Join-Path $coreFixtures 'diskio.etl'
 $rawEtl = Join-Path ([System.IO.Path]::GetTempPath()) 'filtrace-diskio-raw.etl'
-$apphost = Join-Path $benchProject 'bin/Release/net10.0/HotLoopBench.exe'
+$apphost = Join-Path $benchProject 'bin/Release/net11.0/HotLoopBench.exe'
 
 # Prefer the Program Files runtime so a stray DOTNET_ROOT / PATH order does not break
 # the apphost's runtime resolution in the elevated session.
 $env:DOTNET_ROOT = 'C:\Program Files\dotnet'
 $env:Path = 'C:\Program Files\dotnet;' + $env:Path
 
-Write-Host 'Building HotLoopBench (net10.0)...'
+Write-Host 'Building HotLoopBench (net11.0)...'
 Push-Location $benchProject
 try
 {
-    dotnet build -c Release -f net10.0 | Out-Host
+    dotnet build -c Release -f net11.0 | Out-Host
     if ($LASTEXITCODE -ne 0)
     {
         throw "Build failed with exit code $LASTEXITCODE."
